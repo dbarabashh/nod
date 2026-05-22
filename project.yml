@@ -1,0 +1,46 @@
+name: Nod
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    PRODUCT_BUNDLE_IDENTIFIER: com.example.nod
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "FloatingOverlay Dev"
+    DEVELOPMENT_TEAM: ""
+targets:
+  Nod:
+    type: application
+    platform: macOS
+    sources:
+      - path: Nod
+    info:
+      path: Nod/Info.plist
+      properties:
+        LSUIElement: true
+        NSHumanReadableCopyright: ""
+        NSMicrophoneUsageDescription: "Nod needs access to your microphone to capture meeting audio."
+        NSScreenCaptureUsageDescription: "Nod needs screen recording permission to capture system audio during meetings."
+        NSSpeechRecognitionUsageDescription: "Nod uses speech recognition to transcribe what is said during meetings."
+        NSCalendarsFullAccessUsageDescription: "Nod reads your calendar to show your next upcoming meeting."
+        NSCalendarsUsageDescription: "Nod reads your calendar to show your next upcoming meeting."
+    settings:
+      base:
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+        CODE_SIGN_ENTITLEMENTS: Nod/Nod.entitlements
+        ENABLE_DEBUG_DYLIB: NO
+    scheme: {}
+schemes:
+  Nod:
+    build:
+      targets:
+        Nod: all
+    run:
+      config: Debug
+    archive:
+      config: Release

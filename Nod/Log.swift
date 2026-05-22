@@ -1,0 +1,35 @@
+import Foundation
+import os
+
+struct AppLog {
+    let logger: Logger
+    let tag: String
+
+    func info(_ message: String) {
+        logger.info("\(message, privacy: .public)")
+        Swift.print("[\(timestamp)] [\(tag)] \(message)")
+    }
+
+    func error(_ message: String) {
+        logger.error("\(message, privacy: .public)")
+        Swift.print("[\(timestamp)] [\(tag) ERR] \(message)")
+    }
+
+    func debug(_ message: String) {
+        logger.debug("\(message, privacy: .public)")
+    }
+
+    private var timestamp: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        return formatter.string(from: Date())
+    }
+}
+
+enum Log {
+    private static let subsystem = "com.example.nod"
+    static let ui    = AppLog(logger: Logger(subsystem: subsystem, category: "UI"),    tag: "UI")
+    static let audio = AppLog(logger: Logger(subsystem: subsystem, category: "Audio"), tag: "AUDIO")
+    static let stt   = AppLog(logger: Logger(subsystem: subsystem, category: "STT"),   tag: "STT")
+    static let llm   = AppLog(logger: Logger(subsystem: subsystem, category: "LLM"),   tag: "LLM")
+}
