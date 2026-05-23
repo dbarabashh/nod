@@ -11,11 +11,11 @@ struct PermissionsStep: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Grant Permissions")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundColor(.white)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(Theme.Gradients.textBrand)
                 Text("Nod needs access to your microphone and system audio to record meetings. All processing happens locally.")
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundStyle(Theme.Palette.graphite)
             }
 
             VStack(spacing: 10) {
@@ -43,7 +43,7 @@ struct PermissionsStep: View {
             if permissions.screenRecording == .denied {
                 Text("If you just granted Screen Recording, you may need to restart the app for it to take effect.")
                     .font(.system(size: 11, weight: .regular))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundStyle(Theme.Palette.muted)
                     .padding(.top, -4)
             }
 
@@ -53,7 +53,7 @@ struct PermissionsStep: View {
                 Button(action: { onFinish(true) }) {
                     Text("Skip for now")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white.opacity(0.5))
+                        .foregroundStyle(Theme.Palette.muted)
                 }
                 .buttonStyle(.plain)
 
@@ -62,10 +62,11 @@ struct PermissionsStep: View {
                 Button(action: { onFinish(false) }) {
                     Text(allGranted ? "Finish" : "Continue Anyway")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundStyle(Theme.Palette.ink)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 10)
                         .background(Capsule(style: .continuous).fill(continueTint))
+                        .shadow(color: allGranted ? Theme.Palette.cyan.opacity(0.35) : .clear, radius: 14, x: 0, y: 6)
                 }
                 .buttonStyle(.plain)
             }
@@ -77,18 +78,16 @@ struct PermissionsStep: View {
         permissions.microphone == .authorized && permissions.screenRecording == .authorized
     }
 
-    private var continueTint: LinearGradient {
+    private var continueTint: AnyShapeStyle {
         if allGranted {
-            return LinearGradient(
-                colors: [Color(red: 0.20, green: 0.75, blue: 0.50), Color(red: 0.25, green: 0.65, blue: 0.85)],
+            return AnyShapeStyle(Theme.Gradients.buttonSuccess)
+        }
+        return AnyShapeStyle(
+            LinearGradient(
+                colors: [Color.white.opacity(0.18), Color.white.opacity(0.10)],
                 startPoint: .leading,
                 endPoint: .trailing
             )
-        }
-        return LinearGradient(
-            colors: [Color.white.opacity(0.18), Color.white.opacity(0.10)],
-            startPoint: .leading,
-            endPoint: .trailing
         )
     }
 

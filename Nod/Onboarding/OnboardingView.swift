@@ -8,16 +8,7 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.10, green: 0.12, blue: 0.22),
-                    Color(red: 0.04, green: 0.06, blue: 0.12)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
+            AuroraBackground()
             content
         }
         .frame(width: 520, height: 420)

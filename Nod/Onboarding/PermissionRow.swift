@@ -13,20 +13,24 @@ struct PermissionRow: View {
         HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.system(size: 18, weight: .medium))
-                .foregroundColor(.white.opacity(0.85))
+                .foregroundStyle(Theme.Palette.ink.opacity(0.9))
                 .frame(width: 36, height: 36)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white.opacity(0.08))
+                    RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                        .fill(Theme.Palette.surface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                                .stroke(Theme.Palette.border, lineWidth: 0.5)
+                        )
                 )
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(Theme.Palette.ink)
                 Text(description)
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(.white.opacity(0.55))
+                    .foregroundStyle(Theme.Palette.graphite)
             }
 
             Spacer(minLength: 0)
@@ -35,11 +39,11 @@ struct PermissionRow: View {
         }
         .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.05))
+            RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
+                .fill(Theme.Palette.surface)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+                    RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
+                        .stroke(Theme.Palette.border, lineWidth: 0.5)
                 )
         )
     }
@@ -48,13 +52,13 @@ struct PermissionRow: View {
     private var actionView: some View {
         switch status {
         case .authorized:
-            StatusBadge(text: "Granted", color: Color(red: 0.35, green: 0.85, blue: 0.55))
+            StatusBadge(text: "Granted", color: Theme.Palette.cyan)
         case .denied:
-            ActionButton(title: "Open Settings", tint: Color.orange.opacity(0.85), action: onOpenSettings)
+            ActionButton(title: "Open Settings", tint: AnyShapeStyle(Theme.Palette.warning), action: onOpenSettings)
         case .notDetermined:
             ActionButton(
                 title: "Enable",
-                tint: Color(red: 0.30, green: 0.55, blue: 0.95),
+                tint: AnyShapeStyle(Theme.Gradients.buttonBrand),
                 isPending: isPending,
                 action: onEnable
             )
@@ -64,7 +68,7 @@ struct PermissionRow: View {
 
 private struct ActionButton: View {
     let title: String
-    let tint: Color
+    let tint: AnyShapeStyle
     var isPending: Bool = false
     let action: () -> Void
 
@@ -79,7 +83,7 @@ private struct ActionButton: View {
                 }
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundStyle(Theme.Palette.ink)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
@@ -99,7 +103,7 @@ private struct StatusBadge: View {
             Circle().fill(color).frame(width: 6, height: 6)
             Text(text)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.white.opacity(0.85))
+                .foregroundStyle(Theme.Palette.ink.opacity(0.9))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)

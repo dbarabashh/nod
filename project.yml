@@ -35,12 +35,17 @@ targets:
         NSSpeechRecognitionUsageDescription: "Nod uses speech recognition to transcribe what is said during meetings."
         NSCalendarsFullAccessUsageDescription: "Nod reads your calendar to show your next upcoming meeting."
         NSCalendarsUsageDescription: "Nod reads your calendar to show your next upcoming meeting."
+        CFBundleURLTypes:
+          - CFBundleURLName: com.example.nod.auth
+            CFBundleURLSchemes:
+              - nod
     settings:
       base:
         ENABLE_HARDENED_RUNTIME: YES
         COMBINE_HIDPI_IMAGES: YES
         CODE_SIGN_ENTITLEMENTS: Nod/Nod.entitlements
         ENABLE_DEBUG_DYLIB: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     scheme: {}
 schemes:
   Nod:
