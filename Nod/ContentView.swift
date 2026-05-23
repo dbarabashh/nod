@@ -21,7 +21,6 @@ struct ContentView: View {
     @EnvironmentObject private var llm: OpenRouterClient
     @EnvironmentObject private var store: TranscriptStore
     @EnvironmentObject private var language: LanguagePreference
-    @EnvironmentObject private var upcomingMeetings: UpcomingMeetingService
     @EnvironmentObject private var consent: ConsentPreference
 
     @State private var meeting: MeetingState = .idle
@@ -112,10 +111,6 @@ struct ContentView: View {
 
             switch meeting {
             case .idle:
-                UpcomingMeetingCard(
-                    access: upcomingMeetings.access,
-                    meeting: upcomingMeetings.nextMeeting
-                )
                 StartMeetingButton(action: startMeeting)
 
             case .recording, .paused:
@@ -589,76 +584,6 @@ private struct LanguageToggle: View {
     }
 }
 
-// MARK: - Idle: Upcoming meeting card (frosted light bubble, like the transcript)
-
-private struct UpcomingMeetingCard: View {
-    let access: UpcomingMeetingService.Access
-    let meeting: UpcomingMeeting?
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color(red: 0.12, green: 0.13, blue: 0.16))
-                .frame(width: 28, height: 28)
-                .overlay(
-                    Image(systemName: iconName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(iconColor)
-                )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(Color(red: 0.18, green: 0.22, blue: 0.36))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(subtitle)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(Color(red: 0.32, green: 0.38, blue: 0.50))
-                    .lineLimit(2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(lightFrostedBubble(cornerRadius: 18))
-        .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 4)
-    }
-
-    private var title: String {
-        switch access {
-        case .unknown: return "Checking calendar…"
-        case .denied: return "Calendar access needed"
-        case .authorized:
-            return meeting?.title ?? "No upcoming meetings"
-        }
-    }
-
-    private var subtitle: String {
-        switch access {
-        case .unknown: return "Requesting permission"
-        case .denied: return "Allow in System Settings → Privacy → Calendars"
-        case .authorized:
-            if let meeting { return meeting.subtitle }
-            return "Nothing scheduled in the next 12 hours"
-        }
-    }
-
-    private var iconName: String {
-        switch access {
-        case .denied: return "lock.fill"
-        default: return "calendar"
-        }
-    }
-
-    private var iconColor: Color {
-        switch access {
-        case .denied: return Color(red: 0.95, green: 0.60, blue: 0.55)
-        default: return Color(red: 0.62, green: 0.82, blue: 1.0)
-        }
-    }
-}
-
 private struct StartMeetingButton: View {
     let action: () -> Void
 
@@ -1113,7 +1038,6 @@ private func lightFrostedBubble(cornerRadius: CGFloat) -> some View {
         .environmentObject(llm)
         .environmentObject(TranscriptStore(client: llm, language: language))
         .environmentObject(language)
-        .environmentObject(UpcomingMeetingService())
         .environmentObject(ConsentPreference(defaults: previewDefaults))
         .background(Color.gray.opacity(0.3))
 }

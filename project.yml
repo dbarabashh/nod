@@ -33,8 +33,6 @@ targets:
         NSMicrophoneUsageDescription: "Nod needs access to your microphone to capture meeting audio."
         NSScreenCaptureUsageDescription: "Nod needs screen recording permission to capture system audio during meetings."
         NSSpeechRecognitionUsageDescription: "Nod uses speech recognition to transcribe what is said during meetings."
-        NSCalendarsFullAccessUsageDescription: "Nod reads your calendar to show your next upcoming meeting."
-        NSCalendarsUsageDescription: "Nod reads your calendar to show your next upcoming meeting."
         CFBundleURLTypes:
           - CFBundleURLName: com.example.nod.auth
             CFBundleURLSchemes:

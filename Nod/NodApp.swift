@@ -24,7 +24,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var llmClient: OpenRouterClient?
     private var transcriptStore: TranscriptStore?
     private var languagePreference: LanguagePreference?
-    private var upcomingMeetings: UpcomingMeetingService?
     private var supabase: SupabaseClient?
     private var auth: AuthService?
     private var consent: ConsentPreference?
@@ -41,7 +40,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let llmClient = OpenRouterClient()
         let languagePreference = LanguagePreference()
         let transcriptStore = TranscriptStore(client: llmClient, language: languagePreference)
-        let upcomingMeetings = UpcomingMeetingService()
         let supabase = SupabaseClient(
             supabaseURL: SupabaseConfig.url,
             supabaseKey: SupabaseConfig.anonKey
@@ -52,7 +50,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             auth: auth,
             languageProvider: { languagePreference.current.whisperCode }
         )
-        Task { await upcomingMeetings.requestAccessIfNeeded() }
 
         audioCapture.onMicBuffer = { [weak transcriptStore] buffer in
             transcriptStore?.appendMicBuffer(buffer)
@@ -67,7 +64,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         self.llmClient = llmClient
         self.transcriptStore = transcriptStore
         self.languagePreference = languagePreference
-        self.upcomingMeetings = upcomingMeetings
         self.supabase = supabase
         self.auth = auth
         self.consent = consent
@@ -202,7 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func showFloatingPanel() {
-        guard let audioCapture, let llmClient, let transcriptStore, let languagePreference, let upcomingMeetings, let consent, panel == nil else { return }
+        guard let audioCapture, let llmClient, let transcriptStore, let languagePreference, let consent, panel == nil else { return }
         NSApp.setActivationPolicy(.accessory)
 
         let content = ContentView()
@@ -210,7 +206,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             .environmentObject(llmClient)
             .environmentObject(transcriptStore)
             .environmentObject(languagePreference)
-            .environmentObject(upcomingMeetings)
             .environmentObject(consent)
 
         let panel = FloatingPanel(

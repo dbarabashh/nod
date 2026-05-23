@@ -31,10 +31,6 @@
 	<string>1</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Nod reads your calendar to show your next upcoming meeting.</string>
-	<key>NSCalendarsUsageDescription</key>
-	<string>Nod reads your calendar to show your next upcoming meeting.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
