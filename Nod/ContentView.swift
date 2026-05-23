@@ -22,6 +22,7 @@ struct ContentView: View {
     @EnvironmentObject private var store: TranscriptStore
     @EnvironmentObject private var language: LanguagePreference
     @EnvironmentObject private var upcomingMeetings: UpcomingMeetingService
+    @EnvironmentObject private var consent: ConsentPreference
 
     @State private var meeting: MeetingState = .idle
     @State private var response: AIResponse = .none
@@ -31,18 +32,49 @@ struct ContentView: View {
     /// When meeting is active, the left column collapses by default to just a
     /// tiny REC capsule. User taps to expand to the full controls.
     @State private var expanded: Bool = false
+    /// True while the recording-consent modal is on screen; gates startMeeting()
+    /// before audio capture begins. See issue #4.
+    @State private var showConsentDisclaimer: Bool = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            leftColumn
-                .frame(width: 288, alignment: .topLeading)
+        ZStack {
+            HStack(alignment: .top, spacing: 12) {
+                leftColumn
+                    .frame(width: 288, alignment: .topLeading)
 
-            responseColumn
-                .frame(width: 308, alignment: .topLeading)
+                responseColumn
+                    .frame(width: 308, alignment: .topLeading)
+            }
+            .padding(16)
+            .frame(width: 640, height: 560, alignment: .topLeading)
+            .background(Color.clear)
+            // While the consent modal is up, the card sits on top with no
+            // backdrop — disable the columns underneath so a click in the
+            // gap around the card can't accidentally hit a control.
+            .allowsHitTesting(!showConsentDisclaimer)
+
+            if showConsentDisclaimer {
+                ConsentDisclaimerView(
+                    strings: ConsentStrings.forLanguageCode(language.current.whisperCode),
+                    onCancel: {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            showConsentDisclaimer = false
+                        }
+                    },
+                    onAcknowledge: { dontShowAgain in
+                        // Always log the legal acknowledgement; "Don't show
+                        // again" only controls the local UX gate.
+                        consent.acknowledge(persistGate: dontShowAgain)
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            showConsentDisclaimer = false
+                        }
+                        beginRecording()
+                    }
+                )
+                .zIndex(1)
+            }
         }
-        .padding(16)
         .frame(width: 640, height: 560, alignment: .topLeading)
-        .background(Color.clear)
         .task { await runSecondsTimer() }
     }
 
@@ -186,6 +218,18 @@ struct ContentView: View {
     // MARK: - Actions
 
     private func startMeeting() {
+        // Consent gate: show the disclaimer modal before any audio capture
+        // on the user's first meeting. See issue #4.
+        if !consent.isAccepted {
+            withAnimation(.easeOut(duration: 0.15)) {
+                showConsentDisclaimer = true
+            }
+            return
+        }
+        beginRecording()
+    }
+
+    private func beginRecording() {
         Log.ui.info("Start Meeting")
         meeting = .recording
         elapsed = 0
@@ -1061,11 +1105,15 @@ private func lightFrostedBubble(cornerRadius: CGFloat) -> some View {
 #Preview {
     let llm = OpenRouterClient()
     let language = LanguagePreference()
+    // Use a dedicated UserDefaults suite so previewing the Acknowledge flow
+    // doesn't taint the developer's installed app's consent state.
+    let previewDefaults = UserDefaults(suiteName: "nod.preview.consent") ?? .standard
     return ContentView()
         .environmentObject(AudioCaptureService())
         .environmentObject(llm)
         .environmentObject(TranscriptStore(client: llm, language: language))
         .environmentObject(language)
         .environmentObject(UpcomingMeetingService())
+        .environmentObject(ConsentPreference(defaults: previewDefaults))
         .background(Color.gray.opacity(0.3))
 }

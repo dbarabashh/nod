@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var upcomingMeetings: UpcomingMeetingService?
     private var supabase: SupabaseClient?
     private var auth: AuthService?
+    private var consent: ConsentPreference?
     private var authObserveTask: Task<Void, Never>?
     private var pendingCallbackURLs: [URL] = []
     private var statusItem: NSStatusItem?
@@ -46,6 +47,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             supabaseKey: SupabaseConfig.anonKey
         )
         let auth = AuthService(client: supabase)
+        let consent = ConsentPreference(
+            supabase: supabase,
+            auth: auth,
+            languageProvider: { languagePreference.current.whisperCode }
+        )
         Task { await upcomingMeetings.requestAccessIfNeeded() }
 
         audioCapture.onMicBuffer = { [weak transcriptStore] buffer in
@@ -64,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         self.upcomingMeetings = upcomingMeetings
         self.supabase = supabase
         self.auth = auth
+        self.consent = consent
 
         // Observer drives every window transition, including the initial one.
         // Idempotent show*/close* methods make repeat emissions safe.
@@ -195,7 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func showFloatingPanel() {
-        guard let audioCapture, let llmClient, let transcriptStore, let languagePreference, let upcomingMeetings, panel == nil else { return }
+        guard let audioCapture, let llmClient, let transcriptStore, let languagePreference, let upcomingMeetings, let consent, panel == nil else { return }
         NSApp.setActivationPolicy(.accessory)
 
         let content = ContentView()
@@ -204,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             .environmentObject(transcriptStore)
             .environmentObject(languagePreference)
             .environmentObject(upcomingMeetings)
+            .environmentObject(consent)
 
         let panel = FloatingPanel(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 560),
