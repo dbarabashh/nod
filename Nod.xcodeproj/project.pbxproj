@@ -12,6 +12,7 @@
 		2484EA93E6A4F4DC7305E7BE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = FD9425C84A5944FADFEE1DC0 /* Supabase */; };
 		25BAFB93063B4B6B623D96DD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7353A5B91242F165EFCD7D68 /* Assets.xcassets */; };
 		26FB0074AE17C845461190DB /* NodApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 420B40291D1B3DE220552641 /* NodApp.swift */; };
+		38911BFE6BDB5FF1BD611BA7 /* OnboardingStrings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 836ECC9300366B55625FD336 /* OnboardingStrings.swift */; };
 		39ADAD5621607FDFBDC6BD7B /* PromptLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1D50CF8646AB9EB69F2F9C8 /* PromptLibrary.swift */; };
 		3B230632D5E59BB6CA0A2571 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E50AD4B4443C2AFC55281CD /* AppLanguage.swift */; };
 		43F3569CA1B4C923AF429079 /* UpcomingMeetingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E68D1B07579BBEF79765AC /* UpcomingMeetingService.swift */; };
@@ -24,6 +25,7 @@
 		83F9D087C396F52F3B80D84E /* SupabaseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A19A6B64B15C834D9882F79 /* SupabaseConfig.swift */; };
 		85A8EFA2E6AA2AF8CCC1174B /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFEA0D933A8789DB4DDAF3BD /* Theme.swift */; };
 		9DA84B06D0C3E541040B3A44 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6513755E613BC16F66D6583B /* AudioCaptureService.swift */; };
+		A0DED59AEE2FD16E7B9E6C5E /* TutorialStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D38E021FE65A36A7264FA5F /* TutorialStep.swift */; };
 		AFB5427CF07CC776F41496A2 /* SampleBufferConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F365DD35A0D5B3EA0620B5E /* SampleBufferConverter.swift */; };
 		B0F0F0D0B82B4974BA55C179 /* TranscriptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B022AA739EDC98C9F8C0E8 /* TranscriptStore.swift */; };
 		B36906A556CD287E06D7A5C9 /* WhisperTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = F262446346BF9FFC15D5AF67 /* WhisperTranscriber.swift */; };
@@ -49,8 +51,10 @@
 		6513755E613BC16F66D6583B /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
 		66860B9D2AA725125B3CD547 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
 		6C387BE5834160BB925911FD /* OpenRouterClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenRouterClient.swift; sourceTree = "<group>"; };
+		6D38E021FE65A36A7264FA5F /* TutorialStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialStep.swift; sourceTree = "<group>"; };
 		7353A5B91242F165EFCD7D68 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7F365DD35A0D5B3EA0620B5E /* SampleBufferConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleBufferConverter.swift; sourceTree = "<group>"; };
+		836ECC9300366B55625FD336 /* OnboardingStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStrings.swift; sourceTree = "<group>"; };
 		8B25A656A2DF3A8075B12613 /* PermissionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionRow.swift; sourceTree = "<group>"; };
 		9E50AD4B4443C2AFC55281CD /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
 		A223C9F4F471729CC9C4052E /* PermissionsStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsStep.swift; sourceTree = "<group>"; };
@@ -131,9 +135,11 @@
 			isa = PBXGroup;
 			children = (
 				2D057ABB830911C520B69DE5 /* OnboardingState.swift */,
+				836ECC9300366B55625FD336 /* OnboardingStrings.swift */,
 				3D81AE28374538021C332981 /* OnboardingView.swift */,
 				8B25A656A2DF3A8075B12613 /* PermissionRow.swift */,
 				A223C9F4F471729CC9C4052E /* PermissionsStep.swift */,
+				6D38E021FE65A36A7264FA5F /* TutorialStep.swift */,
 				C5A9FB4627B24FDDB9C6F198 /* WelcomeStep.swift */,
 			);
 			path = Onboarding;
@@ -285,6 +291,7 @@
 				47450284364953F237770A71 /* Log.swift in Sources */,
 				26FB0074AE17C845461190DB /* NodApp.swift in Sources */,
 				C97639BA73AD22CC5A1CB701 /* OnboardingState.swift in Sources */,
+				38911BFE6BDB5FF1BD611BA7 /* OnboardingStrings.swift in Sources */,
 				5613A8BEF0A4D85BACF8BFCA /* OnboardingView.swift in Sources */,
 				E921B8D16149DA9377465008 /* OpenRouterClient.swift in Sources */,
 				202E966E3FB86EE0D5366D1D /* PermissionManager.swift in Sources */,
@@ -296,6 +303,7 @@
 				83F9D087C396F52F3B80D84E /* SupabaseConfig.swift in Sources */,
 				85A8EFA2E6AA2AF8CCC1174B /* Theme.swift in Sources */,
 				B0F0F0D0B82B4974BA55C179 /* TranscriptStore.swift in Sources */,
+				A0DED59AEE2FD16E7B9E6C5E /* TutorialStep.swift in Sources */,
 				43F3569CA1B4C923AF429079 /* UpcomingMeetingService.swift in Sources */,
 				4580021606260405D163A78B /* WAVEncoder.swift in Sources */,
 				832E36D3ABA89F87DF2CBECC /* WelcomeStep.swift in Sources */,

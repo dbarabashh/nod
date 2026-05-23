@@ -6,15 +6,18 @@ struct PermissionRow: View {
     let description: String
     let status: PermissionStatus
     let isPending: Bool
+    let enableLabel: String
+    let openSettingsLabel: String
+    let grantedLabel: String
     let onEnable: () -> Void
     let onOpenSettings: () -> Void
 
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 18, weight: .medium))
+                .font(.system(size: 17, weight: .regular))
                 .foregroundStyle(Theme.Palette.ink.opacity(0.9))
-                .frame(width: 36, height: 36)
+                .frame(width: 38, height: 38)
                 .background(
                     RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                         .fill(Theme.Palette.surface)
@@ -26,18 +29,20 @@ struct PermissionRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
                 Text(description)
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(Theme.Palette.graphite)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 0)
 
             actionView
         }
-        .padding(14)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
                 .fill(Theme.Palette.surface)
@@ -52,12 +57,12 @@ struct PermissionRow: View {
     private var actionView: some View {
         switch status {
         case .authorized:
-            StatusBadge(text: "Granted", color: Theme.Palette.cyan)
+            StatusBadge(text: grantedLabel, color: Theme.Palette.cyan)
         case .denied:
-            ActionButton(title: "Open Settings", tint: AnyShapeStyle(Theme.Palette.warning), action: onOpenSettings)
+            ActionButton(title: openSettingsLabel, tint: AnyShapeStyle(Theme.Palette.warning), action: onOpenSettings)
         case .notDetermined:
             ActionButton(
-                title: "Enable",
+                title: enableLabel,
                 tint: AnyShapeStyle(Theme.Gradients.buttonBrand),
                 isPending: isPending,
                 action: onEnable
@@ -100,7 +105,9 @@ private struct StatusBadge: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 6, height: 6)
+            Image(systemName: "checkmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(color)
             Text(text)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink.opacity(0.9))

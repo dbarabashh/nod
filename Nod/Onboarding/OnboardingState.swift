@@ -4,6 +4,7 @@ import Combine
 enum OnboardingStep: Int, Codable, CaseIterable {
     case welcome = 1
     case permissions = 2
+    case tutorial = 3
 }
 
 struct OnboardingStatus: Codable {
@@ -45,9 +46,15 @@ final class OnboardingState: ObservableObject {
         save()
     }
 
-    func complete(skipped: Bool) {
-        status.completed = true
+    /// Symmetric write so the field reflects the user's most recent choice
+    /// (mirroring the prior `complete(skipped:)` semantics).
+    func recordPermissionsDecision(skipped: Bool) {
         status.permissionsSkipped = skipped
+        save()
+    }
+
+    func complete() {
+        status.completed = true
         save()
     }
 

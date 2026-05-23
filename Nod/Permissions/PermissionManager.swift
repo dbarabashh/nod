@@ -15,6 +15,17 @@ final class PermissionManager: ObservableObject {
     @Published private(set) var microphone: PermissionStatus = .notDetermined
     @Published private(set) var screenRecording: PermissionStatus = .notDetermined
 
+    /// True when SR access was requested during this app session — used by the
+    /// onboarding UI to surface "Quit & Relaunch" once the user comes back from
+    /// System Settings, since ScreenCaptureKit can't pick up a freshly added
+    /// TCC entry without a process restart.
+    @Published private(set) var requestedScreenRecordingThisSession: Bool = false
+
+    /// Set when `relaunch()` was attempted but the OS refused to spawn a new
+    /// instance (signing, sandbox, missing bundle). The UI surfaces this so the
+    /// user can quit/reopen manually instead of losing the app silently.
+    @Published var lastRelaunchError: String?
+
     private static let screenPromptedKey = "permissions.screenRecording.prompted"
 
     init() {
@@ -60,6 +71,7 @@ final class PermissionManager: ObservableObject {
     func requestScreenRecording() async -> Bool {
         if screenRecording == .authorized { return true }
 
+        requestedScreenRecordingThisSession = true
         UserDefaults.standard.set(true, forKey: Self.screenPromptedKey)
 
         if CGRequestScreenCaptureAccess() {
@@ -79,6 +91,29 @@ final class PermissionManager: ObservableObject {
 
     func openScreenRecordingSettings() {
         open("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+    }
+
+    // MARK: - Relaunch
+
+    /// Quits the app and asks Launch Services to start it again. Needed after
+    /// the user grants Screen Recording in System Settings — ScreenCaptureKit
+    /// only picks up the new TCC entry on a fresh process. Only terminates on
+    /// confirmed success — otherwise the user would be left with no app.
+    func relaunch() {
+        lastRelaunchError = nil
+        let bundleURL = Bundle.main.bundleURL
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: bundleURL, configuration: configuration) { [weak self] _, error in
+            DispatchQueue.main.async {
+                if let error {
+                    Log.ui.error("relaunch failed: \(error.localizedDescription)")
+                    self?.lastRelaunchError = error.localizedDescription
+                    return
+                }
+                NSApp.terminate(nil)
+            }
+        }
     }
 
     // MARK: - Internals

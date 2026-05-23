@@ -157,12 +157,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func showOnboardingWindow() {
-        guard let permissions, let onboarding, onboardingWindow == nil else { return }
+        guard let permissions, let onboarding, let languagePreference, onboardingWindow == nil else { return }
 
         NSApp.setActivationPolicy(.regular)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 540),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -178,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         })
         .environmentObject(permissions)
         .environmentObject(onboarding)
+        .environmentObject(languagePreference)
 
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)
