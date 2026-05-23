@@ -1,51 +1,91 @@
 import SwiftUI
 
+/// Semantic theme — thin alias layer over `DesignTokens`. Call sites use
+/// these slot names (`Theme.Palette.ink`, `Theme.Gradients.buttonBrand`, …)
+/// so the underlying token can be swapped without diffing every view.
+///
+/// Slot mapping after migration to Refero "Midnight Eclipse":
+///   bg / bgSoft  →  midnightEclipse / starlessNight
+///   ink           →  frost
+///   graphite      →  cloud
+///   muted         →  slateGray
+///   violet        →  magentaBurst       (legacy slot — primary purple-ish)
+///   pink          →  fuchsiaFlare       (legacy slot — primary pink-ish)
+///   cyan          →  electricBlue       (legacy slot — primary cool accent)
+///   warning       →  goldenrod
+///   success       →  vividGreen         (new)
+///   danger        →  crimsonRed         (new)
 enum Theme {
     enum Palette {
-        static let bg         = Color(red: 10/255,  green: 10/255,  blue: 31/255)   // #0a0a1f
-        static let bgSoft     = Color(red: 15/255,  green: 15/255,  blue: 36/255)   // #0f0f24
-        static let ink        = Color(red: 245/255, green: 245/255, blue: 247/255)  // #f5f5f7
-        static let graphite   = Color(red: 161/255, green: 161/255, blue: 170/255)  // #a1a1aa
-        static let muted      = Color(red: 113/255, green: 113/255, blue: 122/255)  // #71717a
+        // Surfaces / text
+        static let bg            = DesignTokens.Surface.level0
+        static let bgSoft        = DesignTokens.Surface.level1
+        static let bgDeep        = DesignTokens.Surface.level2
+        static let ink           = DesignTokens.Palette.frost
+        static let graphite      = DesignTokens.Palette.cloud
+        static let muted         = DesignTokens.Palette.slateGray
 
-        static let surface        = Color.white.opacity(0.04)
-        static let surfaceStrong  = Color.white.opacity(0.07)
-        static let border         = Color.white.opacity(0.08)
-        static let borderStrong   = Color.white.opacity(0.14)
+        // Translucent layers (kept as alpha-on-white so glass effects survive
+        // the palette swap — pure-black surfaces underneath read as flat).
+        static let surface       = Color.white.opacity(0.04)
+        static let surfaceStrong = Color.white.opacity(0.07)
+        static let border        = Color.white.opacity(0.08)
+        static let borderStrong  = Color.white.opacity(0.14)
 
-        static let violet = Color(red: 139/255, green: 92/255,  blue: 246/255)      // #8b5cf6
-        static let pink   = Color(red: 236/255, green: 72/255,  blue: 153/255)      // #ec4899
-        static let cyan   = Color(red: 34/255,  green: 211/255, blue: 238/255)      // #22d3ee
-        static let warning = Color(red: 245/255, green: 158/255, blue: 11/255)      // #f59e0b amber
+        // Brand accents — slot names preserved; values come from new palette.
+        static let violet        = DesignTokens.Palette.magentaBurst
+        static let pink          = DesignTokens.Palette.fuchsiaFlare
+        static let cyan          = DesignTokens.Palette.electricBlue
+        static let warning       = DesignTokens.Palette.goldenrod
+        static let success       = DesignTokens.Palette.vividGreen
+        static let danger        = DesignTokens.Palette.crimsonRed
     }
 
     enum Gradients {
+        /// Headline gradient — magenta → fuchsia → electric blue.
+        /// Replaces the old violet/pink/cyan aurora; same warm-to-cool sweep.
         static let textBrand = LinearGradient(
-            colors: [Palette.violet, Palette.pink, Palette.cyan],
+            colors: [
+                DesignTokens.Palette.magentaBurst,
+                DesignTokens.Palette.fuchsiaFlare,
+                DesignTokens.Palette.electricBlue
+            ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
+
         static let buttonBrand = LinearGradient(
-            colors: [Palette.violet, Palette.pink],
+            colors: [
+                DesignTokens.Palette.magentaBurst,
+                DesignTokens.Palette.fuchsiaFlare
+            ],
             startPoint: .leading,
             endPoint: .trailing
         )
+
         static let buttonSuccess = LinearGradient(
-            colors: [Palette.cyan, Palette.violet],
+            colors: [
+                DesignTokens.Palette.tealGlow,
+                DesignTokens.Palette.electricBlue
+            ],
             startPoint: .leading,
             endPoint: .trailing
         )
+
         static let background = LinearGradient(
-            colors: [Palette.bg, Palette.bgSoft],
+            colors: [
+                DesignTokens.Surface.level0,
+                DesignTokens.Surface.level1
+            ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
     }
 
     enum Radii {
-        static let card: CGFloat    = 20
-        static let surface: CGFloat = 16
-        static let chip: CGFloat    = 10
+        static let card:    CGFloat = DesignTokens.Radius.xxl   // 18 (was 20)
+        static let surface: CGFloat = DesignTokens.Radius.xl    // 12 (was 16)
+        static let chip:    CGFloat = DesignTokens.Radius.lg    //  9 (was 10)
     }
 }
 
@@ -55,24 +95,24 @@ struct AuroraBackground: View {
             Theme.Gradients.background.ignoresSafeArea()
 
             Circle()
-                .fill(Theme.Palette.violet)
+                .fill(DesignTokens.Palette.magentaBurst)
                 .frame(width: 360, height: 360)
                 .blur(radius: 110)
-                .opacity(0.35)
+                .opacity(0.30)
                 .offset(x: -130, y: -170)
 
             Circle()
-                .fill(Theme.Palette.pink)
+                .fill(DesignTokens.Palette.fuchsiaFlare)
                 .frame(width: 320, height: 320)
                 .blur(radius: 120)
-                .opacity(0.28)
+                .opacity(0.24)
                 .offset(x: 150, y: 180)
 
             Circle()
-                .fill(Theme.Palette.cyan)
+                .fill(DesignTokens.Palette.electricBlue)
                 .frame(width: 240, height: 240)
                 .blur(radius: 100)
-                .opacity(0.18)
+                .opacity(0.16)
                 .offset(x: 80, y: -30)
         }
         .ignoresSafeArea()

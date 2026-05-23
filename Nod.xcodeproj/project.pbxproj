@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		069D87CF5F5FD5350461D1EF /* PermissionsStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = A223C9F4F471729CC9C4052E /* PermissionsStep.swift */; };
 		202E966E3FB86EE0D5366D1D /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51840AAD2C5B38AF9A9F006C /* PermissionManager.swift */; };
+		2038AE601001FDBB84E36204 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86C4F428FD6F12CEA91AEA39 /* DesignTokens.swift */; };
 		2484EA93E6A4F4DC7305E7BE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = FD9425C84A5944FADFEE1DC0 /* Supabase */; };
 		25BAFB93063B4B6B623D96DD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7353A5B91242F165EFCD7D68 /* Assets.xcassets */; };
 		26FB0074AE17C845461190DB /* NodApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 420B40291D1B3DE220552641 /* NodApp.swift */; };
@@ -55,6 +56,7 @@
 		7353A5B91242F165EFCD7D68 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7F365DD35A0D5B3EA0620B5E /* SampleBufferConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleBufferConverter.swift; sourceTree = "<group>"; };
 		836ECC9300366B55625FD336 /* OnboardingStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStrings.swift; sourceTree = "<group>"; };
+		86C4F428FD6F12CEA91AEA39 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		8B25A656A2DF3A8075B12613 /* PermissionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionRow.swift; sourceTree = "<group>"; };
 		9E50AD4B4443C2AFC55281CD /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
 		A223C9F4F471729CC9C4052E /* PermissionsStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsStep.swift; sourceTree = "<group>"; };
@@ -156,6 +158,7 @@
 		66AD341FB8B12E18B8EAFD60 /* Theme */ = {
 			isa = PBXGroup;
 			children = (
+				86C4F428FD6F12CEA91AEA39 /* DesignTokens.swift */,
 				FFEA0D933A8789DB4DDAF3BD /* Theme.swift */,
 			);
 			path = Theme;
@@ -287,6 +290,7 @@
 				CFAD0ACF9B70A94F7454E38C /* AudioDeviceCatalog.swift in Sources */,
 				F2A27CDC2D9CAB6A2AA1C84C /* AuthService.swift in Sources */,
 				CBAF3F61519380C7AAFFDB18 /* ContentView.swift in Sources */,
+				2038AE601001FDBB84E36204 /* DesignTokens.swift in Sources */,
 				7DF9FA26FC32B7DBE73267B0 /* FloatingPanel.swift in Sources */,
 				47450284364953F237770A71 /* Log.swift in Sources */,
 				26FB0074AE17C845461190DB /* NodApp.swift in Sources */,
