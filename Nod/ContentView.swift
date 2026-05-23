@@ -122,22 +122,21 @@ struct ContentView: View {
 
                 SuggestionPill(
                     label: "Key points",
-                    dotColor: Color(red: 0.62, green: 0.78, blue: 0.95),
+                    dotColor: DesignTokens.Palette.skyBlue,
                     isGenerating: isGenerating(for: "Key points"),
                     enabled: meeting == .recording,
                     action: { generate(kind: "Key points") }
                 )
                 SuggestionPill(
                     label: "Suggest follow-up questions",
-                    dotColor: Color(red: 0.78, green: 0.70, blue: 0.95),
+                    dotColor: DesignTokens.Palette.fuchsiaFlare,
                     isGenerating: isGenerating(for: "Suggest follow-up questions"),
                     enabled: meeting == .recording,
                     action: { generate(kind: "Suggest follow-up questions") }
                 )
                 SuggestionPill(
                     label: "Recap so far",
-                    trailingEmoji: "📝",
-                    dotColor: Color(red: 0.62, green: 0.90, blue: 0.72),
+                    dotColor: DesignTokens.Palette.vividGreen,
                     isGenerating: isGenerating(for: "Recap so far"),
                     enabled: meeting == .recording,
                     action: { generate(kind: "Recap so far") }
@@ -166,21 +165,25 @@ struct ContentView: View {
                 ResponseCard(
                     kind: kind,
                     text: text,
-                    onCopy: { copy(text) },
+                    onCopy: { latest in copy(latest) },
                     onDismiss: {
                         if isSummarizing {
                             cleanupToIdle()
                         } else {
                             response = .none
                         }
-                    }
+                    },
+                    // Only the meeting-recap card gets the AI-edit input — the
+                    // mid-call hero/key-points cards are short and ephemeral,
+                    // editing them is overkill.
+                    onAIEdit: kind == "Meeting Summary" ? aiEditSummary : nil
                 )
                 .transition(.opacity.combined(with: .move(edge: .leading)))
             } else if case let .generating(kind) = response, kind == "Meeting Summary" {
                 ResponseCard(
                     kind: "Meeting Summary",
                     text: "Generating summary…",
-                    onCopy: {},
+                    onCopy: { _ in },
                     onDismiss: { cleanupToIdle() }
                 )
                 .transition(.opacity.combined(with: .move(edge: .leading)))
@@ -340,6 +343,19 @@ struct ContentView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         print("→ Copied to clipboard")
+    }
+
+    /// Called from ResponseCard's "Ask AI to edit" input when the user submits
+    /// an instruction. Hands the current recap + instruction to the LLM and
+    /// returns the rewritten text for the card to display.
+    private func aiEditSummary(currentText: String, instruction: String) async throws -> String {
+        Log.ui.info("AI summary edit instruction: \(instruction)")
+        let (system, user) = PromptLibrary.buildSummaryEdit(
+            currentSummary: currentText,
+            instruction: instruction,
+            language: language.current
+        )
+        return try await llm.complete(system: system, user: user)
     }
 }
 
@@ -713,52 +729,45 @@ private struct HeroButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 if isGenerating {
                     ProgressView()
                         .controlSize(.small)
                         .progressViewStyle(.circular)
-                        .tint(.white)
-                        .frame(width: 16, height: 16)
+                        .tint(Theme.Palette.ink)
+                        .frame(width: 14, height: 14)
                 } else {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Color(red: 0.62, green: 0.82, blue: 1.0))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(DesignTokens.Palette.electricBlue)
                         .opacity(shimmering ? 0.65 : 1.0)
                         .animation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true), value: shimmering)
                 }
 
                 Text(isGenerating ? "Recalling…" : "Catch me up")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Theme.Palette.ink)
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .frame(width: 240, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            // Match SuggestionPill width for a tidy stacked-pill column.
+            .frame(width: 246, alignment: .leading)
             .background(
                 Capsule(style: .continuous)
                     .fill(.ultraThinMaterial)
                     .overlay(
                         Capsule(style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color(red: 0.20, green: 0.35, blue: 0.65).opacity(0.55),
-                                        Color(red: 0.15, green: 0.25, blue: 0.55).opacity(0.45)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
+                            .fill(Theme.Gradients.buttonBrand)
+                            .opacity(0.55)
                     )
                     .overlay(
                         Capsule(style: .continuous)
-                            .stroke(Color.white.opacity(0.22), lineWidth: 0.6)
+                            .stroke(DesignTokens.Shadow.insetSubtle2, lineWidth: 0.6)
                     )
             )
-            .shadow(color: Color(red: 0.15, green: 0.30, blue: 0.60).opacity(0.45), radius: 10, x: 0, y: 4)
+            .shadow(color: DesignTokens.Palette.magentaBurst.opacity(0.35), radius: 10, x: 0, y: 4)
             .opacity(enabled ? 1.0 : 0.55)
         }
         .buttonStyle(.plain)
@@ -779,44 +788,48 @@ private struct SuggestionPill: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 if isGenerating {
                     ProgressView()
                         .controlSize(.mini)
                         .progressViewStyle(.circular)
-                        .tint(.white)
-                        .frame(width: 10, height: 10)
+                        .tint(Theme.Palette.ink)
+                        .frame(width: 8, height: 8)
                 } else {
                     Circle()
                         .fill(dotColor)
-                        .frame(width: 10, height: 10)
+                        .frame(width: 8, height: 8)
                 }
 
                 HStack(spacing: 4) {
                     Text(label)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundColor(Theme.Palette.ink)
+                        .lineLimit(1)
                     if let trailingEmoji {
                         Text(trailingEmoji)
-                            .font(.system(size: 14))
+                            .font(.system(size: 12))
                     }
                 }
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            .frame(width: 220, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            // Width sized to the longest label ("Suggest follow-up questions")
+            // at the new compact 12.5pt font — keeps all three pills uniform
+            // without truncating the longest one.
+            .frame(width: 246, alignment: .leading)
             .background(
                 Capsule(style: .continuous)
                     .fill(.ultraThinMaterial)
                     .overlay(
                         Capsule(style: .continuous)
-                            .fill(Color.black.opacity(0.25))
+                            .fill(Theme.Palette.bgSoft.opacity(0.55))
                     )
                     .overlay(
                         Capsule(style: .continuous)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                            .stroke(Theme.Palette.border, lineWidth: 0.5)
                     )
             )
             .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 2)
@@ -832,8 +845,26 @@ private struct SuggestionPill: View {
 private struct ResponseCard: View {
     let kind: String
     let text: String
-    let onCopy: () -> Void
+    let onCopy: (String) -> Void
     let onDismiss: () -> Void
+    /// (currentText, instruction) → updated text. Wired in ContentView via
+    /// PromptLibrary.buildSummaryEdit + llm.complete.
+    var onAIEdit: ((String, String) async throws -> String)? = nil
+
+    /// Working buffer the TextEditor binds to. Seeded from `text` and kept in
+    /// sync if a fresh response arrives (e.g. switching from "Catch me up" to
+    /// "Meeting recap" without dismissing the card).
+    @State private var editableText: String = ""
+    @State private var aiInstruction: String = ""
+    @State private var isApplyingEdit: Bool = false
+    @State private var editError: String? = nil
+    @FocusState private var instructionFocused: Bool
+
+    /// Edit affordances are only enabled for the end-of-meeting recap. Mid-call
+    /// cards ("Catch me up", "Key points", …) are read-only — they're
+    /// ephemeral and editing them adds noise without value. Caller signals
+    /// "this card is persistent + editable" by passing `onAIEdit`.
+    private var isEditable: Bool { onAIEdit != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -859,15 +890,56 @@ private struct ResponseCard: View {
                 .buttonStyle(.plain)
             }
 
-            Text(text)
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(.white.opacity(0.92))
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if isEditable {
+                // Editable buffer — user can tweak any wording inline. macOS
+                // TextEditor doesn't render markdown, so `**Topics covered**`
+                // shows with literal asterisks here; the AI-edit input below
+                // is the path to bigger restructures.
+                //
+                // Disabled while an AI edit is in flight so user keystrokes
+                // can't race the async response — without this the LLM's
+                // returned text would silently overwrite anything they typed
+                // during the await.
+                TextEditor(text: $editableText)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.white.opacity(0.92))
+                    .scrollContentBackground(.hidden)
+                    .background(Color.white.opacity(0.04))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .frame(minHeight: 180, maxHeight: 320)
+                    .disabled(isApplyingEdit)
+                    .opacity(isApplyingEdit ? 0.6 : 1.0)
+
+                if let editError {
+                    Text(editError)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundColor(Color(red: 0.95, green: 0.55, blue: 0.55))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                aiEditRow
+            } else {
+                // Mid-call responses ("Catch me up", "Key points", …) are
+                // ephemeral — read-only rendered markdown, no editor and no
+                // AI-edit input. Editing only makes sense for the persistent
+                // end-of-meeting recap.
+                Text(Self.renderMarkdown(editableText))
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.white.opacity(0.92))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
 
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
-                MiniAction(label: "Copy", icon: "doc.on.doc", action: onCopy)
+                MiniAction(label: "Copy", icon: "doc.on.doc") {
+                    onCopy(editableText)
+                }
                 MiniAction(label: "Insert", icon: "arrow.right.circle.fill") {
                     print("→ Insert (dummy)")
                 }
@@ -897,6 +969,90 @@ private struct ResponseCard: View {
                 )
         )
         .shadow(color: Color.black.opacity(0.30), radius: 12, x: 0, y: 6)
+        .onAppear {
+            // Seed the editor with whatever the LLM just produced. Subsequent
+            // user edits live in @State and aren't overwritten unless a brand
+            // new response arrives.
+            if editableText.isEmpty { editableText = text }
+        }
+        .onChange(of: text) { new in
+            // A fresh LLM response landed (e.g. user re-asked) — sync the
+            // editor buffer to the new source text. Leave `aiInstruction` and
+            // `editError` alone: if the user was mid-typing an instruction
+            // when an unrelated parent rebuild flowed a (possibly identical)
+            // text through, wiping their input is silent data loss.
+            // (macOS 13 onChange signature — single closure arg.)
+            editableText = new
+        }
+    }
+
+    /// Chat-style input row: type instruction, ⏎ or send button to apply.
+    private var aiEditRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "wand.and.stars")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.white.opacity(0.55))
+
+            TextField("Ask AI to edit…", text: $aiInstruction, axis: .horizontal)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundColor(.white.opacity(0.92))
+                .focused($instructionFocused)
+                .disabled(isApplyingEdit)
+                .onSubmit(applyAIEdit)
+
+            Button(action: applyAIEdit) {
+                if isApplyingEdit {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .frame(width: 14, height: 14)
+                } else {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(canSubmitEdit ? Color(red: 0.62, green: 0.82, blue: 1.0) : .white.opacity(0.25))
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSubmitEdit)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.06))
+                .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+        )
+    }
+
+    private var canSubmitEdit: Bool {
+        !isApplyingEdit
+            && !aiInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && onAIEdit != nil
+    }
+
+    private func applyAIEdit() {
+        guard canSubmitEdit, let onAIEdit else { return }
+        let snapshot = editableText
+        let instruction = aiInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        isApplyingEdit = true
+        editError = nil
+        Task {
+            do {
+                let updated = try await onAIEdit(snapshot, instruction)
+                await MainActor.run {
+                    editableText = updated
+                    aiInstruction = ""
+                    isApplyingEdit = false
+                }
+            } catch {
+                await MainActor.run {
+                    editError = "Edit failed: \(error.localizedDescription)"
+                    isApplyingEdit = false
+                }
+            }
+        }
     }
 
     private var kindLabel: String {
@@ -905,6 +1061,17 @@ private struct ResponseCard: View {
         case "Meeting Summary": return "Meeting recap"
         default: return kind
         }
+    }
+
+    /// Kept available for callers that want to render markdown elsewhere —
+    /// the card itself is now editable plain text so the user sees the raw
+    /// source while typing.
+    private static func renderMarkdown(_ source: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        return (try? AttributedString(markdown: source, options: options))
+            ?? AttributedString(source)
     }
 }
 

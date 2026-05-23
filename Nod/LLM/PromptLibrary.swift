@@ -75,22 +75,67 @@ struct PromptLibrary {
             No preamble.
             """
         case .summary:
-            // "Recap so far" or end-of-meeting summary. Structured recall.
+            // End-of-meeting recap. The aha-moment artefact: user just left
+            // the call, may have lost track of a decision or two, scans this
+            // and recovers what slipped past. Substantive but tight — not a
+            // tweet, not a transcript.
             return """
-            You are a meeting copilot producing a structured recap of what has been discussed so far. Format:
+            You are a meeting copilot producing the recap of a meeting that just ended. The user was on the call and may have forgotten details — your job is to give them a clear, useful read-out so nothing important slips through.
 
-            - **Topics covered**: 2-4 bullets
-            - **Decisions made**: 0-3 bullets (or "None yet")
-            - **Open questions**: 0-3 bullets (or "None")
+            Format using markdown, with each section header bolded on its own line, followed by bullets below it:
 
-            Keep each bullet to one short line. Only include items that are clearly in the transcript. This is a recall aid, not a generative document — the user knows the meeting, they want a clear structured view.
+            **Topics covered**
+            - 4-7 bullets. Each bullet: what was discussed (one short sentence) + a brief follow-up sentence with context, who raised it, or what was said. Aim for substance over labels.
 
-            No preamble.
+            **Decisions made**
+            - 0-5 bullets. For each: the decision, who owns it, the timeline if mentioned. If nothing was decided, write a single line: "None yet."
+
+            **Open questions**
+            - 0-5 bullets. Unanswered questions, blockers, items deferred. If none, write a single line: "None."
+
+            Rules:
+            - Ground every bullet in something actually said in the transcript. Do NOT invent details or pad.
+            - Be specific (use names, numbers, dates from the transcript) rather than generic ("we discussed X").
+            - Keep each bullet readable in two seconds — aim for 1-2 sentences, no walls of text.
+            - DO NOT add preamble, conclusion, or meta-commentary. Just the three sections.
             """
         }
     }
 
     private static func userMessage(for kind: PromptKind, context: String) -> String {
         "Transcript so far:\n\n\(context)\n\nRespond now."
+    }
+
+    // MARK: - AI-assisted summary editing
+
+    /// Builds the prompt for "Ask AI to edit this recap" — the small chat-style
+    /// input under the summary card. Given the current recap text + a natural-
+    /// language instruction, produce an updated recap.
+    static func buildSummaryEdit(
+        currentSummary: String,
+        instruction: String,
+        language: AppLanguage = .english
+    ) -> (system: String, user: String) {
+        let system = """
+        You are editing the user's meeting recap. They will give you the current recap and a single edit instruction.
+
+        Apply the instruction precisely. Preserve the existing structure (the **Topics covered**, **Decisions made**, **Open questions** sections with their markdown bold headers) and keep all content the user did not ask you to change. Do not invent details that aren't in the current recap or supported by it.
+
+        Output ONLY the full updated recap text — no preamble, no closing remark, no explanation of what you changed. Use the same markdown format as the input (bold section headers on their own line, bulleted items below).
+
+        IMPORTANT: Respond in \(language.promptName). Output the recap in \(language.promptName) even if the instruction is given in another language.
+        """
+
+        let user = """
+        Current recap:
+
+        \(currentSummary)
+
+        Edit instruction: \(instruction)
+
+        Output the updated recap now.
+        """
+
+        return (system, user)
     }
 }
