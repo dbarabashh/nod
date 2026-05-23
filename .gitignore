@@ -15,3 +15,6 @@ xcuserdata/
 *.swp
 .idea/
 .vscode/
+
+# Re-include agent docs that ~/.gitignore_global ignores by default
+!CLAUDE.md
