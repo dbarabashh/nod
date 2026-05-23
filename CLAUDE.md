@@ -29,13 +29,11 @@ Targets macOS 13+, Swift 5.9. Single SPM dependency: `supabase-swift` v2+. Bundl
 
 ## Configuration
 
-- **Supabase**: project ref `lptqvnizjwglilgeukwx` (eu-west-1), linked via `supabase/config.toml`. URL + anon key in `Nod/Backend/SupabaseConfig.swift`. Server-side secrets (incl. the OpenRouter key, post-#11) are set via `supabase secrets set`, never in the bundle.
-- **LLM / Whisper config**: server-side, in the Supabase Edge Function (`supabase/functions/llm-proxy/`, planned in #11). The client only knows the proxy URL + its Supabase JWT — model choice, provider routing, and API keys all live server-side.
+- **Supabase**: project ref `lptqvnizjwglilgeukwx` (eu-west-1), linked via `supabase/config.toml`. URL + anon key in `Nod/Backend/SupabaseConfig.swift`. Server-side secrets (incl. `OPENROUTER_API_KEY`) are set via `supabase secrets set` — never in the bundle.
+- **LLM / Whisper config**: server-side, in the `llm-proxy` Edge Function (`supabase/functions/llm-proxy/`). The client only knows the proxy URL + the user's Supabase JWT; provider routing and the OpenRouter API key live server-side. Chat and Whisper *model* overrides can still be set per-device via `openrouter.model` / `whisper.model` UserDefaults keys — they're forwarded through the proxy in the request payload.
 - **User preferences** (persisted in `UserDefaults` under `com.example.nod`):
   - `app.language` — current UI / transcription language (e.g. `"uk"`). Set via the in-app picker; the `defaults write` route is for testing only.
   - `audio.input.deviceUID` — preferred microphone device, set via the UI.
-
-The current `OpenRouterClient` reads `openrouter.apiKey` / `whisper.*` from `UserDefaults` as a transitional setup. **Do not document or build on these keys** — they're explicitly slated for deletion by #11. If you're testing the pre-proxy path locally, set them temporarily and clear them when done.
 
 ## Working with Supabase
 

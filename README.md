@@ -26,19 +26,21 @@ To regenerate the Xcode project from `project.yml` after adding files:
 xcodegen generate
 ```
 
-## Configuration (UserDefaults)
+## Configuration
+
+LLM + Whisper traffic flows through the `llm-proxy` Supabase Edge Function;
+the OpenRouter API key lives server-side in `OPENROUTER_API_KEY` (Supabase
+secrets) — there is **no client-side API key**. Sign in to the app and the
+Supabase JWT authenticates every call.
+
+Dev overrides (UserDefaults):
 
 ```sh
-# OpenRouter API key (required for LLM + Whisper)
-defaults write com.example.nod openrouter.apiKey "sk-or-v1-..."
-
-# Optional: override Whisper endpoint / model
-defaults write com.example.nod whisper.baseURL "https://api.groq.com/openai/v1"
-defaults write com.example.nod whisper.model "whisper-large-v3"
-defaults write com.example.nod whisper.apiKey "gsk_..."
-
-# Optional: choose chat model
+# Optional: chat model (forwarded to OpenRouter via the proxy)
 defaults write com.example.nod openrouter.model "anthropic/claude-haiku-4-6"
+
+# Optional: Whisper model (forwarded to OpenRouter via the proxy)
+defaults write com.example.nod whisper.model "whisper-large-v3"
 
 # Optional: STT/UI language ("en" or "uk"); also toggleable from the UI chip.
 defaults write com.example.nod app.language "uk"

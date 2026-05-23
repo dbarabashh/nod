@@ -1,69 +1,67 @@
 import Foundation
+import Supabase
 
+/// Client for the `llm-proxy` Supabase Edge Function (issue #11).
+///
+/// All LLM traffic — chat completions + Whisper transcription — flows
+/// through `<supabase-project>/functions/v1/llm-proxy`. Authentication is
+/// the user's Supabase JWT; the OpenRouter API key lives in the server-side
+/// `OPENROUTER_API_KEY` secret and never reaches the client binary.
 @MainActor
 final class OpenRouterClient: ObservableObject {
     enum ClientError: LocalizedError {
-        case missingAPIKey
+        case unauthenticated
         case requestFailed(status: Int, body: String)
         case emptyResponse
         case decodingFailed(String)
+        case networkFailed(Error)
 
         var errorDescription: String? {
             switch self {
-            case .missingAPIKey:
-                return "OpenRouter API key not set. Run `defaults write com.example.nod openrouter.apiKey <your-key>` and relaunch."
+            case .unauthenticated:
+                return "Session expired, please sign in again."
             case .requestFailed(let status, let body):
-                return "OpenRouter HTTP \(status): \(body)"
+                return "LLM proxy HTTP \(status): \(body)"
             case .emptyResponse:
-                return "OpenRouter returned an empty response."
+                return "LLM proxy returned an empty response."
             case .decodingFailed(let detail):
-                return "Failed to decode OpenRouter response: \(detail)"
+                return "Failed to decode proxy response: \(detail)"
+            case .networkFailed(let error):
+                return "Network error: \(error.localizedDescription)"
             }
         }
     }
 
-    var apiKey: String? {
-        if let stored = UserDefaults.standard.string(forKey: "openrouter.apiKey"), !stored.isEmpty {
-            return stored
-        }
-        return ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"]
-    }
-
+    /// Chat model override — kept in UserDefaults so devs can A/B models
+    /// without rebuilding. Default points at Gemini 2.0 Flash via OpenRouter.
     var model: String {
         UserDefaults.standard.string(forKey: "openrouter.model") ?? "google/gemini-2.0-flash-001"
     }
 
-    private let endpoint = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+    /// Whisper model override — same rationale as above.
+    private var whisperModel: String {
+        UserDefaults.standard.string(forKey: "whisper.model") ?? "openai/whisper-1"
+    }
+
+    private let proxyURL: URL
+    private let supabase: SupabaseClient?
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForRequest = 70   // proxy enforces 60s for transcribe; give it slack
         config.timeoutIntervalForResource = 120
         return URLSession(configuration: config)
     }()
 
-    // Whisper / audio transcription config — overridable via UserDefaults but
-    // defaults to OpenRouter (same provider, same API key, same chat endpoint).
-    private var whisperBaseURL: String {
-        UserDefaults.standard.string(forKey: "whisper.baseURL") ?? "https://openrouter.ai/api/v1"
+    init(supabase: SupabaseClient? = nil) {
+        self.supabase = supabase
+        self.proxyURL = SupabaseConfig.url.appendingPathComponent("functions/v1/llm-proxy")
     }
-    private var whisperModel: String {
-        UserDefaults.standard.string(forKey: "whisper.model") ?? "openai/whisper-1"
-    }
-    private var whisperAPIKey: String? {
-        if let dedicated = UserDefaults.standard.string(forKey: "whisper.apiKey"), !dedicated.isEmpty {
-            return dedicated
-        }
-        return apiKey
-    }
+
+    // MARK: - Chat completion
 
     func complete(system: String, user: String) async throws -> String {
-        guard let key = apiKey, !key.isEmpty else {
-            Log.llm.error("missing API key")
-            throw ClientError.missingAPIKey
-        }
-
         let userPreview = String(user.prefix(200))
-        Log.llm.info("→ POST model=\(model) system.len=\(system.count) user.len=\(user.count)")
+        Log.llm.info("→ chat via proxy model=\(model) system.len=\(system.count) user.len=\(user.count)")
         Log.llm.info("→ user preview: \(userPreview)\(user.count > 200 ? "…" : "")")
 
         let payload = ChatRequest(
@@ -73,116 +71,71 @@ final class OpenRouterClient: ObservableObject {
                 .init(role: "user", content: user)
             ]
         )
-        let body = try JSONEncoder().encode(payload)
+        let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
 
-        // One automatic retry on transient 5xx (upstream provider hiccups,
-        // e.g. Google returning 504 "operation aborted" from Gemini Flash).
+        // One automatic retry on transient failures — proxy/upstream 5xx OR
+        // a URLError-class transport failure. Decoding/empty-response errors
+        // are deterministic and not worth retrying.
         var lastError: ClientError?
         for attempt in 0..<2 {
             do {
-                return try await postChat(key: key, body: body)
+                let data = try await postToProxy(body: body)
+                let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
+                guard let text = decoded.choices.first?.message.content, !text.isEmpty else {
+                    Log.llm.error("empty content")
+                    throw ClientError.emptyResponse
+                }
+                let preview = String(text.prefix(200))
+                Log.llm.info("← OK len=\(text.count) preview: \(preview)\(text.count > 200 ? "…" : "")")
+                return text
             } catch let error as ClientError {
-                if case let .requestFailed(status, _) = error, status >= 500, status < 600, attempt == 0 {
-                    Log.llm.error("transient \(status) on attempt \(attempt + 1) — retrying once after 700ms")
+                if attempt == 0, Self.isTransient(error) {
+                    Log.llm.error("transient error on attempt \(attempt + 1) — retrying once after 700ms: \(error.localizedDescription)")
                     try? await Task.sleep(nanoseconds: 700_000_000)
                     lastError = error
                     continue
                 }
                 throw error
+            } catch {
+                // JSONDecoder threw something non-ClientError — surface as
+                // decoding failure (deterministic, not retried).
+                throw ClientError.decodingFailed(error.localizedDescription)
             }
         }
         throw lastError ?? ClientError.emptyResponse
     }
 
-    /// Single HTTP attempt for the chat completion call.
-    private func postChat(key: String, body: Data) async throws -> String {
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.setValue("https://github.com/nod-app", forHTTPHeaderField: "HTTP-Referer")
-        request.setValue("Nod", forHTTPHeaderField: "X-Title")
-        request.httpBody = body
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw ClientError.decodingFailed("Non-HTTP response")
-        }
-        if http.statusCode >= 400 {
-            let raw = String(data: data, encoding: .utf8) ?? "<binary>"
-            let sanitized = Self.sanitizeErrorBody(raw)
-            Log.llm.error("HTTP \(http.statusCode): \(sanitized) (raw=\(raw.count)b)")
-            throw ClientError.requestFailed(status: http.statusCode, body: sanitized)
-        }
-        do {
-            let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
-            guard let text = decoded.choices.first?.message.content, !text.isEmpty else {
-                Log.llm.error("empty content")
-                throw ClientError.emptyResponse
-            }
-            let preview = String(text.prefix(200))
-            Log.llm.info("← OK len=\(text.count) preview: \(preview)\(text.count > 200 ? "…" : "")")
-            return text
-        } catch let error as ClientError {
-            throw error
-        } catch {
-            Log.llm.error("decoding failed: \(error.localizedDescription)")
-            throw ClientError.decodingFailed(error.localizedDescription)
+    /// True for errors that are plausibly fixed by a single retry: upstream
+    /// 5xx (provider hiccups) and URLError-class transport blips. Excludes
+    /// 4xx, decoding errors, empty responses, and auth failures.
+    private static func isTransient(_ error: ClientError) -> Bool {
+        switch error {
+        case .requestFailed(let status, _):
+            return status >= 500 && status < 600
+        case .networkFailed:
+            return true
+        case .unauthenticated, .emptyResponse, .decodingFailed:
+            return false
         }
     }
 
     // MARK: - Whisper (audio transcription)
 
-    /// POSTs an audio blob to OpenRouter's /api/v1/audio/transcriptions.
-    ///
-    /// OpenRouter's transcription endpoint is JSON-bodied (NOT multipart like
-    /// OpenAI's direct API): the audio goes under `input_audio` as a
-    /// base64-encoded `data` string with a `format` tag. Sending multipart
-    /// gets a generic 500 from their handler.
+    /// Sends an audio blob to the proxy's transcribe route. The proxy forwards
+    /// to OpenRouter's `/api/v1/audio/transcriptions`, which expects a JSON
+    /// body with base64-encoded audio (NOT multipart — sending multipart to
+    /// OpenRouter's handler returns a generic 500).
     func transcribe(audio: Data, fileName: String = "audio.wav", language: String = "en") async throws -> String {
-        guard let key = whisperAPIKey, !key.isEmpty else {
-            Log.llm.error("Whisper: missing API key (set `whisper.apiKey` or `openrouter.apiKey`)")
-            throw ClientError.missingAPIKey
-        }
-        let base = whisperBaseURL.hasSuffix("/")
-            ? String(whisperBaseURL.dropLast())
-            : whisperBaseURL
-        guard let url = URL(string: "\(base)/audio/transcriptions") else {
-            throw ClientError.decodingFailed("invalid whisper.baseURL: \(whisperBaseURL)")
-        }
-
-        let payload = TranscriptionRequest(
+        let inner = TranscriptionRequest(
             model: whisperModel,
             input_audio: .init(data: audio.base64EncodedString(), format: "wav"),
             language: language
         )
-        let bodyData: Data
-        do {
-            bodyData = try JSONEncoder().encode(payload)
-        } catch {
-            throw ClientError.decodingFailed("failed to encode transcription body: \(error)")
-        }
+        let bodyData = try JSONEncoder().encode(ProxyEnvelope(kind: "transcribe", payload: inner))
 
-        Log.llm.info("→ Whisper POST \(url.absoluteString) model=\(whisperModel) audio_bytes=\(audio.count) body_bytes=\(bodyData.count) lang=\(language)")
+        Log.llm.info("→ transcribe via proxy model=\(whisperModel) audio_bytes=\(audio.count) body_bytes=\(bodyData.count) lang=\(language)")
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("https://github.com/nod-app", forHTTPHeaderField: "HTTP-Referer")
-        request.setValue("Nod", forHTTPHeaderField: "X-Title")
-        request.httpBody = bodyData
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw ClientError.decodingFailed("Non-HTTP response")
-        }
-        if http.statusCode >= 400 {
-            let rawBody = String(data: data, encoding: .utf8) ?? "<binary>"
-            let sanitized = Self.sanitizeErrorBody(rawBody)
-            Log.llm.error("Whisper HTTP \(http.statusCode): \(sanitized) (raw=\(rawBody.count)b)")
-            throw ClientError.requestFailed(status: http.statusCode, body: sanitized)
-        }
+        let data = try await postToProxy(body: bodyData)
         do {
             let decoded = try JSONDecoder().decode(WhisperResponse.self, from: data)
             let text = decoded.text ?? ""
@@ -196,6 +149,48 @@ final class OpenRouterClient: ObservableObject {
         }
     }
 
+    // MARK: - Transport
+
+    private func postToProxy(body: Data) async throws -> Data {
+        guard let supabase, let jwt = supabase.auth.currentSession?.accessToken else {
+            Log.llm.error("no Supabase session — request blocked")
+            throw ClientError.unauthenticated
+        }
+
+        var request = URLRequest(url: proxyURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        request.httpBody = body
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            // URLError (offline, DNS, timeout, host unreachable, …) lands here.
+            // Surface it as a distinct case so the chat retry loop can treat
+            // it as transient and the user sees a "Network error" message
+            // instead of a misleading "Failed to decode" one.
+            Log.llm.error("proxy transport error: \(error.localizedDescription)")
+            throw ClientError.networkFailed(error)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw ClientError.decodingFailed("Non-HTTP response")
+        }
+        if http.statusCode == 401 {
+            throw ClientError.unauthenticated
+        }
+        if http.statusCode >= 400 {
+            let raw = String(data: data, encoding: .utf8) ?? "<binary>"
+            let sanitized = Self.sanitizeErrorBody(raw)
+            Log.llm.error("proxy HTTP \(http.statusCode): \(sanitized)")
+            throw ClientError.requestFailed(status: http.statusCode, body: sanitized)
+        }
+        return data
+    }
+
     /// Reduce arbitrary error response bodies (HTML pages, giant JSON with
     /// nested metadata, etc.) to something short and human-readable so they
     /// don't flood log/UI.
@@ -203,7 +198,6 @@ final class OpenRouterClient: ObservableObject {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowered = trimmed.lowercased()
 
-        // HTML error page → grab <title>.
         if lowered.hasPrefix("<!doctype") || lowered.hasPrefix("<html") {
             if let titleOpen = lowered.range(of: "<title"),
                let titleClose = lowered.range(of: "</title>"),
@@ -219,25 +213,34 @@ final class OpenRouterClient: ObservableObject {
             return "HTML error page (likely wrong endpoint or auth issue)"
         }
 
-        // OpenRouter / OpenAI JSON error shape: {"error": {"message": "...", "code": N, "metadata": {...}}}
-        // Extract just the message + provider name if present.
         if let data = trimmed.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let err = parsed["error"] as? [String: Any] {
-            let message = (err["message"] as? String) ?? ""
-            var providerHint = ""
-            if let metadata = err["metadata"] as? [String: Any],
-               let provider = metadata["provider_name"] as? String {
-                providerHint = " (via \(provider))"
-            }
-            if !message.isEmpty {
-                return String(message.prefix(220)) + providerHint
+           let err = parsed["error"] as? Any {
+            // Proxy returns `{ "error": "..." }` (string) while OpenRouter
+            // upstream errors look like `{ "error": { "message": "..." } }`.
+            if let errString = err as? String { return String(errString.prefix(220)) }
+            if let errObj = err as? [String: Any] {
+                let message = (errObj["message"] as? String) ?? ""
+                var providerHint = ""
+                if let metadata = errObj["metadata"] as? [String: Any],
+                   let provider = metadata["provider_name"] as? String {
+                    providerHint = " (via \(provider))"
+                }
+                if !message.isEmpty {
+                    return String(message.prefix(220)) + providerHint
+                }
             }
         }
 
         return String(trimmed.prefix(240))
     }
+}
 
+// MARK: - Wire types
+
+private struct ProxyEnvelope<Payload: Encodable>: Encodable {
+    let kind: String
+    let payload: Payload
 }
 
 private struct TranscriptionRequest: Encodable {

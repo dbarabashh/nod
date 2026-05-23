@@ -37,14 +37,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let permissions = PermissionManager()
         let onboarding = OnboardingState()
         let audioCapture = AudioCaptureService()
-        let llmClient = OpenRouterClient()
         let languagePreference = LanguagePreference()
-        let transcriptStore = TranscriptStore(client: llmClient, language: languagePreference)
+        // Supabase client must exist before the LLM client — all LLM traffic
+        // is JWT-authenticated through the `llm-proxy` Edge Function (#11).
         let supabase = SupabaseClient(
             supabaseURL: SupabaseConfig.url,
             supabaseKey: SupabaseConfig.anonKey
         )
         let auth = AuthService(client: supabase)
+        let llmClient = OpenRouterClient(supabase: supabase)
+        let transcriptStore = TranscriptStore(client: llmClient, language: languagePreference)
         let consent = ConsentPreference(
             supabase: supabase,
             auth: auth,
