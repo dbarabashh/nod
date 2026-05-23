@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		069D87CF5F5FD5350461D1EF /* PermissionsStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = A223C9F4F471729CC9C4052E /* PermissionsStep.swift */; };
 		202E966E3FB86EE0D5366D1D /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51840AAD2C5B38AF9A9F006C /* PermissionManager.swift */; };
+		2484EA93E6A4F4DC7305E7BE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = FD9425C84A5944FADFEE1DC0 /* Supabase */; };
 		26FB0074AE17C845461190DB /* NodApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 420B40291D1B3DE220552641 /* NodApp.swift */; };
 		39ADAD5621607FDFBDC6BD7B /* PromptLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1D50CF8646AB9EB69F2F9C8 /* PromptLibrary.swift */; };
 		3B230632D5E59BB6CA0A2571 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E50AD4B4443C2AFC55281CD /* AppLanguage.swift */; };
@@ -18,6 +19,7 @@
 		5613A8BEF0A4D85BACF8BFCA /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D81AE28374538021C332981 /* OnboardingView.swift */; };
 		7DF9FA26FC32B7DBE73267B0 /* FloatingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18BFE0644CCCDE016279E79A /* FloatingPanel.swift */; };
 		832E36D3ABA89F87DF2CBECC /* WelcomeStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A9FB4627B24FDDB9C6F198 /* WelcomeStep.swift */; };
+		83F9D087C396F52F3B80D84E /* SupabaseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A19A6B64B15C834D9882F79 /* SupabaseConfig.swift */; };
 		9DA84B06D0C3E541040B3A44 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6513755E613BC16F66D6583B /* AudioCaptureService.swift */; };
 		AFB5427CF07CC776F41496A2 /* SampleBufferConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F365DD35A0D5B3EA0620B5E /* SampleBufferConverter.swift */; };
 		B0F0F0D0B82B4974BA55C179 /* TranscriptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B022AA739EDC98C9F8C0E8 /* TranscriptStore.swift */; };
@@ -39,6 +41,7 @@
 		4940AE0F466E23E8BD4994BD /* Nod.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nod.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		51840AAD2C5B38AF9A9F006C /* PermissionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionManager.swift; sourceTree = "<group>"; };
 		52D3E00A782C7D962C0153B8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		5A19A6B64B15C834D9882F79 /* SupabaseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseConfig.swift; sourceTree = "<group>"; };
 		6513755E613BC16F66D6583B /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
 		6C387BE5834160BB925911FD /* OpenRouterClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenRouterClient.swift; sourceTree = "<group>"; };
 		7F365DD35A0D5B3EA0620B5E /* SampleBufferConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleBufferConverter.swift; sourceTree = "<group>"; };
@@ -54,6 +57,17 @@
 		E1D50CF8646AB9EB69F2F9C8 /* PromptLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptLibrary.swift; sourceTree = "<group>"; };
 		F262446346BF9FFC15D5AF67 /* WhisperTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperTranscriber.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8AE686D8DEFB8D7A713C2CDA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2484EA93E6A4F4DC7305E7BE /* Supabase in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		13D0E64682BDE024B8990203 /* Calendar */ = {
@@ -74,6 +88,7 @@
 				E0C431767878A03C0AB833CA /* Nod.entitlements */,
 				420B40291D1B3DE220552641 /* NodApp.swift */,
 				C19147D13389580C55678C5F /* Audio */,
+				7DF7A8F0E2B657D45484BF34 /* Backend */,
 				13D0E64682BDE024B8990203 /* Calendar */,
 				B5367D24294EE00D035B7933 /* Language */,
 				27D0E5EC1C4129AA912696D5 /* LLM */,
@@ -110,6 +125,14 @@
 				51840AAD2C5B38AF9A9F006C /* PermissionManager.swift */,
 			);
 			path = Permissions;
+			sourceTree = "<group>";
+		};
+		7DF7A8F0E2B657D45484BF34 /* Backend */ = {
+			isa = PBXGroup;
+			children = (
+				5A19A6B64B15C834D9882F79 /* SupabaseConfig.swift */,
+			);
+			path = Backend;
 			sourceTree = "<group>";
 		};
 		84359F757DDBC745C733240B = {
@@ -157,6 +180,7 @@
 			buildConfigurationList = FC60EBF79D4B761A1027E0B3 /* Build configuration list for PBXNativeTarget "Nod" */;
 			buildPhases = (
 				FDFF5A63D590AF4AE52380C1 /* Sources */,
+				8AE686D8DEFB8D7A713C2CDA /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -164,6 +188,7 @@
 			);
 			name = Nod;
 			packageProductDependencies = (
+				FD9425C84A5944FADFEE1DC0 /* Supabase */,
 			);
 			productName = Nod;
 			productReference = 4940AE0F466E23E8BD4994BD /* Nod.app */;
@@ -193,6 +218,9 @@
 			);
 			mainGroup = 84359F757DDBC745C733240B;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				014C2426E033A6DB50C0D0FD /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DEFF421EAA78615B580C1942 /* Products */;
 			projectDirPath = "";
@@ -223,6 +251,7 @@
 				069D87CF5F5FD5350461D1EF /* PermissionsStep.swift in Sources */,
 				39ADAD5621607FDFBDC6BD7B /* PromptLibrary.swift in Sources */,
 				AFB5427CF07CC776F41496A2 /* SampleBufferConverter.swift in Sources */,
+				83F9D087C396F52F3B80D84E /* SupabaseConfig.swift in Sources */,
 				B0F0F0D0B82B4974BA55C179 /* TranscriptStore.swift in Sources */,
 				43F3569CA1B4C923AF429079 /* UpcomingMeetingService.swift in Sources */,
 				4580021606260405D163A78B /* WAVEncoder.swift in Sources */,
@@ -417,6 +446,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		014C2426E033A6DB50C0D0FD /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		FD9425C84A5944FADFEE1DC0 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 014C2426E033A6DB50C0D0FD /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 8A39E54C66475CC01D3A6543 /* Project object */;
 }

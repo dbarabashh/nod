@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Supabase
 
 @main
 struct NodApp: App {
@@ -22,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var transcriptStore: TranscriptStore?
     private var languagePreference: LanguagePreference?
     private var upcomingMeetings: UpcomingMeetingService?
+    private var supabase: SupabaseClient?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { @MainActor in
@@ -32,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let languagePreference = LanguagePreference()
             let transcriptStore = TranscriptStore(client: llmClient, language: languagePreference)
             let upcomingMeetings = UpcomingMeetingService()
+            let supabase = SupabaseClient(
+                supabaseURL: SupabaseConfig.url,
+                supabaseKey: SupabaseConfig.anonKey
+            )
             Task { await upcomingMeetings.requestAccessIfNeeded() }
 
             audioCapture.onMicBuffer = { [weak transcriptStore] buffer in
@@ -48,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.transcriptStore = transcriptStore
             self.languagePreference = languagePreference
             self.upcomingMeetings = upcomingMeetings
+            self.supabase = supabase
 
             if onboarding.isCompleted {
                 showFloatingPanel()
