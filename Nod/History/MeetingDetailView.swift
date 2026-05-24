@@ -8,6 +8,7 @@ struct MeetingDetailView: View {
     let meeting: Meeting
 
     @EnvironmentObject private var meetingStore: MeetingStore
+    @Environment(\.dismiss) private var dismiss
 
     @State private var editableTitle: String = ""
     @State private var editableSummary: String = ""
@@ -19,6 +20,10 @@ struct MeetingDetailView: View {
     /// `.onDisappear` so a close-mid-typing still flushes the latest
     /// version instead of losing the unwritten characters.
     @State private var isDirty: Bool = false
+    /// True while the soft-delete is in-flight, OR after the user
+    /// confirmed delete — used to suppress the `.onDisappear` save flush
+    /// so we don't undo the delete by saving the local buffer right after.
+    @State private var isDeleting: Bool = false
 
     private enum SaveState: Equatable {
         case idle
@@ -179,6 +184,13 @@ struct MeetingDetailView: View {
             }
             .help("Copy title + date + summary to clipboard")
         }
+        ToolbarItem(placement: .primaryAction) {
+            Button(role: .destructive, action: deleteMeeting) {
+                Image(systemName: "trash")
+            }
+            .help("Move to Trash")
+            .disabled(isDeleting)
+        }
     }
 
     // MARK: - Helpers
@@ -235,12 +247,37 @@ struct MeetingDetailView: View {
     /// Flush any unsaved edits when the view leaves the hierarchy. Without
     /// this, closing the History window mid-typing (or navigating away
     /// before the 1s debounce fires) loses the most recent characters.
+    /// Skipped when the view is leaving because the user just deleted —
+    /// no point saving the buffer to a row that's heading for Trash.
     private func flushPendingSaveOnDisappear() {
         saveTask?.cancel()
-        guard isDirty else { return }
+        guard isDirty, !isDeleting else { return }
         // Fire-and-forget — the view is being torn down, but MeetingStore
         // outlives it on the AppDelegate so the PATCH completes regardless.
         Task { await performSave() }
+    }
+
+    // MARK: - Delete (issue #16)
+
+    /// Soft-delete the meeting and pop back to the History list. The list
+    /// shows the Undo toast that's already wired in HistoryView, so the
+    /// user can recover without leaving the window.
+    private func deleteMeeting() {
+        isDeleting = true
+        saveTask?.cancel()
+        let snapshot = meeting
+        Task {
+            do {
+                try await meetingStore.softDelete(snapshot)
+                await MainActor.run { dismiss() }
+            } catch {
+                Log.ui.error("MeetingDetailView delete failed: \(error.localizedDescription)")
+                await MainActor.run {
+                    isDeleting = false
+                    saveState = .failed(error.localizedDescription)
+                }
+            }
+        }
     }
 
     private func copyAll() {

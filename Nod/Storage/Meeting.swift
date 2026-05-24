@@ -15,6 +15,10 @@ struct Meeting: Codable, Identifiable {
     let title: String?
     let summary: String
     let language: String
+    /// Soft-delete timestamp — non-nil when the meeting lives in the Trash
+    /// segment (#16). Nil for active rows. Server-driven; the client only
+    /// reads this (mutations go via `MeetingStore.softDelete` / `.restore`).
+    let deletedAt: Date?
 
     // The full transcript is intentionally NOT persisted (issue #14 follow-up).
     // Storing every participant's words on our server creates retention /
@@ -31,12 +35,14 @@ struct Meeting: Codable, Identifiable {
         case title
         case summary
         case language
+        case deletedAt  = "deleted_at"
     }
 
-    /// Custom encode so `created_at` is omitted when nil — lets Postgres'
-    /// `default now()` populate the column on insert. Without this, the
-    /// client's wall-clock value (which may be skewed) would be sent and
-    /// the default never used.
+    /// Custom encode so `created_at` and `deleted_at` are omitted when nil
+    /// — lets Postgres' `default now()` populate the former on insert, and
+    /// keeps the soft-delete column out of insert payloads entirely (the
+    /// server starts every row at `deleted_at = NULL`; the client never
+    /// sets it on insert).
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
@@ -47,6 +53,7 @@ struct Meeting: Codable, Identifiable {
         try c.encodeIfPresent(title, forKey: .title)
         try c.encode(summary, forKey: .summary)
         try c.encode(language, forKey: .language)
+        try c.encodeIfPresent(deletedAt, forKey: .deletedAt)
     }
 
     /// Newly-completed meeting before insert — `id` is client-generated so a
@@ -69,7 +76,8 @@ struct Meeting: Codable, Identifiable {
             endedAt: endedAt,
             title: title,
             summary: summary,
-            language: language
+            language: language,
+            deletedAt: nil
         )
     }
 
@@ -85,7 +93,8 @@ struct Meeting: Codable, Identifiable {
             endedAt: endedAt,
             title: title,
             summary: summary,
-            language: language
+            language: language,
+            deletedAt: deletedAt
         )
     }
 

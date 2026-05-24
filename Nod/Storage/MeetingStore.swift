@@ -30,6 +30,20 @@ final class MeetingStore: ObservableObject {
     @Published private(set) var meetings: [Meeting] = []
     @Published private(set) var loadState: LoadState = .idle
 
+    /// Soft-deleted meetings (the "Trash") — loaded lazily by the Trash
+    /// segment of HistoryView. Empty until `refreshTrash()` runs.
+    @Published private(set) var trashedMeetings: [Meeting] = []
+    @Published private(set) var trashState: LoadState = .idle
+
+    /// Most recently soft-deleted meeting — drives the Undo toast in
+    /// HistoryView. Set by `softDelete(_:)`, cleared by `restore(_:)`,
+    /// `hardDelete(_:)`, `dismissUndo()`, or the 5-second auto-timer.
+    /// Lives on the store so deletions triggered from MeetingDetailView's
+    /// toolbar surface the same Undo affordance as right-click deletes.
+    /// `private(set)` so all mutations flow through the explicit methods
+    /// (`softDelete` sets, `dismissUndo` / `restore` / `hardDelete` clear).
+    @Published private(set) var pendingUndo: Meeting? = nil
+
     private let supabase: SupabaseClient
     private static let tableName = "meetings"
 
@@ -101,6 +115,129 @@ final class MeetingStore: ObservableObject {
         }
     }
 
+    // MARK: - Trash (issue #16)
+
+    /// Soft delete — calls the `soft_delete_meeting` RPC so `deleted_at`
+    /// is stamped with the server's `now()` (not the client's wall-clock,
+    /// which can be skewed and cause the pg_cron purge to fire early).
+    /// Row drops out of `meetings` and (if trash is already loaded)
+    /// appears in `trashedMeetings`. `pendingUndo` is ALWAYS set on
+    /// success so the Undo toast surfaces even when the row wasn't in
+    /// the local `meetings` cache (e.g. delete-from-detail with a stale
+    /// list).
+    func softDelete(_ meeting: Meeting) async throws {
+        Log.ui.info("MeetingStore.softDelete id=\(meeting.id.uuidString)")
+        struct Params: Encodable {
+            let meeting_id: UUID
+        }
+        try await supabase
+            .rpc("soft_delete_meeting", params: Params(meeting_id: meeting.id))
+            .execute()
+
+        meetings.removeAll { $0.id == meeting.id }
+        if case .loaded = trashState {
+            // The trash-list copy carries a client-side `deletedAt` for
+            // the "trashed Xd ago" badge until the next refreshTrash
+            // overwrites with the server-stamped value.
+            let trashedCopy = Meeting(
+                id: meeting.id,
+                userID: meeting.userID,
+                createdAt: meeting.createdAt,
+                startedAt: meeting.startedAt,
+                endedAt: meeting.endedAt,
+                title: meeting.title,
+                summary: meeting.summary,
+                language: meeting.language,
+                deletedAt: Date()
+            )
+            trashedMeetings.insert(trashedCopy, at: 0)
+        }
+        pendingUndo = meeting
+    }
+
+    /// Restore — calls the `restore_meeting` RPC; row returns to
+    /// `meetings`. Symmetric with `softDelete` so any future audit /
+    /// logging hook lives server-side. The local cache copy is rebuilt
+    /// with `deletedAt: nil` so callers reading the field don't see a
+    /// stale trash timestamp on a row that's now live.
+    func restore(_ id: UUID) async throws {
+        Log.ui.info("MeetingStore.restore id=\(id.uuidString)")
+        struct Params: Encodable {
+            let meeting_id: UUID
+        }
+        try await supabase
+            .rpc("restore_meeting", params: Params(meeting_id: id))
+            .execute()
+
+        if let idx = trashedMeetings.firstIndex(where: { $0.id == id }) {
+            let row = trashedMeetings.remove(at: idx)
+            if case .loaded = loadState {
+                let restored = Meeting(
+                    id: row.id,
+                    userID: row.userID,
+                    createdAt: row.createdAt,
+                    startedAt: row.startedAt,
+                    endedAt: row.endedAt,
+                    title: row.title,
+                    summary: row.summary,
+                    language: row.language,
+                    deletedAt: nil
+                )
+                meetings.insert(restored, at: 0)
+                meetings.sort { $0.startedAt > $1.startedAt }
+            }
+        }
+        if pendingUndo?.id == id { pendingUndo = nil }
+    }
+
+    /// Hard delete — removes the row from the table outright. Used by
+    /// "Delete Forever" + the nightly pg_cron purge.
+    func hardDelete(_ id: UUID) async throws {
+        Log.ui.info("MeetingStore.hardDelete id=\(id.uuidString)")
+        try await supabase
+            .from(Self.tableName)
+            .delete()
+            .eq("id", value: id.uuidString)
+            .execute()
+
+        meetings.removeAll { $0.id == id }
+        trashedMeetings.removeAll { $0.id == id }
+        if pendingUndo?.id == id { pendingUndo = nil }
+    }
+
+    /// Dismiss the Undo toast without acting on it (user clicked the X
+    /// or the 5s window elapsed). The meeting stays in Trash.
+    func dismissUndo() {
+        pendingUndo = nil
+    }
+
+    /// Fetches the user's soft-deleted meetings, newest-trashed first.
+    /// Lazy — only runs when the Trash segment is opened.
+    func refreshTrash() async {
+        if case .loading = trashState {
+            Log.ui.info("MeetingStore.refreshTrash skipped — already in flight")
+            return
+        }
+        Log.ui.info("MeetingStore.refreshTrash starting")
+        trashState = .loading
+        do {
+            let rows: [Meeting] = try await supabase
+                .from(Self.tableName)
+                .select()
+                .not("deleted_at", operator: .is, value: "null")
+                .order("deleted_at", ascending: false)
+                .limit(500)
+                .execute()
+                .value
+            trashedMeetings = rows
+            trashState = .loaded
+            Log.ui.info("MeetingStore.refreshTrash loaded \(rows.count) trashed meetings")
+        } catch {
+            Log.ui.error("MeetingStore.refreshTrash failed: \(error.localizedDescription)")
+            trashState = .failed(error.localizedDescription)
+        }
+    }
+
     // MARK: - Lifecycle
 
     /// Drops any cached meetings + resets the state machine. Call on sign-out
@@ -109,6 +246,8 @@ final class MeetingStore: ObservableObject {
     func clear() {
         meetings = []
         loadState = .idle
+        trashedMeetings = []
+        trashState = .idle
     }
 
     // MARK: - Read
@@ -131,9 +270,16 @@ final class MeetingStore: ObservableObject {
             // Real cursor pagination is a follow-up once a user hits this cap;
             // for now SwiftUI's List is lazy at the row-render level so the
             // memory cost is only the in-array storage.
+            // Explicit `deleted_at IS NULL` filter. After #16 added the
+            // second SELECT policy ("users read own trashed meetings"),
+            // RLS OR-combines both policies — a bare SELECT now returns
+            // BOTH live and trashed rows. Without this client-side
+            // filter, trashed meetings would reappear in the All segment
+            // on every refresh.
             let rows: [Meeting] = try await supabase
                 .from(Self.tableName)
                 .select()
+                .is("deleted_at", value: nil)
                 .order("started_at", ascending: false)
                 .limit(500)
                 .execute()

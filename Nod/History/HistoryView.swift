@@ -1,76 +1,162 @@
 import SwiftUI
 
-/// List of past meetings, newest first. State-machine UI: spinner while the
-/// initial load runs, empty placeholder, list, or error-with-retry. Tapping a
-/// row pushes the detail view. Supports client-side search via the toolbar
-/// search field (filters the already-loaded list — server-side full-text
-/// search is a follow-up once volumes warrant it).
+/// List of past meetings, newest first. Two segments: All (live meetings)
+/// and Trash (soft-deleted, 30-day retention before pg_cron purges them).
+/// State-machine UI per segment: spinner / empty / list / error-with-retry.
+/// Right-click context menu on rows for Delete / Restore / Delete Forever.
+/// Soft-delete surfaces a 5-second Undo toast.
 ///
-/// Issue #14.
+/// Issues #14 + #16.
 struct HistoryView: View {
     @EnvironmentObject private var meetingStore: MeetingStore
 
     @State private var searchQuery: String = ""
+    @State private var segment: Segment = .all
+    @State private var pendingHardDelete: Meeting? = nil
+    /// Identity of the currently-displayed undo toast — flipped each time
+    /// `meetingStore.pendingUndo` changes, so the auto-dismiss timer
+    /// belonging to the previous toast knows to skip its own dismissal.
+    @State private var undoToastID: UUID = UUID()
+
+    enum Segment: String, CaseIterable, Identifiable {
+        case all = "All"
+        case trash = "Trash"
+        var id: String { rawValue }
+    }
 
     var body: some View {
         NavigationStack {
-            content
-                .navigationTitle("Meetings")
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button(action: { Task { await meetingStore.refresh() } }) {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .disabled(meetingStore.loadState == .loading)
-                    }
+            ZStack(alignment: .bottom) {
+                content
+                if let pending = meetingStore.pendingUndo {
+                    UndoToast(
+                        message: "Moved to Trash",
+                        onUndo: { Task { try? await meetingStore.restore(pending.id) } },
+                        onDismiss: { meetingStore.dismissUndo() }
+                    )
+                    .padding(.bottom, 18)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                .searchable(text: $searchQuery, prompt: "Search meetings")
+            }
+            .navigationTitle("Meetings")
+            .toolbar { toolbarContent }
+            .searchable(text: $searchQuery, prompt: "Search meetings")
         }
         .background(Theme.Palette.bg.ignoresSafeArea())
         .task {
-            // Lazy-load: fetch once when the window opens. Manual refresh
-            // available via the toolbar button.
             if case .idle = meetingStore.loadState {
                 await meetingStore.refresh()
             }
         }
+        .onChange(of: meetingStore.pendingUndo?.id) { newID in
+            // A fresh soft-delete just landed — start the 5s auto-dismiss
+            // window. Stamp a new local id so any in-flight prior timer
+            // skips its own clear (rapid successive deletes shouldn't
+            // clobber the latest toast).
+            guard newID != nil else { return }
+            let myID = UUID()
+            undoToastID = myID
+            Task {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                await MainActor.run {
+                    guard undoToastID == myID else { return }
+                    if meetingStore.pendingUndo?.id == newID {
+                        meetingStore.dismissUndo()
+                    }
+                }
+            }
+        }
+        .alert("Delete forever?", isPresented: hardDeleteAlertVisible, presenting: pendingHardDelete) { meeting in
+            Button("Delete Forever", role: .destructive) {
+                Task { try? await meetingStore.hardDelete(meeting.id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { meeting in
+            let label = meeting.title?.trimmingCharacters(in: .whitespaces).nonEmpty
+                ?? "this meeting"
+            Text("This permanently deletes \(label). This action can't be undone.")
+        }
     }
 
-    @ViewBuilder
-    private var content: some View {
-        switch meetingStore.loadState {
-        case .idle, .loading:
-            loadingState
-        case .failed(let message):
-            errorState(message: message)
-        case .loaded:
-            if meetingStore.meetings.isEmpty {
-                emptyState
-            } else if filteredMeetings.isEmpty {
-                noMatchesState
-            } else {
-                meetingsList
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            Picker("View", selection: $segment) {
+                ForEach(Segment.allCases) { s in
+                    Text(s.rawValue).tag(s)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 220)
+            .onChange(of: segment) { new in
+                if new == .trash, case .idle = meetingStore.trashState {
+                    Task { await meetingStore.refreshTrash() }
+                }
+            }
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button(action: refreshActive) {
+                Image(systemName: "arrow.clockwise")
+            }
+            .disabled(currentLoadState == .loading)
+        }
+    }
+
+    private func refreshActive() {
+        Task {
+            switch segment {
+            case .all:   await meetingStore.refresh()
+            case .trash: await meetingStore.refreshTrash()
             }
         }
     }
 
+    // MARK: - Content router
+
+    @ViewBuilder
+    private var content: some View {
+        switch (segment, currentLoadState) {
+        case (_, .idle), (_, .loading):
+            loadingState
+        case (_, .failed(let message)):
+            errorState(message: message)
+        case (.all, .loaded):
+            if meetingStore.meetings.isEmpty {
+                emptyAllState
+            } else if filtered(meetingStore.meetings).isEmpty {
+                noMatchesState
+            } else {
+                allList
+            }
+        case (.trash, .loaded):
+            if meetingStore.trashedMeetings.isEmpty {
+                emptyTrashState
+            } else if filtered(meetingStore.trashedMeetings).isEmpty {
+                noMatchesState
+            } else {
+                trashList
+            }
+        }
+    }
+
+    private var currentLoadState: MeetingStore.LoadState {
+        segment == .all ? meetingStore.loadState : meetingStore.trashState
+    }
+
     // MARK: - Filter
 
-    /// Trimmed, lower-cased query for matching.
     private var normalizedQuery: String {
         searchQuery
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
     }
 
-    /// Substring match on title + summary. Client-side because the full set
-    /// is already in memory (capped at 500 by MeetingStore.refresh); when
-    /// volumes outgrow that we move this to a server-side `.ilike` on title
-    /// + summary.
-    private var filteredMeetings: [Meeting] {
+    private func filtered(_ rows: [Meeting]) -> [Meeting] {
         let q = normalizedQuery
-        if q.isEmpty { return meetingStore.meetings }
-        return meetingStore.meetings.filter { meeting in
+        if q.isEmpty { return rows }
+        return rows.filter { meeting in
             if let title = meeting.title?.lowercased(), title.contains(q) { return true }
             return meeting.summary.lowercased().contains(q)
         }
@@ -83,14 +169,14 @@ struct HistoryView: View {
             ProgressView()
                 .progressViewStyle(.circular)
                 .tint(Theme.Palette.ink)
-            Text("Loading meetings…")
+            Text("Loading…")
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(Theme.Palette.muted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var emptyState: some View {
+    private var emptyAllState: some View {
         VStack(spacing: 14) {
             Image(systemName: "tray")
                 .font(.system(size: 36, weight: .regular))
@@ -99,6 +185,23 @@ struct HistoryView: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
             Text("Hit record on the floating panel to start your first.")
+                .font(.system(size: 12.5, weight: .regular))
+                .foregroundStyle(Theme.Palette.graphite)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 40)
+    }
+
+    private var emptyTrashState: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "trash")
+                .font(.system(size: 32, weight: .regular))
+                .foregroundStyle(Theme.Palette.muted)
+            Text("Trash is empty.")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.Palette.ink)
+            Text("Items you delete appear here. They're permanently removed after 30 days.")
                 .font(.system(size: 12.5, weight: .regular))
                 .foregroundStyle(Theme.Palette.graphite)
                 .multilineTextAlignment(.center)
@@ -116,10 +219,6 @@ struct HistoryView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
                 .multilineTextAlignment(.center)
-            Text("Try a different word — search looks at titles and summaries.")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Theme.Palette.graphite)
-                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 40)
@@ -130,7 +229,7 @@ struct HistoryView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 28, weight: .regular))
                 .foregroundStyle(Theme.Palette.warning)
-            Text("Couldn't load meetings.")
+            Text("Couldn't load.")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
             Text(message)
@@ -138,7 +237,7 @@ struct HistoryView: View {
                 .foregroundStyle(Theme.Palette.graphite)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Button(action: { Task { await meetingStore.refresh() } }) {
+            Button(action: refreshActive) {
                 Text("Retry")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
@@ -152,16 +251,27 @@ struct HistoryView: View {
         .padding(.horizontal, 40)
     }
 
-    private var meetingsList: some View {
-        // `List` on macOS is lazy by default — only visible rows instantiate
-        // their views even for 500+ items, so this scales without an
-        // explicit LazyVStack wrapper.
-        List(filteredMeetings) { meeting in
+    // MARK: - Lists
+
+    private var allList: some View {
+        List(filtered(meetingStore.meetings)) { meeting in
             NavigationLink(value: meeting) {
-                MeetingRow(meeting: meeting)
+                MeetingRow(meeting: meeting, mode: .all)
             }
             .listRowBackground(Color.clear)
             .listRowSeparatorTint(Theme.Palette.border)
+            .contextMenu {
+                Button {
+                    Task { await performSoftDelete(meeting) }
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                Button(role: .destructive) {
+                    pendingHardDelete = meeting
+                } label: {
+                    Label("Delete Forever", systemImage: "trash.fill")
+                }
+            }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -169,12 +279,56 @@ struct HistoryView: View {
             MeetingDetailView(meeting: meeting)
         }
     }
+
+    private var trashList: some View {
+        List(filtered(meetingStore.trashedMeetings)) { meeting in
+            MeetingRow(meeting: meeting, mode: .trash)
+                .contextMenu {
+                    Button {
+                        Task { try? await meetingStore.restore(meeting.id) }
+                    } label: {
+                        Label("Restore", systemImage: "arrow.uturn.backward")
+                    }
+                    Button(role: .destructive) {
+                        pendingHardDelete = meeting
+                    } label: {
+                        Label("Delete Forever", systemImage: "trash.fill")
+                    }
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.Palette.border)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+    }
+
+    // MARK: - Soft delete (Undo toast is driven by meetingStore.pendingUndo)
+
+    private func performSoftDelete(_ meeting: Meeting) async {
+        do {
+            try await meetingStore.softDelete(meeting)
+        } catch {
+            Log.ui.error("softDelete failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Hard-delete alert binding
+
+    private var hardDeleteAlertVisible: Binding<Bool> {
+        Binding(
+            get: { pendingHardDelete != nil },
+            set: { if !$0 { pendingHardDelete = nil } }
+        )
+    }
 }
 
 // MARK: - Row
 
 private struct MeetingRow: View {
+    enum Mode { case all, trash }
+
     let meeting: Meeting
+    let mode: Mode
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -191,6 +345,11 @@ private struct MeetingRow: View {
                     .foregroundStyle(Theme.Palette.ink)
                     .lineLimit(1)
                 Spacer(minLength: 0)
+                if mode == .trash, let trashedAt = meeting.deletedAt {
+                    Text(Self.relativeTrashedLabel(for: trashedAt))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.muted)
+                }
                 Text(meeting.language.uppercased())
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .tracking(0.5)
@@ -211,4 +370,67 @@ private struct MeetingRow: View {
         }
         .padding(.vertical, 6)
     }
+
+    /// "deleted 2d ago" — gives the user a sense of the 30-day countdown
+    /// before pg_cron sweeps the row.
+    private static func relativeTrashedLabel(for date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return "trashed " + formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+// MARK: - Undo toast
+
+private struct UndoToast: View {
+    let message: String
+    let onUndo: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "trash")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.Palette.muted)
+            Text(message)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(Theme.Palette.ink)
+            Spacer(minLength: 8)
+            Button(action: onUndo) {
+                Text("Undo")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+            }
+            .buttonStyle(.plain)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(Theme.Palette.muted)
+                    .frame(width: 18, height: 18)
+                    .background(Circle().fill(Color.white.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 380)
+        .background(
+            Capsule(style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(Capsule().fill(Theme.Palette.bgSoft.opacity(0.85)))
+                .overlay(Capsule().stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
+        )
+        .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
+    }
+}
+
+// MARK: - Helpers
+
+private extension String {
+    /// `nonEmpty` returns the string only if it's not empty — useful for
+    /// `?? fallback` chains where empty should fall through.
+    var nonEmpty: String? { isEmpty ? nil : self }
 }
