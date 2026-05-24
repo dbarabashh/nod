@@ -656,7 +656,7 @@ private struct StatusHeader: View {
                     .foregroundColor(.white.opacity(0.50))
             }
             Spacer(minLength: 0)
-            LanguagePicker(current: language, onSelect: onLanguageSelect)
+            LanguagePicker(current: language, onSelect: onLanguageSelect, enabled: meeting == .idle)
             if let onCollapse {
                 Button(action: onCollapse) {
                     Image(systemName: "chevron.up")
@@ -790,6 +790,7 @@ private struct CollapsedCapsule: View {
 private struct LanguagePicker: View {
     let current: AppLanguage
     let onSelect: (AppLanguage) -> Void
+    var enabled: Bool = true
 
     var body: some View {
         // Custom-styled `Menu` wrapping a real `Picker` so the chip keeps
@@ -818,7 +819,7 @@ private struct LanguagePicker: View {
                     .font(.system(size: 7, weight: .bold))
                     .opacity(0.65)
             }
-            .foregroundColor(.white.opacity(0.78))
+            .foregroundColor(.white.opacity(enabled ? 0.78 : 0.40))
             // Bumped padding so the chip is closer to Apple HIG's 44pt hit
             // target — visually still compact thanks to the small font.
             .padding(.horizontal, 8)
@@ -833,7 +834,10 @@ private struct LanguagePicker: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Switch language — affects transcription and AI responses")
+        .disabled(!enabled)
+        .help(enabled
+              ? "Switch language — affects transcription and AI responses"
+              : "Language is locked during a meeting — end the meeting to change it")
     }
 }
 
