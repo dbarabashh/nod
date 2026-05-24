@@ -24,6 +24,11 @@ struct MeetingDetailView: View {
     /// confirmed delete — used to suppress the `.onDisappear` save flush
     /// so we don't undo the delete by saving the local buffer right after.
     @State private var isDeleting: Bool = false
+    /// View vs edit mode for the summary. Default to view (rendered
+    /// markdown) so users opening a past meeting see formatted text
+    /// instead of literal `**Decisions made**` asterisks. Toolbar
+    /// toggle flips to edit mode for raw text editing.
+    @State private var isEditingSummary: Bool = false
 
     private enum SaveState: Equatable {
         case idle
@@ -106,20 +111,33 @@ struct MeetingDetailView: View {
     private var summaryEditor: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionLabel("Summary")
-            TextEditor(text: $editableSummary)
-                .font(.system(size: 13.5, weight: .regular))
-                .foregroundStyle(Theme.Palette.ink.opacity(0.92))
-                .scrollContentBackground(.hidden)
-                .background(Color.white.opacity(0.04))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Theme.Palette.border, lineWidth: 0.5)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                // Fill the rest of the window; the editor scrolls internally
-                // when content overflows.
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onChange(of: editableSummary) { _ in scheduleSave() }
+            Group {
+                if isEditingSummary {
+                    TextEditor(text: $editableSummary)
+                        .font(.system(size: 13.5, weight: .regular))
+                        .foregroundStyle(Theme.Palette.ink.opacity(0.92))
+                        .scrollContentBackground(.hidden)
+                        .onChange(of: editableSummary) { _ in scheduleSave() }
+                } else {
+                    ScrollView(.vertical, showsIndicators: true) {
+                        Text(renderRecapMarkdown(editableSummary))
+                            .font(.system(size: 13.5, weight: .regular))
+                            .foregroundStyle(Theme.Palette.ink.opacity(0.92))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .background(Color.white.opacity(0.04))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Theme.Palette.border, lineWidth: 0.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxHeight: .infinity)
     }
@@ -175,6 +193,15 @@ struct MeetingDetailView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button(action: { isEditingSummary.toggle() }) {
+                HStack(spacing: 6) {
+                    Image(systemName: isEditingSummary ? "checkmark" : "square.and.pencil")
+                    Text(isEditingSummary ? "Done" : "Edit")
+                }
+            }
+            .help(isEditingSummary ? "Switch back to formatted view" : "Edit the summary")
+        }
         ToolbarItem(placement: .primaryAction) {
             Button(action: copyAll) {
                 HStack(spacing: 6) {
@@ -304,4 +331,19 @@ struct MeetingDetailView: View {
             }
         }
     }
+}
+
+// MARK: - Shared markdown helper
+
+/// Parses recap markdown: inline syntax only (so `**bold**` renders for
+/// the section headers) while preserving line breaks + literal `- `
+/// bullets the LLM emits. Block-level parsing would collapse the visual
+/// structure we actually want. Used by both MeetingDetailView's preview
+/// pane and ResponseCard's editable recap preview.
+func renderRecapMarkdown(_ source: String) -> AttributedString {
+    let options = AttributedString.MarkdownParsingOptions(
+        interpretedSyntax: .inlineOnlyPreservingWhitespace
+    )
+    return (try? AttributedString(markdown: source, options: options))
+        ?? AttributedString(source)
 }

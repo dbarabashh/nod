@@ -1061,6 +1061,11 @@ private struct ResponseCard: View {
     @State private var isApplyingEdit: Bool = false
     @State private var editError: String? = nil
     @FocusState private var instructionFocused: Bool
+    /// True when the editable recap is shown as rendered markdown; false
+    /// when the user has tapped Edit to switch to the raw TextEditor.
+    /// Defaults to true so the user sees `**Topics covered**` as bold
+    /// instead of literal asterisks the moment the recap lands.
+    @State private var isPreviewingRecap: Bool = true
 
     /// Edit affordances are only enabled for the end-of-meeting recap. Mid-call
     /// cards ("Catch me up", "Key points", …) are read-only — they're
@@ -1079,6 +1084,18 @@ private struct ResponseCard: View {
                     .foregroundColor(.white.opacity(0.85))
                     .textCase(.uppercase)
                 Spacer(minLength: 0)
+                if isEditable {
+                    Button(action: { isPreviewingRecap.toggle() }) {
+                        Image(systemName: isPreviewingRecap ? "square.and.pencil" : "eye")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.65))
+                            .frame(width: 22, height: 18)
+                            .background(Capsule().fill(Color.white.opacity(0.08)))
+                    }
+                    .buttonStyle(.plain)
+                    .help(isPreviewingRecap ? "Edit raw markdown" : "Preview formatted")
+                    .disabled(isApplyingEdit)
+                }
                 Button(action: {
                     print("→ Dismiss response")
                     onDismiss()
@@ -1093,28 +1110,44 @@ private struct ResponseCard: View {
             }
 
             if isEditable {
-                // Editable buffer — user can tweak any wording inline. macOS
-                // TextEditor doesn't render markdown, so `**Topics covered**`
-                // shows with literal asterisks here; the AI-edit input below
-                // is the path to bigger restructures.
+                // Editable buffer with view / edit toggle. Default view
+                // renders markdown so `**Topics covered**` is bold. Tap
+                // the pencil icon up top to flip to raw TextEditor for
+                // direct edits; "eye" icon flips back. The AI-edit input
+                // below works in either mode and updates the same buffer.
                 //
-                // Disabled while an AI edit is in flight so user keystrokes
-                // can't race the async response — without this the LLM's
-                // returned text would silently overwrite anything they typed
-                // during the await.
-                TextEditor(text: $editableText)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.white.opacity(0.92))
-                    .scrollContentBackground(.hidden)
-                    .background(Color.white.opacity(0.04))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .frame(minHeight: 180, maxHeight: 320)
-                    .disabled(isApplyingEdit)
-                    .opacity(isApplyingEdit ? 0.6 : 1.0)
+                // Editor is disabled while an AI edit is in flight so
+                // user keystrokes can't race the async response —
+                // without this the LLM's returned text would silently
+                // overwrite anything they typed during the await.
+                Group {
+                    if isPreviewingRecap {
+                        ScrollView(.vertical, showsIndicators: true) {
+                            Text(renderRecapMarkdown(editableText))
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(.white.opacity(0.92))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                        }
+                    } else {
+                        TextEditor(text: $editableText)
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(.white.opacity(0.92))
+                            .scrollContentBackground(.hidden)
+                    }
+                }
+                .background(Color.white.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .frame(minHeight: 180, maxHeight: 320)
+                .disabled(isApplyingEdit && !isPreviewingRecap)
+                .opacity(isApplyingEdit ? 0.6 : 1.0)
 
                 if let editError {
                     Text(editError)
@@ -1126,15 +1159,18 @@ private struct ResponseCard: View {
                 aiEditRow
             } else {
                 // Mid-call responses ("Catch me up", "Key points", …) are
-                // ephemeral — read-only rendered markdown, no editor and no
-                // AI-edit input. Editing only makes sense for the persistent
-                // end-of-meeting recap.
-                Text(Self.renderMarkdown(editableText))
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.white.opacity(0.92))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                // ephemeral — read-only rendered markdown. Wrapped in a
+                // bounded ScrollView so long replies stay scrollable inside
+                // the card instead of overflowing the floating panel.
+                ScrollView(.vertical, showsIndicators: true) {
+                    Text(renderRecapMarkdown(editableText))
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(.white.opacity(0.92))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 320)
             }
 
             HStack(spacing: 8) {
@@ -1262,16 +1298,6 @@ private struct ResponseCard: View {
         }
     }
 
-    /// Kept available for callers that want to render markdown elsewhere —
-    /// the card itself is now editable plain text so the user sees the raw
-    /// source while typing.
-    private static func renderMarkdown(_ source: String) -> AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        return (try? AttributedString(markdown: source, options: options))
-            ?? AttributedString(source)
-    }
 }
 
 private struct MiniAction: View {
