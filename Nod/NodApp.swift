@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var panel: NSPanel?
     private var onboardingWindow: NSWindow?
     private var signInWindow: NSWindow?
+    private var historyWindow: NSWindow?
     private var permissions: PermissionManager?
     private var onboarding: OnboardingState?
     private var audioCapture: AudioCaptureService?
@@ -27,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var supabase: SupabaseClient?
     private var auth: AuthService?
     private var consent: ConsentPreference?
+    private var meetingStore: MeetingStore?
     private var authObserveTask: Task<Void, Never>?
     private var pendingCallbackURLs: [URL] = []
     private var statusItem: NSStatusItem?
@@ -52,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             auth: auth,
             languageProvider: { languagePreference.current.whisperCode }
         )
+        let meetingStore = MeetingStore(supabase: supabase)
 
         audioCapture.onMicBuffer = { [weak transcriptStore] buffer in
             transcriptStore?.appendMicBuffer(buffer)
@@ -69,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         self.supabase = supabase
         self.auth = auth
         self.consent = consent
+        self.meetingStore = meetingStore
 
         // Observer drives every window transition, including the initial one.
         // Idempotent show*/close* methods make repeat emissions safe.
@@ -78,7 +82,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             for await _ in auth.$session.values {
                 let isSignedIn = auth.session != nil
                 if wasSignedIn && !isSignedIn {
+                    // Sign-out: tear down the recording pipeline AND drop
+                    // the per-user caches so the next signed-in user can't
+                    // see the previous one's data through the in-memory
+                    // store or a stale History window.
                     await self.stopRecordingServices()
+                    self.meetingStore?.clear()
+                    self.closeHistoryWindow()
                 }
                 wasSignedIn = isSignedIn
                 self.reconcileWindows()
@@ -200,7 +210,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func showFloatingPanel() {
-        guard let audioCapture, let llmClient, let transcriptStore, let languagePreference, let consent, panel == nil else { return }
+        // Idempotent — re-entrant from the auth observer is normal.
+        guard panel == nil else { return }
+        // Surface init-order bugs loudly. The chained `guard let` above used
+        // to silently swallow a missing dep — now each absence logs which
+        // service didn't land in time for the panel.
+        guard let audioCapture = self.audioCapture else { Log.ui.error("showFloatingPanel: missing audioCapture"); return }
+        guard let llmClient = self.llmClient else { Log.ui.error("showFloatingPanel: missing llmClient"); return }
+        guard let transcriptStore = self.transcriptStore else { Log.ui.error("showFloatingPanel: missing transcriptStore"); return }
+        guard let languagePreference = self.languagePreference else { Log.ui.error("showFloatingPanel: missing languagePreference"); return }
+        guard let consent = self.consent else { Log.ui.error("showFloatingPanel: missing consent"); return }
+        guard let meetingStore = self.meetingStore else { Log.ui.error("showFloatingPanel: missing meetingStore"); return }
+        guard let auth = self.auth else { Log.ui.error("showFloatingPanel: missing auth"); return }
+
         NSApp.setActivationPolicy(.accessory)
 
         let content = ContentView()
@@ -209,6 +231,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             .environmentObject(transcriptStore)
             .environmentObject(languagePreference)
             .environmentObject(consent)
+            .environmentObject(meetingStore)
+            .environmentObject(auth)
 
         let panel = FloatingPanel(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 560),
@@ -261,6 +285,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @objc private func showHistoryAction() {
+        showHistoryWindow()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: - History window (issue #14)
+
+    private func showHistoryWindow() {
+        guard let meetingStore else { return }
+
+        if let existing = historyWindow {
+            existing.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 520),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Meetings"
+        window.titlebarAppearsTransparent = true
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        // Enforce a min size so a SwiftUI view with low intrinsic content
+        // (the empty / loading state) can't collapse the window. Without
+        // this the History window appeared as a ~280×320 chip with the
+        // empty-state text truncated to "No m…" / "Hit rec…".
+        window.contentMinSize = NSSize(width: 520, height: 460)
+        window.center()
+
+        let root = HistoryView()
+            .frame(minWidth: 520, minHeight: 460)
+            .environmentObject(meetingStore)
+
+        window.contentViewController = NSHostingController(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        historyWindow = window
+    }
+
+    private func closeHistoryWindow() {
+        if let window = historyWindow {
+            window.delegate = nil
+            window.close()
+        }
+        historyWindow = nil
+    }
+
     private func displayName(for user: User) -> String {
         let metadata = user.userMetadata
         for key in ["full_name", "name", "user_name"] {
@@ -281,6 +354,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 self.signInWindow = nil
             } else if closed === self.onboardingWindow {
                 self.onboardingWindow = nil
+            } else if closed === self.historyWindow {
+                // History is auxiliary — closing it doesn't trigger any
+                // reconciliation; the floating panel keeps running.
+                self.historyWindow = nil
+                return
             }
             // User-initiated close of the only UI: re-open whichever window
             // matches the current state. closing the sign-in window with no
@@ -332,6 +410,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 )
                 toggle.target = self
                 menu.addItem(toggle)
+
+                let history = NSMenuItem(
+                    title: "Meetings…",
+                    action: #selector(showHistoryAction),
+                    // No keyEquivalent — `"h"` defaults to ⌘H which the
+                    // system reserves for "Hide Application".
+                    keyEquivalent: ""
+                )
+                history.target = self
+                menu.addItem(history)
+
                 menu.addItem(.separator())
             } else if !signedIn {
                 let showSignIn = NSMenuItem(

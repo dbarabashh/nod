@@ -152,8 +152,33 @@ final class OpenRouterClient: ObservableObject {
     // MARK: - Transport
 
     private func postToProxy(body: Data) async throws -> Data {
-        guard let supabase, let jwt = supabase.auth.currentSession?.accessToken else {
-            Log.llm.error("no Supabase session — request blocked")
+        guard let supabase else {
+            Log.llm.error("no Supabase client — request blocked")
+            throw ClientError.unauthenticated
+        }
+
+        // Use the async session accessor — it transparently refreshes the
+        // JWT when the cached token is expired. The previous sync read of
+        // `currentSession?.accessToken` would happily send a stale token
+        // while the SDK's background refresh was in flight → proxy 401 →
+        // user sees "Session expired" mid-meeting even though a valid
+        // refreshed token landed milliseconds later. Real-world impact:
+        // a long recording crosses the 1h JWT TTL and the summary or a
+        // chunk transcription falls off a cliff.
+        let jwt: String
+        do {
+            jwt = try await supabase.auth.session.accessToken
+        } catch let urlError as URLError {
+            // Network blip during the SDK's refresh round-trip — treat as
+            // transient so the retry loop has a chance to re-fire after
+            // connectivity returns. Without this, a 200ms Wi-Fi dropout
+            // mid-meeting turns into a permanent "Session expired" nag.
+            Log.llm.error("auth.session refresh: transient network error \(urlError.code.rawValue) — \(urlError.localizedDescription)")
+            throw ClientError.networkFailed(urlError)
+        } catch {
+            // Anything else (refresh token revoked, malformed session,
+            // unrecoverable SDK error) → genuine sign-out path.
+            Log.llm.error("auth.session refresh failed: \(error.localizedDescription)")
             throw ClientError.unauthenticated
         }
 

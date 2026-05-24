@@ -1,4 +1,5 @@
 import SwiftUI
+import Supabase
 
 // MARK: - State
 
@@ -22,6 +23,8 @@ struct ContentView: View {
     @EnvironmentObject private var store: TranscriptStore
     @EnvironmentObject private var language: LanguagePreference
     @EnvironmentObject private var consent: ConsentPreference
+    @EnvironmentObject private var meetingStore: MeetingStore
+    @EnvironmentObject private var auth: AuthService
 
     @State private var meeting: MeetingState = .idle
     @State private var response: AIResponse = .none
@@ -34,6 +37,17 @@ struct ContentView: View {
     /// True while the recording-consent modal is on screen; gates startMeeting()
     /// before audio capture begins. See issue #4.
     @State private var showConsentDisclaimer: Bool = false
+
+    // MARK: - Meeting persistence (issue #14)
+
+    /// Wall-clock start of the current recording. Captured in beginRecording
+    /// so we can stamp `started_at` accurately when we persist on summary.
+    @State private var recordingStartedAt: Date? = nil
+    /// In-memory queue of meetings whose insert failed — retried by the
+    /// toast button. v1 has no on-disk outbox; if the panel is torn down
+    /// (sign-out) before the queue drains, the meetings are lost.
+    @State private var pendingMeetingSaves: [Meeting] = []
+    @State private var saveErrorToast: String? = nil
 
     var body: some View {
         ZStack {
@@ -51,6 +65,22 @@ struct ContentView: View {
             // backdrop — disable the columns underneath so a click in the
             // gap around the card can't accidentally hit a control.
             .allowsHitTesting(!showConsentDisclaimer)
+
+            if let saveErrorToast, !pendingMeetingSaves.isEmpty {
+                VStack {
+                    Spacer()
+                    SaveErrorToast(
+                        message: saveErrorToast,
+                        canRetry: true,
+                        onRetry: retryPendingSaves,
+                        onDismiss: dismissSaveError
+                    )
+                    .padding(.bottom, 18)
+                }
+                .frame(width: 640, height: 560, alignment: .bottom)
+                .allowsHitTesting(true)
+                .zIndex(2)
+            }
 
             if showConsentDisclaimer {
                 ConsentDisclaimerView(
@@ -234,6 +264,14 @@ struct ContentView: View {
         response = .none
         expanded = false
         isSummarizing = false
+        // Stamp the wall-clock so the persisted row carries an accurate
+        // `started_at` instead of using the summary-ready instant.
+        recordingStartedAt = Date()
+        // Don't clear pendingMeetingSaves here — a prior failed save would
+        // be silently lost if the user starts a new meeting before
+        // retrying. The toast stays visible (its content reflects whatever
+        // unsaved meetings are still queued); a successful retry empties
+        // the queue.
         Task {
             await store.start()
             await audioCapture.start()
@@ -261,6 +299,14 @@ struct ContentView: View {
         isSummarizing = true
         meeting = .paused
         response = .generating(kind: "Meeting Summary")
+        // Snapshot the recording bookends BEFORE the async work — endedAt
+        // marks the user's stop, not the summary-ready instant. We do NOT
+        // snapshot the transcript for persistence — it lives only in
+        // `store` for the summary LLM call and is then dropped.
+        let startedAt = recordingStartedAt ?? Date()
+        let endedAt = Date()
+        let langCode = language.current.whisperCode
+
         Task {
             let (system, user) = PromptLibrary.build(kind: .summary, transcript: context, language: language.current)
             do {
@@ -270,6 +316,22 @@ struct ContentView: View {
                         response = .ready(kind: "Meeting Summary", text: text)
                     }
                 }
+                // Generate a calendar-event-style title for HistoryView so
+                // rows read as the meeting's topic, not "Meeting on
+                // 23 May 2026, 19:23". Best-effort: failure here doesn't
+                // block persistence — Meeting.title is optional and
+                // `displayTitle` falls back to a date label.
+                let title = await generateMeetingTitle(from: text)
+                // Persist the meeting now that we have a summary + title +
+                // bookend timestamps. Transcript is intentionally NOT
+                // persisted — see Meeting.swift for the rationale.
+                await persistMeeting(
+                    startedAt: startedAt,
+                    endedAt: endedAt,
+                    summary: text,
+                    language: langCode,
+                    title: title
+                )
             } catch {
                 await MainActor.run {
                     if case let .generating(k) = response, k == "Meeting Summary" {
@@ -356,6 +418,146 @@ struct ContentView: View {
             language: language.current
         )
         return try await llm.complete(system: system, user: user)
+    }
+
+    // MARK: - Meeting persistence (issue #14)
+
+    /// Builds the Meeting and fires the Supabase insert. On failure caches
+    /// the row in @State so the retry toast can re-fire it with the SAME id
+    /// (idempotency from the client side — server allows duplicate ids
+    /// because of `default gen_random_uuid()` only when client omits id; we
+    /// always send our pre-generated id).
+    private func persistMeeting(
+        startedAt: Date,
+        endedAt: Date,
+        summary: String,
+        language: String,
+        title: String?
+    ) async {
+        // Read the SDK's cached session directly — it's updated atomically
+        // when sign-in lands and during refresh, while AuthService.$session
+        // lags by a publisher microtask. Without this, persistMeeting can
+        // race a fresh sign-in and silently drop a meeting that should
+        // have saved fine.
+        guard let userID = auth.currentSupabaseSession?.user.id else {
+            Log.ui.error("MeetingStore.insert skipped — no session")
+            return
+        }
+        let meeting = Meeting.newCompleted(
+            userID: userID,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            summary: summary,
+            language: language,
+            title: title
+        )
+        await attemptSave(meeting)
+    }
+
+    /// Best-effort LLM call to produce a short event-style title. Returns
+    /// nil on failure (Meeting.displayTitle falls back to a date label).
+    private func generateMeetingTitle(from summary: String) async -> String? {
+        let (system, user) = PromptLibrary.buildTitle(
+            summary: summary,
+            language: language.current
+        )
+        do {
+            let raw = try await llm.complete(system: system, user: user)
+            return Self.sanitizeTitle(raw)
+        } catch {
+            Log.ui.error("title generation failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Models occasionally wrap titles in **bold**, prefix them with
+    /// "Title: ", or echo quotes around them despite the prompt's
+    /// instructions. Strip the common artefacts before storing.
+    private static func sanitizeTitle(_ raw: String) -> String? {
+        // 1. Whitespace + first-line only — models sometimes follow with a
+        //    blank line + explanation.
+        var line = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .newlines)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? ""
+
+        // 2. Surrounding quotes / backticks.
+        line = line.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`"))
+
+        // 3. Surrounding `**bold**` markers — the LLM sometimes emits the
+        //    title in bold despite the no-markdown rule.
+        if line.hasPrefix("**") && line.hasSuffix("**") && line.count > 4 {
+            line.removeFirst(2)
+            line.removeLast(2)
+            line = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // 4. Leading "Title:" / "Заголовок:" / "Тема:" / "Назва:" prefixes
+        //    (case-insensitive).
+        for prefix in ["title:", "заголовок:", "тема:", "назва:"] {
+            if line.lowercased().hasPrefix(prefix) {
+                line = String(line.dropFirst(prefix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                break
+            }
+        }
+
+        // 5. Trailing punctuation that doesn't belong in a title.
+        while let last = line.last, ".!?;,".contains(last) {
+            line.removeLast()
+        }
+        line = line.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Cap at 120 chars — enough headroom for Ukrainian/Russian/Polish
+        // 7-word titles whose roots are longer than English equivalents.
+        guard !line.isEmpty, line.count <= 120 else {
+            Log.ui.info("title rejected (empty or too long): \(line.prefix(40))…")
+            return nil
+        }
+        return line
+    }
+
+    private func attemptSave(_ meeting: Meeting) async {
+        do {
+            try await meetingStore.insert(meeting)
+            pendingMeetingSaves.removeAll { $0.id == meeting.id }
+            if pendingMeetingSaves.isEmpty {
+                saveErrorToast = nil
+            }
+        } catch {
+            Log.ui.error("MeetingStore.insert failed — \(error.localizedDescription)")
+            // Always queue the failed save so it survives until the user
+            // explicitly retries (or the panel is torn down — v1 has no
+            // on-disk outbox). Only the visible toast is gated on whether
+            // the user is still looking at the post-meeting card —
+            // surfacing a toast over the idle UI is confusing.
+            if !pendingMeetingSaves.contains(where: { $0.id == meeting.id }) {
+                pendingMeetingSaves.append(meeting)
+            }
+            if self.meeting != .idle || self.response != .none {
+                saveErrorToast = "Couldn't save meeting — \(error.localizedDescription)"
+            } else {
+                Log.ui.info("save failed after dismiss — queued silently: \(meeting.id)")
+            }
+        }
+    }
+
+    fileprivate func retryPendingSaves() {
+        let queued = pendingMeetingSaves
+        Task {
+            for meeting in queued {
+                await attemptSave(meeting)
+            }
+        }
+    }
+
+    fileprivate func dismissSaveError() {
+        saveErrorToast = nil
+        // Toast hidden; the queue itself stays so a future save error will
+        // resurface the latest message. The toast re-appears the moment
+        // `saveErrorToast` is set again by a fresh failure.
     }
 }
 
@@ -940,9 +1142,6 @@ private struct ResponseCard: View {
                 MiniAction(label: "Copy", icon: "doc.on.doc") {
                     onCopy(editableText)
                 }
-                MiniAction(label: "Insert", icon: "arrow.right.circle.fill") {
-                    print("→ Insert (dummy)")
-                }
             }
         }
         .padding(14)
@@ -1194,17 +1393,74 @@ private func lightFrostedBubble(cornerRadius: CGFloat) -> some View {
         )
 }
 
+private struct SaveErrorToast: View {
+    let message: String
+    let canRetry: Bool
+    let onRetry: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.Palette.warning)
+
+            Text(message)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(Theme.Palette.ink)
+                .lineLimit(2)
+
+            Spacer(minLength: 8)
+
+            if canRetry {
+                Button(action: onRetry) {
+                    Text("Retry")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.ink)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(Theme.Palette.muted)
+                    .frame(width: 18, height: 18)
+                    .background(Circle().fill(Color.white.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 480)
+        .background(
+            Capsule(style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(Capsule().fill(Theme.Palette.bgSoft.opacity(0.75)))
+                .overlay(Capsule().stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
+        )
+        .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
+    }
+}
+
 #Preview {
     let llm = OpenRouterClient()
     let language = LanguagePreference()
     // Use a dedicated UserDefaults suite so previewing the Acknowledge flow
     // doesn't taint the developer's installed app's consent state.
     let previewDefaults = UserDefaults(suiteName: "nod.preview.consent") ?? .standard
+    let supabase = SupabaseClient(supabaseURL: SupabaseConfig.url, supabaseKey: SupabaseConfig.anonKey)
+    let auth = AuthService(client: supabase)
     return ContentView()
         .environmentObject(AudioCaptureService())
         .environmentObject(llm)
         .environmentObject(TranscriptStore(client: llm, language: language))
         .environmentObject(language)
         .environmentObject(ConsentPreference(defaults: previewDefaults))
+        .environmentObject(MeetingStore(supabase: supabase))
+        .environmentObject(auth)
         .background(Color.gray.opacity(0.3))
 }

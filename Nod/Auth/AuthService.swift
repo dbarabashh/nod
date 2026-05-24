@@ -13,6 +13,16 @@ final class AuthService: ObservableObject {
     private let client: SupabaseClient
     private var stateTask: Task<Void, Never>?
 
+    /// The SDK's most-recent cached session — updated by the SDK
+    /// synchronously as soon as a token refreshes or sign-in lands,
+    /// **before** the `authStateChanges` stream emits and updates our
+    /// @Published `session`. Use this when you need the freshest value
+    /// (e.g. attribution for a record about to be persisted) and don't
+    /// care about SwiftUI observation.
+    var currentSupabaseSession: Session? {
+        client.auth.currentSession
+    }
+
     init(client: SupabaseClient) {
         self.client = client
         let cached = client.auth.currentSession

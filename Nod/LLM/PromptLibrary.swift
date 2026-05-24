@@ -106,6 +106,32 @@ struct PromptLibrary {
         "Transcript so far:\n\n\(context)\n\nRespond now."
     }
 
+    // MARK: - Title generation
+
+    /// Generates a short, calendar-event-style title for a completed meeting
+    /// based on its recap. Used by HistoryView so users see "Q3 pricing
+    /// alignment" instead of "Meeting on 23 May 2026, 19:23". Issue #14.
+    static func buildTitle(
+        summary: String,
+        language: AppLanguage = .english
+    ) -> (system: String, user: String) {
+        let system = """
+        You are generating a short title for a meeting based on its recap. The title should read like a calendar-event title — what someone would label this meeting on their calendar.
+
+        Rules:
+        - 4-7 words total. Hard limit at 7 words.
+        - Specific to what the meeting was actually about (e.g. "Q3 pricing alignment" not "Team meeting"). Pull a concrete project name, topic, or decision from the recap.
+        - No quotes, no markdown, no trailing punctuation.
+        - No preamble like "Title:" — just the title text on a single line.
+
+        IMPORTANT: Respond in \(language.promptName). Even if the recap contains other languages, output the title in \(language.promptName).
+        """
+
+        let user = "Meeting recap:\n\n\(summary)\n\nGenerate the title now."
+
+        return (system, user)
+    }
+
     // MARK: - AI-assisted summary editing
 
     /// Builds the prompt for "Ask AI to edit this recap" — the small chat-style
