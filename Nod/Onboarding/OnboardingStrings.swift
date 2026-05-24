@@ -1,12 +1,13 @@
 import Foundation
 
-/// English + Ukrainian copy for onboarding. Switched off `LanguagePreference`.
-/// Localizing only this surface for now — issue #3 ACs require en/uk; broader
-/// localization is tracked under #12.
+/// English-only copy for the onboarding flow. The app chrome is intentionally
+/// not localized — only the transcription and LLM output respond to the user's
+/// language pick. Same approach Otter / Granola / Cleary take.
 struct OnboardingStrings {
     let welcomeTitle: String
     let welcomeTagline: String
     let welcomeBullets: [WelcomeBullet]
+    let welcomeLanguageLabel: String
     let welcomeContinue: String
 
     struct WelcomeBullet {
@@ -51,15 +52,6 @@ struct OnboardingStrings {
         let title: String
         let body: String
     }
-
-    static func forLanguageCode(_ code: String) -> OnboardingStrings {
-        switch code {
-        case "uk":
-            return ukrainian
-        default:
-            return english
-        }
-    }
 }
 
 extension OnboardingStrings {
@@ -71,6 +63,7 @@ extension OnboardingStrings {
             .init(icon: "sparkles", text: "Ask for key points, follow-ups, or a recap mid-meeting."),
             .init(icon: "lock.fill", text: "Audio leaves your Mac only during transcription — never stored.")
         ],
+        welcomeLanguageLabel: "Meeting language",
         welcomeContinue: "Continue",
 
         permissionsTitle: "Grant Permissions",
@@ -120,64 +113,5 @@ extension OnboardingStrings {
         ],
         tutorialPrivacy: "Mic, language, and sign-out live in the floating panel — change them any time.",
         tutorialGotIt: "Got it"
-    )
-
-    static let ukrainian = OnboardingStrings(
-        welcomeTitle: "Вітаємо в Nod",
-        welcomeTagline: "Ваш помічник на зустрічах — слухає під час дзвінка, підсумовує після завершення.",
-        welcomeBullets: [
-            .init(icon: "waveform", text: "Записує і вас, і ваших співрозмовників."),
-            .init(icon: "sparkles", text: "Запитуйте ключові тези, питання чи проміжний підсумок прямо під час дзвінка."),
-            .init(icon: "lock.fill", text: "Аудіо залишає ваш Mac лише на час транскрипції — нічого не зберігається.")
-        ],
-        welcomeContinue: "Далі",
-
-        permissionsTitle: "Надайте дозволи",
-        permissionsSubtitle: "Nod потрібен доступ до мікрофона та системного звуку, щоб записувати зустрічі.",
-
-        micTitle: "Мікрофон",
-        micDescription: "Записує те, що ви говорите під час зустрічі.",
-
-        screenTitle: "Запис екрана",
-        screenDescription: "Потрібен для запису системного звуку з застосунку для зустрічей.",
-
-        screenPreemptiveTitle: "Навіщо «Запис екрана»?",
-        screenPreemptiveBody: "Цей дозвіл потрібен лише для запису системного звуку — голосу інших учасників. Nod не записує і не передає зображення екрана; лише звуковий мікс із ваших динаміків.",
-
-        guideStep1Title: "Відкрийте «Приватність і безпека»",
-        guideStep1Detail: "У «Системних налаштуваннях» прокрутіть до «Приватність і безпека».",
-        guideStep2Title: "Увімкніть Nod у «Запис екрана»",
-        guideStep2Detail: "Перемкніть Nod у позицію «увімкнено». macOS попросить перезапустити застосунок.",
-
-        actionEnable: "Увімкнути",
-        actionOpenSettings: "Відкрити налаштування",
-        actionRelaunch: "Перезапустити Nod",
-        actionRelaunchHint: "Дозвіл надано. Перезапустіть Nod, щоб він міг записувати системний звук.",
-        actionSkip: "Пропустити",
-        actionContinue: "Продовжити",
-        actionContinueAnyway: "Продовжити все одно",
-        actionFinish: "Далі",
-        statusGranted: "Надано",
-
-        tutorialTitle: "Ваша перша зустріч",
-        tutorialBullets: [
-            .init(
-                icon: "record.circle",
-                title: "Натисніть «Start Meeting» на плаваючій панелі",
-                body: "Панель розташована ліворуч на екрані. Над кнопкою показано найближчу подію з вашого календаря."
-            ),
-            .init(
-                icon: "sparkles",
-                title: "Запитуйте Nod під час дзвінка",
-                body: "Натисніть «Catch me up», «Key points», «Suggest follow-up questions» чи «Recap so far», коли потрібна допомога."
-            ),
-            .init(
-                icon: "doc.text",
-                title: "Отримайте підсумок після завершення",
-                body: "Натисніть «End» — і Nod згенерує підсумок зустрічі, який можна скопіювати. Жодних записів не зберігається — аудіо залишає Mac лише для транскрипції."
-            )
-        ],
-        tutorialPrivacy: "Мікрофон, мову й вихід з акаунту можна змінити будь-коли з плаваючої панелі.",
-        tutorialGotIt: "Зрозуміло"
     )
 }

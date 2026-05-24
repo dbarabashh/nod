@@ -18,19 +18,30 @@ struct OnboardingView: View {
             content
                 .padding(.top, Self.chromeInset)
         }
-        .frame(width: 580, height: 540)
+        // minWidth/minHeight (not fixed) so when users with large system
+        // text scaling grow the window, the SwiftUI content actually
+        // expands to use the new space.
+        .frame(minWidth: 580, minHeight: 540)
         .onAppear { permissions.refresh() }
     }
 
-    private var strings: OnboardingStrings {
-        OnboardingStrings.forLanguageCode(language.current.whisperCode)
-    }
+    private var strings: OnboardingStrings { .english }
 
     @ViewBuilder
     private var content: some View {
         switch state.status.currentStep {
         case .welcome:
-            WelcomeStep(strings: strings, onContinue: state.goNext)
+            // Commit the language pick only when the user actually advances
+            // past Welcome — so an exploratory tap in the picker doesn't
+            // persist if they close onboarding mid-flow.
+            WelcomeStep(
+                strings: strings,
+                currentLanguage: language.current,
+                onContinue: { picked in
+                    language.current = picked
+                    state.goNext()
+                }
+            )
         case .permissions:
             PermissionsStep(
                 strings: strings,

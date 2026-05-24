@@ -18,8 +18,11 @@ import Supabase
 final class ConsentPreference: ObservableObject {
     /// Bumped whenever the disclaimer body copy changes materially.
     /// Stored alongside each Supabase row so we can prove exactly which
-    /// wording a given user agreed to.
-    static let disclaimerVersion = "2026-05-23-v1"
+    /// wording a given user agreed to. v2 (2026-05-24): dropped the
+    /// Ukrainian translation; the disclaimer is now English-only and the
+    /// audit row's `language_code` is always "en" to match the rendered
+    /// text (not the user's transcription-language pick).
+    static let disclaimerVersion = "2026-05-24-v2"
 
     @Published private(set) var isAccepted: Bool
 
@@ -27,18 +30,15 @@ final class ConsentPreference: ObservableObject {
 
     private let supabase: SupabaseClient?
     private let auth: AuthService?
-    private let languageProvider: @MainActor () -> String
     private let defaults: UserDefaults
 
     init(
         supabase: SupabaseClient? = nil,
         auth: AuthService? = nil,
-        languageProvider: @escaping @MainActor () -> String = { "en" },
         defaults: UserDefaults = .standard
     ) {
         self.supabase = supabase
         self.auth = auth
-        self.languageProvider = languageProvider
         self.defaults = defaults
         self.isAccepted = defaults.bool(forKey: Self.storageKey)
     }
@@ -56,8 +56,10 @@ final class ConsentPreference: ObservableObject {
 
     private func writeAuditRow() {
         // Snapshot values that need MainActor isolation before crossing
-        // into a detached Task.
-        let languageCode = languageProvider()
+        // into a detached Task. The disclaimer body is English-only, so
+        // `language_code` is hard-coded to match what the user actually
+        // saw — independent of their transcription-language pick.
+        let languageCode = "en"
         let appVersion = Self.appVersion()
         guard let supabase, let auth, let userID = auth.session?.user.id else {
             Log.ui.info("consent: skipping audit row (no session)")

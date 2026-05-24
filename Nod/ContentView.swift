@@ -84,7 +84,7 @@ struct ContentView: View {
 
             if showConsentDisclaimer {
                 ConsentDisclaimerView(
-                    strings: ConsentStrings.forLanguageCode(language.current.whisperCode),
+                    strings: .english,
                     onCancel: {
                         withAnimation(.easeOut(duration: 0.15)) {
                             showConsentDisclaimer = false
@@ -131,7 +131,7 @@ struct ContentView: View {
                 meeting: meeting,
                 elapsed: elapsedString,
                 language: language.current,
-                onLanguageToggle: { language.toggle() },
+                onLanguageSelect: { language.current = $0 },
                 onCollapse: meeting != .idle ? {
                     withAnimation(.easeOut(duration: 0.18)) { expanded = false }
                 } : nil
@@ -635,41 +635,49 @@ private struct StatusHeader: View {
     let meeting: MeetingState
     let elapsed: String
     let language: AppLanguage
-    let onLanguageToggle: () -> Void
+    let onLanguageSelect: (AppLanguage) -> Void
     var onCollapse: (() -> Void)? = nil
     @State private var pulsing = false
 
     var body: some View {
         HStack(spacing: 8) {
             indicator
-            Text(label)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.white.opacity(0.85))
+            // Only label active states (REC/PAUSED) — idle is the default,
+            // and the Start button beneath is its own affordance. "READY"
+            // is shouty and didn't carry information the user couldn't
+            // infer from the rest of the panel.
             if meeting != .idle {
+                Text(label)
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.82))
                 Text(elapsed)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.55))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.50))
             }
             Spacer(minLength: 0)
-            LanguageToggle(language: language, action: onLanguageToggle)
+            LanguagePicker(current: language, onSelect: onLanguageSelect)
             if let onCollapse {
                 Button(action: onCollapse) {
                     Image(systemName: "chevron.up")
                         .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(.white.opacity(0.7))
+                        .foregroundColor(.white.opacity(0.6))
                         .frame(width: 16, height: 16)
                 }
                 .buttonStyle(.plain)
                 .help("Collapse")
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .padding(.vertical, 7)
+        // Matches the StartMeetingButton's treatment — frosted material +
+        // subtle white-stroke border, no heavy black overlay — so the two
+        // pills sit together as a coherent Raycast-style command surface.
         .background(
             Capsule(style: .continuous)
                 .fill(.ultraThinMaterial)
-                .overlay(Capsule().fill(Color.black.opacity(0.25)))
-                .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+                .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
         )
         .onAppear { pulsing = true }
     }
@@ -677,9 +685,12 @@ private struct StatusHeader: View {
     @ViewBuilder private var indicator: some View {
         switch meeting {
         case .idle:
+            // Green = ready/available (Nod is alive, waiting to record).
+            // Grey read as "off" which contradicted reality.
             Circle()
-                .fill(Color.white.opacity(0.35))
+                .fill(Color(red: 0.40, green: 0.85, blue: 0.55))
                 .frame(width: 8, height: 8)
+                .shadow(color: Color(red: 0.40, green: 0.85, blue: 0.55).opacity(0.55), radius: 3, x: 0, y: 0)
         case .recording:
             Circle()
                 .fill(Color(red: 0.95, green: 0.25, blue: 0.30))
@@ -776,75 +787,108 @@ private struct CollapsedCapsule: View {
     }
 }
 
-private struct LanguageToggle: View {
-    let language: AppLanguage
-    let action: () -> Void
+private struct LanguagePicker: View {
+    let current: AppLanguage
+    let onSelect: (AppLanguage) -> Void
 
     var body: some View {
-        Button(action: {
-            print("→ language tap")
-            action()
-        }) {
-            Text(language.chipLabel)
-                .font(.system(size: 10, weight: .bold, design: .rounded))
-                .tracking(0.5)
-                .foregroundColor(.white.opacity(0.85))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color.white.opacity(0.12))
-                        .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
-                )
+        // Custom-styled `Menu` wrapping a real `Picker` so the chip keeps
+        // its visual treatment (2-letter chipLabel + chevron) but SwiftUI
+        // owns selection semantics — VoiceOver announces the selected
+        // language, and the menu plays nicely with the non-activating
+        // floating panel where a hand-rolled menu sometimes ate the
+        // first click waiting for key-window status.
+        Menu {
+            Picker("Language", selection: Binding(
+                get: { current },
+                set: { onSelect($0) }
+            )) {
+                ForEach(AppLanguage.allCases, id: \.self) { lang in
+                    Text(lang.nativeName).tag(lang)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            HStack(spacing: 3) {
+                Text(current.chipLabel)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .tracking(0.5)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .bold))
+                    .opacity(0.65)
+            }
+            .foregroundColor(.white.opacity(0.78))
+            // Bumped padding so the chip is closer to Apple HIG's 44pt hit
+            // target — visually still compact thanks to the small font.
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .contentShape(Capsule())
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+                    .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+            )
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .help("Switch language — affects transcription and AI responses")
     }
 }
 
+/// Raycast-style command pill. Frosted dark capsule, red record dot left,
+/// "Start meeting" label. No kbd-shortcut badge — `.keyboardShortcut` on a
+/// `.nonactivatingPanel` doesn't fire because the panel rarely becomes key;
+/// showing a hint for a non-functional shortcut is worse than no hint.
+/// Re-add a kbd badge once a real global hotkey is wired
+/// (RegisterEventHotKey or NSEvent.addGlobalMonitorForEvents).
 private struct StartMeetingButton: View {
     let action: () -> Void
+    @State private var hovered = false
+    @State private var pressed = false
+
+    private static let red = Color(red: 0.95, green: 0.30, blue: 0.35)
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: "record.circle.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(Color(red: 0.95, green: 0.45, blue: 0.50))
+                Circle()
+                    .fill(Self.red)
+                    .frame(width: 8, height: 8)
+                    .shadow(color: Self.red.opacity(0.55), radius: 4, x: 0, y: 0)
 
-                Text("Start Meeting")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
-
-                Spacer(minLength: 0)
+                Text("Start meeting")
+                    .font(.system(size: 13.5, weight: .medium))
+                    .foregroundColor(.white.opacity(0.92))
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .frame(width: 240, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, minHeight: 38)
             .background(
                 Capsule(style: .continuous)
                     .fill(.ultraThinMaterial)
                     .overlay(
                         Capsule(style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color(red: 0.55, green: 0.20, blue: 0.30).opacity(0.55),
-                                        Color(red: 0.40, green: 0.15, blue: 0.25).opacity(0.45)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
+                            .fill(Color.white.opacity(hovered ? 0.06 : 0.02))
                     )
                     .overlay(
                         Capsule(style: .continuous)
-                            .stroke(Color.white.opacity(0.22), lineWidth: 0.6)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
                     )
             )
-            .shadow(color: Color(red: 0.60, green: 0.20, blue: 0.30).opacity(0.4), radius: 10, x: 0, y: 4)
+            .scaleEffect(pressed ? 0.985 : 1.0)
+            .animation(.easeOut(duration: 0.10), value: pressed)
+            .animation(.easeOut(duration: 0.12), value: hovered)
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in pressed = true }
+                .onEnded { _ in pressed = false }
+        )
     }
 }
 

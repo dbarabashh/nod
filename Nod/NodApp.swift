@@ -51,8 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let transcriptStore = TranscriptStore(client: llmClient, language: languagePreference)
         let consent = ConsentPreference(
             supabase: supabase,
-            auth: auth,
-            languageProvider: { languagePreference.current.whisperCode }
+            auth: auth
         )
         let meetingStore = MeetingStore(supabase: supabase)
 
@@ -176,9 +175,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         NSApp.setActivationPolicy(.regular)
 
+        // .resizable so users with large system text settings can grow the
+        // window when content overflows the 580x540 default.
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 580, height: 540),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
