@@ -18,6 +18,12 @@ final class FloatingPanel<Content: View>: NSPanel {
         self.isMovableByWindowBackground = true
         self.hidesOnDeactivate = false
         self.becomesKeyOnlyIfNeeded = true
+        // Floating utility panels shouldn't be part of the user's screen-share.
+        // Same default as Raycast / 1Password / Notification Center — the user's
+        // private workspace doesn't bleed into the content they explicitly
+        // shared with Zoom / Meet / Teams. Respected by all standard macOS
+        // capture APIs (SCStream, CGWindowList, AVCaptureScreenInput).
+        self.sharingType = .none
         self.collectionBehavior = [
             .canJoinAllSpaces,
             .stationary,
