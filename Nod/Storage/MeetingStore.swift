@@ -44,8 +44,30 @@ final class MeetingStore: ObservableObject {
     /// (`softDelete` sets, `dismissUndo` / `restore` / `hardDelete` clear).
     @Published private(set) var pendingUndo: Meeting? = nil
 
+    /// True when the most recent `refresh()` attempt failed AND we kept
+    /// cached `meetings` instead of flipping to `.failed`. Drives a
+    /// non-blocking "couldn't sync, showing cached" warning in
+    /// HistoryView's toolbar so the user knows the list may be stale
+    /// without losing access to what we already have. Cleared on the
+    /// next successful refresh.
+    @Published private(set) var lastRefreshFailed: Bool = false
+
     private let supabase: SupabaseClient
     private static let tableName = "meetings"
+
+    /// In-flight guard for `refresh()`. Set unconditionally at entry so
+    /// concurrent silent refreshes (when `loadState` stays `.loaded`)
+    /// dedupe — the previous `if case .loading = loadState` guard only
+    /// fired for the first non-cached fetch, letting subsequent silent
+    /// refreshes race each other on every NavigationStack pop.
+    private var isFetching: Bool = false
+
+    /// Timestamp of the last successful server fetch. Used by `refresh()`
+    /// to throttle silent refreshes: `.task` re-fires on every
+    /// NavigationStack pop, but if we just fetched < 30s ago the cache is
+    /// almost certainly fresh enough — skip the 500-row round trip.
+    private var lastSuccessfulFetchAt: Date?
+    private let refreshThrottle: TimeInterval = 30
 
     init(supabase: SupabaseClient) {
         self.supabase = supabase
@@ -248,6 +270,8 @@ final class MeetingStore: ObservableObject {
         loadState = .idle
         trashedMeetings = []
         trashState = .idle
+        lastRefreshFailed = false
+        lastSuccessfulFetchAt = nil
     }
 
     // MARK: - Read
@@ -255,15 +279,47 @@ final class MeetingStore: ObservableObject {
     /// Fetches the current user's non-deleted meetings, newest first. RLS
     /// makes the WHERE-on-user-id implicit — the server only returns rows
     /// that match the JWT.
-    func refresh() async {
-        // Dedupe concurrent calls (toolbar spam + .task race). The disabled
-        // toolbar state is best-effort UI — gate at the source.
-        if case .loading = loadState {
+    /// `force` bypasses the 30s throttle but never the in-flight guard.
+    /// Use `force: true` for explicit user-initiated retries (toolbar
+    /// reload button, "Couldn't sync" warning chip); leave the default
+    /// for `.task`-driven auto-refreshes that should be throttled.
+    func refresh(force: Bool = false) async {
+        // Unconditional in-flight guard. Covers both initial fetch
+        // (loadState would flip to .loading and the old check caught
+        // those) AND silent refresh (loadState stays .loaded and the
+        // old check would have let concurrent calls through).
+        if isFetching {
             Log.ui.info("MeetingStore.refresh skipped — already in flight")
             return
         }
-        Log.ui.info("MeetingStore.refresh starting")
-        loadState = .loading
+
+        let hadLoadedCache: Bool
+        if case .loaded = loadState { hadLoadedCache = true } else { hadLoadedCache = false }
+
+        // Throttle silent refreshes. `.task` re-fires on every
+        // NavigationStack pop; if the cache is < 30s old it's basically
+        // fresh and the 500-row round trip is wasteful. Initial fetch
+        // (no loaded cache yet) always proceeds. `force=true` (manual
+        // retry) bypasses — user explicitly asked, honor that even if
+        // the last success was 5s ago.
+        if !force, hadLoadedCache, let last = lastSuccessfulFetchAt,
+           Date().timeIntervalSince(last) < refreshThrottle {
+            Log.ui.info("MeetingStore.refresh throttled — last success \(Int(Date().timeIntervalSince(last)))s ago")
+            return
+        }
+
+        isFetching = true
+        defer { isFetching = false }
+
+        // Silent refresh when we already have a loaded cache: don't flip
+        // to .loading (which would show the spinner and blank the list
+        // mid-fetch), and on failure keep the cache while surfacing a
+        // non-blocking warning chip via `lastRefreshFailed` so the user
+        // knows the list may be stale. Failures are recoverable on the
+        // next attempt; cached rows are better than an error screen, but
+        // silent stale data is worse than a visible warning.
+        Log.ui.info("MeetingStore.refresh starting (silent=\(hadLoadedCache))")
+        if !hadLoadedCache { loadState = .loading }
         do {
             // Capped at 500 newest. With no transcript column (#14 follow-up)
             // each row is ~1-2 KB, so 500 ≈ 1 MB — acceptable for v1.
@@ -286,10 +342,22 @@ final class MeetingStore: ObservableObject {
                 .value
             meetings = rows
             loadState = .loaded
+            lastSuccessfulFetchAt = Date()
+            lastRefreshFailed = false
             Log.ui.info("MeetingStore.refresh loaded \(rows.count) meetings")
         } catch {
-            Log.ui.error("MeetingStore.refresh failed: \(error.localizedDescription)")
-            loadState = .failed(error.localizedDescription)
+            if hadLoadedCache {
+                Log.ui.error("MeetingStore.refresh failed (keeping cache): \(error.localizedDescription)")
+                // Keep loadState = .loaded so the cached list stays
+                // rendered, but raise lastRefreshFailed so HistoryView
+                // can show a small warning chip. Without that flag the
+                // user has no signal at all that data is stale.
+                lastRefreshFailed = true
+            } else {
+                Log.ui.error("MeetingStore.refresh failed: \(error.localizedDescription)")
+                loadState = .failed(error.localizedDescription)
+                lastRefreshFailed = true
+            }
         }
     }
 }

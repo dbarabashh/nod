@@ -44,9 +44,14 @@ struct HistoryView: View {
         }
         .background(Theme.Palette.bg.ignoresSafeArea())
         .task {
-            if case .idle = meetingStore.loadState {
-                await meetingStore.refresh()
-            }
+            // Always refresh on appear. The previous `.idle` gate would
+            // skip refresh whenever the store already had data — including
+            // the case where MeetingStore.insert() optimistically promoted
+            // loadState to .loaded after a single new meeting, leaving the
+            // list looking like a one-row history. MeetingStore.refresh()
+            // dedupes concurrent calls and stays silent when there's
+            // already a loaded cache, so calling on every appear is cheap.
+            await meetingStore.refresh()
         }
         .onChange(of: meetingStore.pendingUndo?.id) { newID in
             // A fresh soft-delete just landed — start the 5s auto-dismiss
@@ -97,17 +102,43 @@ struct HistoryView: View {
             }
         }
         ToolbarItem(placement: .primaryAction) {
-            Button(action: refreshActive) {
-                Image(systemName: "arrow.clockwise")
+            HStack(spacing: 8) {
+                if meetingStore.lastRefreshFailed, segment == .all {
+                    // Non-blocking warning when a silent refresh failed
+                    // and we kept showing the cached list. Click to
+                    // retry. Without this the user sees a list that
+                    // looks current but may be stale by hours/days.
+                    Button(action: refreshActive) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Couldn't sync")
+                                .font(.system(size: 11, weight: .regular))
+                        }
+                        .foregroundStyle(Theme.Palette.warning)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Theme.Palette.warning.opacity(0.12))
+                                .overlay(Capsule().stroke(Theme.Palette.warning.opacity(0.35), lineWidth: 0.5))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Showing cached meetings. Click to retry refresh.")
+                }
+                Button(action: refreshActive) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .disabled(currentLoadState == .loading)
             }
-            .disabled(currentLoadState == .loading)
         }
     }
 
     private func refreshActive() {
         Task {
             switch segment {
-            case .all:   await meetingStore.refresh()
+            case .all:   await meetingStore.refresh(force: true)
             case .trash: await meetingStore.refreshTrash()
             }
         }
