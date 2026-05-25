@@ -100,6 +100,27 @@ final class TranscriptStore: ObservableObject {
         system.append(buffer)
     }
 
+    /// Force-flush both transcribers and append the results synchronously
+    /// on MainActor so `fullContext` is fresh by the time this returns.
+    func flushPending() async {
+        async let me = mic.flushPending()
+        async let them = system.flushPending()
+        let (meText, themText) = await (me, them)
+
+        await MainActor.run {
+            if let text = meText {
+                self.entries.append(TranscriptEntry(source: .me, text: text, timestamp: Date()))
+                self.lastSource = .me
+                self.lastError = nil
+            }
+            if let text = themText {
+                self.entries.append(TranscriptEntry(source: .them, text: text, timestamp: Date()))
+                self.lastSource = .them
+                self.lastError = nil
+            }
+        }
+    }
+
     var fullContext: String {
         var lines: [String] = []
         for entry in entries {

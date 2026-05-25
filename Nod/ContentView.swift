@@ -151,6 +151,13 @@ struct ContentView: View {
                 )
 
                 SuggestionPill(
+                    label: "Suggest reply",
+                    dotColor: DesignTokens.Palette.sunsetOrange,
+                    isGenerating: isGenerating(for: "Suggest reply"),
+                    enabled: meeting == .recording,
+                    action: { generate(kind: "Suggest reply") }
+                )
+                SuggestionPill(
                     label: "Key points",
                     dotColor: DesignTokens.Palette.skyBlue,
                     isGenerating: isGenerating(for: "Key points"),
@@ -380,11 +387,17 @@ struct ContentView: View {
             response = .ready(kind: requestedKind, text: "⚠️ Unknown action: \(kind)")
             return
         }
-        let context = store.fullContext
-        if context.isEmpty {
-            Log.ui.info("⚠️ context is EMPTY — LLM will get only the system prompt")
-        }
         Task {
+            // Suggest reply is real-time — force the latest chunk into the
+            // transcript before reading context. Other pills tolerate the 5s
+            // staleness.
+            if promptKind == .suggestReply {
+                await store.flushPending()
+            }
+            let context = store.fullContext
+            if context.isEmpty {
+                Log.ui.info("⚠️ context is EMPTY — LLM will get only the system prompt")
+            }
             let (system, user) = PromptLibrary.build(kind: promptKind, transcript: context, language: language.current)
             do {
                 let text = try await llm.complete(system: system, user: user)

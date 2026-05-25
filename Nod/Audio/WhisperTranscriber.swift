@@ -24,6 +24,10 @@ final class WhisperTranscriber {
     private let silencePeakThreshold: Float = 0.01                  // VAD gate
     private var chunkCounter: Int = 0
 
+    // In-flight regular-flush Tasks; flushPending awaits these so on-demand
+    // results don't land before older chunks (queue-guarded).
+    private var inFlightFlushes: [UUID: Task<Void, Never>] = [:]
+
     // Canonical SFSpeech/Whisper input format. AVAudioConverter caches identical
     // to SpeechTranscriber so we don't pay init cost on the audio thread.
     private static let speechFormat: AVAudioFormat = AVAudioFormat(
@@ -73,6 +77,92 @@ final class WhisperTranscriber {
         }
     }
 
+    /// Awaitable flush for low-latency callers. Returns text or nil. Does
+    /// not fire `onFinal` — caller appends directly to avoid racing the
+    /// `DispatchQueue.main.async` hop that `handleFinal` uses.
+    func flushPending() async -> String? {
+        struct Pending {
+            let buffers: [AVAudioPCMBuffer]
+            let frames: AVAudioFrameCount
+            let chunkID: Int
+            let peak: Float
+        }
+
+        // Drain any in-flight regular flushes first so their older audio
+        // lands in `entries` before ours — preserves order and prevents the
+        // LLM from seeing stale context.
+        let inFlight: [Task<Void, Never>] = await withCheckedContinuation { cont in
+            queue.async {
+                cont.resume(returning: Array(self.inFlightFlushes.values))
+            }
+        }
+        for task in inFlight {
+            await task.value
+        }
+        // Yield to main so handleFinal's DispatchQueue.main.async closures
+        // are visible in `entries` before the caller reads `fullContext`.
+        await MainActor.run { }
+
+        let pending: Pending? = await withCheckedContinuation { cont in
+            queue.async {
+                guard !self.chunkBuffers.isEmpty else {
+                    cont.resume(returning: nil)
+                    return
+                }
+                let buffers = self.chunkBuffers
+                let frames = self.chunkFrames
+                self.chunkBuffers.removeAll(keepingCapacity: true)
+                self.chunkFrames = 0
+                self.chunkCounter += 1
+                let id = self.chunkCounter
+
+                var p: Float = 0
+                for b in buffers {
+                    if let ch = b.floatChannelData?[0] {
+                        for i in 0..<Int(b.frameLength) {
+                            let s = abs(ch[i])
+                            if s > p { p = s }
+                        }
+                    }
+                }
+                cont.resume(returning: Pending(buffers: buffers, frames: frames, chunkID: id, peak: p))
+            }
+        }
+
+        guard let pending else {
+            Log.stt.info("[\(source.label)] flushPending — buffer empty, nothing to send")
+            return nil
+        }
+
+        if pending.peak < silencePeakThreshold {
+            Log.stt.info("[\(source.label)] flushPending chunk #\(pending.chunkID) skipped — silent (peak=\(String(format: "%.4f", pending.peak)))")
+            return nil
+        }
+
+        let durationSec = Double(pending.frames) / 16_000.0
+        Log.stt.info("[\(source.label)] chunk #\(pending.chunkID) → Whisper (\(String(format: "%.1f", durationSec))s, peak=\(String(format: "%.3f", pending.peak)), on-demand)")
+
+        guard let wav = WAVEncoder.encode16kHzMono(pending.buffers) else {
+            Log.stt.error("[\(source.label)] chunk #\(pending.chunkID) WAV encode failed")
+            return nil
+        }
+
+        let language = languageProvider()
+        do {
+            let text = try await client.transcribe(audio: wav, fileName: "chunk-\(pending.chunkID).wav", language: language)
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                Log.stt.info("[\(source.label)] chunk #\(pending.chunkID) ← empty")
+                return nil
+            }
+            Log.stt.info("[\(source.label)] chunk #\(pending.chunkID) ← \(trimmed)")
+            return trimmed
+        } catch {
+            Log.stt.error("[\(source.label)] chunk #\(pending.chunkID) Whisper failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     /// Must be called on `queue`.
     private func flushChunk(reason: String) {
         guard !chunkBuffers.isEmpty else { return }
@@ -110,7 +200,13 @@ final class WhisperTranscriber {
         let src = source
         let weakSelf = self
         let language = languageProvider()
-        Task {
+        let taskID = UUID()
+        let task = Task<Void, Never> {
+            defer {
+                weakSelf.queue.async {
+                    weakSelf.inFlightFlushes.removeValue(forKey: taskID)
+                }
+            }
             do {
                 let text = try await weakSelf.client.transcribe(audio: wav, fileName: "chunk-\(chunkID).wav", language: language)
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -125,6 +221,7 @@ final class WhisperTranscriber {
                 weakSelf.onFailure?(error.localizedDescription, src)
             }
         }
+        inFlightFlushes[taskID] = task
     }
 
     /// Convert any incoming buffer to 16 kHz mono Float32 non-interleaved.

@@ -5,6 +5,7 @@ enum PromptKind {
     case smartReply    // "Key points"
     case followUp      // "Suggest follow-up questions"
     case summary       // "Recap so far" / "Meeting Summary"
+    case suggestReply  // "Suggest reply" — real-time response suggestion
 
     init?(rawLabel: String) {
         switch rawLabel {
@@ -12,6 +13,7 @@ enum PromptKind {
         case "Key points": self = .smartReply
         case "Suggest follow-up questions": self = .followUp
         case "Recap so far": self = .summary
+        case "Suggest reply": self = .suggestReply
         default: return nil
         }
     }
@@ -103,6 +105,59 @@ struct PromptLibrary {
 
         case .summary:
             return summaryPrompt(language: lang)
+
+        case .suggestReply:
+            return """
+            LANGUAGE: respond in \(lang). Output entirely in \(lang) even if the transcript contains other languages.
+
+            You are helping the user decide what to SAY next in a meeting that is currently in progress. The user just pressed "Suggest reply" — they want ONE concrete line they could speak aloud right now.
+
+            [SPEAKER LABELS ARE IMPERFECT — IGNORE THEM FOR ROUTING]
+            The transcript contains [Me] and [Them] tags but they are unreliable: in solo testing only [Me] is populated; in real meetings system-audio capture can drop turns. DO NOT use these labels to decide who "asked" what. The user pressed the button — that is the only signal that matters. Treat the recent transcript as a single conversation and respond to its CONTENT.
+
+            [USE THE ENTIRE TRANSCRIPT AS CONTEXT]
+            Read everything that came before, not just the last 1-3 turns. Earlier turns shape HOW you answer the current question:
+            - Previous [Me] answers are LOAD-BEARING. They contain facts, numbers, persona, commitments the user has already established out loud. Your reply MUST stay consistent with them — same years of experience, same persona, same claims, same opinions. Do not contradict, do not "forget", do not silently revise.
+            - Previous [Them] questions + their answers. If the current question overlaps with one already answered (e.g. "tell me about React" earlier, "what's your favorite React pattern?" now), BUILD ON the earlier answer rather than retelling the same story. Recognize follow-ups, drill-downs, callbacks.
+            - Reuse established context as anchors. If the user said earlier they worked at company X on project Y, reach for X/Y first when answering related questions instead of inventing fresh examples.
+
+            The last 1-3 turns tell you WHICH question to answer right now. The whole transcript tells you HOW to answer it consistently and non-repetitively.
+
+            [CORE RULE — IF THERE IS A QUESTION, ANSWER IT]
+            Scan the last 1-3 turns for a question. A "question" is:
+            - any sentence ending in "?", OR
+            - any imperative request for information ("tell me about X", "what do you know about Y", "explain Z", "describe W", "walk me through V").
+
+            If you find one, ANSWER IT DIRECTLY with substantive content. For factual / technical / general-knowledge questions, draw on what you actually know — give a real answer, not meta-commentary.
+
+            FORBIDDEN responses when a question is present (these are exact patterns the model must NEVER produce):
+            - "That's a great question…"
+            - "Okay, so you're asking…"
+            - "Yeah, let me think about that"
+            - "Just checking I understand the question"
+            - "Thanks, I'm ready"
+            - "Let me make sure I have this right"
+            - Any line that restates the question instead of answering it.
+            - Any line that asks the asker to clarify, unless the question is genuinely ambiguous (most aren't).
+
+            [CORE RULE — IF THERE IS NO QUESTION, RESPOND TO THE STATEMENT]
+            If the recent turns are all statements, respond naturally: agree with a brief reason, politely push back, acknowledge and propose a next step, or — only if a clarification is genuinely needed — ask one short clarifying question.
+
+            [STYLE]
+            - ONE reply. 1-2 sentences max. Conversational, like a colleague speaking out loud.
+            - No preamble ("You could say:"), no quotation marks, no markdown.
+            - Output ONLY the spoken line itself.
+
+            [GROUNDING]
+            - For factual answers, use real knowledge — accuracy matters, the user may say this out loud.
+            - Do NOT invent commitments, deadlines, specific numbers, or named people the user has not actually mentioned.
+
+            [FALLBACK — strict, very narrow]
+            - Use the fallback ONLY if the transcript section is the literal placeholder "(No transcript captured yet.)" or contains zero spoken words.
+            - Fallback line (output exactly, ONLY when the transcript is truly empty): "Not enough context yet — keep talking and try again."
+
+            LANGUAGE (repeat): the output must be in \(lang).
+            """
         }
     }
 
