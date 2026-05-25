@@ -25,6 +25,7 @@ struct ContentView: View {
     @EnvironmentObject private var consent: ConsentPreference
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var auth: AuthService
+    @ObservedObject private var hotkey = HotkeyManager.shared
 
     @State private var meeting: MeetingState = .idle
     @State private var response: AIResponse = .none
@@ -105,6 +106,13 @@ struct ContentView: View {
         }
         .frame(width: 640, height: 560, alignment: .topLeading)
         .task { await runSecondsTimer() }
+        .onReceive(NotificationCenter.default.publisher(for: .nodSuggestHotkey)) { _ in
+            // Global hotkey fired. Only act if a meeting is recording and we
+            // aren't already generating a Suggest reply (debounce duplicate
+            // fast presses).
+            guard meeting == .recording, !isGenerating(for: "Suggest reply") else { return }
+            generate(kind: "Suggest reply")
+        }
     }
 
     /// Default state during a meeting is collapsed: shows only the REC capsule.
@@ -155,6 +163,7 @@ struct ContentView: View {
                     dotColor: DesignTokens.Palette.sunsetOrange,
                     isGenerating: isGenerating(for: "Suggest reply"),
                     enabled: meeting == .recording,
+                    hotkeyHint: hotkey.combo.displayString,
                     action: { generate(kind: "Suggest reply") }
                 )
                 SuggestionPill(
@@ -1047,6 +1056,7 @@ private struct SuggestionPill: View {
     let dotColor: Color
     let isGenerating: Bool
     let enabled: Bool
+    var hotkeyHint: String? = nil
     let action: () -> Void
 
     var body: some View {
@@ -1076,6 +1086,19 @@ private struct SuggestionPill: View {
                 }
 
                 Spacer(minLength: 0)
+
+                if let hotkeyHint {
+                    Text(hotkeyHint)
+                        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                        .foregroundColor(Theme.Palette.ink.opacity(0.55))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color.white.opacity(0.12))
+                                .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+                        )
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
@@ -1539,7 +1562,13 @@ private struct SaveErrorToast: View {
     // Use a dedicated UserDefaults suite so previewing the Acknowledge flow
     // doesn't taint the developer's installed app's consent state.
     let previewDefaults = UserDefaults(suiteName: "nod.preview.consent") ?? .standard
-    let supabase = SupabaseClient(supabaseURL: SupabaseConfig.url, supabaseKey: SupabaseConfig.anonKey)
+    let supabase = SupabaseClient(
+        supabaseURL: SupabaseConfig.url,
+        supabaseKey: SupabaseConfig.anonKey,
+        options: SupabaseClientOptions(
+            auth: SupabaseClientOptions.AuthOptions(emitLocalSessionAsInitialSession: true)
+        )
+    )
     let auth = AuthService(client: supabase)
     return ContentView()
         .environmentObject(AudioCaptureService())

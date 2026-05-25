@@ -32,8 +32,14 @@ final class AuthService: ObservableObject {
             for await change in stream {
                 guard let self else { break }
                 await MainActor.run {
-                    self.session = change.session
-                    Log.auth.info("event=\(change.event) hasSession=\(change.session != nil)")
+                    // With `emitLocalSessionAsInitialSession: true` the SDK
+                    // can emit an expired session as `.initialSession`; a
+                    // `tokenRefreshed` / `signOut` event will follow once
+                    // refresh resolves. Treat expired as nil so the UI
+                    // doesn't flip to signed-in with an unusable token.
+                    let expired = change.session?.isExpired == true
+                    self.session = expired ? nil : change.session
+                    Log.auth.info("event=\(change.event) hasSession=\(change.session != nil) expired=\(expired)")
                 }
             }
         }

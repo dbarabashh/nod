@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var onboardingWindow: NSWindow?
     private var signInWindow: NSWindow?
     private var historyWindow: NSWindow?
+    private var settingsWindow: NSWindow?
     private var permissions: PermissionManager?
     private var onboarding: OnboardingState?
     private var audioCapture: AudioCaptureService?
@@ -36,15 +37,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
 
+        // Wire the global hotkey to the same code path as the on-screen
+        // Suggest reply pill, via a notification ContentView observes.
+        HotkeyManager.shared.onTrigger = {
+            NotificationCenter.default.post(name: .nodSuggestHotkey, object: nil)
+        }
+
         let permissions = PermissionManager()
         let onboarding = OnboardingState()
         let audioCapture = AudioCaptureService()
         let languagePreference = LanguagePreference()
         // Supabase client must exist before the LLM client — all LLM traffic
         // is JWT-authenticated through the `llm-proxy` Edge Function (#11).
+        // Opt into the new authStateChanges behavior — the SDK emits the
+        // locally stored session immediately as `.initialSession`, even if
+        // expired, and refreshes in the background. AuthService treats an
+        // expired session as nil so the UI doesn't flip to "signed in"
+        // with an unusable token. See supabase-swift PR #822.
         let supabase = SupabaseClient(
             supabaseURL: SupabaseConfig.url,
-            supabaseKey: SupabaseConfig.anonKey
+            supabaseKey: SupabaseConfig.anonKey,
+            options: SupabaseClientOptions(
+                auth: SupabaseClientOptions.AuthOptions(
+                    emitLocalSessionAsInitialSession: true
+                )
+            )
         )
         let auth = AuthService(client: supabase)
         let llmClient = OpenRouterClient(supabase: supabase)
@@ -291,6 +308,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @objc private func showSettingsAction() {
+        showSettingsWindow()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: - Settings window
+
+    private func showSettingsWindow() {
+        if let existing = settingsWindow {
+            existing.makeKeyAndOrderFront(nil)
+            return
+        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 320),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Settings"
+        window.titlebarAppearsTransparent = true
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.center()
+        window.contentViewController = NSHostingController(rootView: SettingsView())
+        window.makeKeyAndOrderFront(nil)
+        settingsWindow = window
+    }
+
+    private func closeSettingsWindow() {
+        if let window = settingsWindow {
+            window.delegate = nil
+            window.close()
+        }
+        settingsWindow = nil
+    }
+
     // MARK: - History window (issue #14)
 
     private func showHistoryWindow() {
@@ -360,6 +413,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 // reconciliation; the floating panel keeps running.
                 self.historyWindow = nil
                 return
+            } else if closed === self.settingsWindow {
+                self.settingsWindow = nil
+                return
             }
             // User-initiated close of the only UI: re-open whichever window
             // matches the current state. closing the sign-in window with no
@@ -421,6 +477,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 )
                 history.target = self
                 menu.addItem(history)
+
+                let settings = NSMenuItem(
+                    title: "Settings…",
+                    action: #selector(showSettingsAction),
+                    keyEquivalent: ","
+                )
+                settings.target = self
+                menu.addItem(settings)
 
                 menu.addItem(.separator())
             } else if !signedIn {
