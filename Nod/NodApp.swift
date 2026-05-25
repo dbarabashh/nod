@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Supabase
+import Sparkle
 
 @main
 struct NodApp: App {
@@ -33,6 +34,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var authObserveTask: Task<Void, Never>?
     private var pendingCallbackURLs: [URL] = []
     private var statusItem: NSStatusItem?
+
+    // Sparkle owns its own lifecycle once `startingUpdater: true`. We retain
+    // the controller so the automatic check timer (SUScheduledCheckInterval)
+    // keeps firing for the life of the app.
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -508,6 +518,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 menu.addItem(signOut)
                 menu.addItem(.separator())
             }
+
+            let checkForUpdates = NSMenuItem(
+                title: "Check for Updates…",
+                action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+                keyEquivalent: ""
+            )
+            checkForUpdates.target = updaterController
+            menu.addItem(checkForUpdates)
+            menu.addItem(.separator())
 
             let quit = NSMenuItem(
                 title: "Quit Nod",

@@ -16,5 +16,14 @@ xcuserdata/
 .idea/
 .vscode/
 
+# Release artifacts (notarized zips, generated appcast)
+dist/
+
+# Sparkle private signing key — never commit. `sparkle generate_keys` stores
+# it in the macOS Keychain by default; if it is ever exported locally, keep
+# it out of the repo.
+*.ed25519
+sparkle_private_key*
+
 # Re-include agent docs that ~/.gitignore_global ignores by default
 !CLAUDE.md

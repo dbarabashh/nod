@@ -39,5 +39,13 @@
 	<string>Nod needs screen recording permission to capture system audio during meetings.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Nod uses speech recognition to transcribe what is said during meetings.</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://nod-landing.vercel.app/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>LcsTPoPSTnmjyohYow7XTwfqmjCJ3SU1yoih6Mi7jAo=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 </dict>
 </plist>

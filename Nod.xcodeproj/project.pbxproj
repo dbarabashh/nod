@@ -35,6 +35,7 @@
 		9DA84B06D0C3E541040B3A44 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6513755E613BC16F66D6583B /* AudioCaptureService.swift */; };
 		A0DED59AEE2FD16E7B9E6C5E /* TutorialStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D38E021FE65A36A7264FA5F /* TutorialStep.swift */; };
 		AFB5427CF07CC776F41496A2 /* SampleBufferConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F365DD35A0D5B3EA0620B5E /* SampleBufferConverter.swift */; };
+		AFEE441085ADE17C5D17D3B5 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F9647C7A89FF4FDC6C10C454 /* Sparkle */; };
 		B0F0F0D0B82B4974BA55C179 /* TranscriptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B022AA739EDC98C9F8C0E8 /* TranscriptStore.swift */; };
 		B36906A556CD287E06D7A5C9 /* WhisperTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = F262446346BF9FFC15D5AF67 /* WhisperTranscriber.swift */; };
 		B4FC2F2E94721DFC26D17642 /* PermissionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B25A656A2DF3A8075B12613 /* PermissionRow.swift */; };
@@ -96,6 +97,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2484EA93E6A4F4DC7305E7BE /* Supabase in Frameworks */,
+				AFEE441085ADE17C5D17D3B5 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -286,6 +288,7 @@
 			name = Nod;
 			packageProductDependencies = (
 				FD9425C84A5944FADFEE1DC0 /* Supabase */,
+				F9647C7A89FF4FDC6C10C454 /* Sparkle */,
 			);
 			productName = Nod;
 			productReference = 4940AE0F466E23E8BD4994BD /* Nod.app */;
@@ -316,6 +319,7 @@
 			mainGroup = 84359F757DDBC745C733240B;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				BF172EF072AE5B2CA2452C86 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				014C2426E033A6DB50C0D0FD /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -579,9 +583,22 @@
 				minimumVersion = 2.0.0;
 			};
 		};
+		BF172EF072AE5B2CA2452C86 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.2;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		F9647C7A89FF4FDC6C10C454 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BF172EF072AE5B2CA2452C86 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
 		FD9425C84A5944FADFEE1DC0 /* Supabase */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 014C2426E033A6DB50C0D0FD /* XCRemoteSwiftPackageReference "supabase-swift" */;

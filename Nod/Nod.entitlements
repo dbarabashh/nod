@@ -4,5 +4,17 @@
 <dict>
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!--
+      Sparkle is shipped via SPM and signed by the Sparkle Project. When the
+      app is built with a self-signed dev cert that has no Team Identifier,
+      re-signing the embedded framework can't satisfy the hardened runtime's
+      Team-ID match check and the app crashes at launch with
+      "have different Team IDs". Disabling library validation skips that
+      check. Once we sign Release builds with a real Developer ID (same
+      Team ID on app + re-signed framework) this is no longer required for
+      Release, but is harmless to leave on.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
 </dict>
 </plist>
