@@ -148,6 +148,15 @@ if [ "$NO_PUBLISH" = 0 ]; then
   gh auth status >/dev/null 2>&1 || die "gh CLI not authenticated (run: gh auth login)"
 fi
 
+# vercel CLI? — we trigger the appcast deploy explicitly via CLI rather than
+# relying on Vercel's GitHub auto-deploy, which has silently disconnected
+# before (every commit reaching origin but no new deployment building).
+if [ "$NO_PUBLISH" = 0 ]; then
+  command -v vercel >/dev/null || die "vercel CLI not installed (npm i -g vercel)"
+  [ -f "$NOD_LANDING_REPO/.vercel/project.json" ] \
+    || die "$NOD_LANDING_REPO is not linked to a Vercel project (run: cd $NOD_LANDING_REPO && vercel link)"
+fi
+
 echo "    Current: ${CURRENT_VERSION} (${CURRENT_BUILD})"
 echo "    Next:    ${VERSION} (${BUILD})"
 echo "    Sign:    $SIGN_IDENTITY"
@@ -314,20 +323,27 @@ cp "${APPCAST_PATH}" "${NOD_LANDING_REPO}/public/appcast.xml"
   git push
 )
 
-# ───────────────────────── verify live appcast ─────────────────────────
+# ───────────────────────── deploy + verify live appcast ─────────────────────────
 
-# Pushing to nod-landing only triggers a Vercel build — it doesn't wait for it.
-# Without this check we've shipped a "release" whose Sparkle feed still points
-# at the previous version, and clients see "X is the newest" while running X+1.
-# Poll the public URL until generate_appcast's XML shape with the new version
-# appears, or fail loudly after ~3 minutes so we know to investigate Vercel.
-say "Wait for Vercel to publish appcast ${VERSION}"
+# Trigger the Vercel build ourselves instead of waiting for the GitHub
+# integration. The integration has disconnected silently in the past (commits
+# landing on origin but no new deployment building), which would mean every
+# release after that point ships an appcast that never goes live — clients
+# see "X is the newest" while running X+1.
+say "Deploy nod-landing to Vercel (prod)"
+(
+  cd "${NOD_LANDING_REPO}"
+  vercel deploy --prod --yes >/dev/null
+)
+
+# Even with an explicit deploy, the CDN edge needs a moment to switch the
+# production alias over. Poll the public URL until the new version's
+# sparkle:shortVersionString appears, or fail loudly after 3 min.
+say "Wait for appcast ${VERSION} to go live"
 APPCAST_URL="https://nod-landing.vercel.app/appcast.xml"
 DEADLINE=$(( $(date +%s) + 180 ))
 PUBLISHED=0
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-  # Curl with cache-busting query — Vercel's CDN ignores it but at least
-  # eliminates any client-side / corporate proxy caching from the equation.
   if curl -fsSL "${APPCAST_URL}?v=$(date +%s)" 2>/dev/null \
       | grep -q "<sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>"; then
     PUBLISHED=1
