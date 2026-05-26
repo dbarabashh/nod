@@ -314,6 +314,35 @@ cp "${APPCAST_PATH}" "${NOD_LANDING_REPO}/public/appcast.xml"
   git push
 )
 
+# ───────────────────────── verify live appcast ─────────────────────────
+
+# Pushing to nod-landing only triggers a Vercel build — it doesn't wait for it.
+# Without this check we've shipped a "release" whose Sparkle feed still points
+# at the previous version, and clients see "X is the newest" while running X+1.
+# Poll the public URL until generate_appcast's XML shape with the new version
+# appears, or fail loudly after ~3 minutes so we know to investigate Vercel.
+say "Wait for Vercel to publish appcast ${VERSION}"
+APPCAST_URL="https://nod-landing.vercel.app/appcast.xml"
+DEADLINE=$(( $(date +%s) + 180 ))
+PUBLISHED=0
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  # Curl with cache-busting query — Vercel's CDN ignores it but at least
+  # eliminates any client-side / corporate proxy caching from the equation.
+  if curl -fsSL "${APPCAST_URL}?v=$(date +%s)" 2>/dev/null \
+      | grep -q "<sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>"; then
+    PUBLISHED=1
+    break
+  fi
+  printf '.'
+  sleep 5
+done
+echo
+if [ "$PUBLISHED" = 1 ]; then
+  echo "    ✓ appcast live at ${APPCAST_URL}"
+else
+  die "appcast ${VERSION} did not appear at ${APPCAST_URL} within 3 min — check Vercel deploys at https://vercel.com/dashboard"
+fi
+
 # ───────────────────────── done ─────────────────────────
 
 echo
