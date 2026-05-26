@@ -40,7 +40,7 @@ Dev overrides (UserDefaults):
 defaults write com.example.nod openrouter.model "anthropic/claude-haiku-4-6"
 
 # Optional: Whisper model (forwarded to OpenRouter via the proxy)
-defaults write com.example.nod whisper.model "whisper-large-v3"
+defaults write com.example.nod whisper.model "openai/whisper-large-v3-turbo"
 
 # Optional: STT/UI language ("en" or "uk"); also toggleable from the UI chip.
 defaults write com.example.nod app.language "uk"

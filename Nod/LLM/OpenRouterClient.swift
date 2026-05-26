@@ -38,15 +38,14 @@ final class OpenRouterClient: ObservableObject {
         UserDefaults.standard.string(forKey: "openrouter.model") ?? "google/gemini-2.0-flash-001"
     }
 
-    /// Whisper model override — same rationale as above. Default bumped from
-    /// `whisper-1` (2022 vintage, the only model OpenAI's API hosts directly)
-    /// to `whisper-large-v3`, which transcribes named entities, domain
-    /// jargon and accented speech far more accurately. Note: if the chosen
-    /// OpenRouter route doesn't expose `large-v3`, the proxy returns 404 →
-    /// override with `defaults write com.example.nod whisper.model "openai/whisper-1"`
-    /// to fall back, then we'll switch the proxy to Groq's whisper endpoint.
+    /// Whisper model override — same rationale as above. `large-v3-turbo` is
+    /// the distilled 4-decoder-layer variant of `large-v3`: ~8× faster decode,
+    /// near-identical WER for the languages we care about, and meaningfully
+    /// cheaper per minute. Override with `defaults write com.example.nod
+    /// whisper.model "openai/whisper-large-v3"` to A/B against full v3, or
+    /// `"openai/whisper-1"` if a route drops the v3 family.
     private var whisperModel: String {
-        UserDefaults.standard.string(forKey: "whisper.model") ?? "openai/whisper-large-v3"
+        UserDefaults.standard.string(forKey: "whisper.model") ?? "openai/whisper-large-v3-turbo"
     }
 
     private let proxyURL: URL
