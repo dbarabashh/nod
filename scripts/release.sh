@@ -175,7 +175,11 @@ DMG_STAGE="${DIST_DIR}/dmg-stage"
 DMG_PATH="${DIST_DIR}/Nod-${VERSION}.dmg"
 LATEST_DMG_PATH="${DIST_DIR}/Nod-latest.dmg"
 APPCAST_PATH="${DIST_DIR}/appcast.xml"
-APPCAST_BASE_URL="https://github.com/dbarabashh/Nod/releases/download/v${VERSION}"
+# DMGs are served from Vercel rather than GitHub release assets: the source
+# repo is private, so GitHub's release-download URLs return 404 to unauthenticated
+# clients — and Sparkle is an unauthenticated client. nod-landing/public/dmg/
+# is public via Vercel CDN, so the URL Sparkle resolves actually serves bytes.
+APPCAST_BASE_URL="https://nod-landing.vercel.app/dmg"
 
 mkdir -p "${DIST_DIR}"
 rm -rf "${ARCHIVE_PATH}" "${EXPORT_DIR}" "${DMG_STAGE}" "${DMG_PATH}" "${LATEST_DMG_PATH}"
@@ -305,6 +309,11 @@ say "Push commits + tags to origin"
 git push origin main
 git push origin "v${VERSION}"
 
+# GitHub Release exists for tag visibility + as an authenticated backup mirror
+# of the binary (`gh release download`). The DMG attachment here is NOT what
+# Sparkle downloads — Sparkle's URL points at Vercel below. This is just
+# belt-and-braces: if nod-landing ever gets deleted, you can still pull DMGs
+# out of GitHub with `gh` CLI.
 say "Create GitHub Release"
 RELEASE_NOTES_FLAG="--generate-notes"
 [ -f CHANGELOG.md ] && RELEASE_NOTES_FLAG="--notes-file CHANGELOG.md"
@@ -314,12 +323,17 @@ gh release create "v${VERSION}" \
   --title "Nod ${VERSION}" \
   ${RELEASE_NOTES_FLAG}
 
-say "Push appcast.xml to nod-landing"
-cp "${APPCAST_PATH}" "${NOD_LANDING_REPO}/public/appcast.xml"
+# Stage DMGs + appcast on nod-landing. Vercel serves /public/* as static
+# files behind its public CDN, which is what Sparkle's HTTP client will hit.
+say "Stage release on nod-landing"
+mkdir -p "${NOD_LANDING_REPO}/public/dmg"
+cp "${DMG_PATH}"        "${NOD_LANDING_REPO}/public/dmg/Nod-${VERSION}.dmg"
+cp "${LATEST_DMG_PATH}" "${NOD_LANDING_REPO}/public/dmg/Nod-latest.dmg"
+cp "${APPCAST_PATH}"    "${NOD_LANDING_REPO}/public/appcast.xml"
 (
   cd "${NOD_LANDING_REPO}"
-  git add public/appcast.xml
-  git commit -m "appcast ${VERSION}"
+  git add public/appcast.xml public/dmg
+  git commit -m "release ${VERSION}"
   git push
 )
 
@@ -337,27 +351,35 @@ say "Deploy nod-landing to Vercel (prod)"
 )
 
 # Even with an explicit deploy, the CDN edge needs a moment to switch the
-# production alias over. Poll the public URL until the new version's
-# sparkle:shortVersionString appears, or fail loudly after 3 min.
-say "Wait for appcast ${VERSION} to go live"
+# production alias. Both the appcast XML and the DMG it advertises have to be
+# live before we can call the release done — otherwise Sparkle reads "X is
+# available" and immediately fails to download X. Poll both, fail loudly
+# after 3 min.
+say "Wait for appcast + DMG ${VERSION} to go live"
 APPCAST_URL="https://nod-landing.vercel.app/appcast.xml"
+DMG_URL="https://nod-landing.vercel.app/dmg/Nod-${VERSION}.dmg"
 DEADLINE=$(( $(date +%s) + 180 ))
-PUBLISHED=0
+APPCAST_OK=0
+DMG_OK=0
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-  if curl -fsSL "${APPCAST_URL}?v=$(date +%s)" 2>/dev/null \
-      | grep -q "<sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>"; then
-    PUBLISHED=1
-    break
+  if [ "$APPCAST_OK" = 0 ] \
+      && curl -fsSL "${APPCAST_URL}?v=$(date +%s)" 2>/dev/null \
+        | grep -q "<sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>"; then
+    APPCAST_OK=1
   fi
+  if [ "$DMG_OK" = 0 ]; then
+    CODE=$(curl -sLo /dev/null -w "%{http_code}" "${DMG_URL}?v=$(date +%s)")
+    [ "$CODE" = "200" ] && DMG_OK=1
+  fi
+  if [ "$APPCAST_OK" = 1 ] && [ "$DMG_OK" = 1 ]; then break; fi
   printf '.'
   sleep 5
 done
 echo
-if [ "$PUBLISHED" = 1 ]; then
-  echo "    ✓ appcast live at ${APPCAST_URL}"
-else
-  die "appcast ${VERSION} did not appear at ${APPCAST_URL} within 3 min — check Vercel deploys at https://vercel.com/dashboard"
-fi
+[ "$APPCAST_OK" = 1 ] || die "appcast ${VERSION} did not appear at ${APPCAST_URL} within 3 min — check Vercel deploys at https://vercel.com/dashboard"
+[ "$DMG_OK"     = 1 ] || die "DMG did not appear at ${DMG_URL} within 3 min — check Vercel deploys at https://vercel.com/dashboard"
+echo "    ✓ appcast live at ${APPCAST_URL}"
+echo "    ✓ DMG live at     ${DMG_URL}"
 
 # ───────────────────────── done ─────────────────────────
 
@@ -365,8 +387,8 @@ echo
 echo "🎉 Nod ${VERSION} (${BUILD}) released."
 echo
 echo "  DMG:     ${APPCAST_BASE_URL}/Nod-${VERSION}.dmg"
-echo "  Latest:  https://github.com/dbarabashh/Nod/releases/latest/download/Nod-latest.dmg"
-echo "  Appcast: https://nod-landing.vercel.app/appcast.xml  (Vercel deploys in ~30s)"
+echo "  Latest:  https://nod-landing.vercel.app/dmg/Nod-latest.dmg"
+echo "  Appcast: https://nod-landing.vercel.app/appcast.xml"
 echo
 echo "Installed clients will see the update on their next scheduled check (≤ 24h),"
 echo "or immediately via status-bar menu → Check for Updates…"
