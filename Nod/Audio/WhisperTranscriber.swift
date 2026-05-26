@@ -21,7 +21,10 @@ final class WhisperTranscriber {
     private var chunkBuffers: [AVAudioPCMBuffer] = []
     private var chunkFrames: AVAudioFrameCount = 0
     private let chunkTargetFrames: AVAudioFrameCount = 16_000 * 5  // 5 s
-    private let silencePeakThreshold: Float = 0.01                  // VAD gate
+    // Real speech consistently peaks at 0.1+. Near-silent audio (peak <0.05)
+    // reliably triggers Whisper hallucinations like "Thank you.", "Amen.",
+    // "Thanks for watching!" — gate them out before they hit the API.
+    private let silencePeakThreshold: Float = 0.05                  // VAD gate
     private var chunkCounter: Int = 0
 
     // In-flight regular-flush Tasks; flushPending awaits these so on-demand

@@ -1,5 +1,27 @@
 import SwiftUI
+import AppKit
 import Supabase
+
+/// Behind-window blur for the floating panel's surfaces. SwiftUI's
+/// `.ultraThinMaterial` uses `withinWindow` blending by default, which
+/// renders as solid black on a `.nonactivatingPanel` that has no own
+/// content for it to sample. `.behindWindow` samples the desktop / app
+/// underneath the panel, which is what users actually see through it.
+private struct PanelMaterial: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .hudWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+    }
+}
 
 // MARK: - State
 
@@ -32,9 +54,10 @@ struct ContentView: View {
     @State private var elapsed: Int = 0
     @State private var micMuted: Bool = false
     @State private var isSummarizing: Bool = false
-    /// When meeting is active, the left column collapses by default to just a
-    /// tiny REC capsule. User taps to expand to the full controls.
-    @State private var expanded: Bool = false
+    /// When meeting is active, the left column shows the full controls by
+    /// default. User can tap the chevron in StatusHeader to collapse to the
+    /// tiny REC capsule, then tap that to re-expand.
+    @State private var expanded: Bool = true
     /// True while the recording-consent modal is on screen; gates startMeeting()
     /// before audio capture begins. See issue #4.
     @State private var showConsentDisclaimer: Bool = false
@@ -278,7 +301,7 @@ struct ContentView: View {
         meeting = .recording
         elapsed = 0
         response = .none
-        expanded = false
+        expanded = true
         isSummarizing = false
         // Stamp the wall-clock so the persisted row carries an accurate
         // `started_at` instead of using the summary-ready instant.
@@ -697,8 +720,8 @@ private struct StatusHeader: View {
         // subtle white-stroke border, no heavy black overlay — so the two
         // pills sit together as a coherent Raycast-style command surface.
         .background(
-            Capsule(style: .continuous)
-                .fill(.ultraThinMaterial)
+            PanelMaterial()
+                .clipShape(Capsule(style: .continuous))
                 .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
         )
         .onAppear { pulsing = true }
@@ -770,10 +793,12 @@ private struct CollapsedCapsule: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(
-                Capsule(style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(Capsule().fill(Color.black.opacity(0.35)))
-                    .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+                ZStack {
+                    PanelMaterial()
+                    Color.black.opacity(0.18)
+                }
+                .clipShape(Capsule(style: .continuous))
+                .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.5))
             )
             .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
         }
@@ -892,16 +917,15 @@ private struct StartMeetingButton: View {
             .padding(.vertical, 9)
             .frame(maxWidth: .infinity, minHeight: 38)
             .background(
-                Capsule(style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .fill(Color.white.opacity(hovered ? 0.06 : 0.02))
-                    )
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                    )
+                ZStack {
+                    PanelMaterial()
+                    Color.white.opacity(hovered ? 0.06 : 0.02)
+                }
+                .clipShape(Capsule(style: .continuous))
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                )
             )
             .scaleEffect(pressed ? 0.985 : 1.0)
             .animation(.easeOut(duration: 0.10), value: pressed)
@@ -1027,17 +1051,17 @@ private struct HeroButton: View {
             // Match SuggestionPill width for a tidy stacked-pill column.
             .frame(width: 246, alignment: .leading)
             .background(
-                Capsule(style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .fill(Theme.Gradients.buttonBrand)
-                            .opacity(0.55)
-                    )
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(DesignTokens.Shadow.insetSubtle2, lineWidth: 0.6)
-                    )
+                ZStack {
+                    PanelMaterial()
+                    Capsule(style: .continuous)
+                        .fill(Theme.Gradients.buttonBrand)
+                        .opacity(0.20)
+                }
+                .clipShape(Capsule(style: .continuous))
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(DesignTokens.Shadow.insetSubtle2, lineWidth: 0.6)
+                )
             )
             .shadow(color: DesignTokens.Palette.magentaBurst.opacity(0.35), radius: 10, x: 0, y: 4)
             .opacity(enabled ? 1.0 : 0.55)
@@ -1107,16 +1131,15 @@ private struct SuggestionPill: View {
             // without truncating the longest one.
             .frame(width: 246, alignment: .leading)
             .background(
-                Capsule(style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .fill(Theme.Palette.bgSoft.opacity(0.55))
-                    )
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(Theme.Palette.border, lineWidth: 0.5)
-                    )
+                ZStack {
+                    PanelMaterial()
+                    Color.black.opacity(0.15)
+                }
+                .clipShape(Capsule(style: .continuous))
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Theme.Palette.border, lineWidth: 0.5)
+                )
             )
             .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 2)
             .opacity(enabled ? 1.0 : 0.55)
@@ -1267,25 +1290,15 @@ private struct ResponseCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.12, green: 0.18, blue: 0.35).opacity(0.85),
-                                    Color(red: 0.10, green: 0.13, blue: 0.25).opacity(0.85)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.14), lineWidth: 0.5)
-                )
+            ZStack {
+                PanelMaterial()
+                Color.black.opacity(0.18)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.14), lineWidth: 0.5)
+            )
         )
         .shadow(color: Color.black.opacity(0.30), radius: 12, x: 0, y: 6)
         .onAppear {
@@ -1547,10 +1560,12 @@ private struct SaveErrorToast: View {
         .padding(.vertical, 10)
         .frame(maxWidth: 480)
         .background(
-            Capsule(style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(Capsule().fill(Theme.Palette.bgSoft.opacity(0.75)))
-                .overlay(Capsule().stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
+            ZStack {
+                PanelMaterial()
+                Theme.Palette.bgSoft.opacity(0.50)
+            }
+            .clipShape(Capsule(style: .continuous))
+            .overlay(Capsule().stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
         )
         .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
     }

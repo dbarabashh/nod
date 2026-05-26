@@ -79,50 +79,53 @@ final class OpenRouterClient: ObservableObject {
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
 
-        // One automatic retry on transient failures — proxy/upstream 5xx OR
-        // a URLError-class transport failure. Decoding/empty-response errors
-        // are deterministic and not worth retrying.
-        var lastError: ClientError?
-        for attempt in 0..<2 {
-            do {
-                let data = try await postToProxy(body: body)
-                let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
-                guard let text = decoded.choices.first?.message.content, !text.isEmpty else {
-                    Log.llm.error("empty content")
-                    throw ClientError.emptyResponse
-                }
-                let preview = String(text.prefix(200))
-                Log.llm.info("← OK len=\(text.count) preview: \(preview)\(text.count > 200 ? "…" : "")")
-                return text
-            } catch let error as ClientError {
-                if attempt == 0, Self.isTransient(error) {
-                    Log.llm.error("transient error on attempt \(attempt + 1) — retrying once after 700ms: \(error.localizedDescription)")
-                    try? await Task.sleep(nanoseconds: 700_000_000)
-                    lastError = error
-                    continue
-                }
-                throw error
-            } catch {
-                // JSONDecoder threw something non-ClientError — surface as
-                // decoding failure (deterministic, not retried).
-                throw ClientError.decodingFailed(error.localizedDescription)
+        do {
+            let data = try await postToProxyWithRetry(body: body)
+            let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
+            guard let text = decoded.choices.first?.message.content, !text.isEmpty else {
+                Log.llm.error("empty content")
+                throw ClientError.emptyResponse
             }
+            let preview = String(text.prefix(200))
+            Log.llm.info("← OK len=\(text.count) preview: \(preview)\(text.count > 200 ? "…" : "")")
+            return text
+        } catch let error as ClientError {
+            throw error
+        } catch {
+            // JSONDecoder threw something non-ClientError — surface as
+            // decoding failure (deterministic, not retried).
+            throw ClientError.decodingFailed(error.localizedDescription)
         }
-        throw lastError ?? ClientError.emptyResponse
     }
 
-    /// True for errors that are plausibly fixed by a single retry: upstream
-    /// 5xx (provider hiccups) and URLError-class transport blips. Excludes
-    /// 4xx, decoding errors, empty responses, and auth failures.
+    /// True for errors that are plausibly fixed by a retry: upstream 5xx
+    /// (provider hiccups), 429 (rate limits — time-bucketed, usually clear
+    /// within seconds), and URLError-class transport blips. Excludes 4xx
+    /// (other than 429), decoding errors, empty responses, and auth failures.
     private static func isTransient(_ error: ClientError) -> Bool {
         switch error {
         case .requestFailed(let status, _):
-            return status >= 500 && status < 600
+            return status == 429 || (status >= 500 && status < 600)
         case .networkFailed:
             return true
         case .unauthenticated, .emptyResponse, .decodingFailed:
             return false
         }
+    }
+
+    /// Exponential backoff in milliseconds. 429 gets a longer base because
+    /// rate limits are time-bucketed — burning a 200ms retry the moment a
+    /// 429 lands almost always re-trips the same bucket. 5xx / network blips
+    /// retry sooner since they're usually fixed by the next request.
+    private static func retryDelayMillis(for error: ClientError, attempt: Int) -> UInt64 {
+        let base: UInt64
+        switch error {
+        case .requestFailed(let status, _) where status == 429:
+            base = 800
+        default:
+            base = 400
+        }
+        return base * UInt64(1 << attempt)  // 0→base, 1→2×base, 2→4×base
     }
 
     // MARK: - Whisper (audio transcription)
@@ -141,7 +144,7 @@ final class OpenRouterClient: ObservableObject {
 
         Log.llm.info("→ transcribe via proxy model=\(whisperModel) audio_bytes=\(audio.count) body_bytes=\(bodyData.count) lang=\(language)")
 
-        let data = try await postToProxy(body: bodyData)
+        let data = try await postToProxyWithRetry(body: bodyData)
         do {
             let decoded = try JSONDecoder().decode(WhisperResponse.self, from: data)
             let text = decoded.text ?? ""
@@ -156,6 +159,31 @@ final class OpenRouterClient: ObservableObject {
     }
 
     // MARK: - Transport
+
+    /// Wraps `postToProxy` with exponential-backoff retries on transient
+    /// errors (5xx, 429, URLError). 429s in particular were dropping ~30% of
+    /// Whisper chunks on the OpenRouter free tier, which is what made the
+    /// "Suggest reply" answers go stale mid-meeting.
+    private func postToProxyWithRetry(body: Data) async throws -> Data {
+        let maxAttempts = 3
+        var lastError: ClientError = .emptyResponse
+        for attempt in 0..<maxAttempts {
+            do {
+                return try await postToProxy(body: body)
+            } catch let error as ClientError {
+                lastError = error
+                let isLastAttempt = attempt == maxAttempts - 1
+                if !isLastAttempt && Self.isTransient(error) {
+                    let delayMs = Self.retryDelayMillis(for: error, attempt: attempt)
+                    Log.llm.error("transient error on attempt \(attempt + 1)/\(maxAttempts) — retrying in \(delayMs)ms: \(error.localizedDescription)")
+                    try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
+                    continue
+                }
+                throw error
+            }
+        }
+        throw lastError
+    }
 
     private func postToProxy(body: Data) async throws -> Data {
         guard let supabase else {

@@ -249,16 +249,27 @@ else
     | grep -E "accepted|source=" || die "Gatekeeper assessment failed"
 fi
 
-# Always make Nod-latest.dmg for the stable website download URL.
-cp "${DMG_PATH}" "${LATEST_DMG_PATH}"
-
 # ───────────────────────── appcast ─────────────────────────
+
+# generate_appcast hashes everything in DIST_DIR. Old release DMGs from previous
+# runs would otherwise leak into the feed; stage only the current version's DMG
+# in a clean sub-directory.
+APPCAST_STAGE="${DIST_DIR}/appcast-stage"
+rm -rf "${APPCAST_STAGE}"
+mkdir -p "${APPCAST_STAGE}"
+cp "${DMG_PATH}" "${APPCAST_STAGE}/"
 
 say "Generate EdDSA-signed appcast"
 "${SPARKLE_BIN_DIR}/generate_appcast" \
   --download-url-prefix "${APPCAST_BASE_URL}/" \
   -o "${APPCAST_PATH}" \
-  "${DIST_DIR}"
+  "${APPCAST_STAGE}"
+
+rm -rf "${APPCAST_STAGE}"
+
+# Stable filename for the website download URL — copied AFTER appcast generation
+# so generate_appcast doesn't see two archives with identical content.
+cp "${DMG_PATH}" "${LATEST_DMG_PATH}"
 
 # ───────────────────────── publish ─────────────────────────
 
