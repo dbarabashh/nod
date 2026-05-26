@@ -173,12 +173,12 @@ rm -rf "${ARCHIVE_PATH}" "${EXPORT_DIR}" "${DMG_STAGE}" "${DMG_PATH}" "${LATEST_
 
 # ───────────────────────── stamp version ─────────────────────────
 
+say "Regenerate project"
+xcodegen generate
+
 say "Stamp ${VERSION} (${BUILD})"
 plist_set CFBundleShortVersionString "${VERSION}"
 plist_set CFBundleVersion "${BUILD}"
-
-say "Regenerate project"
-xcodegen generate
 
 # ───────────────────────── archive + export ─────────────────────────
 
@@ -190,7 +190,8 @@ xcodebuild \
   -archivePath "${ARCHIVE_PATH}" \
   archive \
   CODE_SIGN_STYLE=Manual \
-  CODE_SIGN_IDENTITY="${SIGN_IDENTITY}" >/dev/null
+  CODE_SIGN_IDENTITY="${SIGN_IDENTITY}" \
+  DEVELOPMENT_TEAM=M44384588U >/dev/null
 
 say "Export .app"
 EXPORT_PLIST="${DIST_DIR}/export-options.plist"
