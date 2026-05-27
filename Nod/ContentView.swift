@@ -53,7 +53,6 @@ struct ContentView: View {
     @State private var response: AIResponse = .none
     @State private var elapsed: Int = 0
     @State private var micMuted: Bool = false
-    @State private var isSummarizing: Bool = false
     /// When meeting is active, the left column shows the full controls by
     /// default. User can tap the chevron in StatusHeader to collapse to the
     /// tiny REC capsule, then tap that to re-expand.
@@ -235,25 +234,8 @@ struct ContentView: View {
                     kind: kind,
                     text: text,
                     onCopy: { latest in copy(latest) },
-                    onDismiss: {
-                        if isSummarizing {
-                            cleanupToIdle()
-                        } else {
-                            response = .none
-                        }
-                    },
-                    // Only the meeting-recap card gets the AI-edit input — the
-                    // mid-call hero/key-points cards are short and ephemeral,
-                    // editing them is overkill.
-                    onAIEdit: kind == "Meeting Summary" ? aiEditSummary : nil
-                )
-                .transition(.opacity.combined(with: .move(edge: .leading)))
-            } else if case let .generating(kind) = response, kind == "Meeting Summary" {
-                ResponseCard(
-                    kind: "Meeting Summary",
-                    text: "Generating summary…",
-                    onCopy: { _ in },
-                    onDismiss: { cleanupToIdle() }
+                    onDismiss: { response = .none },
+                    onAIEdit: nil
                 )
                 .transition(.opacity.combined(with: .move(edge: .leading)))
             }
@@ -302,7 +284,6 @@ struct ContentView: View {
         elapsed = 0
         response = .none
         expanded = true
-        isSummarizing = false
         // Stamp the wall-clock so the persisted row carries an accurate
         // `started_at` instead of using the summary-ready instant.
         recordingStartedAt = Date()
@@ -318,12 +299,6 @@ struct ContentView: View {
     }
 
     private func endMeeting() {
-        if isSummarizing {
-            // User dismissing the summary screen → finalize and reset to idle.
-            cleanupToIdle()
-            return
-        }
-
         let context = store.fullContext
         Log.ui.info("End Meeting — entries=\(store.entries.count) context.len=\(context.count)")
         store.stop()
@@ -334,10 +309,6 @@ struct ContentView: View {
             return
         }
 
-        // Stay in .paused visually while the summary card renders.
-        isSummarizing = true
-        meeting = .paused
-        response = .generating(kind: "Meeting Summary")
         // Snapshot the recording bookends BEFORE the async work — endedAt
         // marks the user's stop, not the summary-ready instant. Snapshot
         // the transcript entries too so the post-meeting save persists
@@ -348,44 +319,68 @@ struct ContentView: View {
         let langCode = language.current.whisperCode
         let transcriptEntries = store.entries
 
+        guard let userID = auth.currentSupabaseSession?.user.id else {
+            Log.ui.error("End Meeting skipped — no session")
+            cleanupToIdle()
+            return
+        }
+
+        // Build the draft up front so MeetingDetailView opens on a real
+        // row with the timestamps + language populated and only the
+        // summary / title visibly loading. The same id flows through the
+        // server insert later — id is client-generated for idempotency.
+        let draft = Meeting.newCompleted(
+            userID: userID,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            summary: "",
+            language: langCode,
+            title: nil
+        )
+        meetingStore.beginGenerating(draft)
+
+        NotificationCenter.default.post(
+            name: .nodOpenMeetingDetail,
+            object: nil,
+            userInfo: [Notification.nodMeetingIDKey: draft.id]
+        )
+
+        // Panel returns to ready BEFORE the LLM call so a "Generating
+        // summary…" placeholder doesn't double up — once in the small
+        // panel card and once in the detail view. The user only sees
+        // the detail-view loading state.
+        cleanupToIdle()
+
+        let draftID = draft.id
         Task {
             let (system, user) = PromptLibrary.build(kind: .summary, transcript: context, language: language.current)
             do {
                 let text = try await llm.complete(system: system, user: user)
-                await MainActor.run {
-                    if case let .generating(k) = response, k == "Meeting Summary" {
-                        response = .ready(kind: "Meeting Summary", text: text)
-                    }
-                }
-                // Generate a calendar-event-style title for HistoryView so
-                // rows read as the meeting's topic, not "Meeting on
-                // 23 May 2026, 19:23". Best-effort: failure here doesn't
-                // block persistence — Meeting.title is optional and
-                // `displayTitle` falls back to a date label.
+                // Title is best-effort — failure here doesn't block
+                // persistence; Meeting.displayTitle falls back to a
+                // date label.
                 let title = await generateMeetingTitle(from: text)
-                // Persist the meeting now that we have a summary + title +
-                // bookend timestamps, then bulk-insert the transcript
-                // entries so MeetingDetailView's Transcript tab has data.
+                let updated = draft.updating(title: title, summary: text)
+                await MainActor.run {
+                    meetingStore.applyGenerated(updated)
+                }
                 await persistMeeting(
-                    startedAt: startedAt,
-                    endedAt: endedAt,
-                    summary: text,
-                    language: langCode,
-                    title: title,
+                    meeting: updated,
                     transcriptEntries: transcriptEntries
                 )
             } catch {
+                Log.ui.error("Meeting summary generation failed: \(error.localizedDescription)")
                 await MainActor.run {
-                    if case let .generating(k) = response, k == "Meeting Summary" {
-                        response = .ready(kind: "Meeting Summary", text: "⚠️ \(error.localizedDescription)")
-                    }
+                    meetingStore.markGenerationFailed(
+                        id: draftID,
+                        errorMessage: "⚠️ \(error.localizedDescription)"
+                    )
                 }
             }
         }
     }
 
     private func cleanupToIdle() {
-        isSummarizing = false
         meeting = .idle
         response = .none
         elapsed = 0
@@ -411,7 +406,7 @@ struct ContentView: View {
     private func toggleMic() {
         micMuted.toggle()
         audioCapture.setMicMuted(micMuted)
-        print(micMuted ? "→ Mic muted" : "→ Mic unmuted")
+        Log.ui.info(micMuted ? "mic muted" : "mic unmuted")
     }
 
     private func generate(kind: String) {
@@ -455,51 +450,18 @@ struct ContentView: View {
         print("→ Copied to clipboard")
     }
 
-    /// Called from ResponseCard's "Ask AI to edit" input when the user submits
-    /// an instruction. Hands the current recap + instruction to the LLM and
-    /// returns the rewritten text for the card to display.
-    private func aiEditSummary(currentText: String, instruction: String) async throws -> String {
-        Log.ui.info("AI summary edit instruction: \(instruction)")
-        let (system, user) = PromptLibrary.buildSummaryEdit(
-            currentSummary: currentText,
-            instruction: instruction,
-            language: language.current
-        )
-        return try await llm.complete(system: system, user: user)
-    }
-
     // MARK: - Meeting persistence (issue #14)
 
-    /// Builds the Meeting and fires the Supabase insert. On failure caches
-    /// the row in @State so the retry toast can re-fire it with the SAME id
-    /// (idempotency from the client side — server allows duplicate ids
-    /// because of `default gen_random_uuid()` only when client omits id; we
-    /// always send our pre-generated id).
+    /// Fires the Supabase insert for a finalised meeting and best-effort
+    /// follows with a transcript bulk-insert. On insert failure the row
+    /// is cached in `pendingMeetingSaves` so the retry toast can re-fire
+    /// it with the SAME id (idempotency — server allows the duplicate id
+    /// because the client always pre-generates the UUID, never relying
+    /// on `default gen_random_uuid()`).
     private func persistMeeting(
-        startedAt: Date,
-        endedAt: Date,
-        summary: String,
-        language: String,
-        title: String?,
+        meeting: Meeting,
         transcriptEntries: [TranscriptEntry]
     ) async {
-        // Read the SDK's cached session directly — it's updated atomically
-        // when sign-in lands and during refresh, while AuthService.$session
-        // lags by a publisher microtask. Without this, persistMeeting can
-        // race a fresh sign-in and silently drop a meeting that should
-        // have saved fine.
-        guard let userID = auth.currentSupabaseSession?.user.id else {
-            Log.ui.error("MeetingStore.insert skipped — no session")
-            return
-        }
-        let meeting = Meeting.newCompleted(
-            userID: userID,
-            startedAt: startedAt,
-            endedAt: endedAt,
-            summary: summary,
-            language: language,
-            title: title
-        )
         await attemptSave(meeting)
         // If attemptSave failed it queues `meeting` on pendingMeetingSaves —
         // inserting transcripts now would FK-fail (no parent row on the
@@ -523,7 +485,7 @@ struct ContentView: View {
             TranscriptRecord(
                 id: entry.id,
                 meetingID: meeting.id,
-                userID: userID,
+                userID: meeting.userID,
                 createdAt: nil,
                 source: entry.source.rawValue,
                 text: entry.text,
@@ -612,19 +574,16 @@ struct ContentView: View {
             }
         } catch {
             Log.ui.error("MeetingStore.insert failed — \(error.localizedDescription)")
-            // Always queue the failed save so it survives until the user
-            // explicitly retries (or the panel is torn down — v1 has no
-            // on-disk outbox). Only the visible toast is gated on whether
-            // the user is still looking at the post-meeting card —
-            // surfacing a toast over the idle UI is confusing.
+            // Queue the failed save so the retry toast can re-fire it.
+            // The panel is always on screen (idle or recording) so the
+            // toast is visible regardless of state — the previous
+            // `meeting != .idle` gate silenced this branch once we
+            // started running persistence after returning the panel to
+            // idle for the open-detail handoff.
             if !pendingMeetingSaves.contains(where: { $0.id == meeting.id }) {
                 pendingMeetingSaves.append(meeting)
             }
-            if self.meeting != .idle || self.response != .none {
-                saveErrorToast = "Couldn't save meeting — \(error.localizedDescription)"
-            } else {
-                Log.ui.info("save failed after dismiss — queued silently: \(meeting.id)")
-            }
+            saveErrorToast = "Couldn't save meeting — \(error.localizedDescription)"
         }
     }
 

@@ -108,16 +108,14 @@ final class TranscriptStore: ObservableObject {
         let (meText, themText) = await (me, them)
 
         await MainActor.run {
+            let now = Date()
             if let text = meText {
-                self.entries.append(TranscriptEntry(source: .me, text: text, timestamp: Date()))
-                self.lastSource = .me
-                self.lastError = nil
+                self.appendDeduped(text: text, source: .me, timestamp: now)
             }
             if let text = themText {
-                self.entries.append(TranscriptEntry(source: .them, text: text, timestamp: Date()))
-                self.lastSource = .them
-                self.lastError = nil
+                self.appendDeduped(text: text, source: .them, timestamp: now)
             }
+            self.lastError = nil
         }
     }
 
@@ -152,10 +150,76 @@ final class TranscriptStore: ObservableObject {
 
     private func handleFinal(text: String, source: TranscriptSource) {
         DispatchQueue.main.async {
-            self.entries.append(TranscriptEntry(source: source, text: text, timestamp: Date()))
-            self.lastSource = source
+            self.appendDeduped(text: text, source: source, timestamp: Date())
             self.lastError = nil
         }
+    }
+
+    // MARK: - Cross-source dedup
+
+    /// Whisper transcribes mic and system audio independently; when the
+    /// user is on speakers (no headphones), the mic re-captures whatever
+    /// the system is playing → near-identical text appears under both
+    /// ME and THEM within a second or two ("acoustic bleed").
+    ///
+    /// Strategy: when a new entry's text overlaps heavily (Jaccard ≥ 0.7
+    /// on word sets) with a recent entry from the OTHER source within an
+    /// 8-second window, treat them as the same utterance. THEM always
+    /// wins (system audio has no acoustic path → cleaner) — either the
+    /// existing ME row is replaced with the cleaner THEM text, or the
+    /// incoming ME duplicate is dropped.
+    ///
+    /// When both sides genuinely overlap (different speakers, different
+    /// content), Jaccard stays low and both rows survive.
+    private func appendDeduped(text: String, source: TranscriptSource, timestamp: Date) {
+        let cutoff = timestamp.addingTimeInterval(-Self.dedupWindowSeconds)
+        for (idx, existing) in entries.enumerated().reversed() {
+            guard existing.timestamp >= cutoff else { continue }
+            guard existing.source != source else { continue }
+            guard Self.textSimilarity(existing.text, text) >= Self.dedupSimilarityThreshold else { continue }
+
+            switch (source, existing.source) {
+            case (.them, .me):
+                Log.stt.info("dedup: replaced ME bleed with cleaner THEM ('\(text.prefix(48))…')")
+                entries[idx] = TranscriptEntry(source: .them, text: text, timestamp: timestamp)
+                lastSource = .them
+            case (.me, .them):
+                Log.stt.info("dedup: dropped ME bleed of existing THEM ('\(text.prefix(48))…')")
+            default:
+                break
+            }
+            return
+        }
+
+        entries.append(TranscriptEntry(source: source, text: text, timestamp: timestamp))
+        lastSource = source
+    }
+
+    private static let dedupWindowSeconds: TimeInterval = 8
+    private static let dedupSimilarityThreshold: Double = 0.7
+
+    private static func textSimilarity(_ a: String, _ b: String) -> Double {
+        let setA = wordSet(a)
+        let setB = wordSet(b)
+        if setA.isEmpty || setB.isEmpty { return 0 }
+        let intersection = setA.intersection(setB).count
+        let union = setA.union(setB).count
+        return Double(intersection) / Double(union)
+    }
+
+    private static func wordSet(_ text: String) -> Set<String> {
+        var current = ""
+        var words: Set<String> = []
+        for scalar in text.lowercased().unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                current.unicodeScalars.append(scalar)
+            } else if !current.isEmpty {
+                words.insert(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { words.insert(current) }
+        return words
     }
 
     private func handleFailure(message: String, source: TranscriptSource) {

@@ -163,8 +163,25 @@ final class AudioCaptureService: NSObject, ObservableObject {
                 Log.audio.info("mic tap #\(tapCallCounter) — frames=\(count) peak=\(String(format: "%.4f", peak))")
             }
 
-            // Forward synchronously while the buffer is still valid.
-            self.onMicBuffer?(buffer)
+            // Mute gates the buffer at the source — previously `micEnabled`
+            // only gated the UI level meter, so a muted mic still
+            // forwarded frames into Whisper and showed up as ME entries.
+            // Read the @MainActor flag without hopping: a one-frame race
+            // (~5ms) is acceptable for a mute toggle, and an actual
+            // MainActor hop would defer the gate past this buffer.
+            let enabledNow = self.micEnabled
+            if enabledNow {
+                // Forward synchronously while the buffer is still valid.
+                self.onMicBuffer?(buffer)
+            } else if tapCallCounter % 50 == 0 {
+                // Periodic confirmation the mute gate is active (sampled
+                // 1-in-50 because every-buffer logging would flood at
+                // ~10/sec). Pairs with the existing "mic tap #N" line so
+                // a log scrub shows BOTH that hardware is still
+                // delivering frames AND that we're correctly dropping
+                // them at the gate.
+                Log.audio.info("mic muted — buffer dropped at gate (peak=\(String(format: "%.4f", peak)))")
+            }
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.micEnabled { self.micSamples += count }

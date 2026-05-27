@@ -53,6 +53,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             NotificationCenter.default.post(name: .nodSuggestHotkey, object: nil)
         }
 
+        NotificationCenter.default.addObserver(
+            forName: .nodOpenMeetingDetail,
+            object: nil,
+            queue: nil
+        ) { [weak self] note in
+            let id = note.userInfo?[Notification.nodMeetingIDKey] as? UUID
+            Task { @MainActor in
+                guard let self, let id else { return }
+                self.showHistoryWindow(focusing: id)
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+
         let permissions = PermissionManager()
         let onboarding = OnboardingState()
         let audioCapture = AudioCaptureService()
@@ -179,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.delegate = self
+        window.appearance = NSAppearance(named: .darkAqua)
         window.center()
 
         let root = SignInView().environmentObject(auth)
@@ -214,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.delegate = self
+        window.appearance = NSAppearance(named: .darkAqua)
         window.center()
 
         let root = OnboardingView(onComplete: { [weak self] in
@@ -314,7 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     @objc private func showHistoryAction() {
-        showHistoryWindow()
+        showHistoryWindow(focusing: nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -340,6 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.delegate = self
+        window.appearance = NSAppearance(named: .darkAqua)
         window.center()
         window.contentViewController = NSHostingController(rootView: SettingsView())
         window.makeKeyAndOrderFront(nil)
@@ -356,11 +372,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     // MARK: - History window (issue #14)
 
-    private func showHistoryWindow() {
+    private func showHistoryWindow(focusing meetingID: UUID? = nil) {
         guard let meetingStore else { return }
 
         if let existing = historyWindow {
             existing.makeKeyAndOrderFront(nil)
+            // HistoryView is already mounted and observing the
+            // `.nodOpenMeetingDetail` notification — its own `.onReceive`
+            // handles the navigation push.
             return
         }
 
@@ -374,6 +393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.delegate = self
+        window.appearance = NSAppearance(named: .darkAqua)
         // Enforce a min size so a SwiftUI view with low intrinsic content
         // (the empty / loading state) can't collapse the window. Without
         // this the History window appeared as a ~280×320 chip with the
@@ -381,7 +401,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.contentMinSize = NSSize(width: 520, height: 460)
         window.center()
 
-        let root = HistoryView()
+        // First-mount focus is handed in via init — the open-detail
+        // notification fires before HistoryView's `.onReceive` subscribes
+        // when the window is being created fresh, so its `.task` reads
+        // `initialFocusMeetingID` after the initial refresh instead.
+        let root = HistoryView(initialFocusMeetingID: meetingID)
             .frame(minWidth: 520, minHeight: 460)
             .environmentObject(meetingStore)
 
@@ -536,4 +560,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             menu.addItem(quit)
         }
     }
+}
+
+extension Notification.Name {
+    /// Posted by ContentView once a freshly-ended meeting has been
+    /// summarised and persisted. AppDelegate opens/focuses the History
+    /// window; HistoryView pushes the meeting's detail view onto its
+    /// NavigationStack. `userInfo` carries the meeting id under
+    /// `Notification.nodMeetingIDKey`.
+    static let nodOpenMeetingDetail = Notification.Name("nod.history.openMeetingDetail")
+}
+
+extension Notification {
+    static let nodMeetingIDKey = "meetingID"
 }

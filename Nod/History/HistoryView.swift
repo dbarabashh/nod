@@ -8,6 +8,12 @@ import SwiftUI
 ///
 /// Issues #14 + #16.
 struct HistoryView: View {
+    /// Meeting to push onto the navigation stack on first mount. Set when
+    /// AppDelegate opens the window in response to a just-ended meeting —
+    /// the user lands directly on the detail view and can step back to
+    /// the list. Nil when the window is opened from the menu bar.
+    let initialFocusMeetingID: UUID?
+
     @EnvironmentObject private var meetingStore: MeetingStore
 
     @State private var searchQuery: String = ""
@@ -17,6 +23,11 @@ struct HistoryView: View {
     /// `meetingStore.pendingUndo` changes, so the auto-dismiss timer
     /// belonging to the previous toast knows to skip its own dismissal.
     @State private var undoToastID: UUID = UUID()
+    @State private var path: [Meeting] = []
+
+    init(initialFocusMeetingID: UUID? = nil) {
+        self.initialFocusMeetingID = initialFocusMeetingID
+    }
 
     enum Segment: String, CaseIterable, Identifiable {
         case all = "All"
@@ -25,7 +36,7 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ZStack(alignment: .bottom) {
                 content
                 if let pending = meetingStore.pendingUndo {
@@ -41,6 +52,12 @@ struct HistoryView: View {
             .navigationTitle("Meetings")
             .toolbar { toolbarContent }
             .searchable(text: $searchQuery, prompt: "Search meetings")
+            // Registered at the NavigationStack root so programmatic
+            // pushes (via `path = [meeting]`) resolve even when the empty
+            // / loading state is on screen instead of the list.
+            .navigationDestination(for: Meeting.self) { meeting in
+                MeetingDetailView(meeting: meeting)
+            }
         }
         .background(Theme.Palette.bg.ignoresSafeArea())
         .task {
@@ -52,6 +69,14 @@ struct HistoryView: View {
             // dedupes concurrent calls and stays silent when there's
             // already a loaded cache, so calling on every appear is cheap.
             await meetingStore.refresh()
+            if let id = initialFocusMeetingID {
+                focus(on: id)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .nodOpenMeetingDetail)) { note in
+            if let id = note.userInfo?[Notification.nodMeetingIDKey] as? UUID {
+                focus(on: id)
+            }
         }
         .onChange(of: meetingStore.pendingUndo?.id) { newID in
             // A fresh soft-delete just landed — start the 5s auto-dismiss
@@ -306,9 +331,6 @@ struct HistoryView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .navigationDestination(for: Meeting.self) { meeting in
-            MeetingDetailView(meeting: meeting)
-        }
     }
 
     private var trashList: some View {
@@ -331,6 +353,23 @@ struct HistoryView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+    }
+
+    // MARK: - Programmatic navigation
+
+    /// Push the matching meeting (from the in-memory cache) onto the
+    /// navigation stack so the user lands on its detail view. No-op if
+    /// the id isn't in the cache — caller is responsible for inserting
+    /// the meeting into MeetingStore before posting the focus signal.
+    /// Flips the segment to `.all` so a user sitting on Trash when their
+    /// just-ended meeting fires still sees the detail view.
+    private func focus(on id: UUID) {
+        guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else {
+            Log.ui.info("HistoryView.focus skipped — meeting not in cache: \(id.uuidString)")
+            return
+        }
+        segment = .all
+        path = [meeting]
     }
 
     // MARK: - Soft delete (Undo toast is driven by meetingStore.pendingUndo)

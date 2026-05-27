@@ -135,8 +135,9 @@ struct Meeting: Codable, Identifiable {
     }
 
     private static let sectionHeaderLabels: Set<String> = [
-        "topics covered", "decisions made", "open questions", "recap",
+        "topics covered", "decisions made", "action items", "open questions", "recap",
         "теми обговорення", "теми", "рішення", "ухвалені рішення",
+        "дії", "завдання", "пункти дій",
         "відкриті питання", "питання", "підсумок"
     ]
 

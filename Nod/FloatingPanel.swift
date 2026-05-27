@@ -18,6 +18,11 @@ final class FloatingPanel<Content: View>: NSPanel {
         self.isMovableByWindowBackground = true
         self.hidesOnDeactivate = false
         self.becomesKeyOnlyIfNeeded = true
+        // Force dark appearance regardless of system theme — the SwiftUI
+        // content is hardcoded white-on-dark (Theme.Palette.ink = frost,
+        // borders = white.opacity(...)), so a light `.hudWindow` material
+        // would leave the panel near-invisible for Light-mode users.
+        self.appearance = NSAppearance(named: .vibrantDark)
         // Floating utility panels shouldn't be part of the user's screen-share.
         // Same default as Raycast / 1Password / Notification Center — the user's
         // private workspace doesn't bleed into the content they explicitly

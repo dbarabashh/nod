@@ -52,6 +52,16 @@ final class MeetingStore: ObservableObject {
     /// next successful refresh.
     @Published private(set) var lastRefreshFailed: Bool = false
 
+    /// Meeting IDs whose summary the LLM is still producing. Populated by
+    /// `beginGenerating(_:)` when the floating panel hands off to
+    /// MeetingDetailView at end-of-meeting, drained by
+    /// `applyGenerated(_:)` / `markGenerationFailed(...)` when the LLM
+    /// returns. MeetingDetailView watches this set to swap the Summary
+    /// tab between the live loading placeholder and the real content,
+    /// and to gate edit/copy/transcript affordances that don't make
+    /// sense until the row has been finalised.
+    @Published private(set) var generatingSummaryIDs: Set<UUID> = []
+
     private let supabase: SupabaseClient
     private static let tableName = "meetings"
     private static let transcriptsTableName = "meeting_transcripts"
@@ -77,22 +87,84 @@ final class MeetingStore: ObservableObject {
     // MARK: - Write
 
     /// Persists a completed meeting. Throws on network / RLS / decode error
-    /// so the caller can surface a retry toast.
+    /// so the caller can surface a retry toast. Idempotent on the local
+    /// cache: if a draft for this id already exists (the meeting was
+    /// previously registered via `beginGenerating(_:)`), the local row
+    /// is replaced rather than duplicated.
     func insert(_ meeting: Meeting) async throws {
         Log.ui.info("MeetingStore.insert id=\(meeting.id.uuidString) startedAt=\(meeting.startedAt.timeIntervalSince1970)")
         try await supabase
             .from(Self.tableName)
             .insert(meeting)
             .execute()
-        // Optimistic local update so HistoryView reflects the new row even
-        // before the next full refresh. Sorted newest-first to match the
-        // server-side ordering.
-        meetings.insert(meeting, at: 0)
-        meetings.sort { $0.startedAt > $1.startedAt }
+        if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
+            meetings[idx] = meeting
+        } else {
+            // Optimistic local update so HistoryView reflects the new row even
+            // before the next full refresh. Sorted newest-first to match the
+            // server-side ordering.
+            meetings.insert(meeting, at: 0)
+            meetings.sort { $0.startedAt > $1.startedAt }
+        }
         // Promote loadState so HistoryView's content switch shows the list
         // even if `refresh()` has never run (first meeting on a fresh
         // install, HistoryView opened later).
         loadState = .loaded
+    }
+
+    // MARK: - Generating handoff
+
+    /// Inserts a draft meeting (empty summary, nil title) into the local
+    /// cache and flags its id as generating. No server call — the row
+    /// only reaches Supabase when the caller follows up with
+    /// `insert(_:)` after the LLM lands. Used by the end-of-meeting flow
+    /// so MeetingDetailView can open immediately with a loading state
+    /// while summary + title are still being produced.
+    func beginGenerating(_ draft: Meeting) {
+        Log.ui.info("MeetingStore.beginGenerating id=\(draft.id.uuidString)")
+        if let idx = meetings.firstIndex(where: { $0.id == draft.id }) {
+            meetings[idx] = draft
+        } else {
+            meetings.insert(draft, at: 0)
+            meetings.sort { $0.startedAt > $1.startedAt }
+        }
+        generatingSummaryIDs.insert(draft.id)
+        loadState = .loaded
+    }
+
+    /// Replaces the local draft with the LLM-finalised meeting (summary
+    /// + title now populated) and clears the generating flag so
+    /// MeetingDetailView swaps from the loading placeholder to the
+    /// real content. Local-only — server persistence remains the
+    /// caller's responsibility via `insert(_:)`.
+    func applyGenerated(_ meeting: Meeting) {
+        Log.ui.info("MeetingStore.applyGenerated id=\(meeting.id.uuidString)")
+        if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
+            meetings[idx] = meeting
+        } else {
+            // Draft was wiped between begin and apply — most likely a
+            // sign-out triggered `clear()` while the LLM was running.
+            // The detail view (if still open) will fall back to the
+            // empty captured draft; log so the missing UI update isn't
+            // silent.
+            Log.ui.info("MeetingStore.applyGenerated dropped — meeting not in cache: \(meeting.id.uuidString)")
+        }
+        generatingSummaryIDs.remove(meeting.id)
+    }
+
+    /// Summary generation failed end-to-end. Stamp the error message into
+    /// `summary` so the detail view can show it inline, then clear the
+    /// generating flag. Local-only — a failed generation never gets
+    /// persisted to the server.
+    func markGenerationFailed(id: UUID, errorMessage: String) {
+        Log.ui.info("MeetingStore.markGenerationFailed id=\(id.uuidString)")
+        if let idx = meetings.firstIndex(where: { $0.id == id }) {
+            meetings[idx] = meetings[idx].updating(
+                title: meetings[idx].title,
+                summary: errorMessage
+            )
+        }
+        generatingSummaryIDs.remove(id)
     }
 
     /// Patches `title` + `summary` for an existing meeting. Only those two
@@ -310,6 +382,7 @@ final class MeetingStore: ObservableObject {
         trashState = .idle
         lastRefreshFailed = false
         lastSuccessfulFetchAt = nil
+        generatingSummaryIDs = []
     }
 
     // MARK: - Read
@@ -379,11 +452,21 @@ final class MeetingStore: ObservableObject {
                 .limit(500)
                 .execute()
                 .value
-            meetings = rows
+            // Preserve drafts that are still mid-generation — they
+            // aren't on the server yet, so a naive `meetings = rows`
+            // would yank the row out from under MeetingDetailView while
+            // it's rendering the loading placeholder.
+            let drafts = meetings.filter { generatingSummaryIDs.contains($0.id) }
+            var merged = rows
+            for draft in drafts where !merged.contains(where: { $0.id == draft.id }) {
+                merged.append(draft)
+            }
+            merged.sort { $0.startedAt > $1.startedAt }
+            meetings = merged
             loadState = .loaded
             lastSuccessfulFetchAt = Date()
             lastRefreshFailed = false
-            Log.ui.info("MeetingStore.refresh loaded \(rows.count) meetings")
+            Log.ui.info("MeetingStore.refresh loaded \(rows.count) meetings (+ \(drafts.count) drafts)")
         } catch {
             if hadLoadedCache {
                 Log.ui.error("MeetingStore.refresh failed (keeping cache): \(error.localizedDescription)")
