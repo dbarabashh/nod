@@ -125,6 +125,7 @@ Short version of what's there:
 
 - **Plan documents reality.** When editing `PLAN.md`, every claim must match what the code does (or what a `- [ ]` task will make it do). No aspirational marketing language — see [memory `feedback-plan-matches-codebase`](#).
 - **Match standard UX patterns** for non-differentiating surface (auth, settings, paywall). If 3+ peer apps converge on a pattern, that's the pattern. Reserve design effort for actual product decisions.
+- **No comments unless they explain a non-obvious WHY.** Code talks through good names, not narration. Don't restate what the next line does, don't mark fixes/tasks/callers, don't add section headers. See [`CONVENTIONS.md` § Comments](./CONVENTIONS.md#comments).
 - **Logging via `Log.<area>`**, not `print`. See above.
 - **No edits to `Nod.xcodeproj`** — change `project.yml` and run `xcodegen generate`.
 - **Supabase changes via CLI**, not dashboard — see above.
