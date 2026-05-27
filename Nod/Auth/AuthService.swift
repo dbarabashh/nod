@@ -1,9 +1,10 @@
 import Foundation
 import AppKit
+import AuthenticationServices
 import Supabase
 
 @MainActor
-final class AuthService: ObservableObject {
+final class AuthService: NSObject, ObservableObject {
     static let callbackURL = URL(string: "nod://auth-callback")!
 
     @Published private(set) var session: Session?
@@ -12,6 +13,7 @@ final class AuthService: ObservableObject {
 
     private let client: SupabaseClient
     private var stateTask: Task<Void, Never>?
+    private var authSession: ASWebAuthenticationSession?
 
     /// The SDK's most-recent cached session — updated by the SDK
     /// synchronously as soon as a token refreshes or sign-in lands,
@@ -27,6 +29,7 @@ final class AuthService: ObservableObject {
         self.client = client
         let cached = client.auth.currentSession
         self.session = (cached?.isExpired == false) ? cached : nil
+        super.init()
         let stream = client.auth.authStateChanges
         stateTask = Task { [weak self] in
             for await change in stream {
@@ -58,12 +61,53 @@ final class AuthService: ObservableObject {
                 provider: .google,
                 redirectTo: Self.callbackURL
             )
-            NSWorkspace.shared.open(url)
+            startAuthSession(url: url)
         } catch {
             Log.auth.error("getOAuthSignInURL failed: \(error.localizedDescription)")
             lastError = error.localizedDescription
             isSigningIn = false
         }
+    }
+
+    private func startAuthSession(url: URL) {
+        let session = ASWebAuthenticationSession(
+            url: url,
+            callbackURLScheme: Self.callbackURL.scheme
+        ) { [weak self] callbackURL, error in
+            Task { @MainActor in
+                await self?.finishAuthSession(callbackURL: callbackURL, error: error)
+            }
+        }
+        session.presentationContextProvider = self
+        authSession = session
+        if !session.start() {
+            Log.auth.error("ASWebAuthenticationSession.start() returned false")
+            lastError = "Couldn't open sign-in window"
+            isSigningIn = false
+            authSession = nil
+        }
+    }
+
+    private func finishAuthSession(callbackURL: URL?, error: Error?) async {
+        authSession = nil
+        if let error {
+            let nsError = error as NSError
+            if nsError.domain == ASWebAuthenticationSessionErrorDomain,
+               nsError.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
+                Log.auth.info("user cancelled sign-in window")
+                isSigningIn = false
+                return
+            }
+            Log.auth.error("ASWebAuthenticationSession failed: \(error.localizedDescription)")
+            lastError = error.localizedDescription
+            isSigningIn = false
+            return
+        }
+        guard let callbackURL else {
+            isSigningIn = false
+            return
+        }
+        await handleCallback(callbackURL)
     }
 
     /// Reset the "signing in" state without completing OAuth.
@@ -109,6 +153,14 @@ final class AuthService: ObservableObject {
             try await client.auth.signOut()
         } catch {
             Log.auth.error("signOut failed: \(error.localizedDescription)")
+        }
+    }
+}
+
+extension AuthService: ASWebAuthenticationPresentationContextProviding {
+    nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        MainActor.assumeIsolated {
+            NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) ?? NSWindow()
         }
     }
 }
