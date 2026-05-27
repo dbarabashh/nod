@@ -339,12 +339,14 @@ struct ContentView: View {
         meeting = .paused
         response = .generating(kind: "Meeting Summary")
         // Snapshot the recording bookends BEFORE the async work — endedAt
-        // marks the user's stop, not the summary-ready instant. We do NOT
-        // snapshot the transcript for persistence — it lives only in
-        // `store` for the summary LLM call and is then dropped.
+        // marks the user's stop, not the summary-ready instant. Snapshot
+        // the transcript entries too so the post-meeting save persists
+        // them to `meeting_transcripts` (the Transcript tab in
+        // MeetingDetailView reads them back).
         let startedAt = recordingStartedAt ?? Date()
         let endedAt = Date()
         let langCode = language.current.whisperCode
+        let transcriptEntries = store.entries
 
         Task {
             let (system, user) = PromptLibrary.build(kind: .summary, transcript: context, language: language.current)
@@ -362,14 +364,15 @@ struct ContentView: View {
                 // `displayTitle` falls back to a date label.
                 let title = await generateMeetingTitle(from: text)
                 // Persist the meeting now that we have a summary + title +
-                // bookend timestamps. Transcript is intentionally NOT
-                // persisted — see Meeting.swift for the rationale.
+                // bookend timestamps, then bulk-insert the transcript
+                // entries so MeetingDetailView's Transcript tab has data.
                 await persistMeeting(
                     startedAt: startedAt,
                     endedAt: endedAt,
                     summary: text,
                     language: langCode,
-                    title: title
+                    title: title,
+                    transcriptEntries: transcriptEntries
                 )
             } catch {
                 await MainActor.run {
@@ -477,7 +480,8 @@ struct ContentView: View {
         endedAt: Date,
         summary: String,
         language: String,
-        title: String?
+        title: String?,
+        transcriptEntries: [TranscriptEntry]
     ) async {
         // Read the SDK's cached session directly — it's updated atomically
         // when sign-in lands and during refresh, while AuthService.$session
@@ -497,6 +501,41 @@ struct ContentView: View {
             title: title
         )
         await attemptSave(meeting)
+        // If attemptSave failed it queues `meeting` on pendingMeetingSaves —
+        // inserting transcripts now would FK-fail (no parent row on the
+        // server) and the records would be discarded by the catch below.
+        // The retry queue handles the meeting row, but transcripts aren't
+        // requeued; rather than silently losing them with a FK-violation
+        // error in the log, skip the insert until the meeting actually
+        // lands. Net behaviour: transcripts are absent when the very
+        // first save fails; the summary (the more valuable artifact) is
+        // preserved by the existing retry path.
+        if pendingMeetingSaves.contains(where: { $0.id == meeting.id }) {
+            Log.ui.info("insertTranscript skipped — meeting save still pending")
+            return
+        }
+        // Transcript best-effort: the summary row is already saved, so a
+        // transcript failure shouldn't surface a retry toast — log and
+        // move on. The detail view degrades gracefully when transcripts
+        // are missing (shows "No transcript saved for this meeting.").
+        guard !transcriptEntries.isEmpty else { return }
+        let records = transcriptEntries.enumerated().map { idx, entry in
+            TranscriptRecord(
+                id: entry.id,
+                meetingID: meeting.id,
+                userID: userID,
+                createdAt: nil,
+                source: entry.source.rawValue,
+                text: entry.text,
+                ts: entry.timestamp,
+                idx: idx
+            )
+        }
+        do {
+            try await meetingStore.insertTranscript(records)
+        } catch {
+            Log.ui.error("MeetingStore.insertTranscript failed (non-fatal) — \(error.localizedDescription)")
+        }
     }
 
     /// Best-effort LLM call to produce a short event-style title. Returns

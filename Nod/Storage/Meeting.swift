@@ -20,11 +20,12 @@ struct Meeting: Codable, Identifiable {
     /// reads this (mutations go via `MeetingStore.softDelete` / `.restore`).
     let deletedAt: Date?
 
-    // The full transcript is intentionally NOT persisted (issue #14 follow-up).
-    // Storing every participant's words on our server creates retention /
-    // discovery exposure we don't want to carry. The transcript lives only
-    // in `TranscriptStore` during the meeting, gets fed to the LLM once for
-    // summary generation, and is discarded with `store.clear()` on cleanup.
+    // The transcript itself lives in a sibling table — `meeting_transcripts`
+    // (migration `20260527093241_meeting_transcripts.sql`) — one row per
+    // Whisper-finalised chunk, cascade-deleted with this row. Kept off
+    // `meetings` so the list-view fetch doesn't drag a meeting's worth of
+    // text per row; the detail view loads transcript entries lazily when
+    // the Transcript tab is opened.
 
     enum CodingKeys: String, CodingKey {
         case id

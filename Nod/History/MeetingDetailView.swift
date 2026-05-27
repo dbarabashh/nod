@@ -1,9 +1,8 @@
 import SwiftUI
 
-/// Editable view of a single meeting — full summary + title.
-/// Autosaves on a 1-second debounce. The transcript is intentionally not
-/// part of the persisted record (see Meeting.swift), so this view only
-/// renders + edits summary + title.
+/// Editable view of a single meeting — title + summary (autosaved on a
+/// 1-second debounce) plus a read-only Transcript tab that lazy-loads
+/// from `meeting_transcripts` on first open.
 struct MeetingDetailView: View {
     let meeting: Meeting
 
@@ -29,6 +28,22 @@ struct MeetingDetailView: View {
     /// instead of literal `**Decisions made**` asterisks. Toolbar
     /// toggle flips to edit mode for raw text editing.
     @State private var isEditingSummary: Bool = false
+    /// Currently-selected tab — Summary by default. Transcript loads
+    /// lazily the first time the user switches to it.
+    @State private var selectedTab: Tab = .summary
+    @State private var transcriptLoad: TranscriptLoadState = .idle
+
+    enum Tab: Hashable {
+        case summary
+        case transcript
+    }
+
+    private enum TranscriptLoadState {
+        case idle
+        case loading
+        case loaded([TranscriptRecord])
+        case failed(String)
+    }
 
     private enum SaveState: Equatable {
         case idle
@@ -52,7 +67,14 @@ struct MeetingDetailView: View {
         VStack(alignment: .leading, spacing: 14) {
             titleField
             header
-            summaryEditor
+            TabView(selection: $selectedTab) {
+                summaryEditor
+                    .tabItem { Label("Summary", systemImage: "doc.text") }
+                    .tag(Tab.summary)
+                transcriptTab
+                    .tabItem { Label("Transcript", systemImage: "captions.bubble") }
+                    .tag(Tab.transcript)
+            }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 18)
@@ -63,6 +85,11 @@ struct MeetingDetailView: View {
         .onAppear {
             editableTitle = meeting.title ?? ""
             editableSummary = meeting.summary
+        }
+        .onChange(of: selectedTab) { tab in
+            if tab == .transcript, case .idle = transcriptLoad {
+                Task { await loadTranscript() }
+            }
         }
         .onDisappear(perform: flushPendingSaveOnDisappear)
     }
@@ -142,6 +169,136 @@ struct MeetingDetailView: View {
         .frame(maxHeight: .infinity)
     }
 
+    @ViewBuilder
+    private var transcriptTab: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionLabel("Transcript")
+            transcriptContent
+                .background(Color.white.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Theme.Palette.border, lineWidth: 0.5)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var transcriptContent: some View {
+        switch transcriptLoad {
+        case .idle, .loading:
+            HStack {
+                Spacer()
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .controlSize(.small)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .loaded(let records):
+            if records.isEmpty {
+                VStack(spacing: 6) {
+                    Image(systemName: "captions.bubble")
+                        .font(.system(size: 22, weight: .regular))
+                        .foregroundStyle(Theme.Palette.muted)
+                    Text("No transcript saved for this meeting.")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.Palette.muted)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(records) { record in
+                            transcriptRow(record)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        case .failed(let message):
+            VStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.warning)
+                Text("Couldn't load transcript")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .multilineTextAlignment(.center)
+                Button("Retry") { Task { await loadTranscript() } }
+                    .controlSize(.small)
+                    .padding(.top, 4)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func transcriptRow(_ record: TranscriptRecord) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(sourceLabel(record.source))
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .tracking(0.4)
+                    .foregroundStyle(Theme.Palette.ink.opacity(0.85))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(sourceBackground(record.source))
+                    )
+                Text(Self.timeFormatter.string(from: record.ts))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.Palette.muted)
+            }
+            Text(record.text)
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.Palette.ink.opacity(0.92))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func sourceLabel(_ source: String) -> String {
+        TranscriptSource(rawValue: source)?.label.uppercased() ?? source.uppercased()
+    }
+
+    private func sourceBackground(_ source: String) -> Color {
+        // Tint Me vs Them so the eye can scan ownership at a glance
+        // without reading the chip text.
+        switch TranscriptSource(rawValue: source) {
+        case .me:   return Theme.Palette.violet.opacity(0.18)
+        case .them: return Theme.Palette.cyan.opacity(0.18)
+        case .none: return Theme.Palette.surface
+        }
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .none
+        f.timeStyle = .medium
+        return f
+    }()
+
+    private func loadTranscript() async {
+        transcriptLoad = .loading
+        do {
+            let records = try await meetingStore.fetchTranscript(meetingID: meeting.id)
+            transcriptLoad = .loaded(records)
+        } catch {
+            Log.ui.error("MeetingDetailView fetchTranscript failed: \(error.localizedDescription)")
+            transcriptLoad = .failed(error.localizedDescription)
+        }
+    }
+
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 10.5, weight: .bold))
@@ -193,23 +350,29 @@ struct MeetingDetailView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            Button(action: { isEditingSummary.toggle() }) {
-                HStack(spacing: 6) {
-                    Image(systemName: isEditingSummary ? "checkmark" : "square.and.pencil")
-                    Text(isEditingSummary ? "Done" : "Edit")
+        // Edit + Copy target the summary text — hide them on the
+        // Transcript tab where they'd be either no-ops (Edit) or
+        // confusing (Copy would still copy the summary, not what the
+        // user is looking at).
+        if selectedTab == .summary {
+            ToolbarItem(placement: .primaryAction) {
+                Button(action: { isEditingSummary.toggle() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: isEditingSummary ? "checkmark" : "square.and.pencil")
+                        Text(isEditingSummary ? "Done" : "Edit")
+                    }
                 }
+                .help(isEditingSummary ? "Switch back to formatted view" : "Edit the summary")
             }
-            .help(isEditingSummary ? "Switch back to formatted view" : "Edit the summary")
-        }
-        ToolbarItem(placement: .primaryAction) {
-            Button(action: copyAll) {
-                HStack(spacing: 6) {
-                    Image(systemName: copyFlash ? "checkmark" : "doc.on.doc")
-                    Text(copyFlash ? "Copied" : "Copy")
+            ToolbarItem(placement: .primaryAction) {
+                Button(action: copyAll) {
+                    HStack(spacing: 6) {
+                        Image(systemName: copyFlash ? "checkmark" : "doc.on.doc")
+                        Text(copyFlash ? "Copied" : "Copy")
+                    }
                 }
+                .help("Copy title + date + summary to clipboard")
             }
-            .help("Copy title + date + summary to clipboard")
         }
         ToolbarItem(placement: .primaryAction) {
             Button(role: .destructive, action: deleteMeeting) {

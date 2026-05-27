@@ -54,6 +54,7 @@ final class MeetingStore: ObservableObject {
 
     private let supabase: SupabaseClient
     private static let tableName = "meetings"
+    private static let transcriptsTableName = "meeting_transcripts"
 
     /// In-flight guard for `refresh()`. Set unconditionally at entry so
     /// concurrent silent refreshes (when `loadState` stays `.loaded`)
@@ -135,6 +136,43 @@ final class MeetingStore: ObservableObject {
         if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
             meetings[idx] = meeting
         }
+    }
+
+    // MARK: - Transcripts
+
+    /// Bulk-inserts the in-memory transcript entries for a just-saved
+    /// meeting. Called from the end-of-meeting flow right after
+    /// `insert(_:)` succeeds. Throws on RLS / network / decode error so
+    /// the caller can decide whether to surface this — failing here
+    /// shouldn't block the summary save (the summary is already on the
+    /// server), so callers should log + continue rather than abort.
+    func insertTranscript(_ records: [TranscriptRecord]) async throws {
+        guard !records.isEmpty else { return }
+        Log.ui.info("MeetingStore.insertTranscript meeting=\(records[0].meetingID.uuidString) count=\(records.count)")
+        try await supabase
+            .from(Self.transcriptsTableName)
+            .insert(records)
+            .execute()
+    }
+
+    /// Loads the full transcript for one meeting, ordered chronologically.
+    /// Used by MeetingDetailView's Transcript tab — lazy, only runs when
+    /// the tab is first opened.
+    func fetchTranscript(meetingID: UUID) async throws -> [TranscriptRecord] {
+        Log.ui.info("MeetingStore.fetchTranscript meeting=\(meetingID.uuidString)")
+        // Sanity cap: ~5000 ≈ a 7-hour meeting at 5-second chunks. Real
+        // meetings stay well under this; the cap exists so a runaway
+        // (corrupted idx, bug in the ingest path) can't blow up the
+        // detail view's memory footprint.
+        let rows: [TranscriptRecord] = try await supabase
+            .from(Self.transcriptsTableName)
+            .select()
+            .eq("meeting_id", value: meetingID.uuidString)
+            .order("idx", ascending: true)
+            .limit(5000)
+            .execute()
+            .value
+        return rows
     }
 
     // MARK: - Trash (issue #16)
@@ -321,8 +359,9 @@ final class MeetingStore: ObservableObject {
         Log.ui.info("MeetingStore.refresh starting (silent=\(hadLoadedCache))")
         if !hadLoadedCache { loadState = .loading }
         do {
-            // Capped at 500 newest. With no transcript column (#14 follow-up)
-            // each row is ~1-2 KB, so 500 ≈ 1 MB — acceptable for v1.
+            // Capped at 500 newest. Transcript lives in `meeting_transcripts`
+            // (loaded lazily by the detail view), so each row here is ~1-2 KB
+            // and 500 ≈ 1 MB — acceptable for v1.
             // Real cursor pagination is a follow-up once a user hits this cap;
             // for now SwiftUI's List is lazy at the row-render level so the
             // memory cost is only the in-array storage.
