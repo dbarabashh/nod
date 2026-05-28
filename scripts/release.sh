@@ -193,6 +193,12 @@ say "Stamp ${VERSION} (${BUILD})"
 plist_set CFBundleShortVersionString "${VERSION}"
 plist_set CFBundleVersion "${BUILD}"
 
+# Keep project.yml in lockstep. Without this, the next manual `xcodegen generate`
+# would overwrite Info.plist with the previous (now-stale) version from project.yml,
+# silently downgrading the bundle and breaking Sparkle's appcast comparison.
+/usr/bin/sed -i '' -E "s/(CFBundleShortVersionString: )\"[^\"]*\"/\1\"${VERSION}\"/" project.yml
+/usr/bin/sed -i '' -E "s/(CFBundleVersion: )\"[^\"]*\"/\1\"${BUILD}\"/"             project.yml
+
 # ───────────────────────── archive + export ─────────────────────────
 
 say "Archive (Release)"

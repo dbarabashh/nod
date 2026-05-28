@@ -40,6 +40,7 @@
 		B0F0F0D0B82B4974BA55C179 /* TranscriptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B022AA739EDC98C9F8C0E8 /* TranscriptStore.swift */; };
 		B36906A556CD287E06D7A5C9 /* WhisperTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = F262446346BF9FFC15D5AF67 /* WhisperTranscriber.swift */; };
 		B4FC2F2E94721DFC26D17642 /* PermissionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B25A656A2DF3A8075B12613 /* PermissionRow.swift */; };
+		C4F11B1765BA5E4CE641A405 /* MeetingRecap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46016E68ED4B0D0C8BB1D4C9 /* MeetingRecap.swift */; };
 		C97639BA73AD22CC5A1CB701 /* OnboardingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D057ABB830911C520B69DE5 /* OnboardingState.swift */; };
 		CBAF3F61519380C7AAFFDB18 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD873DC44C5C094EA7379CD7 /* ContentView.swift */; };
 		CFAD0ACF9B70A94F7454E38C /* AudioDeviceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9212ABCD375EB1D216DCA0D /* AudioDeviceCatalog.swift */; };
@@ -59,6 +60,7 @@
 		3A52BC6C5F921E981E5C1B7E /* Meeting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting.swift; sourceTree = "<group>"; };
 		3D81AE28374538021C332981 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		420B40291D1B3DE220552641 /* NodApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodApp.swift; sourceTree = "<group>"; };
+		46016E68ED4B0D0C8BB1D4C9 /* MeetingRecap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRecap.swift; sourceTree = "<group>"; };
 		4940AE0F466E23E8BD4994BD /* Nod.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nod.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		50B3845F31D082ECBEEBC80A /* ConsentPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsentPreference.swift; sourceTree = "<group>"; };
 		51840AAD2C5B38AF9A9F006C /* PermissionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionManager.swift; sourceTree = "<group>"; };
@@ -163,6 +165,7 @@
 		27D0E5EC1C4129AA912696D5 /* LLM */ = {
 			isa = PBXGroup;
 			children = (
+				46016E68ED4B0D0C8BB1D4C9 /* MeetingRecap.swift */,
 				6C387BE5834160BB925911FD /* OpenRouterClient.swift */,
 				E1D50CF8646AB9EB69F2F9C8 /* PromptLibrary.swift */,
 			);
@@ -367,6 +370,7 @@
 				47450284364953F237770A71 /* Log.swift in Sources */,
 				89A3CB33F89E9F813E1926B7 /* Meeting.swift in Sources */,
 				D0EFE445F5346D841211CACD /* MeetingDetailView.swift in Sources */,
+				C4F11B1765BA5E4CE641A405 /* MeetingRecap.swift in Sources */,
 				7B4FF1C0702C0565A47F86AA /* MeetingStore.swift in Sources */,
 				26FB0074AE17C845461190DB /* NodApp.swift in Sources */,
 				C97639BA73AD22CC5A1CB701 /* OnboardingState.swift in Sources */,

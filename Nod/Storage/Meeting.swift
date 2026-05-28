@@ -14,6 +14,11 @@ struct Meeting: Codable, Identifiable {
     let endedAt: Date
     let title: String?
     let summary: String
+    /// Structured recap — same content as `summary` (which is the rendered
+    /// markdown view) but as typed JSON: topics / decisions / actions /
+    /// open_questions. Nullable for backward compatibility with rows
+    /// generated before the `recap_json` column existed.
+    let recap: MeetingRecap?
     let language: String
     /// Soft-delete timestamp — non-nil when the meeting lives in the Trash
     /// segment (#16). Nil for active rows. Server-driven; the client only
@@ -35,6 +40,7 @@ struct Meeting: Codable, Identifiable {
         case endedAt    = "ended_at"
         case title
         case summary
+        case recap      = "recap_json"
         case language
         case deletedAt  = "deleted_at"
     }
@@ -53,6 +59,7 @@ struct Meeting: Codable, Identifiable {
         try c.encode(endedAt, forKey: .endedAt)
         try c.encodeIfPresent(title, forKey: .title)
         try c.encode(summary, forKey: .summary)
+        try c.encodeIfPresent(recap, forKey: .recap)
         try c.encode(language, forKey: .language)
         try c.encodeIfPresent(deletedAt, forKey: .deletedAt)
     }
@@ -67,7 +74,8 @@ struct Meeting: Codable, Identifiable {
         endedAt: Date,
         summary: String,
         language: String,
-        title: String? = nil
+        title: String? = nil,
+        recap: MeetingRecap? = nil
     ) -> Meeting {
         Meeting(
             id: UUID(),
@@ -77,15 +85,19 @@ struct Meeting: Codable, Identifiable {
             endedAt: endedAt,
             title: title,
             summary: summary,
+            recap: recap,
             language: language,
             deletedAt: nil
         )
     }
 
-    /// Returns a copy with the title and summary replaced. Used by
-    /// MeetingDetailView's autosave — Meeting's properties are all `let`,
-    /// so updates flow as new value instances.
-    func updating(title: String?, summary: String) -> Meeting {
+    /// Returns a copy with the title, summary, and recap replaced. Used by
+    /// MeetingDetailView's autosave and by the end-of-meeting generation
+    /// path — Meeting's properties are all `let`, so updates flow as new
+    /// value instances. `recap` defaults to the existing value so callers
+    /// that only touch text (manual edits) don't have to thread the JSON
+    /// through; pass `recap: .some(newRecap)` to refresh structured state.
+    func updating(title: String?, summary: String, recap: MeetingRecap? = nil) -> Meeting {
         Meeting(
             id: id,
             userID: userID,
@@ -94,6 +106,7 @@ struct Meeting: Codable, Identifiable {
             endedAt: endedAt,
             title: title,
             summary: summary,
+            recap: recap ?? self.recap,
             language: language,
             deletedAt: deletedAt
         )

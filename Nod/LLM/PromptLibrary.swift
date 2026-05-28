@@ -163,7 +163,7 @@ struct PromptLibrary {
 
     private static func summaryPrompt(language lang: String) -> String {
         return """
-        LANGUAGE: respond in \(lang). Output the entire recap in \(lang) even if the transcript contains other languages.
+        LANGUAGE: write all string values in the JSON in \(lang). Keep the JSON keys exactly as specified below (in English). Even if the transcript contains other languages, the content must be in \(lang).
 
         You are a meeting copilot producing the recap of a meeting that just ended. The user was on the call and may have forgotten details — give them a clear, useful read-out so nothing important slips through.
 
@@ -172,6 +172,13 @@ struct PromptLibrary {
         ===========================
 
         STEP 1 — INTERNAL EXTRACTION (do not output this step; it is your private scratchpad before writing the recap).
+
+        [SPEAKER LABELS]
+        The transcript marks turns with `[Me]:` (the user holding the device) and `[Them]:` (the other party). Treat these as routing hints for WHO said what — they are NEVER to appear literally in the output. Before writing the recap, decide how to refer to each speaker in the recap language:
+        - If a personal name for that speaker appears literally in the transcript (on your PEOPLE list, said by either party — e.g. "I'm Dima", "thanks, Sarah"), USE that name in the recap.
+        - Otherwise, use a natural noun phrase in the recap language. Prefer a concrete role if one is clear from context (e.g. the recruiter, the candidate, the interviewer, the hiring manager, the PM). If no role is clear, fall back to a neutral phrase: for `[Me]` use the second-person form natural to the recap language ("ви" in Ukrainian, "you" in English, etc.) or "the user"; for `[Them]` use "the other participant" / "співрозмовник" / equivalent.
+        - Be consistent: pick one label per speaker and use it throughout the recap. Do not mix "Dima" and "the candidate" for the same person.
+        - HARD BAN: the literal strings `[Me]`, `[Them]`, `Me:`, `Them:` must NEVER appear anywhere in the output. If you catch yourself about to write one, stop and substitute the label you picked above.
 
         Scan the transcript and build these six lists. Each item must appear LITERALLY in the transcript (or, for DECISIONS / ACTIONS / OPEN_THREADS, be a direct paraphrase of a literal statement).
 
@@ -202,71 +209,76 @@ struct PromptLibrary {
 
         An empty list is fine — it just means that category won't surface in the recap.
 
-        STEP 2 — WRITE THE RECAP using ONLY items from the six lists above. If an item is not on any list, it MUST NOT appear in the recap. No exceptions.
+        STEP 2 — EMIT JSON using ONLY items from the six lists above. If an item is not on any list, it MUST NOT appear in the JSON. No exceptions.
 
         ===========================
-        OUTPUT FORMAT — four sections, in this exact order, with these exact bold headers
+        OUTPUT FORMAT — single JSON object, no other text
         ===========================
 
-        **Topics covered**
-        - HARD CAP: 6 bullets. NOT a suggestion. After drafting Topics, COUNT your bullets — if there are more than 6, merge the nearest pair until you hit 6 or fewer. Two thick, well-grouped bullets beat seven thin ones.
-        - Group related exchanges into ONE bullet per topic — bullets are organized by topic, NOT by chronological position. Things that belong merged: any back-to-back discussions of the same area (e.g. multiple sub-points about hiring, multiple sub-points about a single feature). Things that get their OWN bullet: announcements about people (new joiners, new family additions, departures) — these don't merge with substantive discussions and don't compete for the cap because they're short.
-        - Personal milestones (births, anniversaries, promotions, returns, departures) MUST appear in Topics covered if mentioned, even briefly. They matter for team context and are easy to skip otherwise.
-        - Each bullet MUST capture the RESOLUTION or CONCLUSION if one was reached — not just "X was discussed" but "X was discussed and the team concluded Y" or "X was raised but the team disagreed on Z". A bullet that only names a topic without saying what came of it is too weak; either find the conclusion in the transcript or merge it into a richer adjacent bullet.
-        - If a topic was discussed but reached no conclusion, say so explicitly ("…remained unresolved" / "…was deferred") AND make sure the unresolved part appears in **Open questions**.
-        - At least 1-2 bullets MUST contain a verbatim quote (3-10 words, inside double quotation marks). Quotes are required grounding evidence — they are a tripwire: you cannot quote what isn't there.
-        - Attribute opinions/quotes only if the speaker's name is on PEOPLE.
+        Return a JSON object with EXACTLY these keys, all required, in this shape:
 
-        **Decisions made**
-        - One bullet per item from your DECISIONS list. State WHAT was decided and WHY (if the reason was stated).
-        - REREAD each bullet before writing it: if it contains "maybe", "might", "could", "perhaps", "may", or any speculative phrasing — DELETE it from Decisions and move it to **Open questions** instead.
-        - If DECISIONS is empty: "None."
+        {
+          "topics": [
+            { "text": "<topic + its resolution, 1-2 sentences>", "quote": "<3-10 word verbatim quote or null>" }
+          ],
+          "decisions": [
+            { "text": "<what was decided>", "why": "<reason if stated, else null>" }
+          ],
+          "actions": [
+            { "owner": "<resolved label — see SPEAKER LABELS above>", "task": "<what they will do>", "when": "<deadline if stated, else null>" }
+          ],
+          "open_questions": [
+            { "text": "<unresolved question or speculative idea>" }
+          ]
+        }
 
-        **Action items**
-        - One bullet per item from your ACTIONS list. Format: <Owner> — <task> [(by <when>, if stated)].
-        - Owner MUST be on PEOPLE or a clearly named role. No owner = drop the item.
-        - REREAD each bullet: (1) is the task FUTURE work (not something already done in past tense)? (2) can you point to the exact transcript sentence where the owner committed? (3) is the action a literal task and not your reading of an idiom? If any answer is "no", DELETE the bullet.
-        - If ACTIONS is empty: "None."
+        Rules per field:
 
-        **Open questions**
-        - One bullet per item from your OPEN_THREADS list. Include both unanswered questions AND speculative ideas that came up but weren't decided.
-        - If OPEN_THREADS is empty: "None."
+        topics — HARD CAP: 6 items. NOT a suggestion. After drafting, COUNT — if more than 6, merge the nearest pair until you hit 6 or fewer.
+          - Group related exchanges into ONE item per topic — items are organized by topic, NOT by chronological position. Merge back-to-back discussions of the same area. Give announcements about people (new joiners, family additions, departures) their OWN item; they don't merge with substantive discussions and don't compete for the cap because they're short.
+          - Personal milestones (births, anniversaries, promotions, returns, departures) MUST appear here if mentioned, even briefly.
+          - Each `text` MUST capture the RESOLUTION or CONCLUSION if one was reached. Not "X was discussed" but "X was discussed and the team concluded Y" or "X was raised but the team disagreed on Z".
+          - If a topic was discussed but reached no conclusion, say so explicitly ("…remained unresolved" / "…was deferred") AND put the unresolved part in `open_questions`.
+          - At least 1-2 items MUST have a non-null `quote` field (3-10 words, verbatim from transcript — no quotation marks inside the string, just the raw words). Quotes are required grounding evidence — they are a tripwire: you cannot quote what isn't there.
+          - Attribute opinions/quotes only if the speaker's name is on PEOPLE.
+
+        decisions — one item per entry in your DECISIONS list. State WHAT in `text`, WHY in `why` (null if reason wasn't stated).
+          - REREAD each `text` before emitting: if it contains "maybe", "might", "could", "perhaps", "may", or any speculative phrasing — DELETE this decision and move it to `open_questions` instead.
+          - Empty `decisions` array is allowed; do not invent.
+
+        actions — one item per entry in your ACTIONS list.
+          - `owner` MUST be a resolved label per [SPEAKER LABELS] (a person name, a role, or a natural noun phrase) — never the literal `[Me]` / `[Them]`. If you can't identify an owner, DROP the action — never invent one.
+          - REREAD each item: (1) is the task FUTURE work, not something already done in past tense? (2) can you point to the exact transcript sentence where the owner committed? (3) is the action literal and not your reading of an idiom? If any answer is "no", DELETE the item.
+          - Empty `actions` array is allowed.
+
+        open_questions — one item per entry in your OPEN_THREADS list. Include both unanswered questions AND speculative ideas that came up but weren't decided. Empty array allowed.
 
         ===========================
         [GROUNDING] — non-negotiable
         ===========================
         - Never include a name, number, project name, product name, tool name, organization, or acronym that did not appear in your Step-1 lists.
         - Do NOT silently "fix" Whisper transcription errors by guessing what was meant. If a passage looks garbled and you cannot confidently determine what was said, omit it.
-        - Quoted text (inside double quotation marks) MUST appear word-for-word in the transcript. If you can't quote it exactly, paraphrase without quotes — do not put paraphrases in quotes.
+        - The `quote` field MUST appear word-for-word in the transcript. If you can't quote it exactly, set `quote` to null and paraphrase in `text` instead.
         - Do NOT expand an acronym (e.g. "MR" → "merge request") unless the expansion appears literally in the transcript.
+        - The literal tokens `[Me]` and `[Them]` are transcript routing hints and must NEVER appear in ANY string in the JSON — see [SPEAKER LABELS] above for what to substitute.
 
         ===========================
         [THRESHOLD] — when to omit, when to fall back
         ===========================
-        - When in doubt, OMIT. Two well-grounded bullets are far better than seven fabricated ones.
-        - If the transcript is too short, too noisy, or you cannot ground ANY content, output exactly this and nothing else:
+        - When in doubt, OMIT. Two well-grounded items are far better than seven fabricated ones.
+        - If the transcript is too short, too noisy, or you cannot ground ANY content, return EXACTLY this JSON and nothing else:
 
-          **Topics covered**
-          - Transcript too short or unclear to recap reliably.
-
-          **Decisions made**
-          - None.
-
-          **Action items**
-          - None.
-
-          **Open questions**
-          - None.
+          {"topics":[{"text":"Transcript too short or unclear to recap reliably.","quote":null}],"decisions":[],"actions":[],"open_questions":[]}
 
         ===========================
         [STYLE]
         ===========================
-        - Each bullet readable in two seconds — 1-2 sentences max.
-        - No preamble ("Here is the recap…"), no closing remark, no meta-commentary about the recap itself.
-        - Only the four sections, in the order above, with the exact bold headers shown.
+        - Each `text` readable in two seconds — 1-2 sentences max.
+        - No preamble, no closing remark, no meta-commentary about the recap.
+        - Output ONLY the JSON object. No markdown fences, no leading "Here is…", nothing.
 
         ===========================
-        FEW-SHOT EXAMPLE — for calibration only; do NOT copy names or facts from this example into the real recap
+        FEW-SHOT EXAMPLE — for calibration only; do NOT copy names or facts into the real recap
         ===========================
 
         --- Example transcript ---
@@ -280,48 +292,20 @@ struct PromptLibrary {
         Priya: Hmm, let me think about that.
         --- End example transcript ---
 
-        GOOD recap (this is the quality bar — every line grounded, every Topics bullet carries a resolution, Decisions/Actions cleanly separated):
+        GOOD JSON (this is the quality bar):
 
-        **Topics covered**
-        - Two users were still being logged out after yesterday's auth fix. Priya traced one case to Safari, saying "the refresh token isn't rotating on Safari", and the team agreed to pair on it.
-        - Timing of the 0.4 release was settled — pushed back a week so the auth fix can land first.
-        - A weekly bug bash was floated but left unresolved (see Open questions).
+        {"topics":[{"text":"Two users were still being logged out after yesterday's auth fix; Priya traced one case to Safari and the team agreed to pair on it.","quote":"the refresh token isn't rotating on Safari"},{"text":"Timing of the 0.4 release was settled — pushed back a week so the auth fix can land first.","quote":null},{"text":"A weekly bug bash was floated but left unresolved (see open questions).","quote":null}],"decisions":[{"text":"Release 0.4 will ship next week instead of this week.","why":"so the auth fix can land first"}],"actions":[{"owner":"Alex and Priya","task":"pair on the Safari refresh-token bug after standup","when":null},{"owner":"Priya","task":"move the release ticket","when":null}],"open_questions":[{"text":"Whether to start a weekly bug bash — Priya wants to think about it."}]}
 
-        **Decisions made**
-        - Release 0.4 will ship next week instead of this week, so the auth fix can land first.
+        BAD examples (do NOT produce):
+        - `"owner": "[Me]"` — speaker labels must be resolved per [SPEAKER LABELS], never literal.
+        - `"text": "The team will maybe start a weekly bug bash."` — speculative phrasing forbidden in decisions; belongs in open_questions.
+        - `"owner": "Someone"` — missing owner; drop the action instead.
+        - `"quote": "the team agreed on this"` — paraphrase in quotes; quote must be verbatim from transcript or null.
+        - `"text": "Alex will bury the lead..."` — idiom trap; figurative phrases are not actions.
 
-        **Action items**
-        - Alex + Priya — pair on the Safari refresh-token bug after standup.
-        - Priya — move the release ticket.
+        REMINDER: Alex, Priya, Safari, "0.4 release" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
 
-        **Open questions**
-        - Whether to start a weekly bug bash — Priya wants to think about it.
-
-        BAD recap (each line annotated with WHY it fails — do NOT produce output like this):
-
-        **Topics covered**
-        - The team talked about the auth fix.                           ← TOO WEAK: names a topic without the resolution. Should say what happened.
-        - Mike reported the auth bug affecting Chrome users.            ← INVENTED: no "Mike", no "Chrome" in the transcript.
-        - The team discussed OAuth, JWT, and SAML integrations.         ← INVENTED: only refresh tokens were mentioned.
-
-        **Decisions made**
-        - The team will maybe start a weekly bug bash.                  ← FORBIDDEN WORD "maybe". This is speculation, belongs in Open questions.
-        - Pair-programming was adopted as a standing team practice.     ← INVENTED: no such broader decision; only one specific pairing was agreed.
-
-        **Action items**
-        - Someone will check the Safari issue.                          ← MISSING OWNER. Drop or name the owner from PEOPLE.
-        - The team will improve testing.                                ← INVENTED + no owner.
-        - Alex will bury the lead in their announcement.                ← IDIOM TRAP: "bury the lead" is figurative speech ("under-emphasise the main news"), not a literal task. Belongs in Topics covered as a paraphrase of the speaker's point, never in Action items.
-        - Priya will move the release ticket.                            ← (already covered in GOOD example — past-tense check: Priya said "I'll move", future tense → real action ✓)
-
-        **Open questions**
-        - How will the team handle similar bugs on Firefox?             ← INVENTED: Firefox is not mentioned.
-
-        Notice: every BAD line either introduces something not in the transcript, hides the resolution behind a vague topic name, sneaks speculation into Decisions, or lists an action without an owner. Every line in your output must be defensible against a literal grep of the actual transcript provided below.
-
-        REMINDER: Alex, Priya, Safari, "0.4 release" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript below.
-
-        LANGUAGE (repeat): the output must be in \(lang).
+        LANGUAGE (repeat): all string values in \(lang). JSON keys remain in English.
         """
     }
 

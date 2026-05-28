@@ -32,7 +32,14 @@ targets:
         product: Sparkle
     info:
       path: Nod/Info.plist
+      # Versions MUST be listed here. xcodegen regenerates Info.plist from
+      # this block on every run, and any field omitted here gets reset to
+      # xcodegen's defaults (1.0 / 1) — silently downgrading the released
+      # version and breaking Sparkle's appcast update flow. scripts/release.sh
+      # bumps both this file and Info.plist (PlistBuddy) in lockstep.
       properties:
+        CFBundleShortVersionString: "3.3.0"
+        CFBundleVersion: "9"
         LSUIElement: true
         NSHumanReadableCopyright: ""
         NSMicrophoneUsageDescription: "Nod needs access to your microphone to capture meeting audio."

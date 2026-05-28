@@ -64,9 +64,9 @@ final class OpenRouterClient: ObservableObject {
 
     // MARK: - Chat completion
 
-    func complete(system: String, user: String) async throws -> String {
+    func complete(system: String, user: String, jsonMode: Bool = false) async throws -> String {
         let userPreview = String(user.prefix(200))
-        Log.llm.info("→ chat via proxy model=\(model) system.len=\(system.count) user.len=\(user.count)")
+        Log.llm.info("→ chat via proxy model=\(model) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)")
         Log.llm.info("→ user preview: \(userPreview)\(user.count > 200 ? "…" : "")")
 
         let payload = ChatRequest(
@@ -74,7 +74,8 @@ final class OpenRouterClient: ObservableObject {
             messages: [
                 .init(role: "system", content: system),
                 .init(role: "user", content: user)
-            ]
+            ],
+            response_format: jsonMode ? ResponseFormat(type: "json_object") : nil
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
 
@@ -95,6 +96,41 @@ final class OpenRouterClient: ObservableObject {
             // decoding failure (deterministic, not retried).
             throw ClientError.decodingFailed(error.localizedDescription)
         }
+    }
+
+    /// JSON-mode chat call: requests `response_format = json_object` from the
+    /// model and decodes the assistant message into `T`. Some upstream models
+    /// still wrap valid JSON in stray fences/preamble; we strip a leading
+    /// ```json fence if present so a well-shaped payload survives a sloppy
+    /// model. A genuinely malformed response surfaces as `.decodingFailed`.
+    func completeJSON<T: Decodable>(system: String, user: String, as type: T.Type) async throws -> T {
+        let raw = try await complete(system: system, user: user, jsonMode: true)
+        let cleaned = Self.stripCodeFence(raw)
+        guard let data = cleaned.data(using: .utf8) else {
+            throw ClientError.decodingFailed("non-utf8 LLM response")
+        }
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            Log.llm.error("JSON decode failed: \(error.localizedDescription) — body[0..200]=\(String(cleaned.prefix(200)))")
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+
+    private static func stripCodeFence(_ s: String) -> String {
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("```") else { return trimmed }
+        var body = trimmed.dropFirst(3)
+        // Tolerate any case of the "json" language hint (some models emit
+        // ```JSON). Drop it whether or not a newline follows.
+        if body.lowercased().hasPrefix("json") { body = body.dropFirst(4) }
+        if let first = body.first, first == "\n" || first == "\r" {
+            body = body.dropFirst()
+        }
+        if body.hasSuffix("```") {
+            body = body.dropLast(3)
+        }
+        return body.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// True for errors that are plausibly fixed by a retry: upstream 5xx
@@ -322,6 +358,11 @@ private struct ChatRequest: Encodable {
     }
     let model: String
     let messages: [Message]
+    let response_format: ResponseFormat?
+}
+
+private struct ResponseFormat: Encodable {
+    let type: String
 }
 
 private struct ChatResponse: Decodable {

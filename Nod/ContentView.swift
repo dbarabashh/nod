@@ -355,12 +355,13 @@ struct ContentView: View {
         Task {
             let (system, user) = PromptLibrary.build(kind: .summary, transcript: context, language: language.current)
             do {
-                let text = try await llm.complete(system: system, user: user)
+                let recap = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self)
+                let text = recap.toMarkdown()
                 // Title is best-effort — failure here doesn't block
                 // persistence; Meeting.displayTitle falls back to a
                 // date label.
                 let title = await generateMeetingTitle(from: text)
-                let updated = draft.updating(title: title, summary: text)
+                let updated = draft.updating(title: title, summary: text, recap: recap)
                 await MainActor.run {
                     meetingStore.applyGenerated(updated)
                 }

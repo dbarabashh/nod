@@ -21,10 +21,15 @@ final class WhisperTranscriber {
     private var chunkBuffers: [AVAudioPCMBuffer] = []
     private var chunkFrames: AVAudioFrameCount = 0
     private let chunkTargetFrames: AVAudioFrameCount = 16_000 * 5  // 5 s
-    // Real speech consistently peaks at 0.1+. Near-silent audio (peak <0.05)
-    // reliably triggers Whisper hallucinations like "Thank you.", "Amen.",
-    // "Thanks for watching!" — gate them out before they hit the API.
-    private let silencePeakThreshold: Float = 0.05                  // VAD gate
+    // VAD is asymmetric per source. Silent mic input reliably triggers Whisper
+    // hallucinations ("Thanks for watching!"), so [Me] keeps a strict peak gate.
+    // System audio (post-mix) can be much quieter than the mic without being
+    // silent — meeting playback at low volume, soft-spoken remote participants.
+    // For [Them] we drop the peak gate and add an RMS check: the chunk must
+    // both peak above the noise floor AND show sustained energy (≥0.005 RMS)
+    // consistent with speech, not just an isolated spike or hiss.
+    private var peakGate: Float { source == .me ? 0.05 : 0.015 }
+    private var rmsGate:  Float { source == .me ? 0   : 0.005 }
     private var chunkCounter: Int = 0
 
     // In-flight regular-flush Tasks; flushPending awaits these so on-demand
@@ -89,6 +94,7 @@ final class WhisperTranscriber {
             let frames: AVAudioFrameCount
             let chunkID: Int
             let peak: Float
+            let rms: Float
         }
 
         // Drain any in-flight regular flushes first so their older audio
@@ -119,16 +125,8 @@ final class WhisperTranscriber {
                 self.chunkCounter += 1
                 let id = self.chunkCounter
 
-                var p: Float = 0
-                for b in buffers {
-                    if let ch = b.floatChannelData?[0] {
-                        for i in 0..<Int(b.frameLength) {
-                            let s = abs(ch[i])
-                            if s > p { p = s }
-                        }
-                    }
-                }
-                cont.resume(returning: Pending(buffers: buffers, frames: frames, chunkID: id, peak: p))
+                let (p, r) = Self.peakAndRMS(buffers)
+                cont.resume(returning: Pending(buffers: buffers, frames: frames, chunkID: id, peak: p, rms: r))
             }
         }
 
@@ -137,13 +135,13 @@ final class WhisperTranscriber {
             return nil
         }
 
-        if pending.peak < silencePeakThreshold {
-            Log.stt.info("[\(source.label)] flushPending chunk #\(pending.chunkID) skipped — silent (peak=\(String(format: "%.4f", pending.peak)))")
+        if pending.peak < peakGate || pending.rms < rmsGate {
+            Log.stt.info("[\(source.label)] flushPending chunk #\(pending.chunkID) skipped — silent (peak=\(String(format: "%.4f", pending.peak)) rms=\(String(format: "%.4f", pending.rms)))")
             return nil
         }
 
         let durationSec = Double(pending.frames) / 16_000.0
-        Log.stt.info("[\(source.label)] chunk #\(pending.chunkID) → Whisper (\(String(format: "%.1f", durationSec))s, peak=\(String(format: "%.3f", pending.peak)), on-demand)")
+        Log.stt.info("[\(source.label)] chunk #\(pending.chunkID) → Whisper (\(String(format: "%.1f", durationSec))s, peak=\(String(format: "%.3f", pending.peak)), rms=\(String(format: "%.3f", pending.rms)), on-demand)")
 
         guard let wav = WAVEncoder.encode16kHzMono(pending.buffers) else {
             Log.stt.error("[\(source.label)] chunk #\(pending.chunkID) WAV encode failed")
@@ -176,24 +174,16 @@ final class WhisperTranscriber {
         chunkCounter += 1
         let chunkID = chunkCounter
 
-        // VAD: skip chunks that are below the silence threshold. Whisper is
-        // famous for hallucinating "Thanks for watching!" on silent input.
-        var peak: Float = 0
-        for b in buffers {
-            if let ch = b.floatChannelData?[0] {
-                for i in 0..<Int(b.frameLength) {
-                    let s = abs(ch[i])
-                    if s > peak { peak = s }
-                }
-            }
-        }
-        if peak < silencePeakThreshold {
-            Log.stt.info("[\(source.label)] chunk #\(chunkID) skipped — silent (peak=\(String(format: "%.4f", peak)))")
+        // VAD: skip silent chunks before they hit the API. Whisper hallucinates
+        // ("Thanks for watching!") on near-silence, so we gate at the source.
+        let (peak, rms) = Self.peakAndRMS(buffers)
+        if peak < peakGate || rms < rmsGate {
+            Log.stt.info("[\(source.label)] chunk #\(chunkID) skipped — silent (peak=\(String(format: "%.4f", peak)) rms=\(String(format: "%.4f", rms)))")
             return
         }
 
         let durationSec = Double(frames) / 16_000.0
-        Log.stt.info("[\(source.label)] chunk #\(chunkID) → Whisper (\(String(format: "%.1f", durationSec))s, peak=\(String(format: "%.3f", peak)), \(reason))")
+        Log.stt.info("[\(source.label)] chunk #\(chunkID) → Whisper (\(String(format: "%.1f", durationSec))s, peak=\(String(format: "%.3f", peak)), rms=\(String(format: "%.3f", rms)), \(reason))")
 
         guard let wav = WAVEncoder.encode16kHzMono(buffers) else {
             Log.stt.error("[\(source.label)] chunk #\(chunkID) WAV encode failed")
@@ -225,6 +215,28 @@ final class WhisperTranscriber {
             }
         }
         inFlightFlushes[taskID] = task
+    }
+
+    /// Single-pass peak amplitude + RMS over a chunk's worth of buffers.
+    /// RMS is computed against actual sample count, so very short tail
+    /// buffers don't get an inflated reading.
+    private static func peakAndRMS(_ buffers: [AVAudioPCMBuffer]) -> (peak: Float, rms: Float) {
+        var peak: Float = 0
+        var sumSquares: Double = 0
+        var count: Int = 0
+        for b in buffers {
+            guard let ch = b.floatChannelData?[0] else { continue }
+            let n = Int(b.frameLength)
+            for i in 0..<n {
+                let s = ch[i]
+                let a = abs(s)
+                if a > peak { peak = a }
+                sumSquares += Double(s) * Double(s)
+            }
+            count += n
+        }
+        let rms: Float = count > 0 ? Float((sumSquares / Double(count)).squareRoot()) : 0
+        return (peak, rms)
     }
 
     /// Convert any incoming buffer to 16 kHz mono Float32 non-interleaved.

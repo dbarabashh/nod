@@ -179,12 +179,17 @@ final class MeetingStore: ObservableObject {
         // key). Swift's synthesised Encodable uses `encodeIfPresent` for
         // optionals → server keeps the old value when the user clears the
         // title. Forcing `null` makes the PATCH actually clear the column.
+        // `recap` follows the same rule: if the client has structured state,
+        // send it; if it's been dropped (e.g. legacy markdown-only meeting
+        // or a manual edit that invalidated the JSON), don't touch the column.
         struct Patch: Encodable {
             let title: String?
             let summary: String
+            let recap: MeetingRecap?
 
             enum CodingKeys: String, CodingKey {
                 case title, summary
+                case recap = "recap_json"
             }
 
             func encode(to encoder: Encoder) throws {
@@ -195,9 +200,10 @@ final class MeetingStore: ObservableObject {
                 } else {
                     try c.encodeNil(forKey: .title)
                 }
+                try c.encodeIfPresent(recap, forKey: .recap)
             }
         }
-        let patch = Patch(title: meeting.title, summary: meeting.summary)
+        let patch = Patch(title: meeting.title, summary: meeting.summary, recap: meeting.recap)
 
         try await supabase
             .from(Self.tableName)
@@ -279,6 +285,7 @@ final class MeetingStore: ObservableObject {
                 endedAt: meeting.endedAt,
                 title: meeting.title,
                 summary: meeting.summary,
+                recap: meeting.recap,
                 language: meeting.language,
                 deletedAt: Date()
             )
@@ -312,6 +319,7 @@ final class MeetingStore: ObservableObject {
                     endedAt: row.endedAt,
                     title: row.title,
                     summary: row.summary,
+                    recap: row.recap,
                     language: row.language,
                     deletedAt: nil
                 )
