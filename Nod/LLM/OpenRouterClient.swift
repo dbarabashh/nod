@@ -38,6 +38,17 @@ final class OpenRouterClient: ObservableObject {
         UserDefaults.standard.string(forKey: "openrouter.model") ?? "google/gemini-2.0-flash-001"
     }
 
+    /// Cross-provider fallback used when the primary model is unavailable
+    /// (429 from a shared-quota provider, upstream 5xx, etc.). Claude Haiku
+    /// 4.5 is the chosen default: high-quality output that still tolerates
+    /// our strict JSON-mode prompts, served from Anthropic's own infra so
+    /// it doesn't share Google's per-minute free-tier quota that was
+    /// triggering the 429s on `gemini-2.0-flash-001 (via Google AI Studio)`.
+    /// Override via `defaults write com.example.nod openrouter.model.fallback "..."`.
+    var fallbackModel: String {
+        UserDefaults.standard.string(forKey: "openrouter.model.fallback") ?? "anthropic/claude-haiku-4.5"
+    }
+
     /// Whisper model override — same rationale as above. `large-v3-turbo` is
     /// the distilled 4-decoder-layer variant of `large-v3`: ~8× faster decode,
     /// near-identical WER for the languages we care about, and meaningfully
@@ -66,15 +77,36 @@ final class OpenRouterClient: ObservableObject {
 
     func complete(system: String, user: String, jsonMode: Bool = false) async throws -> String {
         let userPreview = String(user.prefix(200))
-        Log.llm.info("→ chat via proxy model=\(model) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)")
+        Log.llm.info("→ chat via proxy model=\(model) fallback=\(fallbackModel) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)")
         Log.llm.info("→ user preview: \(userPreview)\(user.count > 200 ? "…" : "")")
 
+        // Routing strategy explained:
+        //
+        // `provider.order = ["google-vertex"]` + `ignore = ["Google AI Studio"]`
+        // forces OpenRouter to skip Google's shared free-tier endpoint (the one
+        // returning 429 "Provider returned error (via Google AI Studio)" in our
+        // logs) and use the paid Vertex route instead. Vertex bills against
+        // our OpenRouter credits but has per-second, not per-minute-shared,
+        // limits — so concurrent taps stop racing other OpenRouter customers
+        // for the same free bucket. For non-Google primary models these hints
+        // are no-ops; OpenRouter ignores irrelevant entries.
+        //
+        // `models = [primary, fallback]` is the model-level retry chain. If
+        // the primary fails for ANY reason (provider outage, 429 on every
+        // route, content policy block), OpenRouter retries with the fallback
+        // automatically — same response shape, transparent to the client.
         let payload = ChatRequest(
             model: model,
+            models: [model, fallbackModel],
             messages: [
                 .init(role: "system", content: system),
                 .init(role: "user", content: user)
             ],
+            provider: ProviderPreference(
+                order: ["google-vertex"],
+                ignore: ["google-ai-studio"],
+                allow_fallbacks: true
+            ),
             response_format: jsonMode ? ResponseFormat(type: "json_object") : nil
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
@@ -357,12 +389,20 @@ private struct ChatRequest: Encodable {
         let content: String
     }
     let model: String
+    let models: [String]?
     let messages: [Message]
+    let provider: ProviderPreference?
     let response_format: ResponseFormat?
 }
 
 private struct ResponseFormat: Encodable {
     let type: String
+}
+
+private struct ProviderPreference: Encodable {
+    let order: [String]?
+    let ignore: [String]?
+    let allow_fallbacks: Bool?
 }
 
 private struct ChatResponse: Decodable {

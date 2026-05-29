@@ -425,7 +425,7 @@ struct ContentView: View {
             if promptKind == .suggestReply {
                 await store.flushPending()
             }
-            let context = store.fullContext
+            let context = store.recentContext(maxEntries: promptKind.contextWindow ?? .max)
             if context.isEmpty {
                 Log.ui.info("⚠️ context is EMPTY — LLM will get only the system prompt")
             }

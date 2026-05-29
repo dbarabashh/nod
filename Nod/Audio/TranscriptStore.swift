@@ -119,9 +119,17 @@ final class TranscriptStore: ObservableObject {
         }
     }
 
-    var fullContext: String {
+    var fullContext: String { recentContext(maxEntries: .max) }
+
+    /// Last `maxEntries` finalised entries plus live partials, joined into the
+    /// same `[Me]:` / `[Them]:` text the LLM expects. Used by mid-call cards
+    /// (`hero`, `followUp`) whose prompts only need the recent window — sending
+    /// the entire transcript on a long meeting balloons input tokens without
+    /// improving answer quality. `maxEntries: .max` degrades to the full
+    /// history (`fullContext`).
+    func recentContext(maxEntries: Int) -> String {
         var lines: [String] = []
-        for entry in entries {
+        for entry in entries.suffix(maxEntries) {
             lines.append("[\(entry.source.label)]: \(entry.text)")
         }
         // No live partials with Whisper (it's batch), but kept for forward-compat

@@ -17,6 +17,35 @@ enum PromptKind {
         default: return nil
         }
     }
+
+    /// How many recent transcript entries this prompt actually needs. `nil`
+    /// means "everything" — only `.summary` (end-of-meeting recap) and the
+    /// kinds whose prompts explicitly anchor on the entire history qualify.
+    /// Mid-call cards bounded to a recent window cut input tokens on long
+    /// meetings without degrading the answer (the prompt itself constrains
+    /// what's relevant — see each `case` for the justification).
+    var contextWindow: Int? {
+        switch self {
+        // Both prompts say "current topic" / "current meeting" — anything
+        // older than the recent window is by design out of scope for them.
+        // ~80 entries ≈ 5-10 min of dialogue at typical 5s Whisper chunks.
+        case .hero, .followUp:
+            return 80
+        // "Pull out 3-5 most important points discussed SO FAR" — needs
+        // more history than hero. End-of-meeting summary still uses full.
+        case .smartReply:
+            return 200
+        // suggestReply's prompt explicitly requires the ENTIRE transcript
+        // ("Previous [Me] answers are LOAD-BEARING") — truncating breaks
+        // the persona/consistency property the suggestion depends on.
+        case .suggestReply:
+            return nil
+        // End-of-meeting recap must surface decisions and actions that
+        // happened anywhere in the call.
+        case .summary:
+            return nil
+        }
+    }
 }
 
 struct PromptLibrary {
