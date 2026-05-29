@@ -120,3 +120,102 @@ extension MeetingRecap {
         return out.joined(separator: "\n")
     }
 }
+
+private func cleaned(_ strings: [String]) -> [String] {
+    strings
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+}
+
+/// "Catch me up" (`.hero`) structured output: the three catch-up slots,
+/// rendered as one short paragraph (matches the previous plain-text contract).
+struct CatchUp: Codable {
+    let currentTopic: String
+    let positions: String
+    let status: String
+
+    enum CodingKeys: String, CodingKey {
+        case currentTopic = "current_topic"
+        case positions
+        case status
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        currentTopic = (try? c.decode(String.self, forKey: .currentTopic)) ?? ""
+        positions    = (try? c.decode(String.self, forKey: .positions))    ?? ""
+        status       = (try? c.decode(String.self, forKey: .status))       ?? ""
+    }
+
+    func toMarkdown() -> String {
+        let parts = cleaned([currentTopic, positions, status])
+        return parts.isEmpty ? "Not enough context yet." : parts.joined(separator: " ")
+    }
+}
+
+/// "Key points" (`.smartReply`) structured output: bullets grouped by priority
+/// category, flattened into one list in the order decisions → facts → open
+/// questions.
+struct KeyPoints: Codable {
+    let decisions: [String]
+    let facts: [String]
+    let openQuestions: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case decisions
+        case facts
+        case openQuestions = "open_questions"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        decisions     = (try? c.decode([String].self, forKey: .decisions))     ?? []
+        facts         = (try? c.decode([String].self, forKey: .facts))         ?? []
+        openQuestions = (try? c.decode([String].self, forKey: .openQuestions)) ?? []
+    }
+
+    func toMarkdown() -> String {
+        let bullets = cleaned(decisions + facts + openQuestions)
+        guard !bullets.isEmpty else { return "Not enough discussion yet." }
+        return bullets.map { "- \($0)" }.joined(separator: "\n")
+    }
+}
+
+/// "Suggest follow-up questions" (`.followUp`) structured output.
+struct FollowUpQuestions: Codable {
+    let questions: [String]
+
+    enum CodingKeys: String, CodingKey { case questions }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        questions = (try? c.decode([String].self, forKey: .questions)) ?? []
+    }
+
+    func toMarkdown() -> String {
+        let qs = cleaned(questions)
+        guard !qs.isEmpty else { return "No grounded follow-up questions yet." }
+        return qs.map { "- \($0)" }.joined(separator: "\n")
+    }
+}
+
+/// "Suggest reply" (`.suggestReply`) structured output — a single spoken line.
+/// JSON-wrapping makes the preamble leakage ("You could say:") the plain-text
+/// prompt fought with a long FORBIDDEN list structurally impossible.
+struct SuggestedReply: Codable {
+    let reply: String
+
+    enum CodingKeys: String, CodingKey { case reply }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        reply = (try? c.decode(String.self, forKey: .reply)) ?? ""
+    }
+
+    func toMarkdown() -> String {
+        let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty
+            ? "Not enough context yet — keep talking and try again."
+            : trimmed
+    }
+}

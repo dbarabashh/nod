@@ -441,7 +441,22 @@ struct ContentView: View {
             }
             let (system, user) = PromptLibrary.build(kind: promptKind, transcript: context, language: language.current)
             do {
-                let text = try await llm.complete(system: system, user: user)
+                // Every pill's prompt emits a structured JSON object; decode the
+                // matching type and render it to markdown the card already knows
+                // how to show (`renderRecapMarkdown`).
+                let text: String
+                switch promptKind {
+                case .hero:
+                    text = try await llm.completeJSON(system: system, user: user, as: CatchUp.self).toMarkdown()
+                case .smartReply:
+                    text = try await llm.completeJSON(system: system, user: user, as: KeyPoints.self).toMarkdown()
+                case .followUp:
+                    text = try await llm.completeJSON(system: system, user: user, as: FollowUpQuestions.self).toMarkdown()
+                case .summary:
+                    text = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self).toMarkdown()
+                case .suggestReply:
+                    text = try await llm.completeJSON(system: system, user: user, as: SuggestedReply.self).toMarkdown()
+                }
                 if case let .generating(k) = response, k == requestedKind {
                     response = .ready(kind: requestedKind, text: text)
                     print("→ \(requestedKind) — ready")
