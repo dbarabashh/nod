@@ -29,6 +29,14 @@ private enum MeetingState: Equatable {
     case idle
     case recording
     case paused
+
+    var statusLabel: String {
+        switch self {
+        case .idle: return "READY"
+        case .recording: return "REC"
+        case .paused: return "PAUSED"
+        }
+    }
 }
 
 private enum AIResponse: Equatable {
@@ -146,9 +154,11 @@ struct ContentView: View {
                 meeting: meeting,
                 elapsed: elapsedString,
                 language: language.current,
-                onTap: {
+                onExpand: {
                     withAnimation(.easeOut(duration: 0.18)) { expanded = true }
-                }
+                },
+                onRecordToggle: toggleRecording,
+                onEnd: endMeeting
             )
         } else {
             mainColumn
@@ -691,7 +701,7 @@ private struct StatusHeader: View {
             // is shouty and didn't carry information the user couldn't
             // infer from the rest of the panel.
             if meeting != .idle {
-                Text(label)
+                Text(meeting.statusLabel)
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(0.5)
                     .foregroundColor(.white.opacity(0.82))
@@ -702,14 +712,11 @@ private struct StatusHeader: View {
             Spacer(minLength: 0)
             LanguagePicker(current: language, onSelect: onLanguageSelect, enabled: meeting == .idle)
             if let onCollapse {
-                Button(action: onCollapse) {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(.white.opacity(0.6))
-                        .frame(width: 16, height: 16)
-                }
-                .buttonStyle(.plain)
-                .help("Collapse")
+                PanelIconButton(
+                    systemName: "chevron.up",
+                    help: "Collapse",
+                    action: onCollapse
+                )
             }
         }
         .padding(.leading, 12)
@@ -749,12 +756,29 @@ private struct StatusHeader: View {
         }
     }
 
-    private var label: String {
-        switch meeting {
-        case .idle: return "READY"
-        case .recording: return "REC"
-        case .paused: return "PAUSED"
+}
+
+/// Small circular icon button shared by the panel's chrome — the
+/// collapse chevron in `StatusHeader` and the pause / end / expand
+/// controls in `CollapsedCapsule`. Single source of truth so collapse
+/// and expand stay visually identical.
+private struct PanelIconButton: View {
+    let systemName: String
+    var tint: Color = .white.opacity(0.6)
+    var fill: Color = Color.white.opacity(0.10)
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(tint)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(fill))
         }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 
@@ -762,46 +786,69 @@ private struct CollapsedCapsule: View {
     let meeting: MeetingState
     let elapsed: String
     let language: AppLanguage
-    let onTap: () -> Void
+    let onExpand: () -> Void
+    let onRecordToggle: () -> Void
+    let onEnd: () -> Void
     @State private var pulsing = false
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 8) {
-                indicator
-                Text(label)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.85))
-                Text(elapsed)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.55))
-                Text(language.chipLabel)
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .tracking(0.5)
-                    .foregroundColor(.white.opacity(0.65))
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color.white.opacity(0.10))
-                    )
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(.white.opacity(0.6))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(
-                ZStack {
-                    PanelMaterial()
-                    Color.black.opacity(0.18)
-                }
-                .clipShape(Capsule(style: .continuous))
-                .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+        HStack(spacing: 6) {
+            indicator
+            Text(meeting.statusLabel)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.white.opacity(0.85))
+            Text(elapsed)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.55))
+            Text(language.chipLabel)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(0.65))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color.white.opacity(0.10))
+                )
+
+            Spacer(minLength: 6)
+
+            PanelIconButton(
+                systemName: meeting == .paused ? "play.fill" : "pause.fill",
+                tint: meeting == .paused
+                    ? Color(red: 0.62, green: 0.90, blue: 0.72)
+                    : .white.opacity(0.80),
+                help: meeting == .paused ? "Resume" : "Pause",
+                action: onRecordToggle
             )
-            .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
+            PanelIconButton(
+                systemName: "stop.fill",
+                tint: Color(red: 0.95, green: 0.45, blue: 0.50),
+                fill: Color(red: 0.55, green: 0.18, blue: 0.22).opacity(0.40),
+                help: "End meeting",
+                action: onEnd
+            )
+            PanelIconButton(
+                systemName: "chevron.down",
+                help: "Expand",
+                action: onExpand
+            )
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        // Pin to the same width as the expanded column (suggestion pills /
+        // StatusHeader) so collapsing and expanding doesn't resize the
+        // top control.
+        .frame(width: 246)
+        .background(
+            ZStack {
+                PanelMaterial()
+                Color.black.opacity(0.18)
+            }
+            .clipShape(Capsule(style: .continuous))
+            .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+        )
+        .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
         .onAppear { pulsing = true }
     }
 
@@ -821,14 +868,6 @@ private struct CollapsedCapsule: View {
         case .idle:
             // Shouldn't render in idle — leftColumn guards this — but safe fallback.
             Circle().fill(Color.white.opacity(0.3)).frame(width: 8, height: 8)
-        }
-    }
-
-    private var label: String {
-        switch meeting {
-        case .idle: return "READY"
-        case .recording: return "REC"
-        case .paused: return "PAUSED"
         }
     }
 }

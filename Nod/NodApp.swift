@@ -390,7 +390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             defer: false
         )
         window.title = "Meetings"
-        window.titlebarAppearsTransparent = true
+        window.titlebarAppearsTransparent = false
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.appearance = NSAppearance(named: .darkAqua)
