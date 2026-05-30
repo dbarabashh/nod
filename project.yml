@@ -39,7 +39,7 @@ targets:
       # bumps both this file and Info.plist (PlistBuddy) in lockstep.
       properties:
         CFBundleShortVersionString: "5.0.0"
-        CFBundleVersion: "11"
+        CFBundleVersion: "12"
         LSUIElement: true
         NSHumanReadableCopyright: ""
         NSMicrophoneUsageDescription: "Nod needs access to your microphone to capture meeting audio."
@@ -50,7 +50,7 @@ targets:
             CFBundleURLSchemes:
               - nod
         SUFeedURL: "https://nod-landing.vercel.app/appcast.xml"
-        SUPublicEDKey: "LcsTPoPSTnmjyohYow7XTwfqmjCJ3SU1yoih6Mi7jAo="
+        SUPublicEDKey: "/uu8USNElUMN+Bbw/SPdJywlJq2XfEVI/Rf+W7XzFBw="
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 86400
     settings:

@@ -28,7 +28,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>11</string>
+	<string>12</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
@@ -44,7 +44,7 @@
 	<key>SUFeedURL</key>
 	<string>https://nod-landing.vercel.app/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>LcsTPoPSTnmjyohYow7XTwfqmjCJ3SU1yoih6Mi7jAo=</string>
+	<string>/uu8USNElUMN+Bbw/SPdJywlJq2XfEVI/Rf+W7XzFBw=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 </dict>
