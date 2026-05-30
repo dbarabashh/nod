@@ -21,6 +21,7 @@ enum AppLanguage: String, CaseIterable {
     case russian = "ru"
     case urdu = "ur"
     case ukrainian = "uk"
+    case serbian = "sr"
 
     /// Two-letter code shown on the floating-panel chip. Just the ISO code
     /// uppercased — a localized chip would mean N different glyph widths.
@@ -41,6 +42,7 @@ enum AppLanguage: String, CaseIterable {
         case .russian: return "Русский"
         case .urdu: return "اردو"
         case .ukrainian: return "Українська"
+        case .serbian: return "Српски"
         }
     }
 
@@ -60,6 +62,7 @@ enum AppLanguage: String, CaseIterable {
         case .russian: return "Russian"
         case .urdu: return "Urdu"
         case .ukrainian: return "Ukrainian"
+        case .serbian: return "Serbian"
         }
     }
 
