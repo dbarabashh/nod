@@ -4,7 +4,7 @@ import AVFoundation
 /// Streams audio buffers, groups them into ~chunkSeconds-long WAVs, and POSTs
 /// each chunk to Whisper via OpenRouter. Each successful chunk's text is
 /// emitted as a single TranscriptEntry (no live partials — Whisper is batch).
-final class WhisperTranscriber {
+final class WhisperTranscriber: @unchecked Sendable {
     let source: TranscriptSource
     var onFinal: ((String, TranscriptSource) -> Void)?
     var onFailure: ((String, TranscriptSource) -> Void)?

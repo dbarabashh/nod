@@ -341,7 +341,7 @@ final class OpenRouterClient: ObservableObject {
 
         if let data = trimmed.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let err = parsed["error"] as? Any {
+           let err = parsed["error"] {
             // Proxy returns `{ "error": "..." }` (string) while OpenRouter
             // upstream errors look like `{ "error": { "message": "..." } }`.
             if let errString = err as? String { return String(errString.prefix(220)) }

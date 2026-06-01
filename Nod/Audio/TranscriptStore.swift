@@ -28,7 +28,7 @@ struct TranscriptEntry: Identifiable, Equatable {
     let timestamp: Date
 }
 
-final class TranscriptStore: ObservableObject {
+final class TranscriptStore: ObservableObject, @unchecked Sendable {
     @Published private(set) var entries: [TranscriptEntry] = []
     @Published private(set) var liveMe: String = ""
     @Published private(set) var liveThem: String = ""
@@ -170,21 +170,30 @@ final class TranscriptStore: ObservableObject {
     /// the system is playing → near-identical text appears under both
     /// ME and THEM within a second or two ("acoustic bleed").
     ///
-    /// Strategy: when a new entry's text overlaps heavily (Jaccard ≥ 0.7
-    /// on word sets) with a recent entry from the OTHER source within an
-    /// 8-second window, treat them as the same utterance. THEM always
-    /// wins (system audio has no acoustic path → cleaner) — either the
-    /// existing ME row is replaced with the cleaner THEM text, or the
-    /// incoming ME duplicate is dropped.
+    /// Strategy: when a new entry's text overlaps heavily with a recent
+    /// entry from the OTHER source within an 8-second window, treat them
+    /// as the same utterance. THEM always wins (system audio has no
+    /// acoustic path → cleaner) — either the existing ME row is replaced
+    /// with the cleaner THEM text, or the incoming ME duplicate is dropped.
+    ///
+    /// "Overlaps heavily" means EITHER symmetric similarity (Jaccard ≥ 0.7)
+    /// OR containment — the shorter line is almost entirely inside the
+    /// longer one. The two Whisper passes often chunk the same utterance
+    /// differently: the mic echo tacks on a few words from the next breath
+    /// (e.g. "…talking about, Sarit? No, I was just saying"), which drags
+    /// Jaccard under 0.7 while the lines are still near-subsets. Symmetric
+    /// Jaccard misses that and the echo leaks — taking its own mis-hearings
+    /// (here "sorry" → "Sarit") into the transcript. Containment catches it.
     ///
     /// When both sides genuinely overlap (different speakers, different
-    /// content), Jaccard stays low and both rows survive.
+    /// content), neither metric fires and both rows survive.
     private func appendDeduped(text: String, source: TranscriptSource, timestamp: Date) {
         let cutoff = timestamp.addingTimeInterval(-Self.dedupWindowSeconds)
+        let incoming = Self.wordSet(text)
         for (idx, existing) in entries.enumerated().reversed() {
             guard existing.timestamp >= cutoff else { continue }
             guard existing.source != source else { continue }
-            guard Self.textSimilarity(existing.text, text) >= Self.dedupSimilarityThreshold else { continue }
+            guard Self.isAcousticBleed(Self.wordSet(existing.text), incoming) else { continue }
 
             switch (source, existing.source) {
             case (.them, .me):
@@ -205,14 +214,21 @@ final class TranscriptStore: ObservableObject {
 
     private static let dedupWindowSeconds: TimeInterval = 8
     private static let dedupSimilarityThreshold: Double = 0.7
+    private static let dedupContainmentThreshold: Double = 0.8
+    private static let dedupMinContainmentWords: Int = 4
 
-    private static func textSimilarity(_ a: String, _ b: String) -> Double {
-        let setA = wordSet(a)
-        let setB = wordSet(b)
-        if setA.isEmpty || setB.isEmpty { return 0 }
+    private static func isAcousticBleed(_ setA: Set<String>, _ setB: Set<String>) -> Bool {
+        if setA.isEmpty || setB.isEmpty { return false }
         let intersection = setA.intersection(setB).count
-        let union = setA.union(setB).count
-        return Double(intersection) / Double(union)
+        let union = setA.count + setB.count - intersection
+        if Double(intersection) / Double(union) >= dedupSimilarityThreshold { return true }
+
+        // Asymmetric fallback: the shorter line is a near-subset of the
+        // longer one. Require a few words in the smaller set so a stray
+        // "yeah" / "okay" can't latch onto an unrelated longer turn.
+        let smaller = min(setA.count, setB.count)
+        guard smaller >= dedupMinContainmentWords else { return false }
+        return Double(intersection) / Double(smaller) >= dedupContainmentThreshold
     }
 
     private static func wordSet(_ text: String) -> Set<String> {

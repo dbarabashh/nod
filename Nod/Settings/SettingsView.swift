@@ -13,7 +13,7 @@ struct SettingsView: View {
                     .foregroundColor(.white.opacity(0.65))
                     .fixedSize(horizontal: false, vertical: true)
 
-                HotkeyRecorderView(hotkey: hotkey)
+                HotkeyRecorderView(hotkey: hotkey, action: .suggestReply)
                     .padding(.top, 2)
 
                 Text("Default ⌘⇧S. Avoid ⌘S — every Mac app uses it for Save and the hotkey would be stolen system-wide.")
@@ -23,10 +23,26 @@ struct SettingsView: View {
                     .padding(.top, 4)
             }
 
+            section(title: "Show / hide panel hotkey") {
+                Text("Toggle the floating panel from anywhere — hide it while you work, bring it back when you need it. Works even when another app is focused.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.65))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HotkeyRecorderView(hotkey: hotkey, action: .togglePanel)
+                    .padding(.top, 2)
+
+                Text("Default ⌘⇧H. Avoid ⌘H — macOS reserves it for Hide and the hotkey would be stolen system-wide.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.45))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4)
+            }
+
             Spacer(minLength: 0)
         }
         .padding(20)
-        .frame(width: 460, height: 320, alignment: .topLeading)
+        .frame(width: 460, height: 470, alignment: .topLeading)
         .background(
             LinearGradient(
                 colors: [

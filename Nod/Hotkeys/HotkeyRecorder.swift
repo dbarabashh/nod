@@ -6,6 +6,7 @@ import Carbon.HIToolbox
 /// local NSEvent monitor and writes it back to `HotkeyManager`.
 struct HotkeyRecorderView: View {
     @ObservedObject var hotkey: HotkeyManager
+    let action: HotkeyAction
     @State private var isRecording = false
     @State private var monitor: Any?
     @State private var error: String?
@@ -44,7 +45,7 @@ struct HotkeyRecorderView: View {
 
                 Button("Reset") {
                     cancelRecording()
-                    hotkey.resetToDefault()
+                    hotkey.resetToDefault(for: action)
                 }
                 .buttonStyle(.link)
                 .font(.system(size: 12))
@@ -61,7 +62,7 @@ struct HotkeyRecorderView: View {
 
     private var label: String {
         if isRecording { return "Press keys…" }
-        return hotkey.combo.displayString
+        return hotkey.combo(for: action).displayString
     }
 
     private func toggleRecording() {
@@ -116,13 +117,13 @@ struct HotkeyRecorderView: View {
             keyCode: UInt32(event.keyCode),
             modifiers: carbonMods
         )
-        hotkey.setCombo(new)
-        if hotkey.combo != new {
-            // setCombo rolled back — registration failed (probably already
-            // claimed by another app).
-            error = "That shortcut is already used by another app. Pick another."
-        } else {
+        switch hotkey.setCombo(new, for: action) {
+        case .ok:
             error = nil
+        case .conflict(let other):
+            error = "Already used by “\(other.settingsLabel)”. Pick another."
+        case .rejectedBySystem:
+            error = "That shortcut is already used by another app. Pick another."
         }
         cancelRecording()
     }

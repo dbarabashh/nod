@@ -195,7 +195,7 @@ struct ContentView: View {
                     dotColor: DesignTokens.Palette.sunsetOrange,
                     isGenerating: isGenerating(for: "Suggest reply"),
                     enabled: meeting == .recording,
-                    hotkeyHint: hotkey.combo.displayString,
+                    hotkeyHint: hotkey.combo(for: .suggestReply).displayString,
                     action: { generate(kind: "Suggest reply") }
                 )
                 SuggestionPill(

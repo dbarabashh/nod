@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var consent: ConsentPreference?
     private var meetingStore: MeetingStore?
     private var authObserveTask: Task<Void, Never>?
+    private var statusObserveTask: Task<Void, Never>?
     private var pendingCallbackURLs: [URL] = []
     private var statusItem: NSStatusItem?
 
@@ -47,10 +48,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
 
-        // Wire the global hotkey to the same code path as the on-screen
-        // Suggest reply pill, via a notification ContentView observes.
-        HotkeyManager.shared.onTrigger = {
-            NotificationCenter.default.post(name: .nodSuggestHotkey, object: nil)
+        // Suggest reply reuses the on-screen pill's notification path (ContentView observes it).
+        HotkeyManager.shared.onTrigger = { [weak self] action in
+            switch action {
+            case .suggestReply:
+                NotificationCenter.default.post(name: .nodSuggestHotkey, object: nil)
+            case .togglePanel:
+                self?.toggleFloatingPanel()
+            }
         }
 
         NotificationCenter.default.addObserver(
@@ -112,6 +117,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         self.auth = auth
         self.consent = consent
         self.meetingStore = meetingStore
+
+        statusObserveTask = Task { @MainActor [weak self] in
+            guard let self, let audioCapture = self.audioCapture else { return }
+            for await state in audioCapture.$state.values {
+                self.updateStatusItem(for: state)
+            }
+        }
 
         // Observer drives every window transition, including the initial one.
         // Idempotent show*/close* methods make repeat emissions safe.
@@ -299,15 +311,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = item.button, let image = NSImage(named: "NodLogo") {
-            image.size = NSSize(width: 18, height: 18)
-            button.image = image
-            button.toolTip = "Nod"
-        }
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
         statusItem = item
+        updateStatusItem(for: .idle)
+    }
+
+    /// Surfaces capture state in the menu bar so a recording stays visible
+    /// when the panel is hidden via the toggle hotkey.
+    private func updateStatusItem(for state: CaptureState) {
+        guard let button = statusItem?.button else { return }
+        let (dotColor, toolTip): (NSColor?, String)
+        switch state {
+        case .idle:      (dotColor, toolTip) = (nil, "Nod")
+        case .capturing: (dotColor, toolTip) = (.systemRed, "Nod — Recording")
+        case .paused:    (dotColor, toolTip) = (.systemOrange, "Nod — Paused")
+        }
+        button.image = Self.statusItemImage(dotColor: dotColor)
+        button.toolTip = toolTip
+    }
+
+    private static func statusItemImage(dotColor: NSColor?) -> NSImage? {
+        guard let base = NSImage(named: "NodLogo") else { return nil }
+        let size = NSSize(width: 18, height: 18)
+        let composed = NSImage(size: size)
+        composed.lockFocus()
+        base.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1)
+        if let dotColor {
+            let diameter: CGFloat = 8
+            let dot = NSBezierPath(ovalIn: NSRect(x: size.width - diameter, y: 0, width: diameter, height: diameter).insetBy(dx: 1, dy: 1))
+            dotColor.setFill()
+            dot.fill()
+            NSColor.white.withAlphaComponent(0.9).setStroke()
+            dot.lineWidth = 1
+            dot.stroke()
+        }
+        composed.unlockFocus()
+        composed.isTemplate = false
+        return composed
     }
 
     @objc private func toggleFloatingPanel() {
@@ -346,7 +388,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             return
         }
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 320),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 470),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -500,6 +542,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     keyEquivalent: ""
                 )
                 toggle.target = self
+                // Display-only mirror of the binding; the Carbon global hotkey is the real trigger.
+                if let (key, mask) = HotkeyManager.shared.combo(for: .togglePanel).menuKeyEquivalent {
+                    toggle.keyEquivalent = key
+                    toggle.keyEquivalentModifierMask = mask
+                }
                 menu.addItem(toggle)
 
                 let history = NSMenuItem(
