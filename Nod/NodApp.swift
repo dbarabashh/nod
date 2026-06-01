@@ -280,7 +280,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         NSApp.setActivationPolicy(.accessory)
 
-        let content = ContentView()
+        let content = ContentView(
+            onPreferredWidthChange: { [weak self] width in self?.panel?.setWidth(to: width) }
+        )
             .environmentObject(audioCapture)
             .environmentObject(llmClient)
             .environmentObject(transcriptStore)
@@ -289,8 +291,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             .environmentObject(meetingStore)
             .environmentObject(auth)
 
+        // Start at the compact width — the panel launches idle. ContentView
+        // reports the desired width as the layout changes and the panel
+        // animates the frame, keeping the left edge anchored.
         let panel = FloatingPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: PanelWidth.compact, height: 560),
             content: content
         )
         panel.positionOnLeftCenter()

@@ -18,6 +18,10 @@ final class AudioCaptureService: NSObject, ObservableObject {
     @Published private(set) var micEnabled: Bool = true
     @Published private(set) var micSamples: Int = 0
     @Published private(set) var systemSamples: Int = 0
+    /// Smoothed mic peak (0…1) for the panel's recording level meter. Updated
+    /// from the audio tap (~10×/sec); zeroed on pause/stop/mute so the meter
+    /// can't show stale activity once capture isn't flowing.
+    @Published private(set) var inputLevel: Float = 0
     @Published private(set) var lastError: String?
     @Published var preferredInputUID: String? {
         didSet {
@@ -75,6 +79,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
         guard state == .capturing else { return }
         audioEngine?.pause()
         Task { try? await scStream?.stopCapture() }
+        inputLevel = 0
         state = .paused
     }
 
@@ -93,6 +98,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
         guard state != .idle else { return }
         stopMicrophone()
         await stopSystemAudio()
+        inputLevel = 0
         state = .idle
     }
 
@@ -184,7 +190,14 @@ final class AudioCaptureService: NSObject, ObservableObject {
             }
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if self.micEnabled { self.micSamples += count }
+                if self.micEnabled {
+                    self.micSamples += count
+                    // Decaying peak hold — rises instantly to a loud frame,
+                    // eases back down so the meter doesn't strobe between buffers.
+                    self.inputLevel = max(peak, self.inputLevel * 0.8)
+                } else {
+                    self.inputLevel = 0
+                }
             }
         }
 

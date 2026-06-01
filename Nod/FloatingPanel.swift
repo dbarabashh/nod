@@ -37,7 +37,14 @@ final class FloatingPanel<Content: View>: NSPanel {
         ]
 
         let hostingController = NSHostingController(rootView: content)
+        // The panel's width is driven explicitly (animateWidth); the SwiftUI
+        // content fills whatever size the window is. Clear sizingOptions so the
+        // controller doesn't try to push the content's own preferred size back
+        // onto the window — with flexible-width content that size is undefined
+        // and would fight the resize animation.
+        hostingController.sizingOptions = []
         hostingController.view.frame = NSRect(origin: .zero, size: contentRect.size)
+        hostingController.view.autoresizingMask = [.width, .height]
         self.contentViewController = hostingController
         self.setContentSize(contentRect.size)
     }
@@ -54,5 +61,21 @@ final class FloatingPanel<Content: View>: NSPanel {
             y: screenFrame.midY - size.height / 2
         )
         self.setFrameOrigin(origin)
+    }
+}
+
+extension NSWindow {
+    /// Sets the window width, keeping the left edge fixed so anchored content
+    /// never jumps — it only grows or shrinks to the right. Applied instantly
+    /// (no animation) on purpose: animating the window width while the SwiftUI
+    /// content's width changes in lockstep leaves frames where the content is
+    /// wider than the window, which NSHostingController renders as content
+    /// sliding/clipping. A snap keeps window and content size consistent at
+    /// every step; the response card's own fade softens the transition.
+    func setWidth(to newWidth: CGFloat) {
+        guard frame.size.width != newWidth else { return }
+        var newFrame = frame
+        newFrame.size.width = newWidth
+        setFrame(newFrame, display: true)
     }
 }

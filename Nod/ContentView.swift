@@ -25,6 +25,13 @@ private struct PanelMaterial: NSViewRepresentable {
 
 // MARK: - State
 
+/// Compact vs wide panel footprint. Shared by `ContentView` (layout) and
+/// `AppDelegate` (initial NSPanel size) so the two can't drift out of sync.
+enum PanelWidth {
+    static let compact: CGFloat = 320
+    static let wide: CGFloat = 640
+}
+
 private enum MeetingState: Equatable {
     case idle
     case recording
@@ -36,6 +43,13 @@ private enum MeetingState: Equatable {
         case .recording: return "REC"
         case .paused: return "PAUSED"
         }
+    }
+
+    /// Tint for the status label. Paused is the only state that diverges —
+    /// the warning (amber) slot so "stopped, not recording" reads at a glance,
+    /// matching the menu-bar paused dot. Recording/idle use the muted default.
+    var statusTint: Color {
+        self == .paused ? Theme.Palette.warning : .white.opacity(0.82)
     }
 }
 
@@ -56,6 +70,14 @@ struct ContentView: View {
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var auth: AuthService
     @ObservedObject private var hotkey = HotkeyManager.shared
+
+    /// Reports the panel's desired width as the layout switches between the
+    /// compact single-column state and the wide two-column state. The
+    /// AppDelegate resizes the NSPanel so its clickable footprint (and the
+    /// transparent dead-zone over apps behind it) shrinks when only the
+    /// command column is showing. Optional so the SwiftUI #Preview still
+    /// builds with a bare `ContentView()`.
+    var onPreferredWidthChange: ((CGFloat) -> Void)? = nil
 
     @State private var meeting: MeetingState = .idle
     @State private var response: AIResponse = .none
@@ -80,17 +102,40 @@ struct ContentView: View {
     @State private var pendingMeetingSaves: [Meeting] = []
     @State private var saveErrorToast: String? = nil
 
+    /// The panel widens to two columns only when there's something to show
+    /// on the right — a ready response, the consent modal, or the save-error
+    /// toast (both centred in the full width). Recording with no open
+    /// response stays compact.
+    private var isWide: Bool {
+        if showConsentDisclaimer { return true }
+        if saveErrorToast != nil, !pendingMeetingSaves.isEmpty { return true }
+        if case .ready = response { return true }
+        return false
+    }
+
+    private var contentWidth: CGFloat { isWide ? PanelWidth.wide : PanelWidth.compact }
+
     var body: some View {
         ZStack {
             HStack(alignment: .top, spacing: 12) {
                 leftColumn
                     .frame(width: 288, alignment: .topLeading)
 
-                responseColumn
-                    .frame(width: 308, alignment: .topLeading)
+                // Present only in the wide state, so the compact layout is
+                // just the 288-wide command column and never overflows the
+                // 320 window. The window snaps to its new width (see
+                // AppDelegate) so content width and window width stay
+                // consistent — no frame where the content is wider than the
+                // window (which NSHostingController renders as a slide/clip).
+                if isWide {
+                    responseColumn
+                        .frame(width: 308, alignment: .topLeading)
+                }
             }
             .padding(16)
-            .frame(width: 640, height: 560, alignment: .topLeading)
+            // Fill the window and anchor leading so content lines up at the
+            // left edge regardless of the window's current width.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(Color.clear)
             // While the consent modal is up, the card sits on top with no
             // backdrop — disable the columns underneath so a click in the
@@ -108,7 +153,7 @@ struct ContentView: View {
                     )
                     .padding(.bottom, 18)
                 }
-                .frame(width: 640, height: 560, alignment: .bottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .allowsHitTesting(true)
                 .zIndex(2)
             }
@@ -134,7 +179,9 @@ struct ContentView: View {
                 .zIndex(1)
             }
         }
-        .frame(width: 640, height: 560, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear { onPreferredWidthChange?(contentWidth) }
+        .onChange(of: isWide) { _ in onPreferredWidthChange?(contentWidth) }
         .task { await runSecondsTimer() }
         .onReceive(NotificationCenter.default.publisher(for: .nodSuggestHotkey)) { _ in
             // Global hotkey fired. Only act if a meeting is recording and we
@@ -171,6 +218,7 @@ struct ContentView: View {
                 meeting: meeting,
                 elapsed: elapsedString,
                 language: language.current,
+                level: audioCapture.inputLevel,
                 onLanguageSelect: { language.current = $0 },
                 onCollapse: meeting != .idle ? {
                     withAnimation(.easeOut(duration: 0.18)) { expanded = false }
@@ -184,6 +232,10 @@ struct ContentView: View {
                 StartMeetingButton(action: startMeeting)
 
             case .recording, .paused:
+                // One primary action (Catch me up — absorbs the old "Recap
+                // so far"; they answered the same "summarise what happened"
+                // need). The rest are a quieter secondary tier with glyphs
+                // that name the action instead of decorative colour dots.
                 HeroButton(
                     isGenerating: isGenerating(for: "hero"),
                     enabled: meeting == .recording,
@@ -192,7 +244,7 @@ struct ContentView: View {
 
                 SuggestionPill(
                     label: "Suggest reply",
-                    dotColor: DesignTokens.Palette.sunsetOrange,
+                    icon: "arrowshape.turn.up.left.fill",
                     isGenerating: isGenerating(for: "Suggest reply"),
                     enabled: meeting == .recording,
                     hotkeyHint: hotkey.combo(for: .suggestReply).displayString,
@@ -200,24 +252,17 @@ struct ContentView: View {
                 )
                 SuggestionPill(
                     label: "Key points",
-                    dotColor: DesignTokens.Palette.skyBlue,
+                    icon: "list.bullet",
                     isGenerating: isGenerating(for: "Key points"),
                     enabled: meeting == .recording,
                     action: { generate(kind: "Key points") }
                 )
                 SuggestionPill(
                     label: "Suggest follow-up questions",
-                    dotColor: DesignTokens.Palette.fuchsiaFlare,
+                    icon: "questionmark.bubble.fill",
                     isGenerating: isGenerating(for: "Suggest follow-up questions"),
                     enabled: meeting == .recording,
                     action: { generate(kind: "Suggest follow-up questions") }
-                )
-                SuggestionPill(
-                    label: "Recap so far",
-                    dotColor: DesignTokens.Palette.vividGreen,
-                    isGenerating: isGenerating(for: "Recap so far"),
-                    enabled: meeting == .recording,
-                    action: { generate(kind: "Recap so far") }
                 )
             }
 
@@ -247,7 +292,10 @@ struct ContentView: View {
                     onDismiss: { response = .none },
                     onAIEdit: nil
                 )
-                .transition(.opacity.combined(with: .move(edge: .leading)))
+                // Fade in place — the panel is already widening rightward to
+                // make room, so a horizontal slide read as the card "flying in
+                // from the left" across the command column.
+                .transition(.opacity)
             }
             Spacer(minLength: 0)
         }
@@ -704,6 +752,9 @@ private struct StatusHeader: View {
     let meeting: MeetingState
     let elapsed: String
     let language: AppLanguage
+    /// Live mic peak (0…1) — drives the recording level meter so the user
+    /// has continuous proof audio is being heard, not just a pulsing dot.
+    var level: Float = 0
     let onLanguageSelect: (AppLanguage) -> Void
     var onCollapse: (() -> Void)? = nil
     @State private var pulsing = false
@@ -719,13 +770,21 @@ private struct StatusHeader: View {
                 Text(meeting.statusLabel)
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(0.5)
-                    .foregroundColor(.white.opacity(0.82))
+                    .foregroundColor(meeting.statusTint)
                 Text(elapsed)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.50))
+                if meeting == .recording {
+                    LevelMeter(level: level)
+                }
             }
             Spacer(minLength: 0)
-            LanguagePicker(current: language, onSelect: onLanguageSelect, enabled: meeting == .idle)
+            // Selectable mid-meeting: the pipeline resolves the language per
+            // chunk at flush time (TranscriptStore wires `currentWhisperCode()`
+            // into both transcribers), so a change takes effect on the next
+            // ~5s chunk. Locking it forced a full End-meeting just to fix a
+            // wrong pick, with no other recovery path.
+            LanguagePicker(current: language, onSelect: onLanguageSelect)
             if let onCollapse {
                 PanelIconButton(
                     systemName: "chevron.up",
@@ -740,10 +799,15 @@ private struct StatusHeader: View {
         // Matches the StartMeetingButton's treatment — frosted material +
         // subtle white-stroke border, no heavy black overlay — so the two
         // pills sit together as a coherent Raycast-style command surface.
+        // The border goes amber while paused so the "stopped" state reads
+        // even at a glance, without relying on the small label alone.
         .background(
             PanelMaterial()
                 .clipShape(Capsule(style: .continuous))
-                .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+                .overlay(Capsule().stroke(
+                    meeting == .paused ? Theme.Palette.warning.opacity(0.55) : Color.white.opacity(0.12),
+                    lineWidth: meeting == .paused ? 1 : 0.5
+                ))
         )
         .onAppear { pulsing = true }
     }
@@ -766,11 +830,31 @@ private struct StatusHeader: View {
         case .paused:
             Image(systemName: "pause.fill")
                 .font(.system(size: 9, weight: .bold))
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(Theme.Palette.warning)
                 .frame(width: 8, height: 8)
         }
     }
 
+}
+
+/// Compact 4-bar input meter. Bars light progressively with the live mic
+/// peak so a glance confirms audio is flowing. Purely a display — no state,
+/// redrawn by its `level` input (~10×/sec from the audio tap).
+private struct LevelMeter: View {
+    let level: Float
+    private static let thresholds: [Float] = [0.02, 0.06, 0.14, 0.30]
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(Self.thresholds, id: \.self) { threshold in
+                Capsule()
+                    .fill(Color.white.opacity(level >= threshold ? 0.85 : 0.18))
+                    .frame(width: 2.5, height: 9)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: level)
+        .help("Microphone level")
+    }
 }
 
 /// Small circular icon button shared by the panel's chrome — the
@@ -811,7 +895,7 @@ private struct CollapsedCapsule: View {
             indicator
             Text(meeting.statusLabel)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.white.opacity(0.85))
+                .foregroundColor(meeting.statusTint)
             Text(elapsed)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundColor(.white.opacity(0.55))
@@ -878,7 +962,7 @@ private struct CollapsedCapsule: View {
         case .paused:
             Image(systemName: "pause.fill")
                 .font(.system(size: 9, weight: .bold))
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(Theme.Palette.warning)
                 .frame(width: 8, height: 8)
         case .idle:
             // Shouldn't render in idle — leftColumn guards this — but safe fallback.
@@ -890,7 +974,6 @@ private struct CollapsedCapsule: View {
 private struct LanguagePicker: View {
     let current: AppLanguage
     let onSelect: (AppLanguage) -> Void
-    var enabled: Bool = true
 
     var body: some View {
         // Custom-styled `Menu` wrapping a real `Picker` so the chip keeps
@@ -919,7 +1002,7 @@ private struct LanguagePicker: View {
                     .font(.system(size: 7, weight: .bold))
                     .opacity(0.65)
             }
-            .foregroundColor(.white.opacity(enabled ? 0.78 : 0.40))
+            .foregroundColor(.white.opacity(0.78))
             // Bumped padding so the chip is closer to Apple HIG's 44pt hit
             // target — visually still compact thanks to the small font.
             .padding(.horizontal, 8)
@@ -934,33 +1017,28 @@ private struct LanguagePicker: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .disabled(!enabled)
-        .help(enabled
-              ? "Switch language — affects transcription and AI responses"
-              : "Language is locked during a meeting — end the meeting to change it")
+        .help("Switch language — applies to everything transcribed and generated from here on")
     }
 }
 
-/// Raycast-style command pill. Frosted dark capsule, red record dot left,
-/// "Start meeting" label. No kbd-shortcut badge — `.keyboardShortcut` on a
-/// `.nonactivatingPanel` doesn't fire because the panel rarely becomes key;
-/// showing a hint for a non-functional shortcut is worse than no hint.
-/// Re-add a kbd badge once a real global hotkey is wired
-/// (RegisterEventHotKey or NSEvent.addGlobalMonitorForEvents).
+/// Raycast-style command pill. Frosted dark capsule, neutral mic glyph,
+/// "Start meeting" label. The glyph is deliberately NOT a red record dot —
+/// red is reserved for the active REC state, and a red dot on the *start*
+/// affordance reads for a beat as "already recording".
+/// No kbd-shortcut badge — `.keyboardShortcut` on a `.nonactivatingPanel`
+/// doesn't fire because the panel rarely becomes key; showing a hint for a
+/// non-functional shortcut is worse than no hint.
 private struct StartMeetingButton: View {
     let action: () -> Void
     @State private var hovered = false
     @State private var pressed = false
 
-    private static let red = Color(red: 0.95, green: 0.30, blue: 0.35)
-
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Circle()
-                    .fill(Self.red)
-                    .frame(width: 8, height: 8)
-                    .shadow(color: Self.red.opacity(0.55), radius: 4, x: 0, y: 0)
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.92))
 
                 Text("Start meeting")
                     .font(.system(size: 13.5, weight: .medium))
@@ -1129,8 +1207,7 @@ private struct HeroButton: View {
 
 private struct SuggestionPill: View {
     let label: String
-    var trailingEmoji: String? = nil
-    let dotColor: Color
+    let icon: String
     let isGenerating: Bool
     let enabled: Bool
     var hotkeyHint: String? = nil
@@ -1144,49 +1221,45 @@ private struct SuggestionPill: View {
                         .controlSize(.mini)
                         .progressViewStyle(.circular)
                         .tint(Theme.Palette.ink)
-                        .frame(width: 8, height: 8)
+                        .frame(width: 12, height: 12)
                 } else {
-                    Circle()
-                        .fill(dotColor)
-                        .frame(width: 8, height: 8)
+                    Image(systemName: icon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.55))
+                        .frame(width: 12)
                 }
 
-                HStack(spacing: 4) {
-                    Text(label)
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundColor(Theme.Palette.ink)
-                        .lineLimit(1)
-                    if let trailingEmoji {
-                        Text(trailingEmoji)
-                            .font(.system(size: 12))
-                    }
-                }
+                Text(label)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.88))
+                    .lineLimit(1)
 
                 Spacer(minLength: 0)
 
                 if let hotkeyHint {
                     Text(hotkeyHint)
                         .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                        .foregroundColor(Theme.Palette.ink.opacity(0.55))
+                        .foregroundColor(Theme.Palette.ink.opacity(0.50))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(
                             Capsule(style: .continuous)
-                                .fill(Color.white.opacity(0.12))
-                                .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+                                .fill(Color.white.opacity(0.10))
+                                .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
                         )
                 }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            // Width sized to the longest label ("Suggest follow-up questions")
-            // at the new compact 12.5pt font — keeps all three pills uniform
-            // without truncating the longest one.
+            // Width sized to the longest label ("Suggest follow-up questions").
+            // Flatter, lighter treatment than the HeroButton — these are the
+            // secondary tier, so no gradient / drop shadow, just a faint
+            // translucent fill that reads as "also available".
             .frame(width: 246, alignment: .leading)
             .background(
                 ZStack {
                     PanelMaterial()
-                    Color.black.opacity(0.15)
+                    Color.white.opacity(0.04)
                 }
                 .clipShape(Capsule(style: .continuous))
                 .overlay(
@@ -1194,7 +1267,6 @@ private struct SuggestionPill: View {
                         .stroke(Theme.Palette.border, lineWidth: 0.5)
                 )
             )
-            .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 2)
             .opacity(enabled ? 1.0 : 0.55)
         }
         .buttonStyle(.plain)
