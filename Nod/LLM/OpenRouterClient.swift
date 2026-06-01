@@ -132,12 +132,13 @@ final class OpenRouterClient: ObservableObject {
 
     /// JSON-mode chat call: requests `response_format = json_object` from the
     /// model and decodes the assistant message into `T`. Some upstream models
-    /// still wrap valid JSON in stray fences/preamble; we strip a leading
-    /// ```json fence if present so a well-shaped payload survives a sloppy
-    /// model. A genuinely malformed response surfaces as `.decodingFailed`.
+    /// still wrap valid JSON in stray fences and/or pad it with prose; we
+    /// extract the JSON value before decoding so a well-shaped payload survives
+    /// a sloppy model. A genuinely malformed response surfaces as
+    /// `.decodingFailed`.
     func completeJSON<T: Decodable>(system: String, user: String, as type: T.Type) async throws -> T {
         let raw = try await complete(system: system, user: user, jsonMode: true)
-        let cleaned = Self.stripCodeFence(raw)
+        let cleaned = Self.extractJSON(raw)
         guard let data = cleaned.data(using: .utf8) else {
             throw ClientError.decodingFailed("non-utf8 LLM response")
         }
@@ -149,20 +150,31 @@ final class OpenRouterClient: ObservableObject {
         }
     }
 
-    private static func stripCodeFence(_ s: String) -> String {
-        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("```") else { return trimmed }
-        var body = trimmed.dropFirst(3)
-        // Tolerate any case of the "json" language hint (some models emit
-        // ```JSON). Drop it whether or not a newline follows.
-        if body.lowercased().hasPrefix("json") { body = body.dropFirst(4) }
-        if let first = body.first, first == "\n" || first == "\r" {
-            body = body.dropFirst()
+    /// Pulls the JSON value out of a model response that may be fenced and/or
+    /// padded with prose. Handles the shapes seen in the wild: a bare object, a
+    /// fenced object, and — the one that used to break decoding — a fenced
+    /// object followed by an explanatory paragraph (e.g. Gemini appending "The
+    /// transcript is too vague…" *after* the closing ```). Drops the fence
+    /// (everything from the closing ``` onward), then narrows to the outermost
+    /// `{…}` / `[…]` so leading or trailing prose can't reach the decoder.
+    private static func extractJSON(_ s: String) -> String {
+        var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.hasPrefix("```") {
+            t.removeFirst(3)
+            // Tolerate any case of the "json" language hint (some emit ```JSON).
+            if t.lowercased().hasPrefix("json") { t.removeFirst(4) }
+            if let fence = t.range(of: "```") {
+                t = String(t[t.startIndex..<fence.lowerBound])
+            }
+            t = t.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        if body.hasSuffix("```") {
-            body = body.dropLast(3)
+        if let start = t.firstIndex(where: { $0 == "{" || $0 == "[" }) {
+            let close: Character = t[start] == "{" ? "}" : "]"
+            if let end = t.lastIndex(of: close), end > start {
+                return String(t[start...end])
+            }
         }
-        return body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t
     }
 
     /// True for errors that are plausibly fixed by a retry: upstream 5xx
