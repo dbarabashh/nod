@@ -1,0 +1,22 @@
+#!/bin/sh
+# Format + lint staged Swift files before commit.
+# Install once with:  git config core.hooksPath .githooks
+
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+
+staged_swift=$(git diff --cached --name-only --diff-filter=ACM -- '*.swift')
+[ -z "$staged_swift" ] && exit 0
+
+if which swiftformat >/dev/null; then
+  echo "$staged_swift" | xargs swiftformat >/dev/null 2>&1
+  echo "$staged_swift" | xargs git add
+fi
+
+if which swiftlint >/dev/null; then
+  if ! echo "$staged_swift" | xargs swiftlint lint --quiet; then
+    echo "swiftlint found error-level violations in staged files — fix them, then re-commit."
+    exit 1
+  fi
+fi
+
+exit 0

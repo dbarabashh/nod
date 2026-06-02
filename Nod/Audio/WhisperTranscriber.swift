@@ -1,5 +1,5 @@
-import Foundation
 import AVFoundation
+import Foundation
 
 /// Streams audio buffers, groups them into ~chunkSeconds-long WAVs, and POSTs
 /// each chunk to Whisper via OpenRouter. Each successful chunk's text is
@@ -20,16 +20,8 @@ final class WhisperTranscriber: @unchecked Sendable {
 
     private var chunkBuffers: [AVAudioPCMBuffer] = []
     private var chunkFrames: AVAudioFrameCount = 0
-    private let chunkTargetFrames: AVAudioFrameCount = 16_000 * 5  // 5 s
-    // VAD is asymmetric per source. Silent mic input reliably triggers Whisper
-    // hallucinations ("Thanks for watching!"), so [Me] keeps a strict peak gate.
-    // System audio (post-mix) can be much quieter than the mic without being
-    // silent — meeting playback at low volume, soft-spoken remote participants.
-    // For [Them] we drop the peak gate and add an RMS check: the chunk must
-    // both peak above the noise floor AND show sustained energy (≥0.005 RMS)
-    // consistent with speech, not just an isolated spike or hiss.
-    private var peakGate: Float { source == .me ? 0.05 : 0.015 }
-    private var rmsGate:  Float { source == .me ? 0   : 0.005 }
+    private let chunkTargetFrames: AVAudioFrameCount = 16_000 * 5 // 5 s
+    private let vad: VAD
     private var chunkCounter: Int = 0
 
     // In-flight regular-flush Tasks; flushPending awaits these so on-demand
@@ -38,7 +30,7 @@ final class WhisperTranscriber: @unchecked Sendable {
 
     // Canonical SFSpeech/Whisper input format. AVAudioConverter caches identical
     // to SpeechTranscriber so we don't pay init cost on the audio thread.
-    private static let speechFormat: AVAudioFormat = AVAudioFormat(
+    private static let speechFormat: AVAudioFormat = .init(
         commonFormat: .pcmFormatFloat32,
         sampleRate: 16_000,
         channels: 1,
@@ -50,7 +42,8 @@ final class WhisperTranscriber: @unchecked Sendable {
     init(source: TranscriptSource, client: OpenRouterClient) {
         self.source = source
         self.client = client
-        self.queue = DispatchQueue(label: "nod.whisper.\(source.rawValue)", qos: .userInteractive)
+        vad = VAD(source: source)
+        queue = DispatchQueue(label: "nod.whisper.\(source.rawValue)", qos: .userInteractive)
     }
 
     func start() async {
@@ -110,7 +103,7 @@ final class WhisperTranscriber: @unchecked Sendable {
         }
         // Yield to main so handleFinal's DispatchQueue.main.async closures
         // are visible in `entries` before the caller reads `fullContext`.
-        await MainActor.run { }
+        await MainActor.run {}
 
         let pending: Pending? = await withCheckedContinuation { cont in
             queue.async {
@@ -125,7 +118,7 @@ final class WhisperTranscriber: @unchecked Sendable {
                 self.chunkCounter += 1
                 let id = self.chunkCounter
 
-                let (p, r) = Self.peakAndRMS(buffers)
+                let (p, r) = VAD.peakAndRMS(buffers)
                 cont.resume(returning: Pending(buffers: buffers, frames: frames, chunkID: id, peak: p, rms: r))
             }
         }
@@ -135,13 +128,17 @@ final class WhisperTranscriber: @unchecked Sendable {
             return nil
         }
 
-        if pending.peak < peakGate || pending.rms < rmsGate {
-            Log.stt.info("[\(source.label)] flushPending chunk #\(pending.chunkID) skipped — silent (peak=\(String(format: "%.4f", pending.peak)) rms=\(String(format: "%.4f", pending.rms)))")
+        if vad.isSilent(peak: pending.peak, rms: pending.rms) {
+            Log.stt.info(
+                "[\(source.label)] flushPending chunk #\(pending.chunkID) skipped — silent (peak=\(String(format: "%.4f", pending.peak)) rms=\(String(format: "%.4f", pending.rms)))"
+            )
             return nil
         }
 
         let durationSec = Double(pending.frames) / 16_000.0
-        Log.stt.info("[\(source.label)] chunk #\(pending.chunkID) → Whisper (\(String(format: "%.1f", durationSec))s, peak=\(String(format: "%.3f", pending.peak)), rms=\(String(format: "%.3f", pending.rms)), on-demand)")
+        Log.stt.info(
+            "[\(source.label)] chunk #\(pending.chunkID) → Whisper (\(String(format: "%.1f", durationSec))s, peak=\(String(format: "%.3f", pending.peak)), rms=\(String(format: "%.3f", pending.rms)), on-demand)"
+        )
 
         guard let wav = WAVEncoder.encode16kHzMono(pending.buffers) else {
             Log.stt.error("[\(source.label)] chunk #\(pending.chunkID) WAV encode failed")
@@ -174,16 +171,18 @@ final class WhisperTranscriber: @unchecked Sendable {
         chunkCounter += 1
         let chunkID = chunkCounter
 
-        // VAD: skip silent chunks before they hit the API. Whisper hallucinates
-        // ("Thanks for watching!") on near-silence, so we gate at the source.
-        let (peak, rms) = Self.peakAndRMS(buffers)
-        if peak < peakGate || rms < rmsGate {
-            Log.stt.info("[\(source.label)] chunk #\(chunkID) skipped — silent (peak=\(String(format: "%.4f", peak)) rms=\(String(format: "%.4f", rms)))")
+        let (peak, rms) = VAD.peakAndRMS(buffers)
+        if vad.isSilent(peak: peak, rms: rms) {
+            Log.stt.info(
+                "[\(source.label)] chunk #\(chunkID) skipped — silent (peak=\(String(format: "%.4f", peak)) rms=\(String(format: "%.4f", rms)))"
+            )
             return
         }
 
         let durationSec = Double(frames) / 16_000.0
-        Log.stt.info("[\(source.label)] chunk #\(chunkID) → Whisper (\(String(format: "%.1f", durationSec))s, peak=\(String(format: "%.3f", peak)), rms=\(String(format: "%.3f", rms)), \(reason))")
+        Log.stt.info(
+            "[\(source.label)] chunk #\(chunkID) → Whisper (\(String(format: "%.1f", durationSec))s, peak=\(String(format: "%.3f", peak)), rms=\(String(format: "%.3f", rms)), \(reason))"
+        )
 
         guard let wav = WAVEncoder.encode16kHzMono(buffers) else {
             Log.stt.error("[\(source.label)] chunk #\(chunkID) WAV encode failed")
@@ -217,28 +216,6 @@ final class WhisperTranscriber: @unchecked Sendable {
         inFlightFlushes[taskID] = task
     }
 
-    /// Single-pass peak amplitude + RMS over a chunk's worth of buffers.
-    /// RMS is computed against actual sample count, so very short tail
-    /// buffers don't get an inflated reading.
-    private static func peakAndRMS(_ buffers: [AVAudioPCMBuffer]) -> (peak: Float, rms: Float) {
-        var peak: Float = 0
-        var sumSquares: Double = 0
-        var count: Int = 0
-        for b in buffers {
-            guard let ch = b.floatChannelData?[0] else { continue }
-            let n = Int(b.frameLength)
-            for i in 0..<n {
-                let s = ch[i]
-                let a = abs(s)
-                if a > peak { peak = a }
-                sumSquares += Double(s) * Double(s)
-            }
-            count += n
-        }
-        let rms: Float = count > 0 ? Float((sumSquares / Double(count)).squareRoot()) : 0
-        return (peak, rms)
-    }
-
     /// Convert any incoming buffer to 16 kHz mono Float32 non-interleaved.
     /// Must be on `queue`.
     private func normalize(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
@@ -246,9 +223,9 @@ final class WhisperTranscriber: @unchecked Sendable {
         let inFormat = buffer.format
 
         if inFormat.sampleRate == target.sampleRate &&
-           inFormat.channelCount == target.channelCount &&
-           inFormat.commonFormat == target.commonFormat &&
-           inFormat.isInterleaved == target.isInterleaved {
+            inFormat.channelCount == target.channelCount &&
+            inFormat.commonFormat == target.commonFormat &&
+            inFormat.isInterleaved == target.isInterleaved {
             return buffer
         }
 

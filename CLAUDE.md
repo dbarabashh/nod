@@ -27,6 +27,19 @@ xcodebuild -project Nod.xcodeproj -scheme Nod test -only-testing:NodTests/Meetin
 
 Targets macOS 13+, Swift 5.9. Single SPM dependency: `supabase-swift` v2+. Bundle ID: `com.example.nod`.
 
+### Lint, format, and git hooks
+
+```sh
+brew install swiftlint swiftformat        # required for the build phase + pre-commit hook
+git config core.hooksPath .githooks       # one-time per clone — enables the pre-commit hook
+```
+
+SwiftLint runs as a build phase (`project.yml` → `preBuildScripts`). The
+pre-commit hook (`.githooks/pre-commit`) auto-formats staged Swift files with
+SwiftFormat, then blocks the commit only on **error-level** SwiftLint
+violations in staged files (force-unwrap/cast/try). Configs: `.swiftlint.yml`,
+`.swiftformat` — both tuned to `CONVENTIONS.md`.
+
 ## Configuration
 
 - **Supabase**: project ref `lptqvnizjwglilgeukwx` (eu-west-1), linked via `supabase/config.toml`. URL + anon key in `Nod/Backend/SupabaseConfig.swift`. Server-side secrets (incl. `OPENROUTER_API_KEY`) are set via `supabase secrets set` — never in the bundle.

@@ -1,0 +1,85 @@
+included:
+  - Nod
+
+excluded:
+  - .build
+  - Nod.xcodeproj
+
+opt_in_rules:
+  - empty_count
+  - first_where
+  - contains_over_filter_count
+  - last_where
+  - sorted_first_last
+  - redundant_nil_coalescing
+  - explicit_init
+  - closure_spacing
+  - operator_usage_whitespace
+  - fatal_error_message
+  - overridden_super_call
+  - prohibited_super_call
+  - empty_string
+  - force_unwrapping
+
+analyzer_rules:
+  - unused_import
+
+# Build phase emits these as warnings, so it never breaks the build on the
+# existing baseline. force_cast / force_try keep SwiftLint's default error
+# severity (the codebase has none) — those are the only commit-blockers,
+# enforced by the pre-commit hook. Everything below is advisory: visible in
+# Xcode, surfaced in review, but non-blocking.
+force_unwrapping:
+  severity: warning
+
+identifier_name:
+  min_length: 2
+  allowed_symbols: ["_"]
+  excluded:
+    - id
+    - me
+    - r
+    - g
+    - b
+
+type_name:
+  min_length: 3
+  max_length: 50
+
+cyclomatic_complexity:
+  warning: 12
+  error: 100
+
+function_body_length:
+  warning: 60
+  error: 400
+
+type_body_length:
+  warning: 350
+  error: 900
+
+file_length:
+  warning: 500
+  error: 1600
+  ignore_comment_only_lines: true
+
+# swiftformat already wraps over-width *code* (--maxwidth 140); the only long
+# lines left are intentional prompt/string literals, so leave line length to
+# the formatter rather than flagging unwrappable strings.
+line_length:
+  warning: 200
+  error: 2000
+  ignores_comments: true
+  ignores_urls: true
+
+large_tuple:
+  warning: 3
+  error: 5
+
+todo:
+  severity: warning
+
+disabled_rules:
+  - trailing_comma
+
+reporter: "xcode"

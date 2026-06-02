@@ -1,0 +1,28 @@
+--swiftversion 5.9
+
+--exclude .build,Nod.xcodeproj
+
+# Match Apple / SwiftUI conventions; keep rewrites conservative.
+--indent 4
+--maxwidth 140
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--commas inline
+--trimwhitespace always
+--stripunusedargs closure-only
+--self remove
+--importgrouping testable-bottom
+
+# Don't touch comment content — we manage comments by convention, not tooling.
+--enable blankLinesAtStartOfScope
+--enable blankLinesAtEndOfScope
+--enable redundantSelf
+--enable redundantReturn
+--enable redundantParens
+--enable sortImports
+--enable isEmpty
+--disable wrapMultilineStatementBraces
+--disable docComments
+--disable wrap
+--disable numberFormatting

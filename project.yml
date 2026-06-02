@@ -60,12 +60,36 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Nod/Nod.entitlements
         ENABLE_DEBUG_DYLIB: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-    scheme: {}
+    preBuildScripts:
+      - name: SwiftLint
+        basedOnDependencyAnalysis: false
+        script: |
+          export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+          if which swiftlint >/dev/null; then
+            swiftlint lint --quiet
+          else
+            echo "warning: swiftlint not installed — run 'brew install swiftlint'"
+          fi
+  NodTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: NodTests
+    dependencies:
+      - target: Nod
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.nodTests
 schemes:
   Nod:
     build:
       targets:
         Nod: all
+        NodTests: [test]
+    test:
+      targets:
+        - NodTests
     run:
       config: Debug
     archive:
