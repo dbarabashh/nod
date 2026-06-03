@@ -84,7 +84,7 @@ struct MeetingDetailView: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 18) {
-                titleField
+                titleRow
                 metadataTable
                 tabBar
                 subToolbar
@@ -98,9 +98,8 @@ struct MeetingDetailView: View {
             .padding(.vertical, 22)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .background(Theme.Palette.bg.ignoresSafeArea())
-        .navigationTitle(displayTitle)
-        .toolbar { toolbarContent }
+        .background(Color.clear)
+        .navigationTitle("")
         .onAppear {
             editableTitle = current.title ?? ""
             editableSummary = current.summary
@@ -134,6 +133,40 @@ struct MeetingDetailView: View {
     }
 
     // MARK: - Title
+
+    private var titleRow: some View {
+        HStack(alignment: .top, spacing: 12) {
+            titleField
+            deleteButton
+        }
+    }
+
+    /// Delete lives here, in the content, rather than the window toolbar — a
+    /// `.primaryAction` item lands at the far right of the full-width window
+    /// toolbar, which placed it over the chat dock instead of this pane.
+    private var deleteButton: some View {
+        Button(role: .destructive, action: deleteMeeting) {
+            Image(systemName: "trash")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.Palette.muted)
+                .frame(width: 30, height: 30)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Theme.Palette.surface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Theme.Palette.border, lineWidth: 0.5)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .help(isGenerating ? "Available once the summary is ready" : "Move to Trash")
+        // Soft-delete hits the server `soft_delete_meeting` RPC, which would
+        // 404 for a meeting that hasn't been inserted yet. Re-enables the
+        // moment the row lands.
+        .disabled(isDeleting || isGenerating)
+        .opacity(isGenerating ? 0.4 : 1)
+    }
 
     @ViewBuilder
     private var titleField: some View {
@@ -538,32 +571,7 @@ struct MeetingDetailView: View {
         }
     }
 
-    // MARK: - Window toolbar (delete only — copy/edit moved into sub-toolbar)
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            Button(role: .destructive, action: deleteMeeting) {
-                Image(systemName: "trash")
-            }
-            .help(isGenerating
-                ? "Available once the summary is ready"
-                : "Move to Trash")
-            // Soft-delete hits the server `soft_delete_meeting` RPC,
-            // which would 404 for a meeting that hasn't been inserted
-            // yet. Re-enables the moment the row lands.
-            .disabled(isDeleting || isGenerating)
-        }
-    }
-
     // MARK: - Helpers
-
-    private var displayTitle: String {
-        if isGenerating { return "New meeting" }
-        let trimmed = editableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { return trimmed }
-        return current.displayTitle(dateFormatter: Self.dateFormatter)
-    }
 
     private func endTimeString(_ end: Date) -> String {
         Self.endTimeFormatter.string(from: end)

@@ -7,7 +7,23 @@ import SwiftUI
 /// renders as solid black on a `.nonactivatingPanel` that has no own
 /// content for it to sample. `.behindWindow` samples the desktop / app
 /// underneath the panel, which is what users actually see through it.
-private struct PanelMaterial: NSViewRepresentable {
+///
+/// Because `.behindWindow` samples the desktop, the bare material goes pale
+/// over a light wallpaper / light app window — and the white-on-dark content
+/// drawn on top loses contrast. A dark scrim pins every surface to a
+/// consistent dark glass regardless of what's behind the panel.
+private struct PanelMaterial: View {
+    var material: NSVisualEffectView.Material = .hudWindow
+
+    var body: some View {
+        ZStack {
+            PanelEffect(material: material)
+            DesignTokens.Surface.level0.opacity(0.32)
+        }
+    }
+}
+
+private struct PanelEffect: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .hudWindow
 
     func makeNSView(context: Context) -> NSVisualEffectView {
@@ -250,7 +266,7 @@ struct ContentView: View {
             case .idle:
                 SessionKindPicker(selection: $selectedKind)
                 StartMeetingButton(
-                    title: "Start \(selectedKind.title.lowercased())",
+                    title: selectedKind.startActionTitle,
                     icon: selectedKind.icon,
                     action: startMeeting
                 )
@@ -1173,12 +1189,15 @@ private struct SessionKindPicker: View {
         }
         .padding(3)
         .background(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(Color.white.opacity(0.04))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-                )
+            ZStack {
+                PanelMaterial()
+                Color.white.opacity(0.05)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .stroke(Color.white.opacity(0.14), lineWidth: 0.5)
+            )
         )
     }
 
@@ -1195,7 +1214,7 @@ private struct SessionKindPicker: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
-            .foregroundColor(isSelected ? .white : .white.opacity(0.55))
+            .foregroundColor(isSelected ? .white : .white.opacity(0.72))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 7)
             .background(

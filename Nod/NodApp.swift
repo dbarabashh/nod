@@ -465,8 +465,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             backing: .buffered,
             defer: false
         )
-        window.title = "Meetings"
-        window.titlebarAppearsTransparent = false
+        window.title = "Library"
+        window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.appearance = NSAppearance(named: .darkAqua)
@@ -582,7 +582,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 menu.addItem(toggle)
 
                 let history = NSMenuItem(
-                    title: "Meetings…",
+                    title: "Library…",
                     action: #selector(showHistoryAction),
                     // No keyEquivalent — `"h"` defaults to ⌘H which the
                     // system reserves for "Hide Application".

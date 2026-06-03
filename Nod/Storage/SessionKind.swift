@@ -41,6 +41,17 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// Start-button label. Kept separate from `title` because the generic
+    /// "Start <title>" template breaks for `media` — the user isn't starting
+    /// media, they're capturing audio that's already playing.
+    var startActionTitle: String {
+        switch self {
+        case .meeting: "Start meeting"
+        case .voiceNote: "Start voice note"
+        case .media: "Capture media"
+        }
+    }
+
     var icon: String {
         switch self {
         case .meeting: "person.2.fill"

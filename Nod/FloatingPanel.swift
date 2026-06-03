@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 final class FloatingPanel<Content: View>: NSPanel {
     init(contentRect: NSRect, content: Content) {
@@ -10,26 +10,26 @@ final class FloatingPanel<Content: View>: NSPanel {
             defer: false
         )
 
-        self.isFloatingPanel = true
-        self.level = .floating
-        self.backgroundColor = .clear
-        self.isOpaque = false
-        self.hasShadow = false
-        self.isMovableByWindowBackground = true
-        self.hidesOnDeactivate = false
-        self.becomesKeyOnlyIfNeeded = true
+        isFloatingPanel = true
+        level = .floating
+        backgroundColor = .clear
+        isOpaque = false
+        hasShadow = true
+        isMovableByWindowBackground = true
+        hidesOnDeactivate = false
+        becomesKeyOnlyIfNeeded = true
         // Force dark appearance regardless of system theme — the SwiftUI
         // content is hardcoded white-on-dark (Theme.Palette.ink = frost,
         // borders = white.opacity(...)), so a light `.hudWindow` material
         // would leave the panel near-invisible for Light-mode users.
-        self.appearance = NSAppearance(named: .vibrantDark)
+        appearance = NSAppearance(named: .vibrantDark)
         // Floating utility panels shouldn't be part of the user's screen-share.
         // Same default as Raycast / 1Password / Notification Center — the user's
         // private workspace doesn't bleed into the content they explicitly
         // shared with Zoom / Meet / Teams. Respected by all standard macOS
         // capture APIs (SCStream, CGWindowList, AVCaptureScreenInput).
-        self.sharingType = .none
-        self.collectionBehavior = [
+        sharingType = .none
+        collectionBehavior = [
             .canJoinAllSpaces,
             .stationary,
             .fullScreenAuxiliary,
@@ -45,22 +45,27 @@ final class FloatingPanel<Content: View>: NSPanel {
         hostingController.sizingOptions = []
         hostingController.view.frame = NSRect(origin: .zero, size: contentRect.size)
         hostingController.view.autoresizingMask = [.width, .height]
-        self.contentViewController = hostingController
-        self.setContentSize(contentRect.size)
+        contentViewController = hostingController
+        setContentSize(contentRect.size)
     }
 
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
+    override var canBecomeKey: Bool {
+        true
+    }
+
+    override var canBecomeMain: Bool {
+        false
+    }
 
     func positionOnLeftCenter(margin: CGFloat = 24) {
         guard let screen = NSScreen.main else { return }
         let screenFrame = screen.visibleFrame
-        let size = self.frame.size
+        let size = frame.size
         let origin = NSPoint(
             x: screenFrame.minX + margin,
             y: screenFrame.midY - size.height / 2
         )
-        self.setFrameOrigin(origin)
+        setFrameOrigin(origin)
     }
 }
 

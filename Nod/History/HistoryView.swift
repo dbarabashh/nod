@@ -52,7 +52,7 @@ struct HistoryView: View {
             Divider().overlay(Theme.Palette.border)
             chatDock
         }
-        .background(Theme.Palette.bg.ignoresSafeArea())
+        .background(WindowBackdrop().ignoresSafeArea())
         .task {
             // Always refresh on appear. The previous `.idle` gate would
             // skip refresh whenever the store already had data — including
@@ -106,7 +106,10 @@ struct HistoryView: View {
     private var navigationColumn: some View {
         NavigationStack(path: $path) {
             ZStack(alignment: .bottom) {
-                content
+                VStack(spacing: 0) {
+                    segmentBar
+                    content
+                }
                 if let pending = meetingStore.pendingUndo {
                     UndoToast(
                         message: "Moved to Trash",
@@ -117,9 +120,9 @@ struct HistoryView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .navigationTitle("Meetings")
+            .navigationTitle("Library")
             .toolbar { toolbarContent }
-            .searchable(text: $searchQuery, prompt: "Search meetings")
+            .searchable(text: $searchQuery, prompt: "Search library")
             // Registered at the NavigationStack root so programmatic
             // pushes (via `path = [meeting]`) resolve even when the empty
             // / loading state is on screen instead of the list.
@@ -150,7 +153,12 @@ struct HistoryView: View {
             }
         }
         .frame(width: 380)
-        .background(Theme.Palette.bgSoft.opacity(0.4))
+        .background(Color.white.opacity(0.025))
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Theme.Palette.border)
+                .frame(width: 0.5)
+        }
     }
 
     private func dockHeader(for meeting: Meeting?) -> some View {
@@ -198,22 +206,32 @@ struct HistoryView: View {
 
     // MARK: - Toolbar
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            Picker("View", selection: $segment) {
-                ForEach(Segment.allCases) { s in
-                    Text(s.rawValue).tag(s)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 220)
-            .onChange(of: segment) { new in
-                if new == .trash, case .idle = meetingStore.trashState {
-                    Task { await meetingStore.refreshTrash() }
-                }
+    /// All / Trash filter. Lives at the top of the list pane, not the window
+    /// toolbar — a `.principal` toolbar item centers across the *whole* window
+    /// width, which floated it over the chat dock instead of the list it
+    /// filters. Here it sits above the rows it controls.
+    private var segmentBar: some View {
+        Picker("View", selection: $segment) {
+            ForEach(Segment.allCases) { s in
+                Text(s.rawValue).tag(s)
             }
         }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 200)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
+        .onChange(of: segment) { new in
+            if new == .trash, case .idle = meetingStore.trashState {
+                Task { await meetingStore.refreshTrash() }
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             HStack(spacing: 8) {
                 if meetingStore.lastRefreshFailed, segment == .all {
@@ -474,7 +492,7 @@ struct HistoryView: View {
                 }
             }
         }
-        .listStyle(.plain)
+        .listStyle(.inset)
         .scrollContentBackground(.hidden)
     }
 
@@ -496,7 +514,7 @@ struct HistoryView: View {
                 .listRowBackground(Color.clear)
                 .listRowSeparatorTint(Theme.Palette.border)
         }
-        .listStyle(.plain)
+        .listStyle(.inset)
         .scrollContentBackground(.hidden)
     }
 
@@ -665,6 +683,25 @@ private struct UndoToast: View {
         )
         .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
     }
+}
+
+// MARK: - Window backdrop
+
+/// Native macOS window vibrancy, replacing the flat pure-black fill. Under the
+/// window's `.darkAqua` appearance this is a deep, slightly translucent surface
+/// that picks up a hint of what's behind the window — the same frosted-glass
+/// family as the floating panel, so the two halves of the app read as one
+/// product instead of a flat slab bolted onto a glass panel.
+private struct WindowBackdrop: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .underWindowBackground
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 // MARK: - Helpers
