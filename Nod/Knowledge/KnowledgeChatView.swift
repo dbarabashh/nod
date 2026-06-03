@@ -419,7 +419,8 @@ struct KnowledgeChatView: View {
         switch route {
         case .all:
             let chunks = await knowledgeStore.search(query: query)
-            return (chunks.map(labeledExcerpt), resolveSources(chunks))
+            let byID = Dictionary(meetingStore.meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            return (chunks.map { labeledExcerpt($0, in: byID) }, resolveSources(chunks, in: byID))
         case let .specific(ids):
             // Resolve each session's static metadata up front (main-actor
             // state), then run the per-session transcript searches concurrently
@@ -463,11 +464,11 @@ struct KnowledgeChatView: View {
 
     /// Distinct sessions behind the retrieved chunks, in retrieval order, so
     /// the answer can show what it drew on.
-    private func resolveSources(_ chunks: [RetrievedChunk]) -> [SessionRef] {
+    private func resolveSources(_ chunks: [RetrievedChunk], in byID: [UUID: Meeting]) -> [SessionRef] {
         var seen = Set<UUID>()
         var refs: [SessionRef] = []
         for chunk in chunks where seen.insert(chunk.meetingID).inserted {
-            let title = meetingStore.meetings.first(where: { $0.id == chunk.meetingID })?
+            let title = byID[chunk.meetingID]?
                 .displayTitle(dateFormatter: Self.sourceDateFormatter) ?? "A past session"
             refs.append(SessionRef(id: chunk.meetingID, title: title))
         }
@@ -475,9 +476,9 @@ struct KnowledgeChatView: View {
     }
 
     /// Prefix each excerpt with a human source label so the model can cite it.
-    private func labeledExcerpt(_ chunk: RetrievedChunk) -> String {
+    private func labeledExcerpt(_ chunk: RetrievedChunk, in byID: [UUID: Meeting]) -> String {
         let label: String
-        if let meeting = meetingStore.meetings.first(where: { $0.id == chunk.meetingID }) {
+        if let meeting = byID[chunk.meetingID] {
             let title = meeting.displayTitle(dateFormatter: Self.sourceDateFormatter)
             label = "\(title) (\(Self.sourceDateFormatter.string(from: meeting.startedAt)))"
         } else {

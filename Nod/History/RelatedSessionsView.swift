@@ -129,8 +129,12 @@ struct RelatedSessionsView: View {
     }
 
     private func load() async {
-        entities = await entityStore.entities(forMeeting: meeting.id)
-        related = await entityStore.relatedMeetings(to: meeting.id)
+        // Two independent round-trips — overlap them so the view doesn't pay
+        // both latencies in series.
+        async let loadedEntities = entityStore.entities(forMeeting: meeting.id)
+        async let loadedRelated = entityStore.relatedMeetings(to: meeting.id)
+        entities = await loadedEntities
+        related = await loadedRelated
     }
 
     private static let fallbackDateFormatter: DateFormatter = {

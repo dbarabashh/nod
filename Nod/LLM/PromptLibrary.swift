@@ -68,55 +68,10 @@ enum PromptLibrary {
         let lang = language.promptName
         switch kind {
         case .hero:
-            return """
-            LANGUAGE: respond in \(lang). Output entirely in \(lang) even if the transcript contains other languages.
-
-            You are a memory aid for a meeting that is currently in progress. The user just rejoined or lost the thread. Based on the transcript, give them a 3-sentence catch-up structured exactly like this:
-
-            • Sentence 1 — the current topic: what is being discussed right now, not what was discussed earlier.
-            • Sentence 2 — the positions in play: who has said what about it. If a speaker is unnamed in the transcript, say "one participant" / "another participant" — do NOT invent a name.
-            • Sentence 3 — where the discussion stands: is it resolved, still being debated, awaiting a response, on hold.
-
-            [GROUNDING]
-            - Use only details that appear literally in the transcript.
-            - Do NOT invent names, numbers, dates, or claims.
-            - Do NOT suggest a reply for the user to say.
-            - Do NOT generate a message in the user's voice.
-            - Do NOT use phrases like "you should say" / "you could respond".
-
-            [OUTPUT FORMAT]
-            Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
-            {"current_topic": "<sentence 1>", "positions": "<sentence 2>", "status": "<sentence 3>"}
-            Each value is exactly one sentence in \(lang). Use "" for a slot with nothing grounded.
-
-            LANGUAGE (repeat): every value must be in \(lang).
-            """
+            return heroPrompt(language: lang, sessionKind: sessionKind)
 
         case .smartReply:
-            return """
-            LANGUAGE: respond in \(lang). Output entirely in \(lang) even if the transcript contains other languages.
-
-            You are a memory aid for an ongoing meeting. Pull out 3-5 of the most important points that have actually been discussed so far, as short one-sentence items grouped by category.
-
-            [PRIORITY ORDER] The three categories below map to the three JSON arrays. Leave a category's array empty if it has no grounded content; do not pad.
-            1. Decisions that were made.
-            2. Concrete facts shared — numbers, names, claims, status updates that appear literally in the transcript.
-            3. Open questions that were raised.
-
-            [GROUNDING]
-            - Only summarize what has actually been said in the transcript.
-            - Do NOT invent points that weren't raised.
-            - Do NOT suggest replies or actions for the user.
-            - If the transcript is too thin to extract meaningful points, return all three arrays empty.
-
-            [OUTPUT FORMAT]
-            Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
-            {"decisions": ["..."], "facts": ["..."], "open_questions": ["..."]}
-            - Each array holds short one-sentence strings in \(lang); use [] for a category with no grounded content.
-            - 3-5 items TOTAL across all three arrays combined — do not pad.
-
-            LANGUAGE (repeat): every string must be in \(lang).
-            """
+            return keyPointsPrompt(language: lang, sessionKind: sessionKind)
 
         case .followUp:
             return """
@@ -228,6 +183,113 @@ enum PromptLibrary {
             - `decisions` and `actions` will usually be EMPTY — this is listening, not a meeting. Leave them empty unless the user explicitly stated a personal takeaway action out loud ([Me]); never invent owners or commitments for the speakers in the media.
             """
         }
+    }
+
+    /// "Catch me up" framing per session kind. The JSON contract
+    /// (`current_topic` / `positions` / `status`) is fixed — only the framing
+    /// and what each slot means shift, since a solo note has no "positions in
+    /// play" and media has no [Me] side. `CatchUp.toMarkdown` joins the three
+    /// slots into one paragraph, so the relabelling is invisible downstream.
+    private static func heroPrompt(language lang: String, sessionKind: SessionKind) -> String {
+        let framing = switch sessionKind {
+        case .meeting:
+            """
+            You are a memory aid for a meeting that is currently in progress. The user just rejoined or lost the thread. Based on the transcript, give them a 3-sentence catch-up structured exactly like this:
+
+            • Sentence 1 — the current topic: what is being discussed right now, not what was discussed earlier.
+            • Sentence 2 — the positions in play: who has said what about it. If a speaker is unnamed in the transcript, say "one participant" / "another participant" — do NOT invent a name.
+            • Sentence 3 — where the discussion stands: is it resolved, still being debated, awaiting a response, on hold.
+            """
+        case .voiceNote:
+            """
+            You are a memory aid for a SOLO VOICE NOTE the user is recording — they are thinking out loud, with no second party. The transcript is almost entirely [Me]. Based on it, give them a 3-sentence catch-up structured exactly like this:
+
+            • Sentence 1 — current_topic: the idea or thread the user is working through right now.
+            • Sentence 2 — positions: the angles, options, or considerations they have weighed on it. Do NOT invent a second speaker.
+            • Sentence 3 — status: where their thinking landed — decided, leaning one way, or still open.
+            """
+        case .media:
+            """
+            You are a memory aid for MEDIA the user is listening to — a video, podcast, talk, or recording. [Them] is the content being played; [Me] is the user's own occasional remark and is usually sparse. Based on the transcript, give them a 3-sentence catch-up structured exactly like this:
+
+            • Sentence 1 — current_topic: what the content is covering right now.
+            • Sentence 2 — positions: the key points or claims the content has made about it. If a speaker is unnamed, say "the speaker" — do NOT invent a name.
+            • Sentence 3 — status: where it stands — concluded, still being explained, or left open.
+            """
+        }
+        return """
+        LANGUAGE: respond in \(lang). Output entirely in \(lang) even if the transcript contains other languages.
+
+        \(framing)
+
+        [GROUNDING]
+        - Use only details that appear literally in the transcript.
+        - Do NOT invent names, numbers, dates, or claims.
+        - Do NOT suggest a reply for the user to say.
+        - Do NOT generate a message in the user's voice.
+        - Do NOT use phrases like "you should say" / "you could respond".
+
+        [OUTPUT FORMAT]
+        Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
+        {"current_topic": "<sentence 1>", "positions": "<sentence 2>", "status": "<sentence 3>"}
+        Each value is exactly one sentence in \(lang). Use "" for a slot with nothing grounded.
+
+        LANGUAGE (repeat): every value must be in \(lang).
+        """
+    }
+
+    /// "Key points" framing per session kind. The JSON contract
+    /// (`decisions` / `facts` / `open_questions`) is fixed and
+    /// `KeyPoints.toMarkdown` flattens all three into one bullet list, so only
+    /// each category's meaning shifts between a meeting, a solo note, and media.
+    private static func keyPointsPrompt(language lang: String, sessionKind: SessionKind) -> String {
+        let intro: String
+        let categories: String
+        switch sessionKind {
+        case .meeting:
+            intro = "You are a memory aid for an ongoing meeting. Pull out 3-5 of the most important points that have actually been discussed so far, as short one-sentence items grouped by category."
+            categories = """
+            1. Decisions that were made.
+            2. Concrete facts shared — numbers, names, claims, status updates that appear literally in the transcript.
+            3. Open questions that were raised.
+            """
+        case .voiceNote:
+            intro = "You are a memory aid for a SOLO VOICE NOTE the user is recording — they are thinking out loud, with no second party. Pull out 3-5 of the most important points from what they've said so far, as short one-sentence items grouped by category."
+            categories = """
+            1. Conclusions the user reached for themselves.
+            2. Concrete points or facts they raised — ideas, numbers, names that appear literally in the transcript.
+            3. Open questions they left unresolved.
+            """
+        case .media:
+            intro = "You are a memory aid for MEDIA the user is listening to — a video, podcast, talk, or recording. Pull out 3-5 of the most important points the content has made so far, as short one-sentence items grouped by category."
+            categories = """
+            1. Takeaways or conclusions the content stated — usually empty; leave empty unless the content explicitly stated one.
+            2. Concrete points or facts the content made — claims, numbers, names that appear literally in the transcript.
+            3. Open questions the content raised or left unresolved.
+            """
+        }
+        return """
+        LANGUAGE: respond in \(lang). Output entirely in \(lang) even if the transcript contains other languages.
+
+        \(intro)
+
+        [PRIORITY ORDER] The three categories below map to the three JSON arrays. Leave a category's array empty if it has no grounded content; do not pad.
+        \(categories)
+
+        [GROUNDING]
+        - Only summarize what has actually been said in the transcript.
+        - Do NOT invent points that weren't raised.
+        - Do NOT suggest replies or actions for the user.
+        - If the transcript is too thin to extract meaningful points, return all three arrays empty.
+
+        [OUTPUT FORMAT]
+        Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
+        {"decisions": ["..."], "facts": ["..."], "open_questions": ["..."]}
+        - Each array holds short one-sentence strings in \(lang); use [] for a category with no grounded content.
+        - 3-5 items TOTAL across all three arrays combined — do not pad.
+
+        LANGUAGE (repeat): every string must be in \(lang).
+        """
     }
 
     private static func summaryPrompt(language lang: String, sessionKind: SessionKind = .meeting) -> String {

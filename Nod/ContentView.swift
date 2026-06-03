@@ -568,7 +568,8 @@ struct ContentView: View {
                 kind: promptKind,
                 transcript: context,
                 language: language.current,
-                personalContext: profileContext
+                personalContext: profileContext,
+                sessionKind: selectedKind
             )
             do {
                 // Every pill's prompt emits a structured JSON object; decode the
