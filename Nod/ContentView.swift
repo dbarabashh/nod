@@ -1,13 +1,29 @@
-import SwiftUI
 import AppKit
 import Supabase
+import SwiftUI
 
 /// Behind-window blur for the floating panel's surfaces. SwiftUI's
 /// `.ultraThinMaterial` uses `withinWindow` blending by default, which
 /// renders as solid black on a `.nonactivatingPanel` that has no own
 /// content for it to sample. `.behindWindow` samples the desktop / app
 /// underneath the panel, which is what users actually see through it.
-private struct PanelMaterial: NSViewRepresentable {
+///
+/// Because `.behindWindow` samples the desktop, the bare material goes pale
+/// over a light wallpaper / light app window — and the white-on-dark content
+/// drawn on top loses contrast. A dark scrim pins every surface to a
+/// consistent dark glass regardless of what's behind the panel.
+private struct PanelMaterial: View {
+    var material: NSVisualEffectView.Material = .hudWindow
+
+    var body: some View {
+        ZStack {
+            PanelEffect(material: material)
+            DesignTokens.Surface.level0.opacity(0.32)
+        }
+    }
+}
+
+private struct PanelEffect: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .hudWindow
 
     func makeNSView(context: Context) -> NSVisualEffectView {
@@ -39,9 +55,9 @@ private enum MeetingState: Equatable {
 
     var statusLabel: String {
         switch self {
-        case .idle: return "READY"
-        case .recording: return "REC"
-        case .paused: return "PAUSED"
+        case .idle: "READY"
+        case .recording: "REC"
+        case .paused: "PAUSED"
         }
     }
 
@@ -69,6 +85,17 @@ struct ContentView: View {
     @EnvironmentObject private var consent: ConsentPreference
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var auth: AuthService
+    @EnvironmentObject private var profileStore: ProfileStore
+    @EnvironmentObject private var entityStore: EntityStore
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
+
+    /// Always-on personal context prepended to every LLM system prompt so
+    /// recaps and live cards read as if Nod already knows the user. "" when
+    /// the profile is empty.
+    private var profileContext: String {
+        profileStore.promptContext
+    }
+
     @ObservedObject private var hotkey = HotkeyManager.shared
 
     /// Reports the panel's desired width as the layout switches between the
@@ -77,9 +104,13 @@ struct ContentView: View {
     /// transparent dead-zone over apps behind it) shrinks when only the
     /// command column is showing. Optional so the SwiftUI #Preview still
     /// builds with a bare `ContentView()`.
-    var onPreferredWidthChange: ((CGFloat) -> Void)? = nil
+    var onPreferredWidthChange: ((CGFloat) -> Void)?
 
     @State private var meeting: MeetingState = .idle
+    /// What the next recording will be. Chosen while idle; fixed for the
+    /// duration of a recording so the recap framing + audio streams stay
+    /// consistent from start to stop.
+    @State private var selectedKind: SessionKind = .meeting
     @State private var response: AIResponse = .none
     @State private var elapsed: Int = 0
     @State private var micMuted: Bool = false
@@ -113,7 +144,9 @@ struct ContentView: View {
         return false
     }
 
-    private var contentWidth: CGFloat { isWide ? PanelWidth.wide : PanelWidth.compact }
+    private var contentWidth: CGFloat {
+        isWide ? PanelWidth.wide : PanelWidth.compact
+    }
 
     var body: some View {
         ZStack {
@@ -196,7 +229,7 @@ struct ContentView: View {
     /// Idle (pre-meeting) state always shows the full pre-meeting card layout.
     @ViewBuilder
     private var leftColumn: some View {
-        if meeting != .idle && !expanded {
+        if meeting != .idle, !expanded {
             CollapsedCapsule(
                 meeting: meeting,
                 elapsed: elapsedString,
@@ -225,11 +258,18 @@ struct ContentView: View {
                 } : nil
             )
 
-            InputDevicePickerRow(audioCapture: audioCapture)
+            if selectedKind.capturesMic {
+                InputDevicePickerRow(audioCapture: audioCapture)
+            }
 
             switch meeting {
             case .idle:
-                StartMeetingButton(action: startMeeting)
+                SessionKindPicker(selection: $selectedKind)
+                StartMeetingButton(
+                    title: selectedKind.startActionTitle,
+                    icon: selectedKind.icon,
+                    action: startMeeting
+                )
 
             case .recording, .paused:
                 // One primary action (Catch me up — absorbs the old "Recap
@@ -242,14 +282,18 @@ struct ContentView: View {
                     action: { generate(kind: "hero") }
                 )
 
-                SuggestionPill(
-                    label: "Suggest reply",
-                    icon: "arrowshape.turn.up.left.fill",
-                    isGenerating: isGenerating(for: "Suggest reply"),
-                    enabled: meeting == .recording,
-                    hotkeyHint: hotkey.combo(for: .suggestReply).displayString,
-                    action: { generate(kind: "Suggest reply") }
-                )
+                // Reply coaching only makes sense for a two-party meeting —
+                // a solo memo or a podcast has no incoming turn to answer.
+                if selectedKind.supportsReplyCoaching {
+                    SuggestionPill(
+                        label: "Suggest reply",
+                        icon: "arrowshape.turn.up.left.fill",
+                        isGenerating: isGenerating(for: "Suggest reply"),
+                        enabled: meeting == .recording,
+                        hotkeyHint: hotkey.combo(for: .suggestReply).displayString,
+                        action: { generate(kind: "Suggest reply") }
+                    )
+                }
                 SuggestionPill(
                     label: "Key points",
                     icon: "list.bullet",
@@ -257,19 +301,22 @@ struct ContentView: View {
                     enabled: meeting == .recording,
                     action: { generate(kind: "Key points") }
                 )
-                SuggestionPill(
-                    label: "Suggest follow-up questions",
-                    icon: "questionmark.bubble.fill",
-                    isGenerating: isGenerating(for: "Suggest follow-up questions"),
-                    enabled: meeting == .recording,
-                    action: { generate(kind: "Suggest follow-up questions") }
-                )
+                if selectedKind.supportsReplyCoaching {
+                    SuggestionPill(
+                        label: "Suggest follow-up questions",
+                        icon: "questionmark.bubble.fill",
+                        isGenerating: isGenerating(for: "Suggest follow-up questions"),
+                        enabled: meeting == .recording,
+                        action: { generate(kind: "Suggest follow-up questions") }
+                    )
+                }
             }
 
             if meeting != .idle {
                 StatusRow(
                     meeting: meeting,
                     micMuted: micMuted,
+                    showMic: selectedKind.capturesMic,
                     onRecordToggle: toggleRecording,
                     onMicToggle: toggleMic,
                     onEnd: endMeeting
@@ -281,7 +328,6 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
     private var responseColumn: some View {
         VStack(alignment: .leading, spacing: 12) {
             if case let .ready(kind, text) = response {
@@ -352,7 +398,10 @@ struct ContentView: View {
         // the queue.
         Task {
             await store.start()
-            await audioCapture.start()
+            await audioCapture.start(
+                captureMic: selectedKind.capturesMic,
+                captureSystem: selectedKind.capturesSystem
+            )
         }
     }
 
@@ -393,6 +442,7 @@ struct ContentView: View {
             endedAt: endedAt,
             summary: "",
             language: langCode,
+            kind: selectedKind,
             title: nil
         )
         meetingStore.beginGenerating(draft)
@@ -411,7 +461,13 @@ struct ContentView: View {
 
         let draftID = draft.id
         Task {
-            let (system, user) = PromptLibrary.build(kind: .summary, transcript: context, language: language.current)
+            let (system, user) = PromptLibrary.build(
+                kind: .summary,
+                transcript: context,
+                language: language.current,
+                personalContext: profileContext,
+                sessionKind: draft.kind
+            )
             do {
                 let recap = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self)
                 let text = recap.toMarkdown()
@@ -427,6 +483,27 @@ struct ContentView: View {
                     meeting: updated,
                     transcriptEntries: transcriptEntries
                 )
+                // Enrichment (entities for "Related" + embeddings for
+                // cross-session search) only runs once the meeting actually
+                // landed on the server. If the save was queued for retry, the
+                // parent row doesn't exist yet, so these would FK-fail, waste
+                // an LLM + embedding call, and never re-run — same reasoning as
+                // the transcript-insert guard in persistMeeting. They're
+                // independent, so run them concurrently.
+                if !pendingMeetingSaves.contains(where: { $0.id == updated.id }) {
+                    async let entities: Void = extractEntities(
+                        meetingID: updated.id,
+                        userID: userID,
+                        transcript: context,
+                        summary: text
+                    )
+                    async let indexing: Void = knowledgeStore.index(
+                        meetingID: updated.id,
+                        transcript: context
+                    )
+                    _ = await entities
+                    _ = await indexing
+                }
             } catch {
                 Log.ui.error("Meeting summary generation failed: \(error.localizedDescription)")
                 await MainActor.run {
@@ -487,23 +564,28 @@ struct ContentView: View {
             if context.isEmpty {
                 Log.ui.info("⚠️ context is EMPTY — LLM will get only the system prompt")
             }
-            let (system, user) = PromptLibrary.build(kind: promptKind, transcript: context, language: language.current)
+            let (system, user) = PromptLibrary.build(
+                kind: promptKind,
+                transcript: context,
+                language: language.current,
+                personalContext: profileContext,
+                sessionKind: selectedKind
+            )
             do {
                 // Every pill's prompt emits a structured JSON object; decode the
                 // matching type and render it to markdown the card already knows
                 // how to show (`renderRecapMarkdown`).
-                let text: String
-                switch promptKind {
+                let text: String = switch promptKind {
                 case .hero:
-                    text = try await llm.completeJSON(system: system, user: user, as: CatchUp.self).toMarkdown()
+                    try await llm.completeJSON(system: system, user: user, as: CatchUp.self).toMarkdown()
                 case .smartReply:
-                    text = try await llm.completeJSON(system: system, user: user, as: KeyPoints.self).toMarkdown()
+                    try await llm.completeJSON(system: system, user: user, as: KeyPoints.self).toMarkdown()
                 case .followUp:
-                    text = try await llm.completeJSON(system: system, user: user, as: FollowUpQuestions.self).toMarkdown()
+                    try await llm.completeJSON(system: system, user: user, as: FollowUpQuestions.self).toMarkdown()
                 case .summary:
-                    text = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self).toMarkdown()
+                    try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self).toMarkdown()
                 case .suggestReply:
-                    text = try await llm.completeJSON(system: system, user: user, as: SuggestedReply.self).toMarkdown()
+                    try await llm.completeJSON(system: system, user: user, as: SuggestedReply.self).toMarkdown()
                 }
                 if case let .generating(k) = response, k == requestedKind {
                     response = .ready(kind: requestedKind, text: text)
@@ -574,6 +656,26 @@ struct ContentView: View {
         }
     }
 
+    /// Best-effort entity extraction — links the saved session to the
+    /// people / projects / topics it mentions so "Related sessions" can find
+    /// it. Runs after persistence; a failure here never affects the meeting.
+    private func extractEntities(
+        meetingID: UUID,
+        userID: UUID,
+        transcript: String,
+        summary: String
+    ) async {
+        guard !transcript.isEmpty else { return }
+        let (system, user) = PromptLibrary.buildEntityExtraction(transcript: transcript, summary: summary)
+        do {
+            let extracted = try await llm.completeJSON(system: system, user: user, as: ExtractedEntities.self)
+            guard !extracted.isEmpty else { return }
+            try await entityStore.saveExtraction(extracted, meetingID: meetingID, userID: userID)
+        } catch {
+            Log.ui.error("entity extraction failed (non-fatal): \(error.localizedDescription)")
+        }
+    }
+
     /// Best-effort LLM call to produce a short event-style title. Returns
     /// nil on failure (Meeting.displayTitle falls back to a date label).
     private func generateMeetingTitle(from summary: String) async -> String? {
@@ -608,7 +710,7 @@ struct ContentView: View {
 
         // 3. Surrounding `**bold**` markers — the LLM sometimes emits the
         //    title in bold despite the no-markdown rule.
-        if line.hasPrefix("**") && line.hasSuffix("**") && line.count > 4 {
+        if line.hasPrefix("**"), line.hasSuffix("**"), line.count > 4 {
             line.removeFirst(2)
             line.removeLast(2)
             line = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -756,7 +858,7 @@ private struct StatusHeader: View {
     /// has continuous proof audio is being heard, not just a pulsing dot.
     var level: Float = 0
     let onLanguageSelect: (AppLanguage) -> Void
-    var onCollapse: (() -> Void)? = nil
+    var onCollapse: (() -> Void)?
     @State private var pulsing = false
 
     var body: some View {
@@ -834,7 +936,6 @@ private struct StatusHeader: View {
                 .frame(width: 8, height: 8)
         }
     }
-
 }
 
 /// Compact 4-bar input meter. Bars light progressively with the live mic
@@ -864,7 +965,7 @@ private struct LevelMeter: View {
 private struct PanelIconButton: View {
     let systemName: String
     var tint: Color = .white.opacity(0.6)
-    var fill: Color = Color.white.opacity(0.10)
+    var fill: Color = .white.opacity(0.10)
     let help: String
     let action: () -> Void
 
@@ -1029,6 +1130,8 @@ private struct LanguagePicker: View {
 /// doesn't fire because the panel rarely becomes key; showing a hint for a
 /// non-functional shortcut is worse than no hint.
 private struct StartMeetingButton: View {
+    var title: String = "Start meeting"
+    var icon: String = "mic.fill"
     let action: () -> Void
     @State private var hovered = false
     @State private var pressed = false
@@ -1036,11 +1139,11 @@ private struct StartMeetingButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: "mic.fill")
+                Image(systemName: icon)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.white.opacity(0.92))
 
-                Text("Start meeting")
+                Text(title)
                     .font(.system(size: 13.5, weight: .medium))
                     .foregroundColor(.white.opacity(0.92))
             }
@@ -1070,6 +1173,71 @@ private struct StartMeetingButton: View {
                 .onChanged { _ in pressed = true }
                 .onEnded { _ in pressed = false }
         )
+    }
+}
+
+/// Three-way segmented control for what the next recording is. Icon-over-
+/// caption segments so the labels fit the compact panel width. The selection
+/// drives audio-stream choice, the recap framing, and which live cards show.
+private struct SessionKindPicker: View {
+    @Binding var selection: SessionKind
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(SessionKind.allCases) { kind in
+                segment(kind)
+            }
+        }
+        .padding(3)
+        .background(
+            ZStack {
+                PanelMaterial()
+                Color.white.opacity(0.05)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .stroke(Color.white.opacity(0.14), lineWidth: 0.5)
+            )
+        )
+    }
+
+    private func segment(_ kind: SessionKind) -> some View {
+        let isSelected = selection == kind
+        return Button {
+            withAnimation(.easeOut(duration: 0.14)) { selection = kind }
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: kind.icon)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(kind.title)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundColor(isSelected ? .white : .white.opacity(0.72))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Color.white.opacity(0.10) : .clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(isSelected ? Color.white.opacity(0.14) : .clear, lineWidth: 0.5)
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(helpText(kind))
+    }
+
+    private func helpText(_ kind: SessionKind) -> String {
+        switch kind {
+        case .meeting: "Record both sides of a call — your mic and the other participants."
+        case .voiceNote: "Capture your own voice only — think out loud, get it summarized."
+        case .media: "Transcribe what's playing on your Mac — a video, podcast, or talk."
+        }
     }
 }
 
@@ -1210,7 +1378,7 @@ private struct SuggestionPill: View {
     let icon: String
     let isGenerating: Bool
     let enabled: Bool
-    var hotkeyHint: String? = nil
+    var hotkeyHint: String?
     let action: () -> Void
 
     var body: some View {
@@ -1283,7 +1451,7 @@ private struct ResponseCard: View {
     let onDismiss: () -> Void
     /// (currentText, instruction) → updated text. Wired in ContentView via
     /// PromptLibrary.buildSummaryEdit + llm.complete.
-    var onAIEdit: ((String, String) async throws -> String)? = nil
+    var onAIEdit: ((String, String) async throws -> String)?
 
     /// Working buffer the TextEditor binds to. Seeded from `text` and kept in
     /// sync if a fresh response arrives (e.g. switching from "Catch me up" to
@@ -1303,7 +1471,9 @@ private struct ResponseCard: View {
     /// cards ("Catch me up", "Key points", …) are read-only — they're
     /// ephemeral and editing them adds noise without value. Caller signals
     /// "this card is persistent + editable" by passing `onAIEdit`.
-    private var isEditable: Bool { onAIEdit != nil }
+    private var isEditable: Bool {
+        onAIEdit != nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1514,12 +1684,11 @@ private struct ResponseCard: View {
 
     private var kindLabel: String {
         switch kind {
-        case "hero": return "Catch me up"
-        case "Meeting Summary": return "Meeting recap"
-        default: return kind
+        case "hero": "Catch me up"
+        case "Meeting Summary": "Meeting recap"
+        default: kind
         }
     }
-
 }
 
 private struct MiniAction: View {
@@ -1556,6 +1725,7 @@ private struct MiniAction: View {
 private struct StatusRow: View {
     let meeting: MeetingState
     let micMuted: Bool
+    var showMic: Bool = true
     let onRecordToggle: () -> Void
     let onMicToggle: () -> Void
     let onEnd: () -> Void
@@ -1570,12 +1740,14 @@ private struct StatusRow: View {
                         : .white.opacity(0.85))
             }
 
-            StatusIcon(action: onMicToggle) {
-                Image(systemName: micMuted ? "mic.slash.fill" : "mic.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(micMuted
-                        ? Color(red: 0.95, green: 0.55, blue: 0.55)
-                        : .white.opacity(0.85))
+            if showMic {
+                StatusIcon(action: onMicToggle) {
+                    Image(systemName: micMuted ? "mic.slash.fill" : "mic.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(micMuted
+                            ? Color(red: 0.95, green: 0.55, blue: 0.55)
+                            : .white.opacity(0.85))
+                }
             }
 
             Spacer(minLength: 0)

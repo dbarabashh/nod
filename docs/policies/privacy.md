@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-05-27_
+_Last updated: 2026-06-02_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -61,7 +61,17 @@ Calendar, Drive, or contacts.
 |----------------------------------------|--------------------------------------------------|-------------|
 | Meeting **transcripts** (per-chunk text, with speaker side and timestamp) | To show you what was said and feed it to the summariser | Contract (Art. 6(1)(b)) |
 | Meeting **summaries** (AI-generated text) | The core feature — that's what you're using Nod for | Contract (Art. 6(1)(b)) |
-| Meeting metadata (start/end time, title, language) | To list your meetings in the app | Contract (Art. 6(1)(b)) |
+| Meeting metadata (start/end time, title, language, session **kind**: meeting / voice note / media) | To list and organise your sessions | Contract (Art. 6(1)(b)) |
+| Transcript **embeddings** (vector + chunk text, in `session_embeddings`) | To let you ask questions across your past sessions ("Ask Nod") | Contract (Art. 6(1)(b)) |
+| **Chat messages** with the per-session assistant (`chat_messages`) | To answer your questions about a session and keep the thread | Contract (Art. 6(1)(b)) |
+| **Entities** (people / projects / topics extracted from a session) | To link related sessions and power scoped search | Contract (Art. 6(1)(b)) |
+| Your optional **profile** (name, role, current focus) | To give the assistant context about you | Contract (Art. 6(1)(b)); you may leave it blank or clear it anytime |
+
+The embeddings, chat messages, and entities are derived from transcript
+content you already chose to record; they are stored in the same
+Supabase database, in the same `eu-west-1` region, under the same per-user
+Row-Level Security. The cross-session "Ask Nod" conversation is **not**
+persisted.
 
 We do **not** store raw audio. Audio exists only as transient memory inside
 the app and inside the Whisper request, for the duration of a single
@@ -174,6 +184,7 @@ We can provide our SCCs and transfer impact assessments on request to
 | Meetings (active)                    | Until you delete them.                                               |
 | Meetings (in trash)                  | 30 days. A nightly Postgres job permanently deletes anything older. |
 | Meeting transcripts                  | Same as the parent meeting (cascade delete).                         |
+| Transcript embeddings, session chats, entity links | Same as the parent meeting (cascade delete). Extracted entities themselves are per-user and removed on account deletion. |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |
 | Usage metadata                       | 24 months, then aggregated and anonymised.                           |
 | Encrypted database backups           | 7 days rolling.                                                      |

@@ -20,6 +20,12 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 
+// `Supabase.ai` is an ambient global provided by the Edge Function runtime —
+// declare it so TypeScript doesn't choke on the gte-small embedding session.
+declare const Supabase: {
+    ai: { Session: new (model: string) => { run(input: string, opts: { mean_pool: boolean; normalize: boolean }): Promise<number[]> } };
+};
+
 const OPENROUTER_API_KEY        = Deno.env.get("OPENROUTER_API_KEY");
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_ANON_KEY         = Deno.env.get("SUPABASE_ANON_KEY");
@@ -31,6 +37,24 @@ const TRANSCRIBE_TIMEOUT_MS = 60_000;
 const OPENROUTER_CHAT_URL       = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_TRANSCRIBE_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
 
+// gte-small produces 384-dim normalised embeddings — matches the
+// `vector(384)` column in `session_embeddings`.
+const EMBEDDING_MODEL = "gte-small";
+
+// Upper bound on how many chunks a single search may pull. The client asks for
+// 8; the cap stops a crafted `match_count` from turning the vector scan into a
+// whole-table read.
+const MAX_SEARCH_MATCHES = 50;
+
+let embeddingSession: { run(input: string, opts: { mean_pool: boolean; normalize: boolean }): Promise<number[]> } | null = null;
+function embedder() {
+    if (!embeddingSession) embeddingSession = new Supabase.ai.Session(EMBEDDING_MODEL);
+    return embeddingSession;
+}
+async function embedText(text: string): Promise<number[]> {
+    return await embedder().run(text, { mean_pool: true, normalize: true });
+}
+
 // 16 kHz × 16-bit × mono == 32_000 bytes per second of audio. The client
 // always normalises to this format before posting (see WhisperTranscriber),
 // so we can recover the duration from the base64-decoded byte count + the WAV
@@ -38,7 +62,7 @@ const OPENROUTER_TRANSCRIBE_URL = "https://openrouter.ai/api/v1/audio/transcript
 const PCM_BYTES_PER_SECOND = 32_000;
 const WAV_HEADER_BYTES     = 44;
 
-type Kind = "chat" | "transcribe";
+type Kind = "chat" | "transcribe" | "index" | "search";
 
 interface ProxyRequest {
     kind: Kind;
@@ -82,6 +106,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
             return forwardChat(body.payload, user.id);
         case "transcribe":
             return forwardTranscribe(body.payload, user.id);
+        case "index":
+            return handleIndex(body.payload, user.id);
+        case "search":
+            return handleSearch(body.payload, user.id);
         default:
             return json({ error: `Unknown kind: ${body.kind}` }, 400);
     }
@@ -145,6 +173,138 @@ async function forwardTranscribe(payload: unknown, userId: string): Promise<Resp
     });
 }
 
+// Index a session's transcript chunks: embed each with gte-small and upsert
+// into `session_embeddings` with the service role. Doing the write here (not
+// on the client) keeps vectors as native arrays — no text→vector cast guesswork.
+async function handleIndex(payload: unknown, userId: string): Promise<Response> {
+    if (!isObject(payload) || typeof payload.meeting_id !== "string" || !Array.isArray(payload.chunks)) {
+        return json({ error: "index requires { meeting_id, chunks[] }" }, 400);
+    }
+    const meetingId = payload.meeting_id;
+    const chunks = (payload.chunks as unknown[]).filter((c): c is string => typeof c === "string" && c.trim().length > 0);
+    if (chunks.length === 0) return json({ indexed: 0 }, 200);
+
+    const admin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
+        auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    // Denormalize the session's start time + kind onto each chunk so search
+    // can scope by them without a join.
+    const { data: meeting } = await admin
+        .from("meetings")
+        .select("started_at, kind, user_id")
+        .eq("id", meetingId)
+        .maybeSingle();
+    // The session must exist and belong to the caller. Skipping this when the
+    // lookup misses would waste embeddings on rows the FK rejects (non-existent
+    // id) or write null started_at/kind metadata (soft-deleted id) that later
+    // time/kind-scoped retrieval can't filter.
+    if (!meeting) {
+        return json({ error: "meeting not found" }, 404);
+    }
+    if (meeting.user_id !== userId) {
+        return json({ error: "meeting does not belong to user" }, 403);
+    }
+    const startedAt = meeting.started_at ?? null;
+    const kind = meeting.kind ?? null;
+
+    const rows: { meeting_id: string; user_id: string; chunk_idx: number; content: string; embedding: number[]; started_at: string | null; kind: string | null }[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+        try {
+            const embedding = await embedText(chunks[i]);
+            rows.push({ meeting_id: meetingId, user_id: userId, chunk_idx: i, content: chunks[i], embedding, started_at: startedAt, kind });
+        } catch (err) {
+            console.error(`embed chunk ${i} failed: ${err}`);
+        }
+    }
+    if (rows.length === 0) return json({ indexed: 0, error: "all chunks failed to embed" }, 500);
+
+    const { error } = await admin.from("session_embeddings").upsert(rows, { onConflict: "meeting_id,chunk_idx" });
+    if (error) {
+        console.error(`index upsert failed: ${error.message}`);
+        return json({ indexed: 0, error: error.message }, 500);
+    }
+    // chunk_idx is the 0-based position in the input array, so a re-index that
+    // produces fewer chunks than before leaves stale rows at chunk_idx >=
+    // chunks.length. Prune them so old content can't resurface in search.
+    const { error: pruneError } = await admin
+        .from("session_embeddings")
+        .delete()
+        .eq("meeting_id", meetingId)
+        .gte("chunk_idx", chunks.length);
+    if (pruneError) {
+        console.warn(`index prune failed (non-fatal): ${pruneError.message}`);
+    }
+    await recordEmbedUsage(userId, 200);
+    console.log(`index user=${userId} meeting=${meetingId} chunks=${rows.length}`);
+    return json({ indexed: rows.length }, 200);
+}
+
+// Cross-session search: embed the query, then rank the user's chunks by cosine
+// similarity via the match RPC. The RPC is called with the service role, which
+// bypasses RLS, so the `p_user_id` predicate (set to the verified JWT user) is
+// the row-scoping boundary — not RLS.
+async function handleSearch(payload: unknown, userId: string): Promise<Response> {
+    if (!isObject(payload) || typeof payload.query !== "string") {
+        return json({ error: "search requires { query }" }, 400);
+    }
+    const query = payload.query.trim();
+    if (query.length === 0) return json({ matches: [] }, 200);
+    const requestedCount = typeof payload.match_count === "number" ? payload.match_count : 8;
+    const matchCount = Math.min(Math.max(1, Math.floor(requestedCount)), MAX_SEARCH_MATCHES);
+    const meetingId = typeof payload.meeting_id === "string" ? payload.meeting_id : null;
+
+    let embedding: number[];
+    try {
+        embedding = await embedText(query);
+    } catch (err) {
+        console.error(`search embed failed: ${err}`);
+        return json({ matches: [], error: "embedding failed" }, 500);
+    }
+    await recordEmbedUsage(userId, 200);
+
+    const admin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
+        auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    // Over-fetch so the entity boost below has headroom to re-rank.
+    const { data, error } = await admin.rpc("match_session_chunks", {
+        query_embedding: embedding,
+        match_count: meetingId ? matchCount : matchCount * 2,
+        p_user_id: userId,
+        p_meeting_id: meetingId,
+    });
+    if (error) {
+        console.error(`search rpc failed: ${error.message}`);
+        return json({ matches: [], error: error.message }, 500);
+    }
+
+    interface Match { meeting_id: string; content: string; similarity: number }
+    let matches = (data ?? []) as Match[];
+
+    // Hybrid boost (cross-session only): lift chunks from sessions whose
+    // extracted entity is named in the query, so "what did Sarah say about X"
+    // surfaces Sarah's sessions even when pure vector rank misses them.
+    if (!meetingId && matches.length > 0) {
+        try {
+            const { data: entRows } = await admin.rpc("meetings_matching_entities", {
+                p_user_id: userId,
+                p_query: query,
+            });
+            const boosted = new Set((entRows ?? []).map((r: { meeting_id: string }) => r.meeting_id));
+            if (boosted.size > 0) {
+                matches = matches
+                    .map((m) => boosted.has(m.meeting_id) ? { ...m, similarity: m.similarity + 0.1 } : m)
+                    .sort((a, b) => b.similarity - a.similarity);
+            }
+        } catch (err) {
+            console.warn(`entity boost skipped: ${err}`);
+        }
+    }
+
+    return json({ matches: matches.slice(0, matchCount) }, 200);
+}
+
 interface CallResult { status: number; text: string }
 
 async function callOpenRouter(
@@ -191,7 +351,7 @@ async function callOpenRouter(
 
 interface UsageRow {
     user_id: string;
-    kind: "chat" | "transcribe";
+    kind: "chat" | "transcribe" | "embed";
     model: string;
     status: number;
     prompt_tokens?: number | null;
@@ -211,6 +371,17 @@ async function recordUsage(row: UsageRow): Promise<void> {
     const { error } = await admin.from("usage_events").insert(row);
     if (error) {
         console.warn(`usage_events insert failed: ${error.message}`);
+    }
+}
+
+// gte-small runs inside the Edge runtime (no upstream bill), so we log one
+// `embed` event per index/search call for volume + quota accounting (#17),
+// not dollar cost. Best-effort: a logging failure never blocks the caller.
+async function recordEmbedUsage(userId: string, status: number): Promise<void> {
+    try {
+        await recordUsage({ user_id: userId, kind: "embed", model: EMBEDDING_MODEL, status });
+    } catch (err) {
+        console.warn(`embed usage record skipped: ${err}`);
     }
 }
 

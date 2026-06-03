@@ -85,6 +85,16 @@ log show --predicate 'subsystem == "com.example.nod"' --last 5m
 
 **Do not introduce `print(...)` in new code** — use the matching `Log.<area>.info/error` so output stays filterable.
 
+## Apple documentation (sosumi MCP)
+
+This repo ships a project-scoped MCP server, **sosumi** (`.mcp.json` → `https://sosumi.ai/mcp`), that serves Apple Developer Documentation. Since Nod leans heavily on Apple frameworks (`AVAudioEngine`, `ScreenCaptureKit`/`SCStream`, `AppKit`/`NSPanel`, TCC/permissions, EventKit), **use it instead of guessing or relying on stale training data** whenever you need to confirm an Apple API's signature, availability, semantics, or recommended usage:
+
+- `mcp__sosumi__searchAppleDocumentation` — find the right symbol/page.
+- `mcp__sosumi__fetchAppleDocumentation` — read a specific doc page.
+- `mcp__sosumi__fetchAppleVideoTranscript` — pull a WWDC session transcript.
+
+Reach for it before writing non-trivial framework code, when an API may be version-gated (macOS 13+ target), or when behavior is surprising — verify against the docs rather than assuming.
+
 ## Architecture — the parts you can't infer from the file tree
 
 ### Entry flow

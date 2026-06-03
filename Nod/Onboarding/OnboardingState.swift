@@ -1,18 +1,50 @@
-import Foundation
 import Combine
+import Foundation
 
 enum OnboardingStep: Int, Codable, CaseIterable {
     case welcome = 1
-    case permissions = 2
-    case tutorial = 3
+    case profile = 2
+    case permissions = 3
+    case tutorial = 4
 }
 
 struct OnboardingStatus: Codable {
-    var version: String = "1.0"
+    static let currentVersion = "1.1"
+
+    var version: String = currentVersion
     var completed: Bool = false
     var currentStep: OnboardingStep = .welcome
     var permissionsSkipped: Bool = false
     var lastUpdated: Date = .init()
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let storedVersion = try container.decodeIfPresent(String.self, forKey: .version) ?? "1.0"
+        completed = try container.decodeIfPresent(Bool.self, forKey: .completed) ?? false
+        permissionsSkipped = try container.decodeIfPresent(Bool.self, forKey: .permissionsSkipped) ?? false
+        lastUpdated = try container.decodeIfPresent(Date.self, forKey: .lastUpdated) ?? .init()
+
+        let storedStep = try container.decodeIfPresent(Int.self, forKey: .currentStep) ?? OnboardingStep.welcome.rawValue
+        currentStep = Self.migrateStep(storedStep, from: storedVersion)
+        version = Self.currentVersion
+    }
+
+    /// Pre-1.1 the order was welcome(1)/permissions(2)/tutorial(3) with no
+    /// profile step. 1.1 inserted profile at 2, shifting permissions→3 and
+    /// tutorial→4. Remap a persisted pre-1.1 raw value so a user mid-onboarding
+    /// resumes at the same logical step instead of being silently sent back one.
+    private static func migrateStep(_ rawValue: Int, from version: String) -> OnboardingStep {
+        guard version == "1.0" else {
+            return OnboardingStep(rawValue: rawValue) ?? .welcome
+        }
+        switch rawValue {
+        case 2: return .permissions
+        case 3: return .tutorial
+        default: return .welcome
+        }
+    }
 }
 
 @MainActor
@@ -24,13 +56,15 @@ final class OnboardingState: ObservableObject {
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.storageKey),
            let decoded = try? JSONDecoder().decode(OnboardingStatus.self, from: data) {
-            self.status = decoded
+            status = decoded
         } else {
-            self.status = OnboardingStatus()
+            status = OnboardingStatus()
         }
     }
 
-    var isCompleted: Bool { status.completed }
+    var isCompleted: Bool {
+        status.completed
+    }
 
     func goNext() {
         let next = status.currentStep.rawValue + 1

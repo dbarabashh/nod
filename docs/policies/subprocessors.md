@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-05-27_
+_Last updated: 2026-06-03_
 
 A subprocessor is a third party that processes personal data on our behalf
 when you use Nod. We use the minimum number of subprocessors required to
@@ -15,8 +15,8 @@ subscribe to change notifications, email **dbarabashdev@gmail.com**.
 
 | Subprocessor                | Purpose                                  | Data shared                                                       | Location           | Training on your data | DPA / no-train basis |
 |-----------------------------|------------------------------------------|-------------------------------------------------------------------|--------------------|-----------------------|----------------------|
-| **Supabase, Inc.**          | Auth, Postgres database, Edge Functions  | Email, OAuth identity, meeting transcripts, summaries, usage logs | AWS `eu-west-1` (Ireland) | No                    | Supabase DPA         |
-| **OpenRouter, Inc.**        | LLM and Whisper request routing          | Audio chunks (transient), transcript text                         | Routed via no-train providers | No                    | Zero Data Retention enabled; "may train on request data" routes disabled |
+| **Supabase, Inc.**          | Auth, Postgres database, Edge Functions, in-region text embeddings (`gte-small`) for cross-session search | Email, OAuth identity, meeting transcripts, summaries, chat messages, transcript embeddings, extracted entities, usage logs | AWS `eu-west-1` (Ireland) | No                    | Supabase DPA         |
+| **OpenRouter, Inc.**        | LLM and Whisper request routing          | Audio chunks (transient), transcript text, chat messages, query text | Routed via no-train providers | No                    | Zero Data Retention enabled; "may train on request data" routes disabled |
 | **OpenAI** (via Azure OpenAI Service) | Whisper speech-to-text          | Audio chunks (transient, ~5 s windows)                            | Routed by OpenRouter | No                    | Azure OpenAI no-train commitment |
 | **Google LLC** (via Google Vertex AI) | LLM summarisation               | Transcript text, system prompt                                    | Routed by OpenRouter | No                    | Vertex AI no-train commitment |
 | **Google LLC** (OAuth)      | Authentication (sign-in with Google)     | Your Google email, OpenID profile claims                          | Global             | No                    | Google OAuth ToS     |
@@ -51,6 +51,8 @@ soon as the transcription completes.
 | Date       | Change                                        |
 |------------|-----------------------------------------------|
 | 2026-05-27 | Initial published list.                       |
+| 2026-06-02 | Added cross-session search; noted chat messages, embeddings, and extracted entities stored in Supabase. |
+| 2026-06-03 | Embeddings are generated in-region by Supabase's built-in `gte-small` model (inside the Edge Function), not sent to any external embedding provider. |
 
 ---
 

@@ -1,5 +1,6 @@
-import Foundation
 import Combine
+import Foundation
+import NaturalLanguage
 
 /// The set of languages Nod accepts as transcription input + LLM output.
 /// The app UI (onboarding, consent, buttons) is intentionally English-only —
@@ -25,24 +26,26 @@ enum AppLanguage: String, CaseIterable {
 
     /// Two-letter code shown on the floating-panel chip. Just the ISO code
     /// uppercased — a localized chip would mean N different glyph widths.
-    var chipLabel: String { rawValue.uppercased() }
+    var chipLabel: String {
+        rawValue.uppercased()
+    }
 
     /// Endonym — what speakers of this language call it. Used in the picker
     /// so a Spanish speaker sees "Español", not "Spanish".
     var nativeName: String {
         switch self {
-        case .english: return "English"
-        case .mandarin: return "中文"
-        case .hindi: return "हिन्दी"
-        case .spanish: return "Español"
-        case .french: return "Français"
-        case .arabic: return "العربية"
-        case .bengali: return "বাংলা"
-        case .portuguese: return "Português"
-        case .russian: return "Русский"
-        case .urdu: return "اردو"
-        case .ukrainian: return "Українська"
-        case .serbian: return "Српски"
+        case .english: "English"
+        case .mandarin: "中文"
+        case .hindi: "हिन्दी"
+        case .spanish: "Español"
+        case .french: "Français"
+        case .arabic: "العربية"
+        case .bengali: "বাংলা"
+        case .portuguese: "Português"
+        case .russian: "Русский"
+        case .urdu: "اردو"
+        case .ukrainian: "Українська"
+        case .serbian: "Српски"
         }
     }
 
@@ -51,23 +54,25 @@ enum AppLanguage: String, CaseIterable {
     /// in another language.
     var promptName: String {
         switch self {
-        case .english: return "English"
-        case .mandarin: return "Mandarin Chinese"
-        case .hindi: return "Hindi"
-        case .spanish: return "Spanish"
-        case .french: return "French"
-        case .arabic: return "Arabic"
-        case .bengali: return "Bengali"
-        case .portuguese: return "Portuguese"
-        case .russian: return "Russian"
-        case .urdu: return "Urdu"
-        case .ukrainian: return "Ukrainian"
-        case .serbian: return "Serbian"
+        case .english: "English"
+        case .mandarin: "Mandarin Chinese"
+        case .hindi: "Hindi"
+        case .spanish: "Spanish"
+        case .french: "French"
+        case .arabic: "Arabic"
+        case .bengali: "Bengali"
+        case .portuguese: "Portuguese"
+        case .russian: "Russian"
+        case .urdu: "Urdu"
+        case .ukrainian: "Ukrainian"
+        case .serbian: "Serbian"
         }
     }
 
     /// BCP-47 / Whisper ISO-639-1 code.
-    var whisperCode: String { rawValue }
+    var whisperCode: String {
+        rawValue
+    }
 
     /// Best supported match for the user's system locale, or English if none
     /// of the user's preferred languages are in our supported set. Used as the
@@ -88,6 +93,25 @@ enum AppLanguage: String, CaseIterable {
         }
         return .english
     }
+
+    /// Best-effort dominant language of a user message, mapped to a supported
+    /// `AppLanguage`. Used so a chat answer matches the language the user typed
+    /// in — deterministically, instead of hoping the model honours a soft
+    /// prompt rule. Returns nil for text too short/ambiguous to call
+    /// confidently; callers fall back to a sensible default.
+    static func detect(from text: String) -> AppLanguage? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 6 else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(trimmed)
+        guard let (language, confidence) = recognizer.languageHypotheses(withMaximum: 1).first,
+              confidence >= 0.6 else { return nil }
+        // NLLanguage carries a script subtag for some languages (Chinese →
+        // "zh-Hans"/"zh-Hant"); take the primary subtag so it maps to our
+        // 2-letter codes ("zh"). Others ("en", "uk", …) pass through unchanged.
+        let code = language.rawValue.split(separator: "-").first.map(String.init) ?? language.rawValue
+        return AppLanguage(rawValue: code)
+    }
 }
 
 /// Persisted in UserDefaults so the user's language choice survives a restart.
@@ -106,7 +130,7 @@ final class LanguagePreference: ObservableObject {
     init() {
         if let raw = UserDefaults.standard.string(forKey: Self.key),
            let lang = AppLanguage(rawValue: raw) {
-            self.current = lang
+            current = lang
         } else {
             // didSet does not fire during init, so persist the detected
             // default here — otherwise `currentWhisperCode()` (which reads
@@ -115,7 +139,7 @@ final class LanguagePreference: ObservableObject {
             // user manually re-selects.
             let detected = AppLanguage.detectFromSystemLocale()
             UserDefaults.standard.set(detected.rawValue, forKey: Self.key)
-            self.current = detected
+            current = detected
         }
     }
 
