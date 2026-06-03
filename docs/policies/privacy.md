@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-06-02_
+_Last updated: 2026-06-04_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -65,6 +65,7 @@ Calendar, Drive, or contacts.
 | Transcript **embeddings** (vector + chunk text, in `session_embeddings`) | To let you ask questions across your past sessions ("Ask Nod") | Contract (Art. 6(1)(b)) |
 | **Chat messages** with the per-session assistant (`chat_messages`) | To answer your questions about a session and keep the thread | Contract (Art. 6(1)(b)) |
 | **Entities** (people / projects / topics extracted from a session) | To link related sessions and power scoped search | Contract (Art. 6(1)(b)) |
+| **Labels** you create (name + colour, in `labels`) and their links to sessions (`meeting_labels`) | To group sessions, filter your library, and scope a question to one label | Contract (Art. 6(1)(b)) |
 | Your optional **profile** (name, role, current focus) | To give the assistant context about you | Contract (Art. 6(1)(b)); you may leave it blank or clear it anytime |
 
 The embeddings, chat messages, and entities are derived from transcript
@@ -184,7 +185,7 @@ We can provide our SCCs and transfer impact assessments on request to
 | Meetings (active)                    | Until you delete them.                                               |
 | Meetings (in trash)                  | 30 days. A nightly Postgres job permanently deletes anything older. |
 | Meeting transcripts                  | Same as the parent meeting (cascade delete).                         |
-| Transcript embeddings, session chats, entity links | Same as the parent meeting (cascade delete). Extracted entities themselves are per-user and removed on account deletion. |
+| Transcript embeddings, session chats, entity links, label links | Same as the parent meeting (cascade delete). Extracted entities and the labels you create are per-user and removed on account deletion. |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |
 | Usage metadata                       | 24 months, then aggregated and anonymised.                           |
 | Encrypted database backups           | 7 days rolling.                                                      |

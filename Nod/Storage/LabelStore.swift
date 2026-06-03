@@ -1,0 +1,160 @@
+import Combine
+import Foundation
+import Supabase
+
+/// Owns the user's labels and which sessions carry them. Labels group sessions
+/// thematically so the library can be filtered and a cross-session question can
+/// be scoped to one label's sessions. RLS (`auth.uid() = user_id`) scopes every
+/// read/write to the owner.
+@MainActor
+final class LabelStore: ObservableObject {
+    @Published private(set) var labels: [SessionLabel] = []
+    /// meetingID → the labels attached to it.
+    @Published private(set) var assignments: [UUID: Set<UUID>] = [:]
+
+    private let supabase: SupabaseClient
+    private let auth: AuthService
+    private static let labelsTable = "labels"
+    private static let linksTable = "meeting_labels"
+
+    init(supabase: SupabaseClient, auth: AuthService) {
+        self.supabase = supabase
+        self.auth = auth
+    }
+
+    // MARK: - Reads
+
+    /// Loads all labels and their session links for the signed-in user.
+    func refresh() async {
+        guard let userID = auth.currentSupabaseSession?.user.id else { return }
+        do {
+            let labels: [SessionLabel] = try await supabase
+                .from(Self.labelsTable)
+                .select()
+                .eq("user_id", value: userID.uuidString)
+                .order("name", ascending: true)
+                .execute()
+                .value
+
+            struct Link: Decodable { let meeting_id: UUID; let label_id: UUID }
+            let links: [Link] = try await supabase
+                .from(Self.linksTable)
+                .select("meeting_id, label_id")
+                .eq("user_id", value: userID.uuidString)
+                .execute()
+                .value
+
+            var map: [UUID: Set<UUID>] = [:]
+            for link in links {
+                map[link.meeting_id, default: []].insert(link.label_id)
+            }
+            self.labels = labels
+            assignments = map
+        } catch {
+            Log.ui.error("LabelStore.refresh failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Labels attached to one session, in display order.
+    func labels(for meetingID: UUID) -> [SessionLabel] {
+        let ids = assignments[meetingID] ?? []
+        return labels.filter { ids.contains($0.id) }
+    }
+
+    /// Sessions carrying a label — drives list filtering and chat scoping.
+    func meetingIDs(withLabel labelID: UUID) -> Set<UUID> {
+        var result: Set<UUID> = []
+        for (meetingID, labelIDs) in assignments where labelIDs.contains(labelID) {
+            result.insert(meetingID)
+        }
+        return result
+    }
+
+    // MARK: - Label CRUD
+
+    /// Creates a label, or returns the existing one if the name is already
+    /// taken (case-insensitive) — the unique index makes create idempotent.
+    @discardableResult
+    func create(name: String, color: String) async throws -> SessionLabel? {
+        guard let userID = auth.currentSupabaseSession?.user.id else { return nil }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let existing = labels.first(where: { $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return existing
+        }
+        let draft = SessionLabel(id: UUID(), userID: userID, name: trimmed, color: color, createdAt: nil)
+        let saved: SessionLabel = try await supabase
+            .from(Self.labelsTable)
+            .insert(draft)
+            .select()
+            .single()
+            .execute()
+            .value
+        labels.append(saved)
+        labels.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        return saved
+    }
+
+    func rename(_ labelID: UUID, to name: String) async throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        try await supabase
+            .from(Self.labelsTable)
+            .update(["name": trimmed])
+            .eq("id", value: labelID.uuidString)
+            .execute()
+        await refresh()
+    }
+
+    /// Deletes a label. `meeting_labels` rows cascade server-side.
+    func delete(_ labelID: UUID) async throws {
+        try await supabase
+            .from(Self.labelsTable)
+            .delete()
+            .eq("id", value: labelID.uuidString)
+            .execute()
+        labels.removeAll { $0.id == labelID }
+        for (meetingID, ids) in assignments where ids.contains(labelID) {
+            assignments[meetingID]?.remove(labelID)
+        }
+    }
+
+    // MARK: - Assignment
+
+    /// Sets the exact set of labels on a session, inserting/deleting only the
+    /// links that changed.
+    func setLabels(_ desired: Set<UUID>, for meetingID: UUID) async throws {
+        guard let userID = auth.currentSupabaseSession?.user.id else { return }
+        let current = assignments[meetingID] ?? []
+        let added = desired.subtracting(current)
+        let removed = current.subtracting(desired)
+        guard !added.isEmpty || !removed.isEmpty else { return }
+
+        if !added.isEmpty {
+            struct LinkInsert: Encodable {
+                let meeting_id: UUID
+                let label_id: UUID
+                let user_id: UUID
+            }
+            let rows = added.map { LinkInsert(meeting_id: meetingID, label_id: $0, user_id: userID) }
+            try await supabase
+                .from(Self.linksTable)
+                .upsert(rows, onConflict: "meeting_id,label_id")
+                .execute()
+        }
+        if !removed.isEmpty {
+            try await supabase
+                .from(Self.linksTable)
+                .delete()
+                .eq("meeting_id", value: meetingID.uuidString)
+                .in("label_id", values: removed.map(\.uuidString))
+                .execute()
+        }
+        assignments[meetingID] = desired.isEmpty ? nil : desired
+    }
+
+    func clear() {
+        labels = []
+        assignments = [:]
+    }
+}

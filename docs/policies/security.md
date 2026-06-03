@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-06-03_
+_Last updated: 2026-06-04_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company yet. We've made the
@@ -96,6 +96,9 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
   `chat_messages`. (The cross-session "Ask Nod" chat is not persisted.)
 - **Entities.** People, projects, and topics extracted from your sessions
   (`entities` + `meeting_entities`) so related sessions can be linked.
+- **Labels.** Names and colours you create to group sessions (`labels`) and the
+  links between them and your sessions (`meeting_labels`). Used to filter your
+  library and scope a cross-session question to one label's sessions.
 - **Account profile.** Your email and Google OAuth identity, stored in
   Supabase Auth.
 - **Consent acknowledgements.** An audit row each time you click "Acknowledge

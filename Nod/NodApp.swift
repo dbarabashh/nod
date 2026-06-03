@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var chatStore: ChatStore?
     private var entityStore: EntityStore?
     private var knowledgeStore: KnowledgeStore?
+    private var labelStore: LabelStore?
     private var authObserveTask: Task<Void, Never>?
     private var statusObserveTask: Task<Void, Never>?
     private var pendingCallbackURLs: [URL] = []
@@ -107,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let chatStore = ChatStore(supabase: supabase, llm: llmClient)
         let entityStore = EntityStore(supabase: supabase)
         let knowledgeStore = KnowledgeStore(llm: llmClient)
+        let labelStore = LabelStore(supabase: supabase, auth: auth)
 
         audioCapture.onMicBuffer = { [weak transcriptStore] buffer in
             transcriptStore?.appendMicBuffer(buffer)
@@ -129,6 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         self.chatStore = chatStore
         self.entityStore = entityStore
         self.knowledgeStore = knowledgeStore
+        self.labelStore = labelStore
 
         statusObserveTask = Task { @MainActor [weak self] in
             guard let self, let audioCapture = self.audioCapture else { return }
@@ -153,6 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     self.meetingStore?.clear()
                     self.profileStore?.clear()
                     self.chatStore?.clear()
+                    self.labelStore?.clear()
                     closeHistoryWindow()
                     closeSettingsWindow()
                 }
@@ -160,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     // Warm the profile so its prompt context is ready before
                     // the first meeting ends. `load` no-ops once cached.
                     Task { await self.profileStore?.load() }
+                    Task { await self.labelStore?.refresh() }
                 }
                 wasSignedIn = isSignedIn
                 reconcileWindows()
@@ -302,6 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let profileStore else { Log.ui.error("showFloatingPanel: missing profileStore"); return }
         guard let entityStore else { Log.ui.error("showFloatingPanel: missing entityStore"); return }
         guard let knowledgeStore else { Log.ui.error("showFloatingPanel: missing knowledgeStore"); return }
+        guard let labelStore else { Log.ui.error("showFloatingPanel: missing labelStore"); return }
 
         NSApp.setActivationPolicy(.accessory)
 
@@ -318,6 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         .environmentObject(profileStore)
         .environmentObject(entityStore)
         .environmentObject(knowledgeStore)
+        .environmentObject(labelStore)
 
         // Start at the compact width — the panel launches idle. ContentView
         // reports the desired width as the layout changes and the panel
@@ -464,7 +471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private func showHistoryWindow(focusing meetingID: UUID? = nil) {
         guard let meetingStore, let chatStore, let profileStore, let entityStore,
-              let knowledgeStore, let llmClient, let languagePreference else { return }
+              let knowledgeStore, let llmClient, let languagePreference, let labelStore else { return }
 
         if let existing = historyWindow {
             existing.makeKeyAndOrderFront(nil)
@@ -503,6 +510,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             .environmentObject(knowledgeStore)
             .environmentObject(llmClient)
             .environmentObject(languagePreference)
+            .environmentObject(labelStore)
 
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)

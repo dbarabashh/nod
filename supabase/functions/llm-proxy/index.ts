@@ -183,6 +183,13 @@ async function handleIndex(payload: unknown, userId: string): Promise<Response> 
     const meetingId = payload.meeting_id;
     const chunks = (payload.chunks as unknown[]).filter((c): c is string => typeof c === "string" && c.trim().length > 0);
     if (chunks.length === 0) return json({ indexed: 0 }, 200);
+    // The client batches a session's chunks across several index calls so a
+    // single invocation never embeds enough long chunks to exceed the worker
+    // CPU budget. `base_idx` is this batch's offset into the session's chunk
+    // list; `total` is the session's full chunk count (used to prune stale
+    // rows). Both default to the legacy single-call shape.
+    const baseIdx = typeof payload.base_idx === "number" ? Math.max(0, Math.floor(payload.base_idx)) : 0;
+    const total = typeof payload.total === "number" ? Math.floor(payload.total) : baseIdx + chunks.length;
 
     const admin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
         auth: { persistSession: false, autoRefreshToken: false },
@@ -210,11 +217,12 @@ async function handleIndex(payload: unknown, userId: string): Promise<Response> 
 
     const rows: { meeting_id: string; user_id: string; chunk_idx: number; content: string; embedding: number[]; started_at: string | null; kind: string | null }[] = [];
     for (let i = 0; i < chunks.length; i++) {
+        const chunkIdx = baseIdx + i;
         try {
             const embedding = await embedText(chunks[i]);
-            rows.push({ meeting_id: meetingId, user_id: userId, chunk_idx: i, content: chunks[i], embedding, started_at: startedAt, kind });
+            rows.push({ meeting_id: meetingId, user_id: userId, chunk_idx: chunkIdx, content: chunks[i], embedding, started_at: startedAt, kind });
         } catch (err) {
-            console.error(`embed chunk ${i} failed: ${err}`);
+            console.error(`embed chunk ${chunkIdx} failed: ${err}`);
         }
     }
     if (rows.length === 0) return json({ indexed: 0, error: "all chunks failed to embed" }, 500);
@@ -224,14 +232,15 @@ async function handleIndex(payload: unknown, userId: string): Promise<Response> 
         console.error(`index upsert failed: ${error.message}`);
         return json({ indexed: 0, error: error.message }, 500);
     }
-    // chunk_idx is the 0-based position in the input array, so a re-index that
-    // produces fewer chunks than before leaves stale rows at chunk_idx >=
-    // chunks.length. Prune them so old content can't resurface in search.
+    // A re-index that produces fewer chunks than before leaves stale rows at
+    // chunk_idx >= total. Prune them so old content can't resurface in search.
+    // `total` is constant across a session's batches, so pruning each batch is
+    // safe and idempotent.
     const { error: pruneError } = await admin
         .from("session_embeddings")
         .delete()
         .eq("meeting_id", meetingId)
-        .gte("chunk_idx", chunks.length);
+        .gte("chunk_idx", total);
     if (pruneError) {
         console.warn(`index prune failed (non-fatal): ${pruneError.message}`);
     }
@@ -253,6 +262,10 @@ async function handleSearch(payload: unknown, userId: string): Promise<Response>
     const requestedCount = typeof payload.match_count === "number" ? payload.match_count : 8;
     const matchCount = Math.min(Math.max(1, Math.floor(requestedCount)), MAX_SEARCH_MATCHES);
     const meetingId = typeof payload.meeting_id === "string" ? payload.meeting_id : null;
+    // Label scope: constrain the cross-session search to a set of sessions.
+    const meetingIds = Array.isArray(payload.meeting_ids)
+        ? payload.meeting_ids.filter((id): id is string => typeof id === "string")
+        : null;
 
     let embedding: number[];
     try {
@@ -273,6 +286,7 @@ async function handleSearch(payload: unknown, userId: string): Promise<Response>
         match_count: meetingId ? matchCount : matchCount * 2,
         p_user_id: userId,
         p_meeting_id: meetingId,
+        p_meeting_ids: meetingIds,
     });
     if (error) {
         console.error(`search rpc failed: ${error.message}`);

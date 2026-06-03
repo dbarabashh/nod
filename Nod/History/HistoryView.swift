@@ -16,11 +16,14 @@ struct HistoryView: View {
 
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
+    @EnvironmentObject private var labelStore: LabelStore
 
     /// (done, total) while a backfill re-index is running; nil when idle.
     @State private var reindexProgress: ReindexProgress? = nil
     @State private var searchQuery: String = ""
     @State private var segment: Segment = .all
+    /// Active label filter on the All segment; nil shows every meeting.
+    @State private var filterLabelID: UUID?
     @State private var pendingHardDelete: Meeting? = nil
     /// Identity of the currently-displayed undo toast — flipped each time
     /// `meetingStore.pendingUndo` changes, so the auto-dismiss timer
@@ -62,6 +65,7 @@ struct HistoryView: View {
             // dedupes concurrent calls and stays silent when there's
             // already a loaded cache, so calling on every appear is cheap.
             await meetingStore.refresh()
+            await labelStore.refresh()
             if let id = initialFocusMeetingID {
                 focus(on: id)
             }
@@ -108,6 +112,7 @@ struct HistoryView: View {
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
                     segmentBar
+                    labelFilterBar
                     content
                 }
                 if let pending = meetingStore.pendingUndo {
@@ -227,6 +232,32 @@ struct HistoryView: View {
             if new == .trash, case .idle = meetingStore.trashState {
                 Task { await meetingStore.refreshTrash() }
             }
+        }
+    }
+
+    /// Browse the library by label. Only on the All segment, and only once the
+    /// user has at least one label.
+    @ViewBuilder
+    private var labelFilterBar: some View {
+        if segment == .all, !labelStore.labels.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    LabelFilterChip(title: "All", color: Theme.Palette.muted, isSelected: filterLabelID == nil) {
+                        filterLabelID = nil
+                    }
+                    ForEach(labelStore.labels) { label in
+                        LabelFilterChip(
+                            title: label.name,
+                            color: label.swatchColor,
+                            isSelected: filterLabelID == label.id
+                        ) {
+                            filterLabelID = filterLabelID == label.id ? nil : label.id
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .padding(.bottom, 10)
         }
     }
 
@@ -373,9 +404,14 @@ struct HistoryView: View {
     }
 
     private func filtered(_ rows: [Meeting]) -> [Meeting] {
+        var result = rows
+        if segment == .all, let filterLabelID {
+            let ids = labelStore.meetingIDs(withLabel: filterLabelID)
+            result = result.filter { ids.contains($0.id) }
+        }
         let q = normalizedQuery
-        if q.isEmpty { return rows }
-        return rows.filter { meeting in
+        if q.isEmpty { return result }
+        return result.filter { meeting in
             if let title = meeting.title?.lowercased(), title.contains(q) { return true }
             return meeting.summary.lowercased().contains(q)
         }

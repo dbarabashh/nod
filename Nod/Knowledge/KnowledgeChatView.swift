@@ -13,6 +13,7 @@ struct KnowledgeChatView: View {
     @EnvironmentObject private var llm: OpenRouterClient
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @EnvironmentObject private var meetingStore: MeetingStore
+    @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var language: LanguagePreference
 
@@ -43,6 +44,11 @@ struct KnowledgeChatView: View {
     @State private var mentions: [SessionRef] = []
     @State private var showMentionPicker = false
     @State private var mentionSearch = ""
+
+    /// When set, questions are answered using ONLY sessions carrying this
+    /// label. Persists across turns until the user clears it. An explicit
+    /// @mention overrides it for that message.
+    @State private var scopeLabel: SessionLabel?
 
     private static let sourceDateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -192,9 +198,28 @@ struct KnowledgeChatView: View {
     }
 
     private var composer: some View {
+        VStack(spacing: 8) {
+            if let scopeLabel {
+                HStack(spacing: 6) {
+                    Text("SCOPED TO")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(Theme.Palette.muted)
+                    LabelChip(label: scopeLabel) { self.scopeLabel = nil }
+                    Spacer(minLength: 0)
+                }
+            }
+            composerInput
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private var composerInput: some View {
         HStack(spacing: 8) {
             mentionButton
-            TextField("Ask across your sessions  (@ to mention a session)", text: $draft, axis: .vertical)
+            if !labelStore.labels.isEmpty { scopeButton }
+            TextField(composerPrompt, text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13.5))
                 .foregroundStyle(Theme.Palette.ink)
@@ -235,8 +260,35 @@ struct KnowledgeChatView: View {
             .disabled(!canSend)
             .keyboardShortcut(.return, modifiers: [])
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+    }
+
+    private var composerPrompt: String {
+        if let scopeLabel { return "Ask within \(scopeLabel.name)" }
+        return "Ask across your sessions  (@ to mention a session)"
+    }
+
+    private var scopeButton: some View {
+        Menu {
+            Button { scopeLabel = nil } label: {
+                if scopeLabel == nil { SwiftUI.Label("All sessions", systemImage: "checkmark") } else { Text("All sessions") }
+            }
+            Divider()
+            ForEach(labelStore.labels) { label in
+                Button { scopeLabel = label } label: {
+                    if scopeLabel?.id == label.id { SwiftUI.Label(label.name, systemImage: "checkmark") } else { Text(label.name) }
+                }
+            }
+        } label: {
+            Image(systemName: scopeLabel == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(scopeLabel == nil ? Theme.Palette.muted : Theme.Palette.violet)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Theme.Palette.surface).overlay(Circle().stroke(Theme.Palette.border, lineWidth: 0.5)))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 32, height: 32)
+        .help("Scope questions to a label")
     }
 
     private var mentionButton: some View {
@@ -348,11 +400,29 @@ struct KnowledgeChatView: View {
         errorText = nil
         messages.append(QAMessage(role: .user, content: text, mentions: active))
         isSending = true
+        let scope = scopeLabel
         Task {
-            // Route first (unless the user pinned sessions): which session(s) is
-            // this about? "last meeting" / "the pricing one" resolve to specific
-            // rows; broad questions stay corpus-wide.
-            let route: Route = pinned.isEmpty ? await routeQuery(text) : .specific(pinned)
+            // Precedence: an explicit @mention is the most specific intent and
+            // wins; otherwise an active label scope narrows to its sessions;
+            // otherwise the router decides ("last meeting" / "the pricing one"
+            // resolve to specific rows, broad questions stay corpus-wide).
+            let route: Route
+            if !pinned.isEmpty {
+                route = .specific(pinned)
+            } else if let scope {
+                let ids = Array(labelStore.meetingIDs(withLabel: scope.id))
+                guard !ids.isEmpty else {
+                    messages.append(QAMessage(
+                        role: .assistant,
+                        content: "No sessions carry the “\(scope.name)” label yet. Add it to a session from its detail view, then ask again."
+                    ))
+                    isSending = false
+                    return
+                }
+                route = .scoped(ids)
+            } else {
+                route = await routeQuery(text)
+            }
             let (excerpts, sources) = await gather(for: route, query: text)
             // Answer in the language the user typed, not the app default —
             // the retrieved excerpts (often Ukrainian) otherwise drag the
@@ -382,6 +452,7 @@ struct KnowledgeChatView: View {
     private enum Route {
         case all
         case specific([UUID])
+        case scoped([UUID])
     }
 
     private struct SessionRoute: Decodable {
@@ -417,8 +488,11 @@ struct KnowledgeChatView: View {
     /// indexed) so sources show only what the question is actually about.
     private func gather(for route: Route, query: String) async -> (excerpts: [String], sources: [SessionRef]) {
         switch route {
-        case .all:
-            let chunks = await knowledgeStore.search(query: query)
+        case .all, .scoped:
+            // Corpus-style search (similarity + entity boost). A label scope is
+            // the same path, constrained server-side to the label's sessions.
+            let scopedIDs: [UUID]? = if case let .scoped(ids) = route { ids } else { nil }
+            let chunks = await knowledgeStore.search(query: query, meetingIDs: scopedIDs)
             let byID = Dictionary(meetingStore.meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             return (chunks.map { labeledExcerpt($0, in: byID) }, resolveSources(chunks, in: byID))
         case let .specific(ids):

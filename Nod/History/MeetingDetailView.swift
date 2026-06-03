@@ -7,6 +7,7 @@ struct MeetingDetailView: View {
     let meeting: Meeting
 
     @EnvironmentObject private var meetingStore: MeetingStore
+    @EnvironmentObject private var labelStore: LabelStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var editableTitle: String = ""
@@ -26,6 +27,7 @@ struct MeetingDetailView: View {
     @State private var isEditingSummary: Bool = false
     @State private var selectedTab: Tab = .summary
     @State private var transcriptLoad: TranscriptLoadState = .idle
+    @State private var showLabelPicker = false
 
     enum Tab: Hashable {
         case summary
@@ -85,6 +87,7 @@ struct MeetingDetailView: View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 18) {
                 titleRow
+                if !isGenerating { labelsRow }
                 metadataTable
                 tabBar
                 subToolbar
@@ -183,6 +186,52 @@ struct MeetingDetailView: View {
                 .foregroundStyle(Theme.Palette.ink)
                 .onChange(of: editableTitle) { _ in scheduleSave() }
         }
+    }
+
+    // MARK: - Labels
+
+    private var labelsRow: some View {
+        let assigned = labelStore.labels(for: meeting.id)
+        return HStack(spacing: 8) {
+            Button { showLabelPicker = true } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "tag")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(assigned.isEmpty ? "Add label" : "Label")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(Theme.Palette.muted)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Theme.Palette.surface)
+                        .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Add or remove labels")
+            .popover(isPresented: $showLabelPicker, arrowEdge: .bottom) {
+                LabelPickerPopover(meetingID: meeting.id)
+            }
+
+            if !assigned.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(assigned) { label in
+                            LabelChip(label: label) { removeLabel(label) }
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func removeLabel(_ label: SessionLabel) {
+        var set = labelStore.assignments[meeting.id] ?? []
+        set.remove(label.id)
+        Task { try? await labelStore.setLabels(set, for: meeting.id) }
     }
 
     // MARK: - Metadata table

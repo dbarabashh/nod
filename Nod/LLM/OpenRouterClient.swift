@@ -274,31 +274,60 @@ final class OpenRouterClient: ObservableObject {
 
     // MARK: - Cross-session knowledge (step 5)
 
+    /// Embedding ~1200-char chunks is CPU-heavy server-side; doing a whole
+    /// session in one request overruns the Edge Function's worker budget
+    /// (WORKER_RESOURCE_LIMIT). Send a few chunks per call so each invocation
+    /// stays well under the limit.
+    private static let indexBatchSize = 4
+
     /// Indexes a session's transcript chunks for cross-session search. The
     /// proxy embeds each chunk server-side (gte-small) and writes the vectors —
-    /// the client only ships the text.
+    /// the client only ships the text, in small sequential batches so no single
+    /// invocation embeds enough to exceed the worker CPU budget.
     func indexSession(meetingID: UUID, chunks: [String]) async throws {
         struct Payload: Encodable {
             let meeting_id: UUID
             let chunks: [String]
+            let base_idx: Int
+            let total: Int
         }
-        Log.llm.info("→ index via proxy meeting=\(meetingID.uuidString) chunks=\(chunks.count)")
-        let body = try JSONEncoder().encode(ProxyEnvelope(kind: "index", payload: Payload(meeting_id: meetingID, chunks: chunks)))
-        _ = try await postToProxyWithRetry(body: body)
+        let total = chunks.count
+        guard total > 0 else { return }
+        Log.llm.info("→ index via proxy meeting=\(meetingID.uuidString) chunks=\(total) batch=\(Self.indexBatchSize)")
+        var base = 0
+        while base < total {
+            let upper = min(base + Self.indexBatchSize, total)
+            let payload = Payload(meeting_id: meetingID, chunks: Array(chunks[base ..< upper]), base_idx: base, total: total)
+            let body = try JSONEncoder().encode(ProxyEnvelope(kind: "index", payload: payload))
+            _ = try await postToProxyWithRetry(body: body)
+            base = upper
+        }
     }
 
     /// Semantic search over the user's chunks. `meetingID` narrows to one
     /// session (used to retrieve relevant parts of a long meeting instead of
-    /// stuffing its whole transcript); nil searches across all sessions with
-    /// the entity hybrid boost applied server-side.
-    func searchKnowledge(query: String, matchCount: Int = 8, meetingID: UUID? = nil) async throws -> [RetrievedChunk] {
+    /// stuffing its whole transcript); `meetingIDs` narrows to a set (label
+    /// scope) while keeping the cross-session entity boost; nil/nil searches
+    /// across all sessions.
+    func searchKnowledge(
+        query: String,
+        matchCount: Int = 8,
+        meetingID: UUID? = nil,
+        meetingIDs: [UUID]? = nil
+    ) async throws -> [RetrievedChunk] {
         struct Payload: Encodable {
             let query: String
             let match_count: Int
             let meeting_id: String?
+            let meeting_ids: [String]?
         }
-        Log.llm.info("→ search via proxy q.len=\(query.count) scoped=\(meetingID != nil)")
-        let payload = Payload(query: query, match_count: matchCount, meeting_id: meetingID?.uuidString)
+        Log.llm.info("→ search via proxy q.len=\(query.count) scoped=\(meetingID != nil) labelScoped=\(meetingIDs != nil)")
+        let payload = Payload(
+            query: query,
+            match_count: matchCount,
+            meeting_id: meetingID?.uuidString,
+            meeting_ids: meetingIDs?.map(\.uuidString)
+        )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "search", payload: payload))
         let data = try await postToProxyWithRetry(body: body)
         struct Wrapper: Decodable { let matches: [RetrievedChunk] }
