@@ -64,20 +64,39 @@ Swift 5.9, structured concurrency only. No `DispatchQueue.main.async` from `@Mai
 - **Previews** for new views, with environment objects stubbed. Don't ship a view without a working preview — they're the fastest UI development loop.
 - **No business logic in `body`.** Compute derived state in the model, surface as a `@Published` property.
 
+### Performance
+
+SwiftUI recomputes `body` often and recreates views freely. Cheap bodies keep updates under the frame deadline ([Apple: Understanding and improving SwiftUI performance](https://developer.apple.com/documentation/Xcode/understanding-and-improving-swiftui-performance)).
+
+- **Never do expensive work in `body`, `init`, `onAppear`, or `onChange`.** Compute it asynchronously in the model, **cache the result**, and have `body` read the cached value.
+- **Don't store view-builder closures.** A stored closure that captures `self` makes the view re-evaluate whenever *any* of its properties change. Call the closure in `init` and store its return value instead. This does *not* apply to action closures (`Button`, `onContinue`) or closures that take a parameter (`ForEach`) — leave those as-is.
+- **Layout readers amplify updates.** `GeometryReader` / `ScrollViewReader` re-run their subtree on every parent layout change. Keep state that doesn't affect layout *outside* their subtree (we use `ScrollViewReader` in the chat views — watch this there).
+- **The `@Observable` macro is off-limits.** It would replace `@Published`/`ObservableObject` and only fire on read properties, but it's macOS 14+ and we target **13.0**. Stay on `ObservableObject`; revisit only if the deployment target moves.
+- **Profile, don't guess.** When a view feels slow, Product → Profile → the **SwiftUI** Instruments template surfaces long bodies and update-frequency hot spots before you start optimizing.
+
 ---
 
 ## Code hygiene
 
 ### Comments
 
-Default to no comments. Add one only when the **WHY** is non-obvious:
+**Don't write comments.** The strong default is zero. Code explains itself through good names, small functions, and clear types — if you reach for a comment to explain WHAT the code does, rewrite the code instead (rename the variable, extract the function, split the expression). A comment is a failure to make the code legible, not a feature.
 
-- A hidden constraint ("Whisper hallucinates on silence — VAD threshold matters")
-- A subtle invariant ("must be called on `queue`")
-- A workaround for a specific bug ("AVAudioConverter caches identical inputs; don't rebuild")
-- Behavior that would surprise a reader
+This means a hard **NO** to:
 
-**Don't** explain WHAT the code does — well-named identifiers do that. **Don't** reference the current task, fix, or callers ("added for issue #14"). The diff and PR carry that context.
+- Narration that restates the next line (`// increment the counter`)
+- Section headers / banners (`// MARK: -` dividers used as decoration, `// --- setup ---`)
+- Task, fix, author, or caller references (`// added for issue #14`, `// TODO`, `// called from ContentView`) — the diff, PR, and issue tracker carry that
+- Commented-out code — delete it; git remembers
+- Docstrings on self-evident members
+
+**The only exception** — and it is rare — is a non-obvious **WHY** that the code genuinely cannot express, where omitting it would lead the next reader to "fix" a deliberate choice and break something:
+
+- A hidden external constraint ("Whisper hallucinates on silence — VAD threshold matters")
+- A subtle invariant a future edit could violate ("must be called on `queue`")
+- A workaround for a specific upstream bug ("AVAudioConverter caches identical inputs; don't rebuild")
+
+If you're unsure whether a comment clears that bar, it doesn't — delete it.
 
 ### Naming
 
