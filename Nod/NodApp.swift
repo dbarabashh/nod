@@ -366,20 +366,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private static func statusItemImage(dotColor: NSColor?) -> NSImage? {
-        guard let base = NSImage(named: "NodLogo") else { return nil }
+        guard let glyph = NSImage(named: "NTemplate") else { return nil }
         let size = NSSize(width: 18, height: 18)
+
+        // Idle: hand the template glyph to macOS untouched so it tints for
+        // light/dark menu bars and selection automatically — the colourful
+        // mesh badge belongs on the app icon, not the menu bar.
+        guard let dotColor else {
+            glyph.size = size
+            glyph.isTemplate = true
+            return glyph
+        }
+
+        // Recording / paused: the status dot is colour-coded, so the image
+        // can't be a template (template tinting would flatten the dot to one
+        // colour). Draw the glyph in the menu-bar foreground colour ourselves,
+        // then the dot on top.
         let composed = NSImage(size: size)
         composed.lockFocus()
-        base.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1)
-        if let dotColor {
-            let diameter: CGFloat = 8
-            let dot = NSBezierPath(ovalIn: NSRect(x: size.width - diameter, y: 0, width: diameter, height: diameter).insetBy(dx: 1, dy: 1))
-            dotColor.setFill()
-            dot.fill()
-            NSColor.white.withAlphaComponent(0.9).setStroke()
-            dot.lineWidth = 1
-            dot.stroke()
-        }
+        let rect = NSRect(origin: .zero, size: size)
+        glyph.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+        NSColor.white.withAlphaComponent(0.92).set()
+        rect.fill(using: .sourceAtop)
+        let diameter: CGFloat = 8
+        let dot = NSBezierPath(ovalIn: NSRect(x: size.width - diameter, y: 0, width: diameter, height: diameter).insetBy(dx: 1, dy: 1))
+        dotColor.setFill()
+        dot.fill()
+        NSColor.white.withAlphaComponent(0.9).setStroke()
+        dot.lineWidth = 1
+        dot.stroke()
         composed.unlockFocus()
         composed.isTemplate = false
         return composed
