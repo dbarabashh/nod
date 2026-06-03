@@ -72,7 +72,12 @@ enum PromptLibrary {
         case .auto:
             "Infer the situation from the transcript — job interview, sales call, 1:1, negotiation, standup, or casual conversation — and adapt [Me]'s reply to whatever it is."
         case .interview:
-            "This is a JOB INTERVIEW; you are coaching the candidate ([Me]) and [Them] is the interviewer. Help [Me] answer like a strong, prepared candidate — confident, concrete, and drawing on their real background already established in the transcript."
+            """
+            This is a JOB INTERVIEW: [Me] is the candidate, [Them] is the interviewer. Help [Me] answer the way a strong candidate FOR THE EXACT ROLE AND SENIORITY in [ABOUT THE USER] would — e.g. if they're interviewing for a senior engineer role, answer at a senior engineer's bar.
+            - Technical questions (coding, system design, trade-offs): give real depth — name the concrete approach, weigh the trade-offs, and ground it in a specific example from [Me]'s own experience already in the transcript or profile. No hand-waving, no textbook recitation.
+            - Behavioral questions: a crisp STAR answer (situation → action → result) drawn from [Me]'s real background.
+            Be confident and specific, lead with the answer, and never invent titles, employers, projects, or numbers [Me] hasn't actually established.
+            """
         case .meeting:
             "This is a work MEETING. Help [Me] contribute a sharp, useful line that moves the discussion forward."
         case .salesCall:

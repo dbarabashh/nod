@@ -28,7 +28,7 @@ enum ReplyContext: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .auto: "Auto-detect"
-        case .interview: "Job interview"
+        case .interview: "Q&A"
         case .meeting: "Meeting"
         case .salesCall: "Sales call"
         case .oneOnOne: "1:1"
@@ -40,7 +40,7 @@ enum ReplyContext: String, CaseIterable, Identifiable {
     var settingsHint: String {
         switch self {
         case .auto: "Let Nod infer the situation from the conversation."
-        case .interview: "Coaches you as the candidate — confident, specific answers."
+        case .interview: "Direct, well-grounded answers to pointed questions."
         case .meeting: "Sharp, useful contributions to a work discussion."
         case .salesCall: "Advance the deal — handle concerns, propose a next step."
         case .oneOnOne: "Thoughtful, candid, personal responses."
