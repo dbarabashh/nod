@@ -79,8 +79,11 @@ extension NSWindow {
     /// every step; the response card's own fade softens the transition.
     func setWidth(to newWidth: CGFloat) {
         guard frame.size.width != newWidth else { return }
-        var newFrame = frame
-        newFrame.size.width = newWidth
-        setFrame(newFrame, display: true)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, frame.size.width != newWidth else { return }
+            var newFrame = frame
+            newFrame.size.width = newWidth
+            setFrame(newFrame, display: true)
+        }
     }
 }
