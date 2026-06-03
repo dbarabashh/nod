@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject private var hotkey = HotkeyManager.shared
+    @AppStorage(ReplyContext.defaultsKey) private var replyContext: ReplyContext = .auto
 
     /// Optional so previews (and any future env-free mount) work without a
     /// live Supabase-backed store. nil → the profile section is omitted.
@@ -11,93 +12,236 @@ struct SettingsView: View {
         self.profileStore = profileStore
     }
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-
-                if let profileStore {
-                    ProfileSettingsSection(store: profileStore)
-                }
-
-                section(title: "Suggest reply hotkey") {
-                    Text("Press this shortcut during a meeting to get a real-time reply suggestion. Works in any app — Zoom, Meet, Teams.")
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.65))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    HotkeyRecorderView(hotkey: hotkey, action: .suggestReply)
-                        .padding(.top, 2)
-
-                    Text("Default ⌘⇧S. Avoid ⌘S — every Mac app uses it for Save and the hotkey would be stolen system-wide.")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.45))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 4)
-                }
-
-                section(title: "Show / hide panel hotkey") {
-                    Text("Toggle the floating panel from anywhere — hide it while you work, bring it back when you need it. Works even when another app is focused.")
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.65))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    HotkeyRecorderView(hotkey: hotkey, action: .togglePanel)
-                        .padding(.top, 2)
-
-                    Text("Default ⌘⇧H. Avoid ⌘H — macOS reserves it for Hide and the hotkey would be stolen system-wide.")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.45))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 4)
-                }
-            }
-            .padding(20)
+    /// Left-rail categories. Each maps to one detail pane.
+    private enum Tab: String, CaseIterable, Identifiable {
+        case profile, suggestReply, shortcuts
+        var id: String {
+            rawValue
         }
-        .frame(width: 460, height: 560, alignment: .topLeading)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(red: 0.10, green: 0.12, blue: 0.22),
-                    Color(red: 0.06, green: 0.07, blue: 0.14)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+
+        var title: String {
+            switch self {
+            case .profile: "Profile"
+            case .suggestReply: "Suggest reply"
+            case .shortcuts: "Shortcuts"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .profile: "person.crop.circle"
+            case .suggestReply: "sparkles"
+            case .shortcuts: "keyboard"
+            }
+        }
     }
 
-    private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "gearshape.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.white.opacity(0.55))
+    @State private var tab: Tab = .profile
+
+    var body: some View {
+        HStack(spacing: 0) {
+            sidebar
+            Divider().overlay(Theme.Palette.border)
+            detail
+        }
+        .frame(width: 740, height: 560)
+        .background(WindowBackdrop().ignoresSafeArea())
+    }
+
+    // MARK: - Sidebar
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 4) {
             Text("Settings")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.white.opacity(0.92))
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Theme.Palette.ink)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+
+            ForEach(Tab.allCases) { item in
+                navButton(item)
+            }
             Spacer(minLength: 0)
         }
+        .padding(12)
+        // Clear the traffic-light buttons that float over the transparent titlebar.
+        .padding(.top, 28)
+        .frame(width: 210, alignment: .top)
+    }
+
+    private func navButton(_ item: Tab) -> some View {
+        let isSelected = tab == item
+        return Button { tab = item } label: {
+            HStack(spacing: 10) {
+                Image(systemName: item.icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 18)
+                Text(item.title)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.muted)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                    .fill(isSelected ? Theme.Palette.violet.opacity(0.22) : .clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                            .stroke(isSelected ? Theme.Palette.violet.opacity(0.45) : .clear, lineWidth: 0.5)
+                    )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Detail
+
+    private var detail: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(tab.title)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Theme.Palette.ink)
+
+                switch tab {
+                case .profile: profilePane
+                case .suggestReply: suggestReplyPane
+                case .shortcuts: shortcutsPane
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 24)
+            .padding(.top, 14)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
-    private func section<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .bold))
-                .tracking(0.8)
-                .foregroundColor(.white.opacity(0.5))
-            content()
+    private var profilePane: some View {
+        if let profileStore {
+            ProfileSettingsSection(store: profileStore)
+        } else {
+            Text("Sign in to edit your profile.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.muted)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.04))
+    }
+
+    private var suggestReplyPane: some View {
+        SettingsCard {
+            SettingsRow(
+                icon: "sparkles",
+                title: "Conversation type",
+                subtitle: replyContext.settingsHint
+            ) {
+                Picker("Conversation type", selection: $replyContext) {
+                    ForEach(ReplyContext.allCases) { context in
+                        Text(context.displayName).tag(context)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .tint(Theme.Palette.ink)
+                .fixedSize()
+            }
+        }
+    }
+
+    private var shortcutsPane: some View {
+        SettingsCard {
+            SettingsRow(
+                icon: "bubble.left.and.bubble.right",
+                title: "Suggest reply",
+                subtitle: "Get a real-time reply suggestion during a meeting, in any app. Avoid ⌘S — every app uses it for Save."
+            ) {
+                HotkeyRecorderView(hotkey: hotkey, action: .suggestReply)
+            }
+            SettingsRowDivider()
+            SettingsRow(
+                icon: "macwindow",
+                title: "Show / hide panel",
+                subtitle: "Toggle the floating panel from anywhere, even when another app is focused. Avoid ⌘H — macOS reserves it."
+            ) {
+                HotkeyRecorderView(hotkey: hotkey, action: .togglePanel)
+            }
+        }
+    }
+}
+
+// MARK: - Settings row primitives
+
+/// A rounded card grouping one or more `SettingsRow`s, separated by
+/// `SettingsRowDivider`. Matches the grouped look used across the app.
+private struct SettingsCard<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        VStack(spacing: 0) { content() }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .surfaceCard()
+    }
+}
+
+/// The app's standard grouped-surface container: a translucent fill with a
+/// hairline border at the card radius. Shared by every settings card.
+private extension View {
+    func surfaceCard() -> some View {
+        background(
+            RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
+                .fill(Theme.Palette.surface)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                    RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
+                        .stroke(Theme.Palette.border, lineWidth: 0.5)
                 )
         )
+    }
+}
+
+/// One setting: leading icon, title + subtitle, and a trailing control.
+private struct SettingsRow<Trailing: View>: View {
+    let icon: String
+    let title: String
+    let subtitle: String?
+    @ViewBuilder var trailing: () -> Trailing
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Theme.Palette.ink.opacity(0.85))
+                .frame(width: 32, height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                        .fill(Theme.Palette.surfaceStrong)
+                )
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 12)
+            trailing()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+}
+
+/// Hairline divider between rows in a `SettingsCard`, indented past the icon.
+private struct SettingsRowDivider: View {
+    var body: some View {
+        Divider()
+            .overlay(Theme.Palette.border)
+            .padding(.leading, 58)
     }
 }
 
@@ -122,12 +266,14 @@ private struct ProfileSettingsSection: View {
             Text("WHAT NOD REMEMBERS ABOUT YOU")
                 .font(.system(size: 10, weight: .bold))
                 .tracking(0.8)
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundStyle(Theme.Palette.muted)
 
-            Text("Added to every summary and answer so Nod responds with your context in mind. Stored privately to your account; nothing here is shared.")
-                .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.65))
-                .fixedSize(horizontal: false, vertical: true)
+            Text(
+                "Added to every summary and answer so Nod responds with your context in mind. Stored privately to your account; nothing here is shared."
+            )
+            .font(.system(size: 12))
+            .foregroundStyle(Theme.Palette.muted)
+            .fixedSize(horizontal: false, vertical: true)
 
             field(label: "Your name", placeholder: "Alex", text: $name)
             field(label: "What you do", placeholder: "Product designer at an early-stage startup", text: $role)
@@ -135,16 +281,9 @@ private struct ProfileSettingsSection: View {
 
             saveRow
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.04))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
-                )
-        )
+        .surfaceCard()
         .task {
             await store.load()
             seedIfNeeded()
@@ -195,20 +334,20 @@ private struct ProfileSettingsSection: View {
             Text(label.uppercased())
                 .font(.system(size: 9.5, weight: .bold))
                 .tracking(0.6)
-                .foregroundColor(.white.opacity(0.4))
+                .foregroundStyle(Theme.Palette.muted)
             TextField(placeholder, text: text, axis: multiline ? .vertical : .horizontal)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
-                .foregroundColor(.white)
-                .lineLimit(multiline ? 2...4 : 1...1)
+                .foregroundStyle(Theme.Palette.ink)
+                .lineLimit(multiline ? 2 ... 4 : 1 ... 1)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(Color.white.opacity(0.05))
+                    RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                        .fill(Theme.Palette.surfaceStrong)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                            RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                                .stroke(Theme.Palette.border, lineWidth: 0.5)
                         )
                 )
         }

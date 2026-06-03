@@ -54,17 +54,44 @@ enum PromptLibrary {
         transcript: String,
         language: AppLanguage = .english,
         personalContext: String = "",
-        sessionKind: SessionKind = .meeting
+        sessionKind: SessionKind = .meeting,
+        replyContext: ReplyContext = .auto
     ) -> (system: String, user: String) {
         let context = transcript.isEmpty
             ? "(No transcript captured yet.)"
             : transcript
-        let base = system(for: kind, language: language, sessionKind: sessionKind)
+        let base = system(for: kind, language: language, sessionKind: sessionKind, replyContext: replyContext)
         let system = personalContext.isEmpty ? base : personalContext + "\n\n" + base
         return (system, userMessage(for: kind, context: context))
     }
 
-    private static func system(for kind: PromptKind, language: AppLanguage, sessionKind: SessionKind = .meeting) -> String {
+    /// The `[SITUATION]` block for the suggest-reply prompt. `[Me]` is always
+    /// the user being coached; `[Them]` is the counterpart.
+    private static func suggestReplyFraming(_ context: ReplyContext) -> String {
+        switch context {
+        case .auto:
+            "Infer the situation from the transcript — job interview, sales call, 1:1, negotiation, standup, or casual conversation — and adapt [Me]'s reply to whatever it is."
+        case .interview:
+            "This is a JOB INTERVIEW; you are coaching the candidate ([Me]) and [Them] is the interviewer. Help [Me] answer like a strong, prepared candidate — confident, concrete, and drawing on their real background already established in the transcript."
+        case .meeting:
+            "This is a work MEETING. Help [Me] contribute a sharp, useful line that moves the discussion forward."
+        case .salesCall:
+            "This is a SALES CALL where [Me] is the seller and [Them] is the prospect. Help [Me] advance the deal — address the concern, build value, and move toward a next step without being pushy."
+        case .oneOnOne:
+            "This is a 1:1 conversation. Help [Me] respond thoughtfully and personally — candid, constructive, and human."
+        case .negotiation:
+            "This is a NEGOTIATION. Help [Me] hold their position, respond to the counterpart's move, and steer toward a favorable outcome without conceding prematurely."
+        case .casual:
+            "This is a CASUAL conversation. Keep [Me]'s reply relaxed, friendly, and brief."
+        }
+    }
+
+    private static func system(
+        for kind: PromptKind,
+        language: AppLanguage,
+        sessionKind: SessionKind = .meeting,
+        replyContext: ReplyContext = .auto
+    ) -> String {
         let lang = language.promptName
         switch kind {
         case .hero:
@@ -103,50 +130,56 @@ enum PromptLibrary {
             return """
             LANGUAGE: respond in \(lang). Output entirely in \(lang) even if the transcript contains other languages.
 
-            You are helping the user decide what to SAY next in a meeting that is currently in progress. The user just pressed "Suggest reply" — they want ONE concrete line they could speak aloud right now.
+            You are helping the user decide what to SAY next in a conversation that is currently in progress. The user just pressed "Suggest reply" — they want the words they could speak aloud right now.
+
+            [SITUATION]
+            \(suggestReplyFraming(replyContext))
+            Let the situation shape tone and depth: an interview answer should be fuller and more structured; a standup or casual interjection should be brief.
 
             [WHO IS WHO — YOU ARE THE USER'S COPILOT]
-            The transcript marks turns with [Them] (the other people in the meeting) and [Me] (the user you are helping). Your job is to produce the line [Me] should say next so they come across as sharp, prepared, and consistent — never caught off guard.
+            The transcript marks turns with [Them] (the other people) and [Me] (the user you are helping). Your job is to produce the line [Me] should say next so they come across as sharp, prepared, and consistent — never caught off guard.
             - [Them] is what the user must respond to. Anchor your reply on the most recent [Them] turn(s): the question they asked, the point they raised, the objection they made. That is the prompt you are answering — always factor it in.
             - [Me] is the user's own voice. Their previous [Me] turns are LOAD-BEARING — the facts, numbers, persona, claims, and commitments the user has already established out loud. Your reply MUST stay consistent with them and build on them: same experience, same story, same opinions. Never contradict or silently revise what [Me] already said.
             - ROBUSTNESS: system-audio capture can drop [Them] turns, and in solo testing only [Me] is populated. If there is no recent [Them] turn to answer, respond to the most recent substantive content regardless of label — never refuse just because the [Them] tag is missing.
 
             [USE THE ENTIRE TRANSCRIPT AS CONTEXT]
             Read everything that came before, not just the last 1-3 turns. Earlier turns shape HOW you answer the current question:
-            - Previous [Me] answers are LOAD-BEARING. They contain facts, numbers, persona, commitments the user has already established out loud. Your reply MUST stay consistent with them — same years of experience, same persona, same claims, same opinions. Do not contradict, do not "forget", do not silently revise.
-            - Previous [Them] questions + their answers. If the current question overlaps with one already answered (e.g. "tell me about React" earlier, "what's your favorite React pattern?" now), BUILD ON the earlier answer rather than retelling the same story. Recognize follow-ups, drill-downs, callbacks.
+            - Previous [Me] answers are LOAD-BEARING. They contain facts, numbers, persona, commitments the user has already established out loud. Your reply MUST stay consistent with them. Do not contradict, do not "forget", do not silently revise.
+            - Previous [Them] questions + their answers. If the current question overlaps with one already answered, BUILD ON the earlier answer rather than retelling the same story. Recognize follow-ups, drill-downs, callbacks.
             - Reuse established context as anchors. If the user said earlier they worked at company X on project Y, reach for X/Y first when answering related questions instead of inventing fresh examples.
 
             The most recent [Them] turn tells you WHICH question to answer right now. The whole transcript tells you HOW to answer it consistently and non-repetitively.
 
             [CORE RULE — IF THERE IS A QUESTION, ANSWER IT]
-            Scan the most recent turns — above all the latest [Them] turn — for a question. A "question" is:
-            - any sentence ending in "?", OR
-            - any imperative request for information ("tell me about X", "what do you know about Y", "explain Z", "describe W", "walk me through V").
+            Scan the most recent turns — above all the latest [Them] turn — for a question: any sentence ending in "?", OR any imperative request for information ("tell me about X", "explain Y", "walk me through Z"). If you find one, ANSWER IT DIRECTLY with substantive content. Draw on what you actually know — give a real answer, not meta-commentary.
 
-            If you find one, ANSWER IT DIRECTLY with substantive content. For factual / technical / general-knowledge questions, draw on what you actually know — give a real answer, not meta-commentary.
+            [MATCH THE ANSWER TO THE QUESTION TYPE]
+            Identify what kind of question the latest [Them] turn is, and shape [Me]'s reply accordingly:
+            - BEHAVIORAL / experience ("tell me about a time…", "how did you handle…", "give an example"): answer as a brief, natural STAR story — situation, what [Me] did, the result — grounded in the background [Me] already established. ~3-5 sentences. This is the case where a one-liner fails.
+            - TECHNICAL / knowledge ("how does X work", "what's the difference between…", "design Y"): give a direct, correct answer with ONE concrete example or specific. Enough depth to sound expert, not a lecture. ~2-4 sentences.
+            - FACTUAL / logistical ("when's the deadline", "what's the number", "who owns this"): one concise, direct sentence. Do not pad.
+            - OPINION / preference ("what do you think", "which would you pick"): take ONE clear position and give a brief reason. ~1-2 sentences.
+            - OBJECTION / pushback (a concern or disagreement, common in sales/negotiation): acknowledge it, respond with substance, and steer toward a next step.
 
-            FORBIDDEN responses when a question is present (these are exact patterns the model must NEVER produce):
-            - "That's a great question…"
-            - "Okay, so you're asking…"
-            - "Yeah, let me think about that"
-            - "Just checking I understand the question"
-            - "Thanks, I'm ready"
-            - "Let me make sure I have this right"
+            [IF THERE IS NO QUESTION, RESPOND TO THE STATEMENT]
+            If the recent turns are all statements, respond naturally and briefly: agree with a reason, politely push back, acknowledge and propose a next step, or — only if genuinely needed — ask one short clarifying question.
+
+            [LENGTH]
+            Length follows the question type above, NOT a fixed cap. Be as long as the answer genuinely needs and no longer — a behavioral interview answer earns several sentences; a factual reply is one line. Always sound like a person speaking aloud, never like written prose or a bulleted list.
+
+            FORBIDDEN responses when a question is present (never produce these):
+            - "That's a great question…" / "Okay, so you're asking…" / "Yeah, let me think about that" / "Thanks, I'm ready" / "Let me make sure I have this right"
             - Any line that restates the question instead of answering it.
             - Any line that asks the asker to clarify, unless the question is genuinely ambiguous (most aren't).
 
-            [CORE RULE — IF THERE IS NO QUESTION, RESPOND TO THE STATEMENT]
-            If the recent turns are all statements, respond naturally: agree with a brief reason, politely push back, acknowledge and propose a next step, or — only if a clarification is genuinely needed — ask one short clarifying question.
-
             [OUTPUT FORMAT]
             Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
-            {"reply": "<the spoken line>"}
-            - "reply" is ONE conversational line, 1-2 sentences max, like a colleague speaking out loud.
-            - No "You could say:" prefix, no surrounding quotation marks, no markdown inside the value.
+            {"reply": "<the spoken words>"}
+            - "reply" is what [Me] should say, in natural spoken \(lang) — one flowing turn, sized to the question type above.
+            - No "You could say:" prefix, no surrounding quotation marks, no markdown or bullet characters inside the value.
 
             [GROUNDING]
-            - For factual answers, use real knowledge — accuracy matters, the user may say this out loud.
+            - For factual / technical answers, use real knowledge — accuracy matters, the user may say this out loud.
             - Do NOT invent commitments, deadlines, specific numbers, or named people the user has not actually mentioned.
 
             [FALLBACK — strict, very narrow]

@@ -723,23 +723,6 @@ private struct UndoToast: View {
 
 // MARK: - Window backdrop
 
-/// Native macOS window vibrancy, replacing the flat pure-black fill. Under the
-/// window's `.darkAqua` appearance this is a deep, slightly translucent surface
-/// that picks up a hint of what's behind the window — the same frosted-glass
-/// family as the floating panel, so the two halves of the app read as one
-/// product instead of a flat slab bolted onto a glass panel.
-private struct WindowBackdrop: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .underWindowBackground
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
-}
-
 // MARK: - Helpers
 
 private extension String {
