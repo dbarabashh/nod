@@ -20,20 +20,14 @@ struct KnowledgeChatView: View {
         let id = UUID()
         let role: Role
         let content: String
-        var sources: [SourceRef] = []
-        var mentions: [MentionRef] = []
+        var sources: [SessionRef] = []
+        var mentions: [SessionRef] = []
         enum Role { case user, assistant }
     }
 
-    /// A session an answer drew on — shown under the reply so the user can
-    /// see (and trust) where it came from.
-    private struct SourceRef: Identifiable, Equatable {
-        let id: UUID
-        let title: String
-    }
-
-    /// A session the user explicitly pinned as context via @-mention.
-    private struct MentionRef: Identifiable, Equatable {
+    /// A session reference — either a source an answer drew on or a session the
+    /// user pinned via @-mention. Both are just an id + display title.
+    private struct SessionRef: Identifiable, Equatable {
         let id: UUID
         let title: String
     }
@@ -46,7 +40,7 @@ struct KnowledgeChatView: View {
 
     /// Sessions the user pinned with @ — when non-empty the question is scoped
     /// to exactly these (the router is skipped; the user said what they want).
-    @State private var mentions: [MentionRef] = []
+    @State private var mentions: [SessionRef] = []
     @State private var showMentionPicker = false
     @State private var mentionSearch = ""
 
@@ -162,7 +156,7 @@ struct KnowledgeChatView: View {
         }
     }
 
-    private func sourcesRow(_ sources: [SourceRef]) -> some View {
+    private func sourcesRow(_ sources: [SessionRef]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("SOURCES")
                 .font(.system(size: 9, weight: .bold))
@@ -234,14 +228,17 @@ struct KnowledgeChatView: View {
                 .lineLimit(1 ... 5)
                 .focused($inputFocused)
                 .onSubmit { send() }
-                // Typing "@" opens the session picker (and is consumed — the
-                // chosen mention is re-inserted as "@Title" inline).
+                // A word-boundary "@" opens the session picker (and is consumed
+                // — the chosen mention is re-inserted as "@Title" inline). A
+                // mid-word "@" (e.g. an email or handle) stays literal.
                 .onChange(of: draft) { value in
-                    if value.hasSuffix("@") {
-                        draft.removeLast()
-                        mentionSearch = ""
-                        showMentionPicker = true
-                    }
+                    guard value.hasSuffix("@") else { return }
+                    let beforeAt = value.dropLast().last
+                    let atWordBoundary = beforeAt == nil || beforeAt == " " || beforeAt == "\n"
+                    guard atWordBoundary else { return }
+                    draft.removeLast()
+                    mentionSearch = ""
+                    showMentionPicker = true
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
@@ -352,7 +349,7 @@ struct KnowledgeChatView: View {
     private func insertMention(_ meeting: Meeting) {
         let title = meeting.displayTitle(dateFormatter: Self.sourceDateFormatter)
         if !mentions.contains(where: { $0.id == meeting.id }) {
-            mentions.append(MentionRef(id: meeting.id, title: title))
+            mentions.append(SessionRef(id: meeting.id, title: title))
         }
         if !draft.isEmpty, !draft.hasSuffix(" ") { draft += " " }
         draft += "@\(title) "
@@ -445,14 +442,14 @@ struct KnowledgeChatView: View {
     /// Builds the grounding excerpts + sources for the routed scope. Specific
     /// sessions are answered from their recap (+ relevant transcript parts if
     /// indexed) so sources show only what the question is actually about.
-    private func gather(for route: Route, query: String) async -> (excerpts: [String], sources: [SourceRef]) {
+    private func gather(for route: Route, query: String) async -> (excerpts: [String], sources: [SessionRef]) {
         switch route {
         case .all:
             let chunks = await knowledgeStore.search(query: query)
             return (chunks.map(labeledExcerpt), resolveSources(chunks))
         case let .specific(ids):
             var excerpts: [String] = []
-            var sources: [SourceRef] = []
+            var sources: [SessionRef] = []
             for id in ids {
                 guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else { continue }
                 let title = meeting.displayTitle(dateFormatter: Self.sourceDateFormatter)
@@ -463,7 +460,7 @@ struct KnowledgeChatView: View {
                     block += "\n\nRelevant excerpts:\n" + chunks.map(\.content).joined(separator: "\n…\n")
                 }
                 excerpts.append(block)
-                sources.append(SourceRef(id: id, title: title))
+                sources.append(SessionRef(id: id, title: title))
             }
             return (excerpts, sources)
         }
@@ -471,13 +468,13 @@ struct KnowledgeChatView: View {
 
     /// Distinct sessions behind the retrieved chunks, in retrieval order, so
     /// the answer can show what it drew on.
-    private func resolveSources(_ chunks: [RetrievedChunk]) -> [SourceRef] {
+    private func resolveSources(_ chunks: [RetrievedChunk]) -> [SessionRef] {
         var seen = Set<UUID>()
-        var refs: [SourceRef] = []
+        var refs: [SessionRef] = []
         for chunk in chunks where seen.insert(chunk.meetingID).inserted {
             let title = meetingStore.meetings.first(where: { $0.id == chunk.meetingID })?
                 .displayTitle(dateFormatter: Self.sourceDateFormatter) ?? "A past session"
-            refs.append(SourceRef(id: chunk.meetingID, title: title))
+            refs.append(SessionRef(id: chunk.meetingID, title: title))
         }
         return refs
     }

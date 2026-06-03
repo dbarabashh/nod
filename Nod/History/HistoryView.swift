@@ -312,21 +312,33 @@ struct HistoryView: View {
         case let (_, .failed(message)):
             errorState(message: message)
         case (.all, .loaded):
-            if meetingStore.meetings.isEmpty {
-                emptyAllState
-            } else if filtered(meetingStore.meetings).isEmpty {
-                noMatchesState
-            } else {
-                allList
-            }
+            allContent
         case (.trash, .loaded):
-            if meetingStore.trashedMeetings.isEmpty {
-                emptyTrashState
-            } else if filtered(meetingStore.trashedMeetings).isEmpty {
-                noMatchesState
-            } else {
-                trashList
-            }
+            trashContent
+        }
+    }
+
+    @ViewBuilder
+    private var allContent: some View {
+        let rows = filtered(meetingStore.meetings)
+        if meetingStore.meetings.isEmpty {
+            emptyAllState
+        } else if rows.isEmpty {
+            noMatchesState
+        } else {
+            allList(rows)
+        }
+    }
+
+    @ViewBuilder
+    private var trashContent: some View {
+        let rows = filtered(meetingStore.trashedMeetings)
+        if meetingStore.trashedMeetings.isEmpty {
+            emptyTrashState
+        } else if rows.isEmpty {
+            noMatchesState
+        } else {
+            trashList(rows)
         }
     }
 
@@ -442,8 +454,8 @@ struct HistoryView: View {
 
     // MARK: - Lists
 
-    private var allList: some View {
-        List(filtered(meetingStore.meetings)) { meeting in
+    private func allList(_ rows: [Meeting]) -> some View {
+        List(rows) { meeting in
             NavigationLink(value: meeting) {
                 MeetingRow(meeting: meeting, mode: .all)
             }
@@ -466,8 +478,8 @@ struct HistoryView: View {
         .scrollContentBackground(.hidden)
     }
 
-    private var trashList: some View {
-        List(filtered(meetingStore.trashedMeetings)) { meeting in
+    private func trashList(_ rows: [Meeting]) -> some View {
+        List(rows) { meeting in
             MeetingRow(meeting: meeting, mode: .trash)
                 .contextMenu {
                     Button {

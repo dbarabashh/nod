@@ -10,6 +10,12 @@
 drop index if exists public.session_embeddings_vec_idx;
 drop function if exists public.match_session_chunks(vector(1536), int);
 
+-- Any rows here are stale 1536-dim vectors from the abandoned OpenRouter embed
+-- path; a 1536→384 column re-type can't cast them and would abort `db push`.
+-- They're fully regenerable (re-index from the saved transcripts), so clear
+-- them first to make the re-dimension unconditional.
+truncate table public.session_embeddings;
+
 alter table public.session_embeddings
     alter column embedding type vector(384);
 

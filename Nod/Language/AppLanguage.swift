@@ -106,7 +106,11 @@ enum AppLanguage: String, CaseIterable {
         recognizer.processString(trimmed)
         guard let (language, confidence) = recognizer.languageHypotheses(withMaximum: 1).first,
               confidence >= 0.6 else { return nil }
-        return AppLanguage(rawValue: language.rawValue)
+        // NLLanguage carries a script subtag for some languages (Chinese →
+        // "zh-Hans"/"zh-Hant"); take the primary subtag so it maps to our
+        // 2-letter codes ("zh"). Others ("en", "uk", …) pass through unchanged.
+        let code = language.rawValue.split(separator: "-").first.map(String.init) ?? language.rawValue
+        return AppLanguage(rawValue: code)
     }
 }
 
