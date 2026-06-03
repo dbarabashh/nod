@@ -69,6 +69,14 @@ struct ContentView: View {
     @EnvironmentObject private var consent: ConsentPreference
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var auth: AuthService
+    @EnvironmentObject private var profileStore: ProfileStore
+    @EnvironmentObject private var entityStore: EntityStore
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
+
+    /// Always-on personal context prepended to every LLM system prompt so
+    /// recaps and live cards read as if Nod already knows the user. "" when
+    /// the profile is empty.
+    private var profileContext: String { profileStore.promptContext }
     @ObservedObject private var hotkey = HotkeyManager.shared
 
     /// Reports the panel's desired width as the layout switches between the
@@ -80,6 +88,10 @@ struct ContentView: View {
     var onPreferredWidthChange: ((CGFloat) -> Void)? = nil
 
     @State private var meeting: MeetingState = .idle
+    /// What the next recording will be. Chosen while idle; fixed for the
+    /// duration of a recording so the recap framing + audio streams stay
+    /// consistent from start to stop.
+    @State private var selectedKind: SessionKind = .meeting
     @State private var response: AIResponse = .none
     @State private var elapsed: Int = 0
     @State private var micMuted: Bool = false
@@ -225,11 +237,18 @@ struct ContentView: View {
                 } : nil
             )
 
-            InputDevicePickerRow(audioCapture: audioCapture)
+            if selectedKind.capturesMic {
+                InputDevicePickerRow(audioCapture: audioCapture)
+            }
 
             switch meeting {
             case .idle:
-                StartMeetingButton(action: startMeeting)
+                SessionKindPicker(selection: $selectedKind)
+                StartMeetingButton(
+                    title: "Start \(selectedKind.title.lowercased())",
+                    icon: selectedKind.icon,
+                    action: startMeeting
+                )
 
             case .recording, .paused:
                 // One primary action (Catch me up — absorbs the old "Recap
@@ -242,14 +261,18 @@ struct ContentView: View {
                     action: { generate(kind: "hero") }
                 )
 
-                SuggestionPill(
-                    label: "Suggest reply",
-                    icon: "arrowshape.turn.up.left.fill",
-                    isGenerating: isGenerating(for: "Suggest reply"),
-                    enabled: meeting == .recording,
-                    hotkeyHint: hotkey.combo(for: .suggestReply).displayString,
-                    action: { generate(kind: "Suggest reply") }
-                )
+                // Reply coaching only makes sense for a two-party meeting —
+                // a solo memo or a podcast has no incoming turn to answer.
+                if selectedKind.supportsReplyCoaching {
+                    SuggestionPill(
+                        label: "Suggest reply",
+                        icon: "arrowshape.turn.up.left.fill",
+                        isGenerating: isGenerating(for: "Suggest reply"),
+                        enabled: meeting == .recording,
+                        hotkeyHint: hotkey.combo(for: .suggestReply).displayString,
+                        action: { generate(kind: "Suggest reply") }
+                    )
+                }
                 SuggestionPill(
                     label: "Key points",
                     icon: "list.bullet",
@@ -257,19 +280,22 @@ struct ContentView: View {
                     enabled: meeting == .recording,
                     action: { generate(kind: "Key points") }
                 )
-                SuggestionPill(
-                    label: "Suggest follow-up questions",
-                    icon: "questionmark.bubble.fill",
-                    isGenerating: isGenerating(for: "Suggest follow-up questions"),
-                    enabled: meeting == .recording,
-                    action: { generate(kind: "Suggest follow-up questions") }
-                )
+                if selectedKind.supportsReplyCoaching {
+                    SuggestionPill(
+                        label: "Suggest follow-up questions",
+                        icon: "questionmark.bubble.fill",
+                        isGenerating: isGenerating(for: "Suggest follow-up questions"),
+                        enabled: meeting == .recording,
+                        action: { generate(kind: "Suggest follow-up questions") }
+                    )
+                }
             }
 
             if meeting != .idle {
                 StatusRow(
                     meeting: meeting,
                     micMuted: micMuted,
+                    showMic: selectedKind.capturesMic,
                     onRecordToggle: toggleRecording,
                     onMicToggle: toggleMic,
                     onEnd: endMeeting
@@ -352,7 +378,10 @@ struct ContentView: View {
         // the queue.
         Task {
             await store.start()
-            await audioCapture.start()
+            await audioCapture.start(
+                captureMic: selectedKind.capturesMic,
+                captureSystem: selectedKind.capturesSystem
+            )
         }
     }
 
@@ -393,6 +422,7 @@ struct ContentView: View {
             endedAt: endedAt,
             summary: "",
             language: langCode,
+            kind: selectedKind,
             title: nil
         )
         meetingStore.beginGenerating(draft)
@@ -411,7 +441,7 @@ struct ContentView: View {
 
         let draftID = draft.id
         Task {
-            let (system, user) = PromptLibrary.build(kind: .summary, transcript: context, language: language.current)
+            let (system, user) = PromptLibrary.build(kind: .summary, transcript: context, language: language.current, personalContext: profileContext, sessionKind: draft.kind)
             do {
                 let recap = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self)
                 let text = recap.toMarkdown()
@@ -426,6 +456,21 @@ struct ContentView: View {
                 await persistMeeting(
                     meeting: updated,
                     transcriptEntries: transcriptEntries
+                )
+                // Enrichment — extract the people/projects/topics this
+                // session is about so it can surface as "Related" elsewhere.
+                // Best-effort, never blocks or fails the save.
+                await extractEntities(
+                    meetingID: updated.id,
+                    userID: userID,
+                    transcript: context,
+                    summary: text
+                )
+                // Index the transcript for cross-session search (step 5).
+                // Best-effort; runs after the meeting is already saved.
+                await knowledgeStore.index(
+                    meetingID: updated.id,
+                    transcript: context
                 )
             } catch {
                 Log.ui.error("Meeting summary generation failed: \(error.localizedDescription)")
@@ -487,7 +532,7 @@ struct ContentView: View {
             if context.isEmpty {
                 Log.ui.info("⚠️ context is EMPTY — LLM will get only the system prompt")
             }
-            let (system, user) = PromptLibrary.build(kind: promptKind, transcript: context, language: language.current)
+            let (system, user) = PromptLibrary.build(kind: promptKind, transcript: context, language: language.current, personalContext: profileContext)
             do {
                 // Every pill's prompt emits a structured JSON object; decode the
                 // matching type and render it to markdown the card already knows
@@ -571,6 +616,26 @@ struct ContentView: View {
             try await meetingStore.insertTranscript(records)
         } catch {
             Log.ui.error("MeetingStore.insertTranscript failed (non-fatal) — \(error.localizedDescription)")
+        }
+    }
+
+    /// Best-effort entity extraction — links the saved session to the
+    /// people / projects / topics it mentions so "Related sessions" can find
+    /// it. Runs after persistence; a failure here never affects the meeting.
+    private func extractEntities(
+        meetingID: UUID,
+        userID: UUID,
+        transcript: String,
+        summary: String
+    ) async {
+        guard !transcript.isEmpty else { return }
+        let (system, user) = PromptLibrary.buildEntityExtraction(transcript: transcript, summary: summary)
+        do {
+            let extracted = try await llm.completeJSON(system: system, user: user, as: ExtractedEntities.self)
+            guard !extracted.isEmpty else { return }
+            try await entityStore.saveExtraction(extracted, meetingID: meetingID, userID: userID)
+        } catch {
+            Log.ui.error("entity extraction failed (non-fatal): \(error.localizedDescription)")
         }
     }
 
@@ -1029,6 +1094,8 @@ private struct LanguagePicker: View {
 /// doesn't fire because the panel rarely becomes key; showing a hint for a
 /// non-functional shortcut is worse than no hint.
 private struct StartMeetingButton: View {
+    var title: String = "Start meeting"
+    var icon: String = "mic.fill"
     let action: () -> Void
     @State private var hovered = false
     @State private var pressed = false
@@ -1036,11 +1103,11 @@ private struct StartMeetingButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: "mic.fill")
+                Image(systemName: icon)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.white.opacity(0.92))
 
-                Text("Start meeting")
+                Text(title)
                     .font(.system(size: 13.5, weight: .medium))
                     .foregroundColor(.white.opacity(0.92))
             }
@@ -1070,6 +1137,68 @@ private struct StartMeetingButton: View {
                 .onChanged { _ in pressed = true }
                 .onEnded { _ in pressed = false }
         )
+    }
+}
+
+/// Three-way segmented control for what the next recording is. Icon-over-
+/// caption segments so the labels fit the compact panel width. The selection
+/// drives audio-stream choice, the recap framing, and which live cards show.
+private struct SessionKindPicker: View {
+    @Binding var selection: SessionKind
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(SessionKind.allCases) { kind in
+                segment(kind)
+            }
+        }
+        .padding(3)
+        .background(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+                )
+        )
+    }
+
+    private func segment(_ kind: SessionKind) -> some View {
+        let isSelected = selection == kind
+        return Button {
+            withAnimation(.easeOut(duration: 0.14)) { selection = kind }
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: kind.icon)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(kind.title)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundColor(isSelected ? .white : .white.opacity(0.55))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Color.white.opacity(0.10) : .clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(isSelected ? Color.white.opacity(0.14) : .clear, lineWidth: 0.5)
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(helpText(kind))
+    }
+
+    private func helpText(_ kind: SessionKind) -> String {
+        switch kind {
+        case .meeting:   return "Record both sides of a call — your mic and the other participants."
+        case .voiceNote: return "Capture your own voice only — think out loud, get it summarized."
+        case .media:     return "Transcribe what's playing on your Mac — a video, podcast, or talk."
+        }
     }
 }
 
@@ -1556,6 +1685,7 @@ private struct MiniAction: View {
 private struct StatusRow: View {
     let meeting: MeetingState
     let micMuted: Bool
+    var showMic: Bool = true
     let onRecordToggle: () -> Void
     let onMicToggle: () -> Void
     let onEnd: () -> Void
@@ -1570,12 +1700,14 @@ private struct StatusRow: View {
                         : .white.opacity(0.85))
             }
 
-            StatusIcon(action: onMicToggle) {
-                Image(systemName: micMuted ? "mic.slash.fill" : "mic.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(micMuted
-                        ? Color(red: 0.95, green: 0.55, blue: 0.55)
-                        : .white.opacity(0.85))
+            if showMic {
+                StatusIcon(action: onMicToggle) {
+                    Image(systemName: micMuted ? "mic.slash.fill" : "mic.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(micMuted
+                            ? Color(red: 0.95, green: 0.55, blue: 0.55)
+                            : .white.opacity(0.85))
+                }
             }
 
             Spacer(minLength: 0)

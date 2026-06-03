@@ -19,15 +19,15 @@ final class OpenRouterClient: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .unauthenticated:
-                return "Session expired, please sign in again."
-            case .requestFailed(let status, let body):
-                return "LLM proxy HTTP \(status): \(body)"
+                "Session expired, please sign in again."
+            case let .requestFailed(status, body):
+                "LLM proxy HTTP \(status): \(body)"
             case .emptyResponse:
-                return "LLM proxy returned an empty response."
-            case .decodingFailed(let detail):
-                return "Failed to decode proxy response: \(detail)"
-            case .networkFailed(let error):
-                return "Network error: \(error.localizedDescription)"
+                "LLM proxy returned an empty response."
+            case let .decodingFailed(detail):
+                "Failed to decode proxy response: \(detail)"
+            case let .networkFailed(error):
+                "Network error: \(error.localizedDescription)"
             }
         }
     }
@@ -63,26 +63,64 @@ final class OpenRouterClient: ObservableObject {
     private let supabase: SupabaseClient?
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 70   // proxy enforces 60s for transcribe; give it slack
+        config.timeoutIntervalForRequest = 70 // proxy enforces 60s for transcribe; give it slack
         config.timeoutIntervalForResource = 120
         return URLSession(configuration: config)
     }()
 
     init(supabase: SupabaseClient? = nil) {
         self.supabase = supabase
-        self.proxyURL = SupabaseConfig.url.appendingPathComponent("functions/v1/llm-proxy")
+        proxyURL = SupabaseConfig.url.appendingPathComponent("functions/v1/llm-proxy")
     }
 
     // MARK: - Chat completion
 
+    /// One turn in a multi-message conversation. `system` is supplied
+    /// separately to `chat`; these are the alternating user/assistant turns.
+    struct ChatTurn: Equatable {
+        enum Role: String { case user, assistant }
+        let role: Role
+        let content: String
+
+        init(role: Role, content: String) {
+            self.role = role
+            self.content = content
+        }
+    }
+
     func complete(system: String, user: String, jsonMode: Bool = false) async throws -> String {
         let userPreview = String(user.prefix(200))
-        Log.llm.info("→ chat via proxy model=\(model) fallback=\(fallbackModel) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)")
+        Log.llm.info(
+            "→ chat via proxy model=\(model) fallback=\(fallbackModel) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)"
+        )
         Log.llm.info("→ user preview: \(userPreview)\(user.count > 200 ? "…" : "")")
 
-        // Routing strategy explained:
+        return try await send(
+            messages: [
+                .init(role: "system", content: system),
+                .init(role: "user", content: user)
+            ],
+            jsonMode: jsonMode
+        )
+    }
+
+    /// Multi-turn chat: a system prompt followed by the running
+    /// user/assistant history. Used by single-session chat (step 3). The
+    /// transcript + recap live in `system`; `history` is just the dialogue.
+    func chat(system: String, history: [ChatTurn], temperature: Double? = nil) async throws -> String {
+        Log.llm.info("→ multi-turn chat via proxy model=\(model) system.len=\(system.count) turns=\(history.count)")
+        var messages: [ChatRequest.Message] = [.init(role: "system", content: system)]
+        messages += history.map { .init(role: $0.role.rawValue, content: $0.content) }
+        return try await send(messages: messages, jsonMode: false, temperature: temperature)
+    }
+
+    /// Shared transport for every chat call. Applies the same provider
+    /// routing + model fallback chain used across the app (see the strategy
+    /// note below) and decodes the assistant message.
+    private func send(messages: [ChatRequest.Message], jsonMode: Bool, temperature: Double? = nil) async throws -> String {
+        // Routing strategy:
         //
-        // `provider.order = ["google-vertex"]` + `ignore = ["Google AI Studio"]`
+        // `provider.order = ["google-vertex"]` + `ignore = ["google-ai-studio"]`
         // forces OpenRouter to skip Google's shared free-tier endpoint (the one
         // returning 429 "Provider returned error (via Google AI Studio)" in our
         // logs) and use the paid Vertex route instead. Vertex bills against
@@ -98,16 +136,14 @@ final class OpenRouterClient: ObservableObject {
         let payload = ChatRequest(
             model: model,
             models: [model, fallbackModel],
-            messages: [
-                .init(role: "system", content: system),
-                .init(role: "user", content: user)
-            ],
+            messages: messages,
             provider: ProviderPreference(
                 order: ["google-vertex"],
                 ignore: ["google-ai-studio"],
                 allow_fallbacks: true
             ),
-            response_format: jsonMode ? ResponseFormat(type: "json_object") : nil
+            response_format: jsonMode ? ResponseFormat(type: "json_object") : nil,
+            temperature: temperature
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
 
@@ -164,14 +200,14 @@ final class OpenRouterClient: ObservableObject {
             // Tolerate any case of the "json" language hint (some emit ```JSON).
             if t.lowercased().hasPrefix("json") { t.removeFirst(4) }
             if let fence = t.range(of: "```") {
-                t = String(t[t.startIndex..<fence.lowerBound])
+                t = String(t[t.startIndex ..< fence.lowerBound])
             }
             t = t.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         if let start = t.firstIndex(where: { $0 == "{" || $0 == "[" }) {
             let close: Character = t[start] == "{" ? "}" : "]"
             if let end = t.lastIndex(of: close), end > start {
-                return String(t[start...end])
+                return String(t[start ... end])
             }
         }
         return t
@@ -183,12 +219,12 @@ final class OpenRouterClient: ObservableObject {
     /// (other than 429), decoding errors, empty responses, and auth failures.
     private static func isTransient(_ error: ClientError) -> Bool {
         switch error {
-        case .requestFailed(let status, _):
-            return status == 429 || (status >= 500 && status < 600)
+        case let .requestFailed(status, _):
+            status == 429 || (status >= 500 && status < 600)
         case .networkFailed:
-            return true
+            true
         case .unauthenticated, .emptyResponse, .decodingFailed:
-            return false
+            false
         }
     }
 
@@ -197,14 +233,13 @@ final class OpenRouterClient: ObservableObject {
     /// 429 lands almost always re-trips the same bucket. 5xx / network blips
     /// retry sooner since they're usually fixed by the next request.
     private static func retryDelayMillis(for error: ClientError, attempt: Int) -> UInt64 {
-        let base: UInt64
-        switch error {
-        case .requestFailed(let status, _) where status == 429:
-            base = 800
+        let base: UInt64 = switch error {
+        case let .requestFailed(status, _) where status == 429:
+            800
         default:
-            base = 400
+            400
         }
-        return base * UInt64(1 << attempt)  // 0→base, 1→2×base, 2→4×base
+        return base * UInt64(1 << attempt) // 0→base, 1→2×base, 2→4×base
     }
 
     // MARK: - Whisper (audio transcription)
@@ -237,6 +272,43 @@ final class OpenRouterClient: ObservableObject {
         }
     }
 
+    // MARK: - Cross-session knowledge (step 5)
+
+    /// Indexes a session's transcript chunks for cross-session search. The
+    /// proxy embeds each chunk server-side (gte-small) and writes the vectors —
+    /// the client only ships the text.
+    func indexSession(meetingID: UUID, chunks: [String]) async throws {
+        struct Payload: Encodable {
+            let meeting_id: UUID
+            let chunks: [String]
+        }
+        Log.llm.info("→ index via proxy meeting=\(meetingID.uuidString) chunks=\(chunks.count)")
+        let body = try JSONEncoder().encode(ProxyEnvelope(kind: "index", payload: Payload(meeting_id: meetingID, chunks: chunks)))
+        _ = try await postToProxyWithRetry(body: body)
+    }
+
+    /// Semantic search over the user's chunks. `meetingID` narrows to one
+    /// session (used to retrieve relevant parts of a long meeting instead of
+    /// stuffing its whole transcript); nil searches across all sessions with
+    /// the entity hybrid boost applied server-side.
+    func searchKnowledge(query: String, matchCount: Int = 8, meetingID: UUID? = nil) async throws -> [RetrievedChunk] {
+        struct Payload: Encodable {
+            let query: String
+            let match_count: Int
+            let meeting_id: String?
+        }
+        Log.llm.info("→ search via proxy q.len=\(query.count) scoped=\(meetingID != nil)")
+        let payload = Payload(query: query, match_count: matchCount, meeting_id: meetingID?.uuidString)
+        let body = try JSONEncoder().encode(ProxyEnvelope(kind: "search", payload: payload))
+        let data = try await postToProxyWithRetry(body: body)
+        struct Wrapper: Decodable { let matches: [RetrievedChunk] }
+        do {
+            return try JSONDecoder().decode(Wrapper.self, from: data).matches
+        } catch {
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+
     // MARK: - Transport
 
     /// Wraps `postToProxy` with exponential-backoff retries on transient
@@ -246,15 +318,17 @@ final class OpenRouterClient: ObservableObject {
     private func postToProxyWithRetry(body: Data) async throws -> Data {
         let maxAttempts = 3
         var lastError: ClientError = .emptyResponse
-        for attempt in 0..<maxAttempts {
+        for attempt in 0 ..< maxAttempts {
             do {
                 return try await postToProxy(body: body)
             } catch let error as ClientError {
                 lastError = error
                 let isLastAttempt = attempt == maxAttempts - 1
-                if !isLastAttempt && Self.isTransient(error) {
+                if !isLastAttempt, Self.isTransient(error) {
                     let delayMs = Self.retryDelayMillis(for: error, attempt: attempt)
-                    Log.llm.error("transient error on attempt \(attempt + 1)/\(maxAttempts) — retrying in \(delayMs)ms: \(error.localizedDescription)")
+                    Log.llm.error(
+                        "transient error on attempt \(attempt + 1)/\(maxAttempts) — retrying in \(delayMs)ms: \(error.localizedDescription)"
+                    )
                     try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
                     continue
                 }
@@ -340,7 +414,7 @@ final class OpenRouterClient: ObservableObject {
             if let titleOpen = lowered.range(of: "<title"),
                let titleClose = lowered.range(of: "</title>"),
                titleOpen.upperBound < titleClose.lowerBound {
-                let slice = trimmed[titleOpen.upperBound..<titleClose.lowerBound]
+                let slice = trimmed[titleOpen.upperBound ..< titleClose.lowerBound]
                 if let gt = slice.firstIndex(of: ">") {
                     let title = slice[slice.index(after: gt)...].trimmingCharacters(in: .whitespacesAndNewlines)
                     if !title.isEmpty {
@@ -386,6 +460,7 @@ private struct TranscriptionRequest: Encodable {
         let data: String
         let format: String
     }
+
     let model: String
     let input_audio: InputAudio
     let language: String?
@@ -400,11 +475,13 @@ private struct ChatRequest: Encodable {
         let role: String
         let content: String
     }
+
     let model: String
     let models: [String]?
     let messages: [Message]
     let provider: ProviderPreference?
     let response_format: ResponseFormat?
+    let temperature: Double?
 }
 
 private struct ResponseFormat: Encodable {
@@ -422,5 +499,6 @@ private struct ChatResponse: Decodable {
         struct Message: Decodable { let content: String }
         let message: Message
     }
+
     let choices: [Choice]
 }

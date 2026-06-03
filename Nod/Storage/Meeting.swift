@@ -13,6 +13,9 @@ struct Meeting: Codable, Identifiable {
     let startedAt: Date
     let endedAt: Date
     let title: String?
+    /// What this recording is — drives audio capture + recap framing. Every
+    /// legacy row defaults to `.meeting` server-side.
+    let kind: SessionKind
     let summary: String
     /// Structured recap — same content as `summary` (which is the rendered
     /// markdown view) but as typed JSON: topics / decisions / actions /
@@ -39,6 +42,7 @@ struct Meeting: Codable, Identifiable {
         case startedAt  = "started_at"
         case endedAt    = "ended_at"
         case title
+        case kind
         case summary
         case recap      = "recap_json"
         case language
@@ -58,6 +62,7 @@ struct Meeting: Codable, Identifiable {
         try c.encode(startedAt, forKey: .startedAt)
         try c.encode(endedAt, forKey: .endedAt)
         try c.encodeIfPresent(title, forKey: .title)
+        try c.encode(kind, forKey: .kind)
         try c.encode(summary, forKey: .summary)
         try c.encodeIfPresent(recap, forKey: .recap)
         try c.encode(language, forKey: .language)
@@ -74,6 +79,7 @@ struct Meeting: Codable, Identifiable {
         endedAt: Date,
         summary: String,
         language: String,
+        kind: SessionKind = .meeting,
         title: String? = nil,
         recap: MeetingRecap? = nil
     ) -> Meeting {
@@ -84,6 +90,7 @@ struct Meeting: Codable, Identifiable {
             startedAt: startedAt,
             endedAt: endedAt,
             title: title,
+            kind: kind,
             summary: summary,
             recap: recap,
             language: language,
@@ -105,6 +112,7 @@ struct Meeting: Codable, Identifiable {
             startedAt: startedAt,
             endedAt: endedAt,
             title: title,
+            kind: kind,
             summary: summary,
             recap: recap ?? self.recap,
             language: language,

@@ -15,14 +15,17 @@ struct HistoryView: View {
     let initialFocusMeetingID: UUID?
 
     @EnvironmentObject private var meetingStore: MeetingStore
+    @EnvironmentObject private var knowledgeStore: KnowledgeStore
 
+    /// (done, total) while a backfill re-index is running; nil when idle.
+    @State private var reindexProgress: ReindexProgress? = nil
     @State private var searchQuery: String = ""
     @State private var segment: Segment = .all
     @State private var pendingHardDelete: Meeting? = nil
     /// Identity of the currently-displayed undo toast — flipped each time
     /// `meetingStore.pendingUndo` changes, so the auto-dismiss timer
     /// belonging to the previous toast knows to skip its own dismissal.
-    @State private var undoToastID: UUID = UUID()
+    @State private var undoToastID: UUID = .init()
     @State private var path: [Meeting] = []
 
     init(initialFocusMeetingID: UUID? = nil) {
@@ -32,32 +35,22 @@ struct HistoryView: View {
     enum Segment: String, CaseIterable, Identifiable {
         case all = "All"
         case trash = "Trash"
-        var id: String { rawValue }
+        var id: String {
+            rawValue
+        }
+    }
+
+    struct ReindexProgress: Equatable {
+        let done: Int
+        let total: Int
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            ZStack(alignment: .bottom) {
-                content
-                if let pending = meetingStore.pendingUndo {
-                    UndoToast(
-                        message: "Moved to Trash",
-                        onUndo: { Task { try? await meetingStore.restore(pending.id) } },
-                        onDismiss: { meetingStore.dismissUndo() }
-                    )
-                    .padding(.bottom, 18)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .navigationTitle("Meetings")
-            .toolbar { toolbarContent }
-            .searchable(text: $searchQuery, prompt: "Search meetings")
-            // Registered at the NavigationStack root so programmatic
-            // pushes (via `path = [meeting]`) resolve even when the empty
-            // / loading state is on screen instead of the list.
-            .navigationDestination(for: Meeting.self) { meeting in
-                MeetingDetailView(meeting: meeting)
-            }
+        HStack(spacing: 0) {
+            navigationColumn
+                .frame(maxWidth: .infinity)
+            Divider().overlay(Theme.Palette.border)
+            chatDock
         }
         .background(Theme.Palette.bg.ignoresSafeArea())
         .task {
@@ -108,6 +101,101 @@ struct HistoryView: View {
         }
     }
 
+    // MARK: - Navigation column (list + detail)
+
+    private var navigationColumn: some View {
+        NavigationStack(path: $path) {
+            ZStack(alignment: .bottom) {
+                content
+                if let pending = meetingStore.pendingUndo {
+                    UndoToast(
+                        message: "Moved to Trash",
+                        onUndo: { Task { try? await meetingStore.restore(pending.id) } },
+                        onDismiss: { meetingStore.dismissUndo() }
+                    )
+                    .padding(.bottom, 18)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .navigationTitle("Meetings")
+            .toolbar { toolbarContent }
+            .searchable(text: $searchQuery, prompt: "Search meetings")
+            // Registered at the NavigationStack root so programmatic
+            // pushes (via `path = [meeting]`) resolve even when the empty
+            // / loading state is on screen instead of the list.
+            .navigationDestination(for: Meeting.self) { meeting in
+                MeetingDetailView(meeting: meeting)
+            }
+        }
+    }
+
+    // MARK: - Chat dock (right side)
+
+    //
+    // One persistent panel. Its scope follows the navigation: the open
+    // session when you've drilled into one, otherwise every session at once.
+    // Same composer, same look — no second window.
+
+    private var chatDock: some View {
+        VStack(spacing: 0) {
+            dockHeader(for: path.last)
+            Divider().overlay(Theme.Palette.border)
+            Group {
+                if let meeting = path.last {
+                    // `.id` so switching sessions re-loads the thread + transcript.
+                    SessionChatView(meeting: meeting).id(meeting.id)
+                } else {
+                    KnowledgeChatView(onOpenMeeting: openMeeting)
+                }
+            }
+        }
+        .frame(width: 380)
+        .background(Theme.Palette.bgSoft.opacity(0.4))
+    }
+
+    private func dockHeader(for meeting: Meeting?) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: meeting?.kind.icon ?? "sparkles")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.Palette.violet)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(meeting == nil ? "Ask across all sessions" : "Chat with this session")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                Text(dockSubtitle(meeting))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 56)
+    }
+
+    /// Navigate the left column to a session (from a mention/source click in
+    /// the cross-session chat). The dock then follows to that session's chat.
+    private func openMeeting(_ id: UUID) {
+        guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else { return }
+        segment = .all
+        path = [meeting]
+    }
+
+    private func dockSubtitle(_ meeting: Meeting?) -> String {
+        if let meeting {
+            return meeting.displayTitle(dateFormatter: Self.dockDateFormatter)
+        }
+        let n = meetingStore.meetings.count
+        return n == 1 ? "1 session" : "\(n) sessions"
+    }
+
+    private static let dockDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f
+    }()
+
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
@@ -152,6 +240,9 @@ struct HistoryView: View {
                     .buttonStyle(.plain)
                     .help("Showing cached meetings. Click to retry refresh.")
                 }
+                if segment == .all {
+                    reindexControl
+                }
                 Button(action: refreshActive) {
                     Image(systemName: "arrow.clockwise")
                 }
@@ -160,10 +251,52 @@ struct HistoryView: View {
         }
     }
 
+    @ViewBuilder
+    private var reindexControl: some View {
+        if let progress = reindexProgress {
+            HStack(spacing: 5) {
+                ProgressView().progressViewStyle(.circular).controlSize(.small)
+                Text("Indexing \(progress.done)/\(progress.total)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.muted)
+            }
+        } else if !meetingStore.meetings.isEmpty {
+            Button(action: rebuildIndex) {
+                Image(systemName: "sparkles.rectangle.stack")
+            }
+            .help("Rebuild the search index so older sessions are findable in Ask Nod")
+        }
+    }
+
+    /// Backfill: re-index every loaded session so ones recorded before
+    /// indexing existed (or under older chunking) become searchable.
+    private func rebuildIndex() {
+        guard reindexProgress == nil else { return }
+        let meetings = meetingStore.meetings
+        guard !meetings.isEmpty else { return }
+        reindexProgress = ReindexProgress(done: 0, total: meetings.count)
+        Task {
+            await knowledgeStore.reindex(
+                meetings,
+                transcript: { id in
+                    let records = try await meetingStore.fetchTranscript(meetingID: id)
+                    return records.map { record in
+                        let label = TranscriptSource(rawValue: record.source)?.label ?? record.source
+                        return "[\(label)] \(record.text)"
+                    }.joined(separator: "\n")
+                },
+                progress: { done, total in
+                    reindexProgress = ReindexProgress(done: done, total: total)
+                }
+            )
+            reindexProgress = nil
+        }
+    }
+
     private func refreshActive() {
         Task {
             switch segment {
-            case .all:   await meetingStore.refresh(force: true)
+            case .all: await meetingStore.refresh(force: true)
             case .trash: await meetingStore.refreshTrash()
             }
         }
@@ -176,7 +309,7 @@ struct HistoryView: View {
         switch (segment, currentLoadState) {
         case (_, .idle), (_, .loading):
             loadingState
-        case (_, .failed(let message)):
+        case let (_, .failed(message)):
             errorState(message: message)
         case (.all, .loaded):
             if meetingStore.meetings.isEmpty {
@@ -408,37 +541,62 @@ private struct MeetingRow: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(meeting.displayTitle(dateFormatter: Self.dateFormatter))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if mode == .trash, let trashedAt = meeting.deletedAt {
-                    Text(Self.relativeTrashedLabel(for: trashedAt))
-                        .font(.system(size: 10, weight: .semibold))
+        HStack(alignment: .top, spacing: 11) {
+            kindIcon
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(meeting.displayTitle(dateFormatter: Self.dateFormatter))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.ink)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if mode == .trash, let trashedAt = meeting.deletedAt {
+                        Text(Self.relativeTrashedLabel(for: trashedAt))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.Palette.muted)
+                    }
+                    Text(meeting.language.uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .tracking(0.5)
                         .foregroundStyle(Theme.Palette.muted)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Theme.Palette.surface)
+                        )
                 }
-                Text(meeting.language.uppercased())
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .tracking(0.5)
-                    .foregroundStyle(Theme.Palette.muted)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Theme.Palette.surface)
-                    )
-            }
 
-            Text(meeting.summaryPreview)
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Theme.Palette.graphite)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
+                Text(meeting.summaryPreview)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(Theme.Palette.graphite)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
         }
         .padding(.vertical, 6)
+    }
+
+    /// Leading type marker — color-coded so meeting / voice note / media are
+    /// scannable at a glance. Tooltip spells out the kind for the unsure.
+    private var kindIcon: some View {
+        Image(systemName: meeting.kind.icon)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(kindTint)
+            .frame(width: 28, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(kindTint.opacity(0.14))
+            )
+            .help(meeting.kind.title)
+    }
+
+    private var kindTint: Color {
+        switch meeting.kind {
+        case .meeting: Theme.Palette.violet
+        case .voiceNote: Theme.Palette.cyan
+        case .media: Theme.Palette.warning
+        }
     }
 
     /// "deleted 2d ago" — gives the user a sense of the 30-day countdown
@@ -502,5 +660,7 @@ private struct UndoToast: View {
 private extension String {
     /// `nonEmpty` returns the string only if it's not empty — useful for
     /// `?? fallback` chains where empty should fall through.
-    var nonEmpty: String? { isEmpty ? nil : self }
+    var nonEmpty: String? {
+        isEmpty ? nil : self
+    }
 }

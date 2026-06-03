@@ -3,8 +3,9 @@ import Combine
 
 enum OnboardingStep: Int, Codable, CaseIterable {
     case welcome = 1
-    case permissions = 2
-    case tutorial = 3
+    case profile = 2
+    case permissions = 3
+    case tutorial = 4
 }
 
 struct OnboardingStatus: Codable {

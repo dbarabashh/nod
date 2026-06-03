@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-05-27_
+_Last updated: 2026-06-02_
 
 A subprocessor is a third party that processes personal data on our behalf
 when you use Nod. We use the minimum number of subprocessors required to
@@ -15,9 +15,9 @@ subscribe to change notifications, email **dbarabashdev@gmail.com**.
 
 | Subprocessor                | Purpose                                  | Data shared                                                       | Location           | Training on your data | DPA / no-train basis |
 |-----------------------------|------------------------------------------|-------------------------------------------------------------------|--------------------|-----------------------|----------------------|
-| **Supabase, Inc.**          | Auth, Postgres database, Edge Functions  | Email, OAuth identity, meeting transcripts, summaries, usage logs | AWS `eu-west-1` (Ireland) | No                    | Supabase DPA         |
-| **OpenRouter, Inc.**        | LLM and Whisper request routing          | Audio chunks (transient), transcript text                         | Routed via no-train providers | No                    | Zero Data Retention enabled; "may train on request data" routes disabled |
-| **OpenAI** (via Azure OpenAI Service) | Whisper speech-to-text          | Audio chunks (transient, ~5 s windows)                            | Routed by OpenRouter | No                    | Azure OpenAI no-train commitment |
+| **Supabase, Inc.**          | Auth, Postgres database, Edge Functions  | Email, OAuth identity, meeting transcripts, summaries, chat messages, transcript embeddings, extracted entities, usage logs | AWS `eu-west-1` (Ireland) | No                    | Supabase DPA         |
+| **OpenRouter, Inc.**        | LLM, Whisper, and embedding request routing | Audio chunks (transient), transcript text, chat messages, query text | Routed via no-train providers | No                    | Zero Data Retention enabled; "may train on request data" routes disabled |
+| **OpenAI** (via Azure OpenAI Service) | Whisper speech-to-text, text embeddings (`text-embedding-3-small`) | Audio chunks (transient, ~5 s windows); transcript chunk text (for embeddings) | Routed by OpenRouter | No                    | Azure OpenAI no-train commitment |
 | **Google LLC** (via Google Vertex AI) | LLM summarisation               | Transcript text, system prompt                                    | Routed by OpenRouter | No                    | Vertex AI no-train commitment |
 | **Google LLC** (OAuth)      | Authentication (sign-in with Google)     | Your Google email, OpenID profile claims                          | Global             | No                    | Google OAuth ToS     |
 | **Apple, Inc.**             | macOS app distribution & code signing    | Crash logs (if you opt-in via System Settings), receipt validation | Global             | No                    | Apple Developer Agreement |
@@ -51,6 +51,7 @@ soon as the transcription completes.
 | Date       | Change                                        |
 |------------|-----------------------------------------------|
 | 2026-05-27 | Initial published list.                       |
+| 2026-06-02 | Added text-embedding model (via OpenRouter) for cross-session search; noted chat messages, embeddings, and extracted entities stored in Supabase. |
 
 ---
 

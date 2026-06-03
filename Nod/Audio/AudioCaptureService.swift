@@ -39,6 +39,11 @@ final class AudioCaptureService: NSObject, ObservableObject {
     private static let preferredInputKey = "audio.input.deviceUID"
     private var audioEngine: AVAudioEngine?
     private var scStream: SCStream?
+    /// Which streams the active session uses — set on `start`, reused by
+    /// `resume` so a paused-then-resumed voice note doesn't silently start
+    /// pulling system audio (or vice-versa).
+    private var captureMic = true
+    private var captureSystem = true
     private let outputHandler = SystemAudioOutputHandler()
     private let outputQueue = DispatchQueue(label: "nod.system-audio", qos: .userInteractive)
 
@@ -63,16 +68,18 @@ final class AudioCaptureService: NSObject, ObservableObject {
         }
     }
 
-    func start() async {
+    func start(captureMic: Bool = true, captureSystem: Bool = true) async {
         guard state == .idle else { return }
         lastError = nil
         micSamples = 0
         systemSamples = 0
+        self.captureMic = captureMic
+        self.captureSystem = captureSystem
         state = .capturing
 
-        Log.audio.info("starting capture (mic + system audio)")
-        await startMicrophone()
-        await startSystemAudio()
+        Log.audio.info("starting capture (mic=\(captureMic) system=\(captureSystem))")
+        if captureMic { await startMicrophone() }
+        if captureSystem { await startSystemAudio() }
     }
 
     func pause() {
@@ -85,12 +92,14 @@ final class AudioCaptureService: NSObject, ObservableObject {
 
     func resume() async {
         guard state == .paused else { return }
-        do {
-            try audioEngine?.start()
-        } catch {
-            lastError = "Resume mic failed: \(error.localizedDescription)"
+        if captureMic {
+            do {
+                try audioEngine?.start()
+            } catch {
+                lastError = "Resume mic failed: \(error.localizedDescription)"
+            }
         }
-        await startSystemAudio()
+        if captureSystem { await startSystemAudio() }
         state = .capturing
     }
 

@@ -6,6 +6,8 @@ struct OnboardingView: View {
     @EnvironmentObject private var state: OnboardingState
     @EnvironmentObject private var permissions: PermissionManager
     @EnvironmentObject private var language: LanguagePreference
+    @EnvironmentObject private var profileStore: ProfileStore
+    @EnvironmentObject private var auth: AuthService
 
     /// Pad past the traffic-light strip so step titles never collide with the
     /// close button. macOS chrome occupies ~28pt of the window's top.
@@ -41,6 +43,19 @@ struct OnboardingView: View {
                     language.current = picked
                     state.goNext()
                 }
+            )
+        case .profile:
+            ProfileStep(
+                initialName: auth.session?.user.profileDisplayName ?? "",
+                onContinue: { name, role, focus in
+                    // Fire-and-forget: the profile is a nice-to-have, never a
+                    // blocker. A transient save failure just leaves the field
+                    // empty (recoverable in Settings) — don't gate onboarding
+                    // on the network round trip.
+                    Task { try? await profileStore.save(displayName: name, role: role, focus: focus) }
+                    state.goNext()
+                },
+                onSkip: { state.goNext() }
             )
         case .permissions:
             PermissionsStep(

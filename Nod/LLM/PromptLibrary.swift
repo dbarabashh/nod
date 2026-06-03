@@ -1,11 +1,11 @@
 import Foundation
 
 enum PromptKind {
-    case hero          // "Catch me up"
-    case smartReply    // "Key points"
-    case followUp      // "Suggest follow-up questions"
-    case summary       // "Recap so far" / "Meeting Summary"
-    case suggestReply  // "Suggest reply" — real-time response suggestion
+    case hero // "Catch me up"
+    case smartReply // "Key points"
+    case followUp // "Suggest follow-up questions"
+    case summary // "Recap so far" / "Meeting Summary"
+    case suggestReply // "Suggest reply" — real-time response suggestion
 
     init?(rawLabel: String) {
         switch rawLabel {
@@ -30,37 +30,41 @@ enum PromptKind {
         // older than the recent window is by design out of scope for them.
         // ~80 entries ≈ 5-10 min of dialogue at typical 5s Whisper chunks.
         case .hero, .followUp:
-            return 80
+            80
         // "Pull out 3-5 most important points discussed SO FAR" — needs
         // more history than hero. End-of-meeting summary still uses full.
         case .smartReply:
-            return 200
+            200
         // suggestReply's prompt explicitly requires the ENTIRE transcript
         // ("Previous [Me] answers are LOAD-BEARING") — truncating breaks
         // the persona/consistency property the suggestion depends on.
         case .suggestReply:
-            return nil
+            nil
         // End-of-meeting recap must surface decisions and actions that
         // happened anywhere in the call.
         case .summary:
-            return nil
+            nil
         }
     }
 }
 
-struct PromptLibrary {
+enum PromptLibrary {
     static func build(
         kind: PromptKind,
         transcript: String,
-        language: AppLanguage = .english
+        language: AppLanguage = .english,
+        personalContext: String = "",
+        sessionKind: SessionKind = .meeting
     ) -> (system: String, user: String) {
         let context = transcript.isEmpty
             ? "(No transcript captured yet.)"
             : transcript
-        return (system(for: kind, language: language), userMessage(for: kind, context: context))
+        let base = system(for: kind, language: language, sessionKind: sessionKind)
+        let system = personalContext.isEmpty ? base : personalContext + "\n\n" + base
+        return (system, userMessage(for: kind, context: context))
     }
 
-    private static func system(for kind: PromptKind, language: AppLanguage) -> String {
+    private static func system(for kind: PromptKind, language: AppLanguage, sessionKind: SessionKind = .meeting) -> String {
         let lang = language.promptName
         switch kind {
         case .hero:
@@ -138,7 +142,7 @@ struct PromptLibrary {
             """
 
         case .summary:
-            return summaryPrompt(language: lang)
+            return summaryPrompt(language: lang, sessionKind: sessionKind)
 
         case .suggestReply:
             return """
@@ -199,11 +203,40 @@ struct PromptLibrary {
         }
     }
 
-    private static func summaryPrompt(language lang: String) -> String {
-        return """
-        LANGUAGE: write all string values in the JSON in \(lang). Keep the JSON keys exactly as specified below (in English). Even if the transcript contains other languages, the content must be in \(lang).
+    /// Per-kind framing prepended to the (shared) extraction rules below.
+    /// Same MeetingRecap JSON contract for all kinds — only the
+    /// interpretation of [Me]/[Them] and the category semantics shift, so the
+    /// whole downstream (struct, recap_json, markdown, title) stays identical.
+    private static func kindFraming(_ sessionKind: SessionKind) -> String {
+        switch sessionKind {
+        case .meeting:
+            "You are a meeting copilot producing the recap of a meeting that just ended. The user was on the call and may have forgotten details — give them a clear, useful read-out so nothing important slips through."
+        case .voiceNote:
+            """
+            You are producing the recap of a SOLO VOICE NOTE — the user thinking out loud, with no second party. The transcript is almost entirely [Me]; there is no [Them] to attribute to.
+            - `topics` = the distinct ideas / threads the user worked through.
+            - `decisions` = conclusions the user reached for themselves ("I'll go with X").
+            - `actions` = things the user told themselves to do — owner is always the user (use their name from [ABOUT THE USER] if present, otherwise "You").
+            - `open_questions` = things they were still unsure about or left to figure out later.
+            Do not invent a second speaker. Do not expect dialogue.
+            """
+        case .media:
+            """
+            You are producing the recap of MEDIA the user listened to — a video, podcast, talk, or recording. [Them] is the content being played; [Me] is the user's own occasional remark and is usually sparse or absent.
+            - `topics` = what the media actually covered, with its conclusions.
+            - `open_questions` = questions the content raised or left unresolved.
+            - `decisions` and `actions` will usually be EMPTY — this is listening, not a meeting. Leave them empty unless the user explicitly stated a personal takeaway action out loud ([Me]); never invent owners or commitments for the speakers in the media.
+            """
+        }
+    }
 
-        You are a meeting copilot producing the recap of a meeting that just ended. The user was on the call and may have forgotten details — give them a clear, useful read-out so nothing important slips through.
+    private static func summaryPrompt(language lang: String, sessionKind: SessionKind = .meeting) -> String {
+        """
+        LANGUAGE: write all string values in the JSON in \(lang). Keep the JSON keys exactly as specified below (in English). Even if the transcript contains other languages, the content must be in \(
+            lang
+        ).
+
+        \(kindFraming(sessionKind))
 
         ===========================
         TWO-STEP PROCESS — FOLLOW IN ORDER
@@ -378,6 +411,154 @@ struct PromptLibrary {
         let user = "Meeting recap:\n\n\(summary)\n\nGenerate the title now."
 
         return (system, user)
+    }
+
+    // MARK: - Entity extraction (step 4)
+
+    /// Pulls the people / projects / topics a session is about so sessions
+    /// that share them can be surfaced as "Related". Grounded strictly in the
+    /// transcript + recap — these become durable, user-visible links, so a
+    /// hallucinated name is worse than a missed one. Output is English-keyed
+    /// JSON; names stay in whatever language they appear.
+    static func buildEntityExtraction(
+        transcript: String,
+        summary: String
+    ) -> (system: String, user: String) {
+        let system = """
+        You extract the entities a recording is ABOUT, so the app can link sessions that share them. From the transcript and recap, return three lists:
+
+        - "people": real personal names of participants or people discussed. NOT roles ("the recruiter"), NOT the literal routing tags [Me]/[Them]. Only names that appear literally.
+        - "projects": named projects, products, tools, teams, companies, or initiatives that appear literally.
+        - "topics": 2-4 word phrases naming what the session was actually about (e.g. "pricing strategy", "onboarding redesign"). Specific, not generic.
+
+        [RULES]
+        - Only include items grounded in the transcript/recap. Do NOT invent.
+        - No duplicates. No generic filler ("meeting", "call", "discussion", "update").
+        - Keep each list to at most 8 items, the most central first.
+        - Empty arrays are fine — return them rather than padding.
+
+        [OUTPUT] Respond with ONLY this JSON object, no prose, no code fence:
+        {"people": [], "projects": [], "topics": []}
+        """
+        let user = """
+        Recap:
+
+        \(summary)
+
+        Transcript:
+
+        \(transcript)
+
+        Extract the entities now.
+        """
+        return (system, user)
+    }
+
+    // MARK: - Single-session chat
+
+    /// System prompt for chatting with one recorded session. The recap +
+    /// transcript are the grounding; `personalContext` (the user profile) is
+    /// prepended so answers land in the user's world. The running dialogue is
+    /// passed separately as the message history.
+    static func buildChatSystem(
+        sessionKind: SessionKind,
+        title: String,
+        summary: String,
+        transcript: String,
+        language: AppLanguage = .english,
+        personalContext: String = ""
+    ) -> String {
+        let lang = language.promptName
+        let noun = switch sessionKind {
+        case .meeting: "meeting"
+        case .voiceNote: "voice note"
+        case .media: "recording"
+        }
+        let body = """
+        You are Nod, the user's assistant for one \(noun) they recorded\(title.isEmpty ? "" : " titled \"\(title)\""). The user is asking about it after the fact.
+
+        [GROUNDING]
+        - Answer using the RECAP and TRANSCRIPT below as the source of truth for what happened in this \(noun).
+        - When the user asks for help that goes beyond the recording (drafting a follow-up, explaining a concept that came up, brainstorming next steps), you may use general knowledge — but never fabricate things as if they were said in the \(
+            noun
+        ).
+        - If something isn't in the transcript, say so plainly instead of inventing it.
+        - The labels [Me] (the user) and [Them] (other voices) are routing hints — refer to people naturally, never echo the literal tags.
+
+        [STYLE]
+        - Concise and concrete. Short paragraphs or tight bullet lists. No preamble like "Great question".
+        - LANGUAGE: reply in \(lang) unless the user clearly writes in another language, in which case match them.
+
+        === RECAP ===
+        \(summary.isEmpty ? "(No recap available.)" : summary)
+
+        === TRANSCRIPT ===
+        \(transcript.isEmpty ? "(No transcript was saved for this session.)" : transcript)
+        """
+        return personalContext.isEmpty ? body : personalContext + "\n\n" + body
+    }
+
+    // MARK: - Query router (which session(s) is the question about?)
+
+    /// Decides whether a cross-session question targets specific session(s) or
+    /// the whole corpus. Lets "last meeting", "the pricing one", "what did I
+    /// discuss with Sarah" resolve to the right rows instead of being treated
+    /// as pure semantic search. `sessionList` is a newest-first, index-prefixed
+    /// listing the caller maps back to meeting IDs.
+    static func buildSessionRouter(sessionList: String, query: String) -> (system: String, user: String) {
+        let system = """
+        You route a user's question to the recorded session(s) it's about. Below is their list of sessions, NEWEST FIRST, each line: `index | date | title | type`.
+
+        Decide the scope:
+        - "last / latest / most recent / previous meeting" (any language, e.g. "остання зустріч", "минула") → the single newest session: index 0.
+        - An ordinal or time reference ("yesterday", "this morning", "first", "перша", a specific date) → the matching session(s) by date.
+        - A reference by title, topic, product, or person name → the session(s) that match.
+        - A broad question spanning the whole history ("what have I been thinking about", "summarize everything about X", "across all my…") → scope "all".
+        - When unsure, prefer "all".
+
+        [SESSIONS]
+        \(sessionList)
+
+        [OUTPUT] Respond with ONLY this JSON, no prose, no code fence:
+        {"scope": "specific" | "all", "indices": [<session index>, ...]}
+        For "all", use an empty indices array. For "specific", list the matching indices from the list above.
+        """
+        let user = "Question:\n\n\(query)\n\nRoute it now."
+        return (system, user)
+    }
+
+    // MARK: - Cross-session knowledge chat (step 5)
+
+    /// System prompt for asking across everything the user has recorded. The
+    /// `excerpts` are the retrieved chunks (each already labeled with its
+    /// source session); the model must answer from them and say so when they
+    /// don't cover the question.
+    static func buildKnowledgeSystem(
+        excerpts: [String],
+        language: AppLanguage = .english,
+        personalContext: String = ""
+    ) -> String {
+        let lang = language.promptName
+        let context = excerpts.isEmpty
+            ? "(No relevant excerpts were found in your sessions for this question.)"
+            : excerpts.joined(separator: "\n\n---\n\n")
+        let body = """
+        You are Nod, the user's personal memory across every session they've recorded — meetings, voice notes, and media. You answer questions by drawing on what they've actually said and heard over time.
+
+        [GROUNDING]
+        - Answer using ONLY the RETRIEVED EXCERPTS below. They are pulled from the user's own past sessions by semantic search for this question.
+        - Reference where something came from naturally, by the session label shown above each excerpt (e.g. "In your meeting on Tuesday about pricing…"). Don't quote the raw labels verbatim.
+        - If the excerpts don't contain the answer, say you don't have anything on that in their sessions yet — do NOT invent or fill gaps with outside facts.
+        - [Me] / [Them] are routing tags from transcription; refer to people naturally, never echo the tags.
+
+        [STYLE]
+        - Concise and concrete. Synthesize across excerpts when they connect.
+        - LANGUAGE: reply in \(lang) unless the user clearly writes in another language.
+
+        === RETRIEVED FROM YOUR SESSIONS ===
+        \(context)
+        """
+        return personalContext.isEmpty ? body : personalContext + "\n\n" + body
     }
 
     // MARK: - AI-assisted summary editing

@@ -1,7 +1,7 @@
-import SwiftUI
 import AppKit
-import Supabase
 import Sparkle
+import Supabase
+import SwiftUI
 
 @main
 struct NodApp: App {
@@ -31,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var auth: AuthService?
     private var consent: ConsentPreference?
     private var meetingStore: MeetingStore?
+    private var profileStore: ProfileStore?
+    private var chatStore: ChatStore?
+    private var entityStore: EntityStore?
+    private var knowledgeStore: KnowledgeStore?
     private var authObserveTask: Task<Void, Never>?
     private var statusObserveTask: Task<Void, Never>?
     private var pendingCallbackURLs: [URL] = []
@@ -99,6 +103,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             auth: auth
         )
         let meetingStore = MeetingStore(supabase: supabase)
+        let profileStore = ProfileStore(supabase: supabase, auth: auth)
+        let chatStore = ChatStore(supabase: supabase, llm: llmClient)
+        let entityStore = EntityStore(supabase: supabase)
+        let knowledgeStore = KnowledgeStore(llm: llmClient)
 
         audioCapture.onMicBuffer = { [weak transcriptStore] buffer in
             transcriptStore?.appendMicBuffer(buffer)
@@ -117,11 +125,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         self.auth = auth
         self.consent = consent
         self.meetingStore = meetingStore
+        self.profileStore = profileStore
+        self.chatStore = chatStore
+        self.entityStore = entityStore
+        self.knowledgeStore = knowledgeStore
 
         statusObserveTask = Task { @MainActor [weak self] in
             guard let self, let audioCapture = self.audioCapture else { return }
             for await state in audioCapture.$state.values {
-                self.updateStatusItem(for: state)
+                updateStatusItem(for: state)
             }
         }
 
@@ -132,17 +144,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             var wasSignedIn = false
             for await _ in auth.$session.values {
                 let isSignedIn = auth.session != nil
-                if wasSignedIn && !isSignedIn {
+                if wasSignedIn, !isSignedIn {
                     // Sign-out: tear down the recording pipeline AND drop
                     // the per-user caches so the next signed-in user can't
                     // see the previous one's data through the in-memory
                     // store or a stale History window.
-                    await self.stopRecordingServices()
+                    await stopRecordingServices()
                     self.meetingStore?.clear()
-                    self.closeHistoryWindow()
+                    self.profileStore?.clear()
+                    self.chatStore?.clear()
+                    closeHistoryWindow()
+                    closeSettingsWindow()
+                }
+                if isSignedIn {
+                    // Warm the profile so its prompt context is ready before
+                    // the first meeting ends. `load` no-ops once cached.
+                    Task { await self.profileStore?.load() }
                 }
                 wasSignedIn = isSignedIn
-                self.reconcileWindows()
+                reconcileWindows()
             }
         }
 
@@ -157,7 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls
             where url.scheme?.lowercased() == AuthService.callbackURL.scheme
-                && url.host == AuthService.callbackURL.host {
+            && url.host == AuthService.callbackURL.host {
             Log.auth.info("received callback url")
             if let auth = self.auth {
                 Task { @MainActor in await auth.handleCallback(url) }
@@ -224,7 +244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func showOnboardingWindow() {
-        guard let permissions, let onboarding, let languagePreference, onboardingWindow == nil else { return }
+        guard let permissions, let onboarding, let languagePreference, let profileStore, let auth, onboardingWindow == nil else { return }
 
         NSApp.setActivationPolicy(.regular)
 
@@ -249,6 +269,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         .environmentObject(permissions)
         .environmentObject(onboarding)
         .environmentObject(languagePreference)
+        .environmentObject(profileStore)
+        .environmentObject(auth)
 
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)
@@ -270,26 +292,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         // Surface init-order bugs loudly. The chained `guard let` above used
         // to silently swallow a missing dep — now each absence logs which
         // service didn't land in time for the panel.
-        guard let audioCapture = self.audioCapture else { Log.ui.error("showFloatingPanel: missing audioCapture"); return }
-        guard let llmClient = self.llmClient else { Log.ui.error("showFloatingPanel: missing llmClient"); return }
-        guard let transcriptStore = self.transcriptStore else { Log.ui.error("showFloatingPanel: missing transcriptStore"); return }
-        guard let languagePreference = self.languagePreference else { Log.ui.error("showFloatingPanel: missing languagePreference"); return }
-        guard let consent = self.consent else { Log.ui.error("showFloatingPanel: missing consent"); return }
-        guard let meetingStore = self.meetingStore else { Log.ui.error("showFloatingPanel: missing meetingStore"); return }
-        guard let auth = self.auth else { Log.ui.error("showFloatingPanel: missing auth"); return }
+        guard let audioCapture else { Log.ui.error("showFloatingPanel: missing audioCapture"); return }
+        guard let llmClient else { Log.ui.error("showFloatingPanel: missing llmClient"); return }
+        guard let transcriptStore else { Log.ui.error("showFloatingPanel: missing transcriptStore"); return }
+        guard let languagePreference else { Log.ui.error("showFloatingPanel: missing languagePreference"); return }
+        guard let consent else { Log.ui.error("showFloatingPanel: missing consent"); return }
+        guard let meetingStore else { Log.ui.error("showFloatingPanel: missing meetingStore"); return }
+        guard let auth else { Log.ui.error("showFloatingPanel: missing auth"); return }
+        guard let profileStore else { Log.ui.error("showFloatingPanel: missing profileStore"); return }
+        guard let entityStore else { Log.ui.error("showFloatingPanel: missing entityStore"); return }
+        guard let knowledgeStore else { Log.ui.error("showFloatingPanel: missing knowledgeStore"); return }
 
         NSApp.setActivationPolicy(.accessory)
 
         let content = ContentView(
             onPreferredWidthChange: { [weak self] width in self?.panel?.setWidth(to: width) }
         )
-            .environmentObject(audioCapture)
-            .environmentObject(llmClient)
-            .environmentObject(transcriptStore)
-            .environmentObject(languagePreference)
-            .environmentObject(consent)
-            .environmentObject(meetingStore)
-            .environmentObject(auth)
+        .environmentObject(audioCapture)
+        .environmentObject(llmClient)
+        .environmentObject(transcriptStore)
+        .environmentObject(languagePreference)
+        .environmentObject(consent)
+        .environmentObject(meetingStore)
+        .environmentObject(auth)
+        .environmentObject(profileStore)
+        .environmentObject(entityStore)
+        .environmentObject(knowledgeStore)
 
         // Start at the compact width — the panel launches idle. ContentView
         // reports the desired width as the layout changes and the panel
@@ -329,9 +357,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let button = statusItem?.button else { return }
         let (dotColor, toolTip): (NSColor?, String)
         switch state {
-        case .idle:      (dotColor, toolTip) = (nil, "Nod")
+        case .idle: (dotColor, toolTip) = (nil, "Nod")
         case .capturing: (dotColor, toolTip) = (.systemRed, "Nod — Recording")
-        case .paused:    (dotColor, toolTip) = (.systemOrange, "Nod — Paused")
+        case .paused: (dotColor, toolTip) = (.systemOrange, "Nod — Paused")
         }
         button.image = Self.statusItemImage(dotColor: dotColor)
         button.toolTip = toolTip
@@ -393,7 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             return
         }
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 470),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 560),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -404,7 +432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.delegate = self
         window.appearance = NSAppearance(named: .darkAqua)
         window.center()
-        window.contentViewController = NSHostingController(rootView: SettingsView())
+        window.contentViewController = NSHostingController(rootView: SettingsView(profileStore: profileStore))
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window
     }
@@ -420,7 +448,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     // MARK: - History window (issue #14)
 
     private func showHistoryWindow(focusing meetingID: UUID? = nil) {
-        guard let meetingStore else { return }
+        guard let meetingStore, let chatStore, let profileStore, let entityStore,
+              let knowledgeStore, let llmClient, let languagePreference else { return }
 
         if let existing = historyWindow {
             existing.makeKeyAndOrderFront(nil)
@@ -431,7 +460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 1040, height: 640),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -441,11 +470,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.appearance = NSAppearance(named: .darkAqua)
-        // Enforce a min size so a SwiftUI view with low intrinsic content
-        // (the empty / loading state) can't collapse the window. Without
-        // this the History window appeared as a ~280×320 chip with the
-        // empty-state text truncated to "No m…" / "Hit rec…".
-        window.contentMinSize = NSSize(width: 520, height: 460)
+        // Min size accommodates the list/detail column + the fixed 380pt chat
+        // dock so neither can collapse below a usable width.
+        window.contentMinSize = NSSize(width: 860, height: 520)
         window.center()
 
         // First-mount focus is handed in via init — the open-detail
@@ -453,8 +480,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         // when the window is being created fresh, so its `.task` reads
         // `initialFocusMeetingID` after the initial refresh instead.
         let root = HistoryView(initialFocusMeetingID: meetingID)
-            .frame(minWidth: 520, minHeight: 460)
+            .frame(minWidth: 860, minHeight: 520)
             .environmentObject(meetingStore)
+            .environmentObject(chatStore)
+            .environmentObject(profileStore)
+            .environmentObject(entityStore)
+            .environmentObject(knowledgeStore)
+            .environmentObject(llmClient)
+            .environmentObject(languagePreference)
 
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)
@@ -470,13 +503,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func displayName(for user: User) -> String {
-        let metadata = user.userMetadata
-        for key in ["full_name", "name", "user_name"] {
-            if let value = metadata[key]?.stringValue, !value.isEmpty {
-                return value
-            }
-        }
-        return ""
+        user.profileDisplayName
     }
 
     // MARK: - NSWindowDelegate
@@ -485,23 +512,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let closed = notification.object as AnyObject?
         Task { @MainActor [weak self] in
             guard let self else { return }
-            if closed === self.signInWindow {
-                self.signInWindow = nil
-            } else if closed === self.onboardingWindow {
-                self.onboardingWindow = nil
-            } else if closed === self.historyWindow {
+            if closed === signInWindow {
+                signInWindow = nil
+            } else if closed === onboardingWindow {
+                onboardingWindow = nil
+            } else if closed === historyWindow {
                 // History is auxiliary — closing it doesn't trigger any
                 // reconciliation; the floating panel keeps running.
-                self.historyWindow = nil
+                historyWindow = nil
                 return
-            } else if closed === self.settingsWindow {
-                self.settingsWindow = nil
+            } else if closed === settingsWindow {
+                settingsWindow = nil
                 return
             }
             // User-initiated close of the only UI: re-open whichever window
             // matches the current state. closing the sign-in window with no
             // session would otherwise leave the app with zero UI.
-            self.reconcileWindows()
+            reconcileWindows()
         }
     }
 

@@ -90,6 +90,9 @@ struct MeetingDetailView: View {
                 subToolbar
                 Divider().overlay(Theme.Palette.border)
                 content
+                if selectedTab == .summary, !isGenerating {
+                    RelatedSessionsView(meeting: meeting)
+                }
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 22)
@@ -157,8 +160,8 @@ struct MeetingDetailView: View {
                 label: "Created",
                 value: AnyView(
                     Text(Self.createdFormatter.string(from: meeting.startedAt) +
-                         " → " +
-                         endTimeString(meeting.endedAt))
+                        " → " +
+                        endTimeString(meeting.endedAt))
                         .font(.system(size: 12.5, weight: .regular))
                         .foregroundStyle(Theme.Palette.ink.opacity(0.92))
                 )
@@ -233,8 +236,8 @@ struct MeetingDetailView: View {
                 Text(label)
                     .font(.system(size: 13, weight: selectedTab == tab ? .semibold : .regular))
                     .foregroundStyle(selectedTab == tab
-                                     ? Theme.Palette.ink
-                                     : Theme.Palette.muted)
+                        ? Theme.Palette.ink
+                        : Theme.Palette.muted)
                 Rectangle()
                     .fill(selectedTab == tab ? Theme.Palette.ink : Color.clear)
                     .frame(height: 1.5)
@@ -399,7 +402,7 @@ struct MeetingDetailView: View {
                 Spacer()
             }
             .padding(.vertical, 40)
-        case .loaded(let records):
+        case let .loaded(records):
             if records.isEmpty {
                 VStack(spacing: 6) {
                     Image(systemName: "captions.bubble")
@@ -419,7 +422,7 @@ struct MeetingDetailView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-        case .failed(let message):
+        case let .failed(message):
             VStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 18, weight: .semibold))
@@ -472,9 +475,9 @@ struct MeetingDetailView: View {
 
     private func sourceBackground(_ source: String) -> Color {
         switch TranscriptSource(rawValue: source) {
-        case .me:   return Theme.Palette.violet.opacity(0.18)
-        case .them: return Theme.Palette.cyan.opacity(0.18)
-        case .none: return Theme.Palette.surface
+        case .me: Theme.Palette.violet.opacity(0.18)
+        case .them: Theme.Palette.cyan.opacity(0.18)
+        case .none: Theme.Palette.surface
         }
     }
 
@@ -522,7 +525,7 @@ struct MeetingDetailView: View {
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(Theme.Palette.muted)
             }
-        case .failed(let detail):
+        case let .failed(detail):
             HStack(spacing: 4) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 11, weight: .semibold))
@@ -544,8 +547,8 @@ struct MeetingDetailView: View {
                 Image(systemName: "trash")
             }
             .help(isGenerating
-                  ? "Available once the summary is ready"
-                  : "Move to Trash")
+                ? "Available once the summary is ready"
+                : "Move to Trash")
             // Soft-delete hits the server `soft_delete_meeting` RPC,
             // which would 404 for a meeting that hasn't been inserted
             // yet. Re-enables the moment the row lands.
@@ -640,11 +643,10 @@ struct MeetingDetailView: View {
     private func copyAll() {
         let titleLine = editableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let date = Self.dateFormatter.string(from: meeting.startedAt)
-        let payload: String
-        if titleLine.isEmpty {
-            payload = "\(date)\n\n\(editableSummary)"
+        let payload = if titleLine.isEmpty {
+            "\(date)\n\n\(editableSummary)"
         } else {
-            payload = "\(titleLine)\n\(date)\n\n\(editableSummary)"
+            "\(titleLine)\n\(date)\n\n\(editableSummary)"
         }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(payload, forType: .string)

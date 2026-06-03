@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-05-27_
+_Last updated: 2026-06-02_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company yet. We've made the
@@ -82,7 +82,19 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
 
 - **Transcripts.** One row per finalised Whisper chunk in
   `meeting_transcripts`, with the speaker side (`me` / `them`) and timestamp.
-- **Meeting summaries.** The AI-generated summary text in `meetings`.
+- **Meeting summaries.** The AI-generated summary text in `meetings`, plus the
+  session type (`kind`: meeting / voice note / media).
+- **Transcript embeddings.** To let you ask questions across your sessions, we
+  store each transcript chunk and its vector embedding in `session_embeddings`.
+  The chunk text is a copy of transcript content you already stored; the vector
+  is produced by an embedding model (see Subprocessors). Search is scoped to
+  your own rows by Row-Level Security.
+- **Your profile.** The optional name / role / focus you enter (in `profiles`),
+  used to give the AI context. You can view, edit, or clear it in Settings.
+- **Session chats.** Messages you exchange with the per-session assistant, in
+  `chat_messages`. (The cross-session "Ask Nod" chat is not persisted.)
+- **Entities.** People, projects, and topics extracted from your sessions
+  (`entities` + `meeting_entities`) so related sessions can be linked.
 - **Account profile.** Your email and Google OAuth identity, stored in
   Supabase Auth.
 - **Consent acknowledgements.** An audit row each time you click "Acknowledge
@@ -130,6 +142,7 @@ sure you comply with the rules where you and your participants are located.
 | Server-side functions | Supabase Edge Functions  | EU                |
 | LLM gateway           | OpenRouter               | routed            |
 | Whisper transcription | OpenAI via Azure OpenAI  | (no-train)        |
+| Text embeddings       | OpenAI via Azure OpenAI  | (no-train)        |
 | LLM summaries         | Google Gemini via Vertex | (no-train)        |
 
 - Daily encrypted backups of the Postgres database, retained 7 days.
