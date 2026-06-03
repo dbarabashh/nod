@@ -90,26 +90,10 @@ struct SessionChatView: View {
     }
 
     private func suggestion(_ text: String) -> some View {
-        Button {
+        ChatSuggestionChip(text: text) {
             draft = text
             inputFocused = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkle")
-                    .font(.system(size: 10))
-                Text(text)
-                    .font(.system(size: 12.5))
-            }
-            .foregroundStyle(Theme.Palette.ink.opacity(0.78))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Theme.Palette.surface)
-                    .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
-            )
         }
-        .buttonStyle(.plain)
     }
 
     private func bubble(_ message: ChatMessage) -> some View {
@@ -122,31 +106,15 @@ struct SessionChatView: View {
                 .textSelection(.enabled)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(isUser ? Theme.Palette.violet.opacity(0.85) : Theme.Palette.surface)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                .stroke(isUser ? Color.clear : Theme.Palette.border, lineWidth: 0.5)
-                        )
-                )
+                .chatBubbleBackground(isUser: isUser)
                 .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
             if !isUser { Spacer(minLength: 40) }
         }
     }
 
     private var typingIndicator: some View {
-        HStack(spacing: 6) {
-            ProgressView()
-                .progressViewStyle(.circular)
-                .controlSize(.small)
-                .tint(Theme.Palette.muted)
-            Text("Thinking…")
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.Palette.muted)
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 4)
+        ChatTypingIndicator(label: "Thinking…")
+            .padding(.vertical, 4)
     }
 
     private func errorRow(_ detail: String) -> some View {
@@ -225,12 +193,20 @@ struct SessionChatView: View {
         if !retryLast { draft = "" }
         Task {
             let systemPrompt = await buildSystemPrompt(for: text)
-            await chatStore.send(
-                text: text,
-                systemPrompt: systemPrompt,
-                meetingID: meeting.id,
-                userID: meeting.userID
-            )
+            if retryLast {
+                await chatStore.retryLast(
+                    systemPrompt: systemPrompt,
+                    meetingID: meeting.id,
+                    userID: meeting.userID
+                )
+            } else {
+                await chatStore.send(
+                    text: text,
+                    systemPrompt: systemPrompt,
+                    meetingID: meeting.id,
+                    userID: meeting.userID
+                )
+            }
         }
     }
 

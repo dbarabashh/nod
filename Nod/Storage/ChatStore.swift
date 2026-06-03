@@ -73,7 +73,19 @@ final class ChatStore: ObservableObject {
         messages.append(userMessage)
         sendState = .sending
         await persist(userMessage)
+        await requestReply(systemPrompt: systemPrompt, meetingID: meetingID, userID: userID)
+    }
 
+    /// Re-runs the model for the last (already-saved) user turn after a
+    /// failure. The turn is not re-appended or re-persisted — doing so would
+    /// duplicate it in the conversation and the `chat_messages` table.
+    func retryLast(systemPrompt: String, meetingID: UUID, userID: UUID) async {
+        guard sendState != .sending, messages.last?.role == .user else { return }
+        sendState = .sending
+        await requestReply(systemPrompt: systemPrompt, meetingID: meetingID, userID: userID)
+    }
+
+    private func requestReply(systemPrompt: String, meetingID: UUID, userID: UUID) async {
         let history = messages.map {
             OpenRouterClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
         }

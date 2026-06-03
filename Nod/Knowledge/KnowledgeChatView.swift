@@ -107,24 +107,10 @@ struct KnowledgeChatView: View {
     }
 
     private func suggestion(_ text: String) -> some View {
-        Button {
+        ChatSuggestionChip(text: text) {
             draft = text
             inputFocused = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkle").font(.system(size: 10))
-                Text(text).font(.system(size: 12.5))
-            }
-            .foregroundStyle(Theme.Palette.ink.opacity(0.78))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Theme.Palette.surface)
-                    .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
-            )
         }
-        .buttonStyle(.plain)
     }
 
     private func bubble(_ message: QAMessage) -> some View {
@@ -139,14 +125,7 @@ struct KnowledgeChatView: View {
                     .textSelection(.enabled)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
-                    .background(
-                        RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .fill(isUser ? Theme.Palette.violet.opacity(0.85) : Theme.Palette.surface)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                    .stroke(isUser ? Color.clear : Theme.Palette.border, lineWidth: 0.5)
-                            )
-                    )
+                    .chatBubbleBackground(isUser: isUser)
                     .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
                 if !isUser { Spacer(minLength: 40) }
             }
@@ -209,13 +188,7 @@ struct KnowledgeChatView: View {
     }
 
     private var typingIndicator: some View {
-        HStack(spacing: 6) {
-            ProgressView().progressViewStyle(.circular).controlSize(.small).tint(Theme.Palette.muted)
-            Text("Searching your sessions…")
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.Palette.muted)
-            Spacer(minLength: 0)
-        }
+        ChatTypingIndicator(label: "Searching your sessions…")
     }
 
     private var composer: some View {
@@ -448,19 +421,41 @@ struct KnowledgeChatView: View {
             let chunks = await knowledgeStore.search(query: query)
             return (chunks.map(labeledExcerpt), resolveSources(chunks))
         case let .specific(ids):
+            // Resolve each session's static metadata up front (main-actor
+            // state), then run the per-session transcript searches concurrently
+            // — they're independent, so a 5-session ask shouldn't pay five
+            // serial round-trips.
+            let resolved: [ResolvedSession] = ids.compactMap { id in
+                guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else { return nil }
+                return ResolvedSession(
+                    id: id,
+                    title: meeting.displayTitle(dateFormatter: Self.sourceDateFormatter),
+                    date: Self.sourceDateFormatter.string(from: meeting.startedAt),
+                    summary: meeting.summary
+                )
+            }
+            let store = knowledgeStore
+            let chunksByIndex = await withTaskGroup(of: (Int, [RetrievedChunk]).self) { group in
+                for (index, session) in resolved.enumerated() {
+                    group.addTask { await (index, store.search(query: query, meetingID: session.id)) }
+                }
+                var collected = [[RetrievedChunk]](repeating: [], count: resolved.count)
+                for await (index, chunks) in group {
+                    collected[index] = chunks
+                }
+                return collected
+            }
+
             var excerpts: [String] = []
             var sources: [SessionRef] = []
-            for id in ids {
-                guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else { continue }
-                let title = meeting.displayTitle(dateFormatter: Self.sourceDateFormatter)
-                let date = Self.sourceDateFormatter.string(from: meeting.startedAt)
-                var block = "[From: \(title) (\(date))]\nRecap:\n\(meeting.summary.isEmpty ? "(no recap)" : meeting.summary)"
-                let chunks = await knowledgeStore.search(query: query, meetingID: id)
+            for (index, session) in resolved.enumerated() {
+                var block = "[From: \(session.title) (\(session.date))]\nRecap:\n\(session.summary.isEmpty ? "(no recap)" : session.summary)"
+                let chunks = chunksByIndex[index]
                 if !chunks.isEmpty {
                     block += "\n\nRelevant excerpts:\n" + chunks.map(\.content).joined(separator: "\n…\n")
                 }
                 excerpts.append(block)
-                sources.append(SessionRef(id: id, title: title))
+                sources.append(SessionRef(id: session.id, title: session.title))
             }
             return (excerpts, sources)
         }
@@ -500,4 +495,13 @@ struct KnowledgeChatView: View {
     }
 
     private static let typingAnchor = "nod.knowledge.typing"
+}
+
+/// A pinned session's static metadata, resolved on the main actor before its
+/// transcript search runs concurrently with the others.
+private struct ResolvedSession {
+    let id: UUID
+    let title: String
+    let date: String
+    let summary: String
 }

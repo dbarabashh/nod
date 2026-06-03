@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-06-02_
+_Last updated: 2026-06-03_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company yet. We've made the
@@ -87,8 +87,9 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
 - **Transcript embeddings.** To let you ask questions across your sessions, we
   store each transcript chunk and its vector embedding in `session_embeddings`.
   The chunk text is a copy of transcript content you already stored; the vector
-  is produced by an embedding model (see Subprocessors). Search is scoped to
-  your own rows by Row-Level Security.
+  is produced **in-region by Supabase's built-in `gte-small` model**, inside our
+  Edge Function — the chunk text is not sent to any external embedding provider
+  (see Subprocessors). Search is scoped to your own rows by Row-Level Security.
 - **Your profile.** The optional name / role / focus you enter (in `profiles`),
   used to give the AI context. You can view, edit, or clear it in Settings.
 - **Session chats.** Messages you exchange with the per-session assistant, in
@@ -142,7 +143,7 @@ sure you comply with the rules where you and your participants are located.
 | Server-side functions | Supabase Edge Functions  | EU                |
 | LLM gateway           | OpenRouter               | routed            |
 | Whisper transcription | OpenAI via Azure OpenAI  | (no-train)        |
-| Text embeddings       | OpenAI via Azure OpenAI  | (no-train)        |
+| Text embeddings       | Supabase Edge runtime (`gte-small`) | in-region, no external provider |
 | LLM summaries         | Google Gemini via Vertex | (no-train)        |
 
 - Daily encrypted backups of the Postgres database, retained 7 days.

@@ -41,6 +41,11 @@ const OPENROUTER_TRANSCRIBE_URL = "https://openrouter.ai/api/v1/audio/transcript
 // `vector(384)` column in `session_embeddings`.
 const EMBEDDING_MODEL = "gte-small";
 
+// Upper bound on how many chunks a single search may pull. The client asks for
+// 8; the cap stops a crafted `match_count` from turning the vector scan into a
+// whole-table read.
+const MAX_SEARCH_MATCHES = 50;
+
 let embeddingSession: { run(input: string, opts: { mean_pool: boolean; normalize: boolean }): Promise<number[]> } | null = null;
 function embedder() {
     if (!embeddingSession) embeddingSession = new Supabase.ai.Session(EMBEDDING_MODEL);
@@ -190,12 +195,18 @@ async function handleIndex(payload: unknown, userId: string): Promise<Response> 
         .select("started_at, kind, user_id")
         .eq("id", meetingId)
         .maybeSingle();
-    // Defence in depth: the chunk's owner must match the JWT user.
-    if (meeting && meeting.user_id !== userId) {
+    // The session must exist and belong to the caller. Skipping this when the
+    // lookup misses would waste embeddings on rows the FK rejects (non-existent
+    // id) or write null started_at/kind metadata (soft-deleted id) that later
+    // time/kind-scoped retrieval can't filter.
+    if (!meeting) {
+        return json({ error: "meeting not found" }, 404);
+    }
+    if (meeting.user_id !== userId) {
         return json({ error: "meeting does not belong to user" }, 403);
     }
-    const startedAt = meeting?.started_at ?? null;
-    const kind = meeting?.kind ?? null;
+    const startedAt = meeting.started_at ?? null;
+    const kind = meeting.kind ?? null;
 
     const rows: { meeting_id: string; user_id: string; chunk_idx: number; content: string; embedding: number[]; started_at: string | null; kind: string | null }[] = [];
     for (let i = 0; i < chunks.length; i++) {
@@ -213,20 +224,34 @@ async function handleIndex(payload: unknown, userId: string): Promise<Response> 
         console.error(`index upsert failed: ${error.message}`);
         return json({ indexed: 0, error: error.message }, 500);
     }
+    // chunk_idx is the 0-based position in the input array, so a re-index that
+    // produces fewer chunks than before leaves stale rows at chunk_idx >=
+    // chunks.length. Prune them so old content can't resurface in search.
+    const { error: pruneError } = await admin
+        .from("session_embeddings")
+        .delete()
+        .eq("meeting_id", meetingId)
+        .gte("chunk_idx", chunks.length);
+    if (pruneError) {
+        console.warn(`index prune failed (non-fatal): ${pruneError.message}`);
+    }
+    await recordEmbedUsage(userId, 200);
     console.log(`index user=${userId} meeting=${meetingId} chunks=${rows.length}`);
     return json({ indexed: rows.length }, 200);
 }
 
 // Cross-session search: embed the query, then rank the user's chunks by cosine
-// similarity via the match RPC (service role + explicit user id; RLS still
-// independently scopes the rows).
+// similarity via the match RPC. The RPC is called with the service role, which
+// bypasses RLS, so the `p_user_id` predicate (set to the verified JWT user) is
+// the row-scoping boundary — not RLS.
 async function handleSearch(payload: unknown, userId: string): Promise<Response> {
     if (!isObject(payload) || typeof payload.query !== "string") {
         return json({ error: "search requires { query }" }, 400);
     }
     const query = payload.query.trim();
     if (query.length === 0) return json({ matches: [] }, 200);
-    const matchCount = typeof payload.match_count === "number" ? payload.match_count : 8;
+    const requestedCount = typeof payload.match_count === "number" ? payload.match_count : 8;
+    const matchCount = Math.min(Math.max(1, Math.floor(requestedCount)), MAX_SEARCH_MATCHES);
     const meetingId = typeof payload.meeting_id === "string" ? payload.meeting_id : null;
 
     let embedding: number[];
@@ -236,6 +261,7 @@ async function handleSearch(payload: unknown, userId: string): Promise<Response>
         console.error(`search embed failed: ${err}`);
         return json({ matches: [], error: "embedding failed" }, 500);
     }
+    await recordEmbedUsage(userId, 200);
 
     const admin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
         auth: { persistSession: false, autoRefreshToken: false },
@@ -345,6 +371,17 @@ async function recordUsage(row: UsageRow): Promise<void> {
     const { error } = await admin.from("usage_events").insert(row);
     if (error) {
         console.warn(`usage_events insert failed: ${error.message}`);
+    }
+}
+
+// gte-small runs inside the Edge runtime (no upstream bill), so we log one
+// `embed` event per index/search call for volume + quota accounting (#17),
+// not dollar cost. Best-effort: a logging failure never blocks the caller.
+async function recordEmbedUsage(userId: string, status: number): Promise<void> {
+    try {
+        await recordUsage({ user_id: userId, kind: "embed", model: EMBEDDING_MODEL, status });
+    } catch (err) {
+        console.warn(`embed usage record skipped: ${err}`);
     }
 }
 
