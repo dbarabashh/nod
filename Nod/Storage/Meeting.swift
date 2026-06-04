@@ -37,16 +37,16 @@ struct Meeting: Codable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case id
-        case userID     = "user_id"
-        case createdAt  = "created_at"
-        case startedAt  = "started_at"
-        case endedAt    = "ended_at"
+        case userID = "user_id"
+        case createdAt = "created_at"
+        case startedAt = "started_at"
+        case endedAt = "ended_at"
         case title
         case kind
         case summary
-        case recap      = "recap_json"
+        case recap = "recap_json"
         case language
-        case deletedAt  = "deleted_at"
+        case deletedAt = "deleted_at"
     }
 
     /// Custom encode so `created_at` and `deleted_at` are omitted when nil
@@ -175,14 +175,10 @@ struct Meeting: Codable, Identifiable {
 // MARK: - Hashable
 
 extension Meeting: Hashable {
-    /// Hash on `id` only — transcripts are arbitrarily long, hashing them
-    /// every time `NavigationLink(value:)` resolves a destination would
-    /// burn CPU for no gain (id is already unique).
+    /// Hash on `id` only — id is already unique, so this satisfies the
+    /// Hashable contract (equal values share an id ⟹ equal hashes) without
+    /// hashing every field on each `NavigationLink(value:)` resolve.
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
-    }
-
-    static func == (lhs: Meeting, rhs: Meeting) -> Bool {
-        lhs.id == rhs.id
     }
 }

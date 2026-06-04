@@ -10,24 +10,24 @@ import Foundation
 /// inline `[Me]`/`[Them]` markers in the text, so the old class of "LLM
 /// leaked the raw transcript label into the recap" bugs is impossible by
 /// construction.
-struct MeetingRecap: Codable {
-    struct Topic: Codable {
+struct MeetingRecap: Codable, Equatable {
+    struct Topic: Codable, Equatable {
         let text: String
         let quote: String?
     }
 
-    struct Decision: Codable {
+    struct Decision: Codable, Equatable {
         let text: String
         let why: String?
     }
 
-    struct Action: Codable {
+    struct Action: Codable, Equatable {
         let owner: String
         let task: String
         let when: String?
     }
 
-    struct OpenQuestion: Codable {
+    struct OpenQuestion: Codable, Equatable {
         let text: String
     }
 
@@ -45,10 +45,10 @@ struct MeetingRecap: Codable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        topics        = (try? c.decode([Topic].self,         forKey: .topics))        ?? []
-        decisions     = (try? c.decode([Decision].self,      forKey: .decisions))     ?? []
-        actions       = (try? c.decode([Action].self,        forKey: .actions))       ?? []
-        openQuestions = (try? c.decode([OpenQuestion].self,  forKey: .openQuestions)) ?? []
+        topics = (try? c.decode([Topic].self, forKey: .topics)) ?? []
+        decisions = (try? c.decode([Decision].self, forKey: .decisions)) ?? []
+        actions = (try? c.decode([Action].self, forKey: .actions)) ?? []
+        openQuestions = (try? c.decode([OpenQuestion].self, forKey: .openQuestions)) ?? []
     }
 }
 
@@ -143,8 +143,8 @@ struct CatchUp: Codable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         currentTopic = (try? c.decode(String.self, forKey: .currentTopic)) ?? ""
-        positions    = (try? c.decode(String.self, forKey: .positions))    ?? ""
-        status       = (try? c.decode(String.self, forKey: .status))       ?? ""
+        positions = (try? c.decode(String.self, forKey: .positions)) ?? ""
+        status = (try? c.decode(String.self, forKey: .status)) ?? ""
     }
 
     func toMarkdown() -> String {
@@ -169,8 +169,8 @@ struct KeyPoints: Codable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        decisions     = (try? c.decode([String].self, forKey: .decisions))     ?? []
-        facts         = (try? c.decode([String].self, forKey: .facts))         ?? []
+        decisions = (try? c.decode([String].self, forKey: .decisions)) ?? []
+        facts = (try? c.decode([String].self, forKey: .facts)) ?? []
         openQuestions = (try? c.decode([String].self, forKey: .openQuestions)) ?? []
     }
 
