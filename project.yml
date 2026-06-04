@@ -38,8 +38,8 @@ targets:
       # version and breaking Sparkle's appcast update flow. scripts/release.sh
       # bumps both this file and Info.plist (PlistBuddy) in lockstep.
       properties:
-        CFBundleShortVersionString: "6.0.4"
-        CFBundleVersion: "18"
+        CFBundleShortVersionString: "6.0.5"
+        CFBundleVersion: "19"
         LSUIElement: true
         NSHumanReadableCopyright: ""
         NSMicrophoneUsageDescription: "Nod needs access to your microphone to capture meeting audio."
