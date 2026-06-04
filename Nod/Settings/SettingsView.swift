@@ -298,8 +298,7 @@ private struct ProfileSettingsSection: View {
     @ObservedObject var store: ProfileStore
 
     @State private var name = ""
-    @State private var role = ""
-    @State private var focus = ""
+    @State private var preferences = ""
     @State private var seeded = false
     @State private var saveState: SaveState = .idle
 
@@ -314,16 +313,19 @@ private struct ProfileSettingsSection: View {
                 .tracking(0.8)
                 .foregroundStyle(Theme.Palette.muted)
 
-            Text(
-                "Added to every summary and answer so Nod responds with your context in mind. Stored privately to your account; nothing here is shared."
-            )
-            .font(.system(size: 12))
-            .foregroundStyle(Theme.Palette.muted)
-            .fixedSize(horizontal: false, vertical: true)
+            Text("Stored privately to your account; nothing here is shared.")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.Palette.muted)
+                .fixedSize(horizontal: false, vertical: true)
 
             field(label: "Your name", placeholder: "Alex", text: $name)
-            field(label: "What you do", placeholder: "Product designer at an early-stage startup", text: $role)
-            field(label: "What you're working on", placeholder: "Shipping our iOS app, hiring two engineers", text: $focus, multiline: true)
+            field(
+                label: "What should Nod help you win at?",
+                placeholder: "Track what people commit to me, surface risks early, and tell me how to make my point more persuasively",
+                text: $preferences,
+                helper: "Your edge in every conversation. Nod tailors each summary to it — so you follow through, stay on top, and get credit for your work.",
+                multiline: true
+            )
 
             saveRow
         }
@@ -375,12 +377,18 @@ private struct ProfileSettingsSection: View {
         }
     }
 
-    private func field(label: String, placeholder: String, text: Binding<String>, multiline: Bool = false) -> some View {
+    private func field(label: String, placeholder: String, text: Binding<String>, helper: String? = nil, multiline: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(label.uppercased())
                 .font(.system(size: 9.5, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(Theme.Palette.muted)
+            if let helper {
+                Text(helper)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             TextField(placeholder, text: text, axis: multiline ? .vertical : .horizontal)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
@@ -402,8 +410,7 @@ private struct ProfileSettingsSection: View {
     private func seedIfNeeded() {
         guard !seeded, let profile = store.profile else { return }
         name = profile.displayName
-        role = profile.role
-        focus = profile.focus
+        preferences = profile.preferences
         seeded = true
     }
 
@@ -411,7 +418,7 @@ private struct ProfileSettingsSection: View {
         saveState = .saving
         Task {
             do {
-                try await store.save(displayName: name, role: role, focus: focus)
+                try await store.save(displayName: name, preferences: preferences)
                 withAnimation { saveState = .saved }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 if saveState == .saved { withAnimation { saveState = .idle } }

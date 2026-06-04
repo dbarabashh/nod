@@ -46,9 +46,9 @@ final class ProfileStore: ObservableObject {
         }
     }
 
-    /// Upserts the three editable fields for the signed-in user. Throws on
-    /// network / RLS error so the caller can surface a retry affordance.
-    func save(displayName: String, role: String, focus: String) async throws {
+    /// Upserts the editable fields for the signed-in user. Throws on network /
+    /// RLS error so the caller can surface a retry affordance.
+    func save(displayName: String, preferences: String) async throws {
         guard let userID = auth.currentSupabaseSession?.user.id else {
             throw ProfileError.notSignedIn
         }
@@ -57,15 +57,13 @@ final class ProfileStore: ObservableObject {
         struct Upsert: Encodable {
             let user_id: UUID
             let display_name: String
-            let role: String
-            let focus: String
+            let preferences: String
             let updated_at: Date
         }
         let payload = Upsert(
             user_id: userID,
             display_name: displayName.trimmedOrEmpty,
-            role: role.trimmedOrEmpty,
-            focus: focus.trimmedOrEmpty,
+            preferences: preferences.trimmedOrEmpty,
             updated_at: Date()
         )
         try await supabase
@@ -76,8 +74,7 @@ final class ProfileStore: ObservableObject {
         profile = Profile(
             userID: userID,
             displayName: payload.display_name,
-            role: payload.role,
-            focus: payload.focus
+            preferences: payload.preferences
         )
     }
 

@@ -1,21 +1,20 @@
 import SwiftUI
 
 /// Onboarding step that seeds the user's always-on context. Everything is
-/// optional — the user can skip — but even a name + one line of focus makes
-/// the very first recap noticeably sharper. The actual upsert is fired by
-/// OnboardingView so this view stays pure and previewable.
+/// optional — the user can skip — but even a name plus one line on how they
+/// want Nod to respond makes the very first recap noticeably sharper. The
+/// actual upsert is fired by OnboardingView so this view stays pure.
 struct ProfileStep: View {
     let initialName: String
-    let onContinue: (_ name: String, _ role: String, _ focus: String) -> Void
+    let onContinue: (_ name: String, _ preferences: String) -> Void
     let onSkip: () -> Void
 
     @State private var name: String
-    @State private var role: String = ""
-    @State private var focus: String = ""
+    @State private var preferences: String = ""
 
     init(
         initialName: String,
-        onContinue: @escaping (String, String, String) -> Void,
+        onContinue: @escaping (String, String) -> Void,
         onSkip: @escaping () -> Void
     ) {
         self.initialName = initialName
@@ -40,7 +39,7 @@ struct ProfileStep: View {
                 .padding(.bottom, 8)
 
             Text(
-                "Nod uses this to make every summary and answer feel like it already knows you. You can change or clear it anytime in Settings."
+                "Your name and how you like Nod to respond — used in every kind of session. You can change or clear it anytime in Settings."
             )
             .multilineTextAlignment(.center)
             .font(.system(size: 13, weight: .regular))
@@ -56,14 +55,10 @@ struct ProfileStep: View {
                     text: $name
                 )
                 ProfileField(
-                    label: "What you do",
-                    placeholder: "Product designer at an early-stage startup",
-                    text: $role
-                )
-                ProfileField(
-                    label: "What you're working on",
-                    placeholder: "Shipping our iOS app, hiring two engineers this quarter",
-                    text: $focus,
+                    label: "What should Nod help you win at?",
+                    placeholder: "Track what people commit to me, surface risks early, and tell me how to make my point more persuasively",
+                    text: $preferences,
+                    helper: "Your edge in every conversation. Nod tailors each summary to it — so you follow through, stay on top, and get credit for your work.",
                     axis: .vertical
                 )
             }
@@ -71,7 +66,7 @@ struct ProfileStep: View {
 
             Spacer(minLength: 0)
 
-            Button(action: { onContinue(name, role, focus) }) {
+            Button(action: { onContinue(name, preferences) }) {
                 Text("Continue")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
@@ -101,6 +96,7 @@ private struct ProfileField: View {
     let label: String
     let placeholder: String
     @Binding var text: String
+    var helper: String?
     var axis: Axis = .horizontal
 
     @FocusState private var focused: Bool
@@ -111,6 +107,13 @@ private struct ProfileField: View {
                 .font(.system(size: 10, weight: .bold))
                 .tracking(0.7)
                 .foregroundStyle(Theme.Palette.muted)
+
+            if let helper {
+                Text(helper)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.graphite)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             TextField(placeholder, text: $text, axis: axis)
                 .textFieldStyle(.plain)
@@ -139,7 +142,7 @@ private struct ProfileField: View {
 #Preview {
     ZStack {
         Theme.Palette.bg.ignoresSafeArea()
-        ProfileStep(initialName: "Dima", onContinue: { _, _, _ in }, onSkip: {})
+        ProfileStep(initialName: "Dima", onContinue: { _, _ in }, onSkip: {})
             .frame(width: 580, height: 540)
     }
 }

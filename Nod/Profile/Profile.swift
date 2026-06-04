@@ -7,21 +7,22 @@ import Foundation
 struct Profile: Codable, Equatable {
     let userID: UUID
     var displayName: String
-    var role: String
-    var focus: String
+    /// How the user wants Nod to work for them — durable, cross-context (e.g.
+    /// "pull out what I committed to, keep summaries short"). Replaces the old
+    /// role/focus fields, which were work-specific and wrong for the many
+    /// non-work sessions (therapy, side projects) a global profile also feeds.
+    var preferences: String
 
     enum CodingKeys: String, CodingKey {
         case userID = "user_id"
         case displayName = "display_name"
-        case role
-        case focus
+        case preferences
     }
 
-    init(userID: UUID, displayName: String = "", role: String = "", focus: String = "") {
+    init(userID: UUID, displayName: String = "", preferences: String = "") {
         self.userID = userID
         self.displayName = displayName
-        self.role = role
-        self.focus = focus
+        self.preferences = preferences
     }
 
     /// Nullable text columns decode as absent or JSON `null`; coalesce both
@@ -30,12 +31,11 @@ struct Profile: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         userID = try c.decode(UUID.self, forKey: .userID)
         displayName = try (c.decodeIfPresent(String.self, forKey: .displayName)) ?? ""
-        role = try (c.decodeIfPresent(String.self, forKey: .role)) ?? ""
-        focus = try (c.decodeIfPresent(String.self, forKey: .focus)) ?? ""
+        preferences = try (c.decodeIfPresent(String.self, forKey: .preferences)) ?? ""
     }
 
     var isEmpty: Bool {
-        displayName.trimmed.isEmpty && role.trimmed.isEmpty && focus.trimmed.isEmpty
+        displayName.trimmed.isEmpty && preferences.trimmed.isEmpty
     }
 
     /// The block prepended to LLM system prompts. Returns "" when nothing is
@@ -46,10 +46,9 @@ struct Profile: Codable, Equatable {
         guard !isEmpty else { return "" }
         var lines = ["[ABOUT THE USER — background only, never invent beyond it]"]
         if !displayName.trimmed.isEmpty { lines.append("- Name: \(displayName.trimmed)") }
-        if !role.trimmed.isEmpty { lines.append("- Role: \(role.trimmed)") }
-        if !focus.trimmed.isEmpty { lines.append("- Currently focused on: \(focus.trimmed)") }
+        if !preferences.trimmed.isEmpty { lines.append("- What they want Nod to focus on: \(preferences.trimmed)") }
         lines.append(
-            "Use this only to interpret who [Me] is and what matters to them. It is NOT part of the transcript — do not attribute it as something that was said."
+            "Use this to interpret who [Me] is and to shape what you emphasise. It is NOT part of the transcript — do not attribute it as something that was said."
         )
         return lines.joined(separator: "\n")
     }

@@ -27,7 +27,9 @@ struct OnboardingView: View {
         .onAppear { permissions.refresh() }
     }
 
-    private var strings: OnboardingStrings { .english }
+    private var strings: OnboardingStrings {
+        .english
+    }
 
     @ViewBuilder
     private var content: some View {
@@ -47,12 +49,12 @@ struct OnboardingView: View {
         case .profile:
             ProfileStep(
                 initialName: auth.session?.user.profileDisplayName ?? "",
-                onContinue: { name, role, focus in
+                onContinue: { name, preferences in
                     // Fire-and-forget: the profile is a nice-to-have, never a
                     // blocker. A transient save failure just leaves the field
                     // empty (recoverable in Settings) — don't gate onboarding
                     // on the network round trip.
-                    Task { try? await profileStore.save(displayName: name, role: role, focus: focus) }
+                    Task { try? await profileStore.save(displayName: name, preferences: preferences) }
                     state.goNext()
                 },
                 onSkip: { state.goNext() }
