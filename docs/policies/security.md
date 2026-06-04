@@ -90,8 +90,16 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
   is produced **in-region by Supabase's built-in `gte-small` model**, inside our
   Edge Function — the chunk text is not sent to any external embedding provider
   (see Subprocessors). Search is scoped to your own rows by Row-Level Security.
-- **Your profile.** The optional name / role / focus you enter (in `profiles`),
-  used to give the AI context. You can view, edit, or clear it in Settings.
+- **Your profile.** The optional name and preferences you enter (in `profiles`),
+  used to give the AI context. You can view, edit, or clear it in Settings. The
+  same row also records your app version, build, OS version, and a last-seen
+  timestamp (see "App version" below).
+- **App version.** On each call to our LLM proxy we stamp your client's app
+  version, build number, OS version, and a last-seen timestamp onto your
+  `profiles` row. This is first-party operational data — used only to help you
+  when you report an issue and to tell you when a release requires an update; it
+  is not sent to any analytics service. A separate `app_config` table holds the
+  minimum/recommended build numbers and contains no personal data.
 - **Session chats.** Messages you exchange with the per-session assistant, in
   `chat_messages`. (The cross-session "Ask Nod" chat is not persisted.)
 - **Entities.** People, projects, and topics extracted from your sessions

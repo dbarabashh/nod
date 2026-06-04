@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var knowledgeStore: KnowledgeStore?
     private var labelStore: LabelStore?
     private var panelSharing: PanelSharingPreference?
+    private var updateGate: UpdateGate?
     private var authObserveTask: Task<Void, Never>?
     private var statusObserveTask: Task<Void, Never>?
     private var panelSharingObserveTask: Task<Void, Never>?
@@ -95,6 +96,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 self?.panel?.orderOut(nil)
             }
         }
+        NotificationCenter.default.addObserver(forName: .nodCheckForUpdates, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in
+                self?.updaterController.checkForUpdates(nil)
+            }
+        }
 
         let permissions = PermissionManager()
         let onboarding = OnboardingState()
@@ -130,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let knowledgeStore = KnowledgeStore(llm: llmClient)
         let labelStore = LabelStore(supabase: supabase, auth: auth)
         let panelSharing = PanelSharingPreference()
+        let updateGate = UpdateGate(supabase: supabase)
 
         audioCapture.onMicBuffer = { [weak transcriptStore] buffer in
             transcriptStore?.appendMicBuffer(buffer)
@@ -154,6 +161,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         self.knowledgeStore = knowledgeStore
         self.labelStore = labelStore
         self.panelSharing = panelSharing
+        self.updateGate = updateGate
+        Task { await updateGate.check() }
 
         panelSharingObserveTask = Task { @MainActor [weak self] in
             // `@Published` fires in willSet, so use the yielded value rather
@@ -338,6 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let entityStore else { Log.ui.error("showFloatingPanel: missing entityStore"); return }
         guard let knowledgeStore else { Log.ui.error("showFloatingPanel: missing knowledgeStore"); return }
         guard let labelStore else { Log.ui.error("showFloatingPanel: missing labelStore"); return }
+        guard let updateGate else { Log.ui.error("showFloatingPanel: missing updateGate"); return }
 
         NSApp.setActivationPolicy(.accessory)
 
@@ -355,6 +365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         .environmentObject(entityStore)
         .environmentObject(knowledgeStore)
         .environmentObject(labelStore)
+        .environmentObject(updateGate)
 
         // Start at the compact width — the panel launches idle. ContentView
         // reports the desired width as the layout changes and the panel

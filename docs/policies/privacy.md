@@ -102,6 +102,12 @@ response content in this table.
 We use this to enforce per-account quotas, choose pricing, and detect
 abuse.
 
+On each proxy call we also stamp your client's app version, build number,
+OS version, and a last-seen timestamp onto your `profiles` row. We use this
+only to support you (knowing your version when you report an issue) and to
+prompt you to update when a release requires it. It is first-party — not sent
+to any analytics service.
+
 Legal basis: legitimate interest in operating a sustainable service
 (Art. 6(1)(f)).
 

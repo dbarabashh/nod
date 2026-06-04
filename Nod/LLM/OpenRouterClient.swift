@@ -11,6 +11,7 @@ import Supabase
 final class OpenRouterClient: ObservableObject {
     enum ClientError: LocalizedError {
         case unauthenticated
+        case updateRequired
         case requestFailed(status: Int, body: String)
         case emptyResponse
         case decodingFailed(String)
@@ -20,6 +21,8 @@ final class OpenRouterClient: ObservableObject {
             switch self {
             case .unauthenticated:
                 "Session expired, please sign in again."
+            case .updateRequired:
+                "This version of Nod is out of date. Please update to continue."
             case let .requestFailed(status, body):
                 "LLM proxy HTTP \(status): \(body)"
             case .emptyResponse:
@@ -223,7 +226,7 @@ final class OpenRouterClient: ObservableObject {
             status == 429 || (status >= 500 && status < 600)
         case .networkFailed:
             true
-        case .unauthenticated, .emptyResponse, .decodingFailed:
+        case .unauthenticated, .updateRequired, .emptyResponse, .decodingFailed:
             false
         }
     }
@@ -402,6 +405,11 @@ final class OpenRouterClient: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        // Lets the proxy enforce the minimum build (426) and stamp the user's
+        // version into their profile row for support/visibility.
+        request.setValue(String(AppVersion.build), forHTTPHeaderField: "x-app-build")
+        request.setValue(AppVersion.version, forHTTPHeaderField: "x-app-version")
+        request.setValue(AppVersion.osVersion, forHTTPHeaderField: "x-os-version")
         request.httpBody = body
 
         let data: Data
@@ -422,6 +430,12 @@ final class OpenRouterClient: ObservableObject {
         }
         if http.statusCode == 401 {
             throw ClientError.unauthenticated
+        }
+        if http.statusCode == 426 {
+            // Proxy rejected a build below `minimum_build`. Flip the gate so
+            // the update screen shows even if the launch check was skipped.
+            NotificationCenter.default.post(name: .nodUpdateRequired, object: nil)
+            throw ClientError.updateRequired
         }
         if http.statusCode >= 400 {
             let raw = String(data: data, encoding: .utf8) ?? "<binary>"

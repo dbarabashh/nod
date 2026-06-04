@@ -88,6 +88,7 @@ struct ContentView: View {
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var entityStore: EntityStore
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
+    @EnvironmentObject private var updateGate: UpdateGate
 
     /// Always-on personal context prepended to every LLM system prompt so
     /// recaps and live cards read as if Nod already knows the user. "" when
@@ -210,6 +211,22 @@ struct ContentView: View {
                     }
                 )
                 .zIndex(1)
+            }
+
+            if case .recommended = updateGate.status {
+                VStack {
+                    UpdateBanner(
+                        onUpdate: { updateGate.startUpdate() },
+                        onDismiss: { updateGate.dismissRecommended() }
+                    )
+                    Spacer(minLength: 0)
+                }
+                .zIndex(3)
+            }
+
+            if updateGate.status == .required {
+                UpdateRequiredOverlay(onUpdate: { updateGate.startUpdate() })
+                    .zIndex(4)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1803,6 +1820,97 @@ private func lightFrostedBubble(cornerRadius: CGFloat) -> some View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(Color.white.opacity(0.4), lineWidth: 0.5)
         )
+}
+
+/// Blocking screen shown when the running build is below the server
+/// `minimum_build` — a backend change has made this version unusable, so the
+/// only path forward is to update. Covers the whole panel and eats input.
+private struct UpdateRequiredOverlay: View {
+    let onUpdate: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.6)
+                .contentShape(Rectangle())
+            VStack(spacing: 12) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 34, weight: .regular))
+                    .foregroundColor(DesignTokens.Palette.electricBlue)
+                Text("Update to keep using Nod")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                Text(
+                    "This version is out of date. Update to the latest to keep recording and summarizing — your meetings are saved to your account, so nothing is lost."
+                )
+                .font(.system(size: 12.5, weight: .regular))
+                .foregroundColor(.white.opacity(0.72))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                Button(action: onUpdate) {
+                    Text("Update & Relaunch")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(20)
+            .frame(maxWidth: 280)
+            .background(
+                ZStack {
+                    PanelMaterial()
+                    Color.black.opacity(0.25)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            )
+            .shadow(color: Color.black.opacity(0.35), radius: 16, x: 0, y: 8)
+            .padding(16)
+        }
+    }
+}
+
+/// Dismissible nudge for a build below `recommended_build` but still usable.
+private struct UpdateBanner: View {
+    let onUpdate: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(DesignTokens.Palette.electricBlue)
+            Text("A new version of Nod is available")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white.opacity(0.9))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Button("Update", action: onUpdate)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(DesignTokens.Palette.electricBlue)
+                .buttonStyle(.plain)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.white.opacity(0.5))
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            ZStack {
+                PanelMaterial()
+                Color.black.opacity(0.18)
+            }
+            .clipShape(Capsule(style: .continuous))
+        )
+        .shadow(color: Color.black.opacity(0.25), radius: 8, x: 0, y: 3)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
 }
 
 private struct SaveErrorToast: View {

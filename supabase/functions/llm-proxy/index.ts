@@ -69,6 +69,44 @@ interface ProxyRequest {
     payload: unknown;
 }
 
+function adminClient() {
+    return createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
+        auth: { persistSession: false, autoRefreshToken: false },
+    });
+}
+
+// `app_config.minimum_build`, cached per warm instance so the gate doesn't add
+// a DB round-trip to every proxy call. 0 (fail-open) when the row can't be read.
+let cachedMinBuild: { value: number; at: number } | null = null;
+const MIN_BUILD_TTL_MS = 60_000;
+
+async function minimumBuild(admin: ReturnType<typeof adminClient>): Promise<number> {
+    const now = Date.now();
+    if (cachedMinBuild && now - cachedMinBuild.at < MIN_BUILD_TTL_MS) return cachedMinBuild.value;
+    const { data, error } = await admin
+        .from("app_config")
+        .select("minimum_build")
+        .eq("singleton", true)
+        .single();
+    const value = (!error && data && typeof data.minimum_build === "number") ? data.minimum_build : 0;
+    cachedMinBuild = { value, at: now };
+    return value;
+}
+
+// Stamp the client's build/version onto its profile row — version visibility
+// without an analytics SDK. Best-effort: a logging failure must never block
+// the LLM call. `update` (not upsert) so we never create empty profile rows.
+async function stampClientVersion(admin: ReturnType<typeof adminClient>, userId: string, req: Request): Promise<void> {
+    const build = parseInt(req.headers.get("x-app-build") ?? "", 10);
+    if (!Number.isFinite(build)) return;
+    await admin.from("profiles").update({
+        app_build: build,
+        app_version: req.headers.get("x-app-version"),
+        os_version: req.headers.get("x-os-version"),
+        last_seen_at: new Date().toISOString(),
+    }).eq("user_id", userId);
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
     if (req.method !== "POST") {
         return json({ error: "Method Not Allowed" }, 405);
@@ -88,6 +126,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (userError || !user) {
         console.warn(`JWT rejected: ${userError?.message ?? "no user"}`);
         return json({ error: "Unauthenticated" }, 401);
+    }
+
+    // Version gate + stamp. The gate (426) is the backstop for a stale client
+    // that slipped past the launch check; the stamp records the build for
+    // support visibility. Both fail open — a config/stamp error never blocks
+    // a legitimate call.
+    const admin = adminClient();
+    const appBuild = parseInt(req.headers.get("x-app-build") ?? "", 10) || 0;
+    const minBuild = await minimumBuild(admin);
+    if (appBuild < minBuild) {
+        return json({ error: "update_required", minimum_build: minBuild }, 426);
+    }
+    try {
+        await stampClientVersion(admin, user.id, req);
+    } catch (err) {
+        console.warn(`version stamp skipped: ${err}`);
     }
 
     let body: ProxyRequest;
