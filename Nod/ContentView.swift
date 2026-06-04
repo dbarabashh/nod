@@ -887,6 +887,7 @@ private struct StatusHeader: View {
             // ~5s chunk. Locking it forced a full End-meeting just to fix a
             // wrong pick, with no other recovery path.
             LanguagePicker(current: language, onSelect: onLanguageSelect)
+            PanelMenuButton()
             if let onCollapse {
                 PanelIconButton(
                     systemName: "chevron.up",
@@ -978,6 +979,38 @@ private struct PanelIconButton: View {
         }
         .buttonStyle(.plain)
         .help(help)
+    }
+}
+
+private struct PanelMenuButton: View {
+    var body: some View {
+        Menu {
+            Button("Settings…") {
+                NotificationCenter.default.post(name: .nodOpenSettings, object: nil)
+            }
+            Button("Library…") {
+                NotificationCenter.default.post(name: .nodOpenLibrary, object: nil)
+            }
+            Divider()
+            Button("Hide Panel") {
+                NotificationCenter.default.post(name: .nodHidePanel, object: nil)
+            }
+            Divider()
+            Button("Quit Nod") {
+                NSApp.terminate(nil)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(.white.opacity(0.6))
+                .frame(width: 22, height: 22)
+                .contentShape(Circle())
+                .background(Circle().fill(Color.white.opacity(0.10)))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More — Settings, Library, Quit Nod")
     }
 }
 

@@ -36,8 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var entityStore: EntityStore?
     private var knowledgeStore: KnowledgeStore?
     private var labelStore: LabelStore?
+    private var panelSharing: PanelSharingPreference?
     private var authObserveTask: Task<Void, Never>?
     private var statusObserveTask: Task<Void, Never>?
+    private var panelSharingObserveTask: Task<Void, Never>?
     private var pendingCallbackURLs: [URL] = []
     private var statusItem: NSStatusItem?
 
@@ -76,6 +78,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             }
         }
 
+        NotificationCenter.default.addObserver(forName: .nodOpenSettings, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in
+                self?.showSettingsWindow()
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+        NotificationCenter.default.addObserver(forName: .nodOpenLibrary, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in
+                self?.showHistoryWindow(focusing: nil)
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+        NotificationCenter.default.addObserver(forName: .nodHidePanel, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in
+                self?.panel?.orderOut(nil)
+            }
+        }
+
         let permissions = PermissionManager()
         let onboarding = OnboardingState()
         let audioCapture = AudioCaptureService()
@@ -109,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let entityStore = EntityStore(supabase: supabase)
         let knowledgeStore = KnowledgeStore(llm: llmClient)
         let labelStore = LabelStore(supabase: supabase, auth: auth)
+        let panelSharing = PanelSharingPreference()
 
         audioCapture.onMicBuffer = { [weak transcriptStore] buffer in
             transcriptStore?.appendMicBuffer(buffer)
@@ -132,6 +153,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         self.entityStore = entityStore
         self.knowledgeStore = knowledgeStore
         self.labelStore = labelStore
+        self.panelSharing = panelSharing
+
+        panelSharingObserveTask = Task { @MainActor [weak self] in
+            // `@Published` fires in willSet, so use the yielded value rather
+            // than re-reading the (still-stale) stored property.
+            for await visible in panelSharing.$visibleWhenSharing.values {
+                self?.panel?.sharingType = visible ? .readOnly : .none
+            }
+        }
 
         statusObserveTask = Task { @MainActor [weak self] in
             guard let self, let audioCapture = self.audioCapture else { return }
@@ -333,6 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             contentRect: NSRect(x: 0, y: 0, width: PanelWidth.compact, height: 560),
             content: content
         )
+        panel.sharingType = panelSharing?.sharingType ?? .none
         panel.positionOnLeftCenter()
         panel.orderFrontRegardless()
         self.panel = panel
@@ -454,7 +485,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.delegate = self
         window.appearance = NSAppearance(named: .darkAqua)
         window.center()
-        window.contentViewController = NSHostingController(rootView: SettingsView(profileStore: profileStore))
+        window.contentViewController = NSHostingController(rootView: SettingsView(profileStore: profileStore, panelSharing: panelSharing))
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window
     }
@@ -671,6 +702,11 @@ extension Notification.Name {
     /// NavigationStack. `userInfo` carries the meeting id under
     /// `Notification.nodMeetingIDKey`.
     static let nodOpenMeetingDetail = Notification.Name("nod.history.openMeetingDetail")
+
+    /// Posted by the panel's overflow (•••) menu.
+    static let nodOpenSettings = Notification.Name("nod.app.openSettings")
+    static let nodOpenLibrary = Notification.Name("nod.app.openLibrary")
+    static let nodHidePanel = Notification.Name("nod.app.hidePanel")
 }
 
 extension Notification {

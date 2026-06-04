@@ -66,6 +66,7 @@
 		D84D5D9E5ECCF2FFAD649C8B /* VADTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBE1BC44C95C259F37AD22A /* VADTests.swift */; };
 		E061F49FCEB8000FC6F7C7ED /* KnowledgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F87B4B9B59126F1C2C3F03D /* KnowledgeStore.swift */; };
 		E921B8D16149DA9377465008 /* OpenRouterClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C387BE5834160BB925911FD /* OpenRouterClient.swift */; };
+		EEA861C5649D2B980DEE689A /* PanelSharingPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82E2F53E4ED8663AD1E80FA8 /* PanelSharingPreference.swift */; };
 		F20C04690CB7F912D45179A8 /* ChatComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D38AB0BD78B0CB793AB8EA /* ChatComponents.swift */; };
 		F2A27CDC2D9CAB6A2AA1C84C /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0516E22D5937F9048CF245 /* AuthService.swift */; };
 		FE676DBA9D1CDFDB99F884F9 /* ConsentDisclaimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04215CD4FC63669F17748D86 /* ConsentDisclaimerView.swift */; };
@@ -120,6 +121,7 @@
 		788ED7BF85064ED472B8C746 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
 		7F365DD35A0D5B3EA0620B5E /* SampleBufferConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleBufferConverter.swift; sourceTree = "<group>"; };
 		81D03EEAD614C04C403B637C /* ProfileStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStep.swift; sourceTree = "<group>"; };
+		82E2F53E4ED8663AD1E80FA8 /* PanelSharingPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelSharingPreference.swift; sourceTree = "<group>"; };
 		836ECC9300366B55625FD336 /* OnboardingStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStrings.swift; sourceTree = "<group>"; };
 		849AD3013760BB7678733664 /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
 		86C4F428FD6F12CEA91AEA39 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
@@ -317,6 +319,7 @@
 		C14784DC15C544C1BAC5002A /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				82E2F53E4ED8663AD1E80FA8 /* PanelSharingPreference.swift */,
 				C15CB8A8AEF1BCA90EB0DEF4 /* SettingsView.swift */,
 			);
 			path = Settings;
@@ -549,6 +552,7 @@
 				38911BFE6BDB5FF1BD611BA7 /* OnboardingStrings.swift in Sources */,
 				5613A8BEF0A4D85BACF8BFCA /* OnboardingView.swift in Sources */,
 				E921B8D16149DA9377465008 /* OpenRouterClient.swift in Sources */,
+				EEA861C5649D2B980DEE689A /* PanelSharingPreference.swift in Sources */,
 				202E966E3FB86EE0D5366D1D /* PermissionManager.swift in Sources */,
 				B4FC2F2E94721DFC26D17642 /* PermissionRow.swift in Sources */,
 				069D87CF5F5FD5350461D1EF /* PermissionsStep.swift in Sources */,

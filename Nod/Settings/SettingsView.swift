@@ -7,14 +7,16 @@ struct SettingsView: View {
     /// Optional so previews (and any future env-free mount) work without a
     /// live Supabase-backed store. nil → the profile section is omitted.
     private let profileStore: ProfileStore?
+    private let panelSharing: PanelSharingPreference?
 
-    init(profileStore: ProfileStore? = nil) {
+    init(profileStore: ProfileStore? = nil, panelSharing: PanelSharingPreference? = nil) {
         self.profileStore = profileStore
+        self.panelSharing = panelSharing
     }
 
     /// Left-rail categories. Each maps to one detail pane.
     private enum Tab: String, CaseIterable, Identifiable {
-        case profile, suggestReply, shortcuts
+        case profile, general, suggestReply, shortcuts
         var id: String {
             rawValue
         }
@@ -22,6 +24,7 @@ struct SettingsView: View {
         var title: String {
             switch self {
             case .profile: "Profile"
+            case .general: "General"
             case .suggestReply: "Suggest reply"
             case .shortcuts: "Shortcuts"
             }
@@ -30,6 +33,7 @@ struct SettingsView: View {
         var icon: String {
             switch self {
             case .profile: "person.crop.circle"
+            case .general: "gearshape"
             case .suggestReply: "sparkles"
             case .shortcuts: "keyboard"
             }
@@ -62,11 +66,26 @@ struct SettingsView: View {
                 navButton(item)
             }
             Spacer(minLength: 0)
+
+            // Selectable so a user can copy it verbatim into a bug report.
+            Text(Self.versionString)
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.Palette.muted)
+                .textSelection(.enabled)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 4)
         }
         .padding(12)
         // Clear the traffic-light buttons that float over the transparent titlebar.
         .padding(.top, 28)
         .frame(width: 210, alignment: .top)
+    }
+
+    private static var versionString: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String ?? "—"
+        return "Nod \(version) (\(build))"
     }
 
     private func navButton(_ item: Tab) -> some View {
@@ -107,6 +126,7 @@ struct SettingsView: View {
 
                 switch tab {
                 case .profile: profilePane
+                case .general: generalPane
                 case .suggestReply: suggestReplyPane
                 case .shortcuts: shortcutsPane
                 }
@@ -118,6 +138,13 @@ struct SettingsView: View {
             .padding(.top, 14)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var generalPane: some View {
+        if let panelSharing {
+            ScreenShareSettingsSection(pref: panelSharing)
+        }
     }
 
     @ViewBuilder
@@ -167,6 +194,25 @@ struct SettingsView: View {
                 subtitle: "Toggle the floating panel from anywhere, even when another app is focused. Avoid ⌘H — macOS reserves it."
             ) {
                 HotkeyRecorderView(hotkey: hotkey, action: .togglePanel)
+            }
+        }
+    }
+}
+
+private struct ScreenShareSettingsSection: View {
+    @ObservedObject var pref: PanelSharingPreference
+
+    var body: some View {
+        SettingsCard {
+            SettingsRow(
+                icon: "rectangle.on.rectangle",
+                title: "Show Nod when you share your screen",
+                subtitle: "Off by default, so Nod stays out of your screen shares and recordings. Turn it on to keep the panel visible — handy when you're presenting with Nod on screen or recording a walkthrough."
+            ) {
+                Toggle("", isOn: $pref.visibleWhenSharing)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(Theme.Palette.violet)
             }
         }
     }

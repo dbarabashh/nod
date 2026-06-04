@@ -23,11 +23,13 @@ final class FloatingPanel<Content: View>: NSPanel {
         // borders = white.opacity(...)), so a light `.hudWindow` material
         // would leave the panel near-invisible for Light-mode users.
         appearance = NSAppearance(named: .vibrantDark)
-        // Floating utility panels shouldn't be part of the user's screen-share.
-        // Same default as Raycast / 1Password / Notification Center — the user's
-        // private workspace doesn't bleed into the content they explicitly
-        // shared with Zoom / Meet / Teams. Respected by all standard macOS
-        // capture APIs (SCStream, CGWindowList, AVCaptureScreenInput).
+        // Floating utility panels shouldn't be part of the user's screen-share
+        // by default. Same default as Raycast / 1Password / Notification Center —
+        // the user's private workspace doesn't bleed into the content they
+        // explicitly shared with Zoom / Meet / Teams. Respected by all standard
+        // macOS capture APIs (SCStream, CGWindowList, AVCaptureScreenInput).
+        // AppDelegate overrides this from PanelSharingPreference when the user
+        // opts the panel into screen shares (e.g. presenting with Nod on screen).
         sharingType = .none
         collectionBehavior = [
             .canJoinAllSpaces,
