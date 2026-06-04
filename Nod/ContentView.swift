@@ -824,7 +824,6 @@ private struct InputDevicePickerRow: View {
             .background(
                 Capsule(style: .continuous)
                     .fill(Color.white.opacity(0.06))
-                    .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.5))
             )
         }
         .menuStyle(.borderlessButton)
@@ -899,17 +898,16 @@ private struct StatusHeader: View {
         .padding(.leading, 12)
         .padding(.trailing, 6)
         .padding(.vertical, 7)
-        // Matches the StartMeetingButton's treatment — frosted material +
-        // subtle white-stroke border, no heavy black overlay — so the two
-        // pills sit together as a coherent Raycast-style command surface.
-        // The border goes amber while paused so the "stopped" state reads
-        // even at a glance, without relying on the small label alone.
+        // Frosted material with no border by default — the pills read as a
+        // clean Raycast-style command surface. An amber border appears only
+        // while paused so the "stopped" state reads at a glance, without
+        // relying on the small label alone.
         .background(
             PanelMaterial()
                 .clipShape(Capsule(style: .continuous))
                 .overlay(Capsule().stroke(
-                    meeting == .paused ? Theme.Palette.warning.opacity(0.55) : Color.white.opacity(0.12),
-                    lineWidth: meeting == .paused ? 1 : 0.5
+                    meeting == .paused ? Theme.Palette.warning.opacity(0.55) : Color.clear,
+                    lineWidth: meeting == .paused ? 1 : 0
                 ))
         )
         .onAppear { pulsing = true }
@@ -1047,7 +1045,6 @@ private struct CollapsedCapsule: View {
                 Color.black.opacity(0.18)
             }
             .clipShape(Capsule(style: .continuous))
-            .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.5))
         )
         .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
         .onAppear { pulsing = true }
@@ -1113,7 +1110,6 @@ private struct LanguagePicker: View {
             .background(
                 Capsule(style: .continuous)
                     .fill(Color.white.opacity(0.06))
-                    .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
             )
         }
         .menuStyle(.borderlessButton)
@@ -1157,10 +1153,6 @@ private struct StartMeetingButton: View {
                     Color.white.opacity(hovered ? 0.06 : 0.02)
                 }
                 .clipShape(Capsule(style: .continuous))
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                )
             )
             .scaleEffect(pressed ? 0.985 : 1.0)
             .animation(.easeOut(duration: 0.10), value: pressed)
@@ -1196,10 +1188,6 @@ private struct SessionKindPicker: View {
                 Color.white.opacity(0.05)
             }
             .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .stroke(Color.white.opacity(0.14), lineWidth: 0.5)
-            )
         )
     }
 
@@ -1222,10 +1210,6 @@ private struct SessionKindPicker: View {
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(isSelected ? Color.white.opacity(0.10) : .clear)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(isSelected ? Color.white.opacity(0.14) : .clear, lineWidth: 0.5)
-                    )
             )
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
@@ -1358,10 +1342,6 @@ private struct HeroButton: View {
                         .opacity(0.20)
                 }
                 .clipShape(Capsule(style: .continuous))
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(DesignTokens.Shadow.insetSubtle2, lineWidth: 0.6)
-                )
             )
             .shadow(color: DesignTokens.Palette.magentaBurst.opacity(0.35), radius: 10, x: 0, y: 4)
             .opacity(enabled ? 1.0 : 0.55)
@@ -1414,7 +1394,6 @@ private struct SuggestionPill: View {
                         .background(
                             Capsule(style: .continuous)
                                 .fill(Color.white.opacity(0.10))
-                                .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
                         )
                 }
             }
@@ -1431,10 +1410,6 @@ private struct SuggestionPill: View {
                     Color.white.opacity(0.04)
                 }
                 .clipShape(Capsule(style: .continuous))
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(Theme.Palette.border, lineWidth: 0.5)
-                )
             )
             .opacity(enabled ? 1.0 : 0.55)
         }
@@ -1543,10 +1518,6 @@ private struct ResponseCard: View {
                     }
                 }
                 .background(Color.white.opacity(0.04))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
-                )
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .frame(minHeight: 180, maxHeight: 320)
                 .disabled(isApplyingEdit && !isPreviewingRecap)
@@ -1591,10 +1562,6 @@ private struct ResponseCard: View {
                 Color.black.opacity(0.18)
             }
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.white.opacity(0.14), lineWidth: 0.5)
-            )
         )
         .shadow(color: Color.black.opacity(0.30), radius: 12, x: 0, y: 6)
         .onAppear {
@@ -1650,7 +1617,6 @@ private struct ResponseCard: View {
         .background(
             Capsule(style: .continuous)
                 .fill(Color.white.opacity(0.06))
-                .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.5))
         )
     }
 
@@ -1711,10 +1677,6 @@ private struct MiniAction: View {
             .background(
                 Capsule(style: .continuous)
                     .fill(Color.white.opacity(0.1))
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
-                    )
             )
         }
         .buttonStyle(.plain)
@@ -1789,10 +1751,6 @@ private struct StatusIcon<Content: View>: View {
                 content
             }
             .frame(width: 32, height: 32)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-            )
             .shadow(color: Color.black.opacity(0.25), radius: 4, x: 0, y: 2)
         }
         .buttonStyle(.plain)
@@ -1863,7 +1821,6 @@ private struct SaveErrorToast: View {
                 Theme.Palette.bgSoft.opacity(0.50)
             }
             .clipShape(Capsule(style: .continuous))
-            .overlay(Capsule().stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
         )
         .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
     }
