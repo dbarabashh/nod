@@ -119,24 +119,22 @@ struct KnowledgeChatView: View {
         }
     }
 
+    @ViewBuilder
     private func bubble(_ message: QAMessage) -> some View {
-        let isUser = message.role == .user
-        return VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
+        if message.role == .user {
             HStack {
-                if isUser { Spacer(minLength: 40) }
-                Text(isUser ? userAttributed(message) : renderRecapMarkdown(message.content))
-                    .font(.system(size: 13.5))
-                    .tint(.white)
-                    .foregroundStyle(isUser ? Color.white : Theme.Palette.ink.opacity(0.95))
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .chatBubbleBackground(isUser: isUser)
-                    .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
-                if !isUser { Spacer(minLength: 40) }
+                Spacer(minLength: 40)
+                UserTextBubble(text: userAttributed(message))
             }
-            if !isUser, !message.sources.isEmpty {
-                sourcesRow(message.sources)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    AssistantTextBubble(content: message.content)
+                    Spacer(minLength: 40)
+                }
+                if !message.sources.isEmpty {
+                    sourcesRow(message.sources)
+                }
             }
         }
     }

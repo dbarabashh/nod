@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Chat UI primitives shared by the per-session chat (`SessionChatView`) and
@@ -67,6 +68,85 @@ struct ChatSuggestionChip: View {
             )
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// An assistant chat turn: the rendered reply with a copy affordance that
+/// reveals on hover. Shared by the per-session and cross-session chats so the
+/// bubble, markdown rendering, and copy behaviour stay identical. Callers
+/// supply the trailing layout (gutter spacer, any sources row).
+struct AssistantTextBubble: View {
+    private let content: String
+    private let rendered: AttributedString
+    @State private var isHovering = false
+
+    init(content: String) {
+        self.content = content
+        rendered = renderRecapMarkdown(content)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(rendered)
+                .font(.system(size: 13.5))
+                .foregroundStyle(Theme.Palette.ink.opacity(0.95))
+                .textSelection(.enabled)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .chatBubbleBackground(isUser: false)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ChatCopyButton(text: content)
+                .padding(.leading, 2)
+                .opacity(isHovering ? 1 : 0)
+                .animation(.easeInOut(duration: 0.12), value: isHovering)
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+    }
+}
+
+/// A user chat turn: the right-aligned violet bubble. The `.tint(.white)` keeps
+/// inline links (e.g. @-mentions) legible on the violet fill.
+struct UserTextBubble: View {
+    let text: AttributedString
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 13.5))
+            .tint(.white)
+            .foregroundStyle(Color.white)
+            .textSelection(.enabled)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .chatBubbleBackground(isUser: true)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+}
+
+/// Copies an assistant reply to the pasteboard, flashing a checkmark on tap.
+struct ChatCopyButton: View {
+    let text: String
+    @State private var copied = false
+
+    var body: some View {
+        Button(action: copy) {
+            HStack(spacing: 4) {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(copied ? "Copied" : "Copy")
+                    .font(.system(size: 10.5, weight: .medium))
+            }
+            .foregroundStyle(copied ? Theme.Palette.violet : Theme.Palette.muted)
+        }
+        .buttonStyle(.plain)
+        .help("Copy to clipboard")
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
     }
 }
 

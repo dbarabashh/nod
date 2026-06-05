@@ -96,19 +96,18 @@ struct SessionChatView: View {
         }
     }
 
+    @ViewBuilder
     private func bubble(_ message: ChatMessage) -> some View {
-        let isUser = message.role == .user
-        return HStack {
-            if isUser { Spacer(minLength: 40) }
-            Text(isUser ? AttributedString(message.content) : renderRecapMarkdown(message.content))
-                .font(.system(size: 13.5))
-                .foregroundStyle(isUser ? Color.white : Theme.Palette.ink.opacity(0.95))
-                .textSelection(.enabled)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .chatBubbleBackground(isUser: isUser)
-                .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
-            if !isUser { Spacer(minLength: 40) }
+        if message.role == .user {
+            HStack {
+                Spacer(minLength: 40)
+                UserTextBubble(text: AttributedString(message.content))
+            }
+        } else {
+            HStack {
+                AssistantTextBubble(content: message.content)
+                Spacer(minLength: 40)
+            }
         }
     }
 

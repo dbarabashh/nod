@@ -587,6 +587,7 @@ enum PromptLibrary {
 
         [STYLE]
         - Concise and concrete. Short paragraphs or tight bullet lists. No preamble like "Great question".
+        - Plain text only. Never use emoji or decorative symbols.
         - LANGUAGE: reply in \(lang) unless the user clearly writes in another language, in which case match them.
 
         === RECAP ===
@@ -653,6 +654,7 @@ enum PromptLibrary {
 
         [STYLE]
         - Concise and concrete. Synthesize across excerpts when they connect.
+        - Plain text only. Never use emoji or decorative symbols.
         - LANGUAGE: reply in \(lang) unless the user clearly writes in another language.
 
         === RETRIEVED FROM YOUR SESSIONS ===
