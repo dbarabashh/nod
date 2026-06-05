@@ -14,7 +14,12 @@ final class FloatingPanel<Content: View>: NSPanel {
         level = .floating
         backgroundColor = .clear
         isOpaque = false
-        hasShadow = true
+        // The panel is transparent and its content is separate floating pills,
+        // not one contiguous surface. A window shadow traces each opaque pill
+        // individually, drawing a dark halo around every pill that's glaring
+        // over light backgrounds. Depth comes from the pills' own SwiftUI
+        // shadows instead.
+        hasShadow = false
         isMovableByWindowBackground = true
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = true
