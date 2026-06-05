@@ -225,7 +225,7 @@ struct KnowledgeChatView: View {
                 .foregroundStyle(Theme.Palette.ink)
                 .lineLimit(1 ... 5)
                 .focused($inputFocused)
-                .onSubmit { send() }
+                .chatSubmit(text: $draft) { send() }
                 // A word-boundary "@" opens the session picker (and is consumed
                 // — the chosen mention is re-inserted as "@Title" inline). A
                 // mid-word "@" (e.g. an email or handle) stays literal.
@@ -258,7 +258,6 @@ struct KnowledgeChatView: View {
             }
             .buttonStyle(.plain)
             .disabled(!canSend)
-            .keyboardShortcut(.return, modifiers: [])
         }
     }
 

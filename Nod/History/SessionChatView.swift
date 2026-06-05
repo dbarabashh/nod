@@ -144,7 +144,7 @@ struct SessionChatView: View {
                 .lineLimit(1 ... 5)
                 .focused($inputFocused)
                 .disabled(!isReady)
-                .onSubmit { send() }
+                .chatSubmit(text: $draft) { send() }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
                 .background(
@@ -167,7 +167,6 @@ struct SessionChatView: View {
             }
             .buttonStyle(.plain)
             .disabled(!canSend)
-            .keyboardShortcut(.return, modifiers: [])
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)

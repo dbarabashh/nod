@@ -18,6 +18,30 @@ extension View {
                 )
         )
     }
+
+    /// Messaging-convention submit for a multiline composer: plain Return
+    /// sends, Shift+Return inserts a newline. Both Return events are consumed —
+    /// letting Shift+Return fall through made AppKit treat Shift as a selection
+    /// modifier and select-all instead of inserting a line break — so the
+    /// newline is appended to the bound text ourselves. On macOS 13, where
+    /// `onKeyPress` is unavailable, falls back to `onSubmit` (Return sends; the
+    /// field inserts the newline natively on Shift+Return).
+    @ViewBuilder
+    func chatSubmit(text: Binding<String>, onSend: @escaping () -> Void) -> some View {
+        if #available(macOS 14.0, *) {
+            onKeyPress(phases: .down) { keyPress in
+                guard keyPress.key == .return else { return .ignored }
+                if keyPress.modifiers.contains(.shift) {
+                    text.wrappedValue += "\n"
+                } else {
+                    onSend()
+                }
+                return .handled
+            }
+        } else {
+            onSubmit(onSend)
+        }
+    }
 }
 
 /// A tappable example-prompt chip shown in a chat's empty state.
