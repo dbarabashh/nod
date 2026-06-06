@@ -2,43 +2,6 @@ import AppKit
 import Supabase
 import SwiftUI
 
-/// Behind-window blur for the floating panel's surfaces. SwiftUI's
-/// `.ultraThinMaterial` uses `withinWindow` blending by default, which
-/// renders as solid black on a `.nonactivatingPanel` that has no own
-/// content for it to sample. `.behindWindow` samples the desktop / app
-/// underneath the panel, which is what users actually see through it.
-///
-/// Because `.behindWindow` samples the desktop, the bare material goes pale
-/// over a light wallpaper / light app window — and the white-on-dark content
-/// drawn on top loses contrast. A dark scrim pins every surface to a
-/// consistent dark glass regardless of what's behind the panel.
-private struct PanelMaterial: View {
-    var material: NSVisualEffectView.Material = .hudWindow
-
-    var body: some View {
-        ZStack {
-            PanelEffect(material: material)
-            DesignTokens.Surface.level0.opacity(0.32)
-        }
-    }
-}
-
-private struct PanelEffect: NSViewRepresentable {
-    var material: NSVisualEffectView.Material = .hudWindow
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-    }
-}
-
 // MARK: - State
 
 /// Compact vs wide panel footprint. Shared by `ContentView` (layout) and
@@ -122,6 +85,13 @@ struct ContentView: View {
     /// True while the recording-consent modal is on screen; gates startMeeting()
     /// before audio capture begins. See issue #4.
     @State private var showConsentDisclaimer: Bool = false
+    /// True while the per-meeting language confirm is on screen. Shown when the
+    /// user taps Start so a stale language pin can't silently carry into a new
+    /// meeting; on confirm we fall through to the consent gate / recording.
+    @State private var showLanguagePrompt: Bool = false
+    /// Whether to show the language confirm on Start. User-toggleable from the
+    /// popup's checkbox and Settings → General.
+    @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting: Bool = MeetingLanguagePromptDefaults.defaultValue
 
     // MARK: - Meeting persistence (issue #14)
 
@@ -282,11 +252,22 @@ struct ContentView: View {
             switch meeting {
             case .idle:
                 SessionKindPicker(selection: $selectedKind)
-                StartMeetingButton(
-                    title: selectedKind.startActionTitle,
-                    icon: selectedKind.icon,
-                    action: startMeeting
-                )
+                if showLanguagePrompt {
+                    MeetingLanguagePrompt(
+                        language: language.current,
+                        askEachTime: $confirmLanguageBeforeMeeting,
+                        onStart: { setLanguagePrompt(false); startMeeting() },
+                        onCancel: { setLanguagePrompt(false) }
+                    )
+                } else {
+                    StartMeetingButton(
+                        title: selectedKind.startActionTitle,
+                        icon: selectedKind.icon,
+                        action: {
+                            confirmLanguageBeforeMeeting ? setLanguagePrompt(true) : startMeeting()
+                        }
+                    )
+                }
 
             case .recording, .paused:
                 // One primary action (Catch me up — absorbs the old "Recap
@@ -386,6 +367,10 @@ struct ContentView: View {
     }
 
     // MARK: - Actions
+
+    private func setLanguagePrompt(_ shown: Bool) {
+        withAnimation(.easeOut(duration: 0.15)) { showLanguagePrompt = shown }
+    }
 
     private func startMeeting() {
         // Consent gate: show the disclaimer modal before any audio capture

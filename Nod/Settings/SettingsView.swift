@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject private var hotkey = HotkeyManager.shared
     @AppStorage(ReplyContext.defaultsKey) private var replyContext: ReplyContext = .auto
+    @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting: Bool = MeetingLanguagePromptDefaults.defaultValue
 
     /// Optional so previews (and any future env-free mount) work without a
     /// live Supabase-backed store. nil → the profile section is omitted.
@@ -140,10 +141,24 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity)
     }
 
-    @ViewBuilder
     private var generalPane: some View {
-        if let panelSharing {
-            ScreenShareSettingsSection(pref: panelSharing)
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsCard {
+                SettingsRow(
+                    icon: "globe",
+                    title: "Confirm language before each meeting",
+                    subtitle: "Show a quick language check when you start a meeting, so you don't record in the wrong language. Turn off to start straight away."
+                ) {
+                    Toggle("", isOn: $confirmLanguageBeforeMeeting)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .tint(Theme.Palette.violet)
+                }
+            }
+
+            if let panelSharing {
+                ScreenShareSettingsSection(pref: panelSharing)
+            }
         }
     }
 

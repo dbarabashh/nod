@@ -15,6 +15,7 @@
 		2038AE601001FDBB84E36204 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86C4F428FD6F12CEA91AEA39 /* DesignTokens.swift */; };
 		2484EA93E6A4F4DC7305E7BE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = FD9425C84A5944FADFEE1DC0 /* Supabase */; };
 		24C3AAE446669BE4E1665CDB /* TranscriptRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DAACB239AA21201B9FB0276 /* TranscriptRecord.swift */; };
+		25560998DFB02D3F0A02AAD7 /* PanelMaterial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC234CEB4AB9DCE4538FD36 /* PanelMaterial.swift */; };
 		25BAFB93063B4B6B623D96DD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7353A5B91242F165EFCD7D68 /* Assets.xcassets */; };
 		26318A2F40F971937434FED9 /* HotkeyRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4677F0DE5942AB9D9A05642 /* HotkeyRecorder.swift */; };
 		26FB0074AE17C845461190DB /* NodApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 420B40291D1B3DE220552641 /* NodApp.swift */; };
@@ -57,6 +58,7 @@
 		B36906A556CD287E06D7A5C9 /* WhisperTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = F262446346BF9FFC15D5AF67 /* WhisperTranscriber.swift */; };
 		B4FC2F2E94721DFC26D17642 /* PermissionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B25A656A2DF3A8075B12613 /* PermissionRow.swift */; };
 		B9519A1CA216C57B6034CD29 /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849AD3013760BB7678733664 /* ProfileStore.swift */; };
+		BBBEBBD282D67F1204A47827 /* MeetingLanguagePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440A30092CB1376F3EE3904D /* MeetingLanguagePrompt.swift */; };
 		BFFE8C0BF2FF78B0DCAF2D1D /* SessionChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FFFFE04CAF93754E6A0B4FC /* SessionChatView.swift */; };
 		C2A071FF91C68B7A4B4D1AC9 /* KnowledgeChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF996169C9AE042293244C8 /* KnowledgeChatView.swift */; };
 		C4F11B1765BA5E4CE641A405 /* MeetingRecap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46016E68ED4B0D0C8BB1D4C9 /* MeetingRecap.swift */; };
@@ -104,6 +106,7 @@
 		3A52BC6C5F921E981E5C1B7E /* Meeting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting.swift; sourceTree = "<group>"; };
 		3D81AE28374538021C332981 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		420B40291D1B3DE220552641 /* NodApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodApp.swift; sourceTree = "<group>"; };
+		440A30092CB1376F3EE3904D /* MeetingLanguagePrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingLanguagePrompt.swift; sourceTree = "<group>"; };
 		46016E68ED4B0D0C8BB1D4C9 /* MeetingRecap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRecap.swift; sourceTree = "<group>"; };
 		4940AE0F466E23E8BD4994BD /* Nod.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nod.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4AB3402D8B19F3F9CFA69FF5 /* SessionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionKind.swift; sourceTree = "<group>"; };
@@ -120,6 +123,7 @@
 		6C387BE5834160BB925911FD /* OpenRouterClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenRouterClient.swift; sourceTree = "<group>"; };
 		6CBC3D13337A7DB6DF08CEFD /* ConsentStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsentStrings.swift; sourceTree = "<group>"; };
 		6D38E021FE65A36A7264FA5F /* TutorialStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialStep.swift; sourceTree = "<group>"; };
+		6FC234CEB4AB9DCE4538FD36 /* PanelMaterial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelMaterial.swift; sourceTree = "<group>"; };
 		7353A5B91242F165EFCD7D68 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7859378422F001B532727F35 /* Label.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Label.swift; sourceTree = "<group>"; };
 		788ED7BF85064ED472B8C746 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
@@ -331,6 +335,7 @@
 			isa = PBXGroup;
 			children = (
 				9E50AD4B4443C2AFC55281CD /* AppLanguage.swift */,
+				440A30092CB1376F3EE3904D /* MeetingLanguagePrompt.swift */,
 			);
 			path = Language;
 			sourceTree = "<group>";
@@ -401,6 +406,7 @@
 				D7D38AB0BD78B0CB793AB8EA /* ChatComponents.swift */,
 				D7B7971EBC45701611ECDA50 /* InlineConfirmButtons.swift */,
 				B2C3EB01B3DDAC8BCA57F360 /* LabelComponents.swift */,
+				6FC234CEB4AB9DCE4538FD36 /* PanelMaterial.swift */,
 				563FCB64E69C5087607159F4 /* WindowBackdrop.swift */,
 			);
 			path = Components;
@@ -568,6 +574,7 @@
 				47450284364953F237770A71 /* Log.swift in Sources */,
 				89A3CB33F89E9F813E1926B7 /* Meeting.swift in Sources */,
 				D0EFE445F5346D841211CACD /* MeetingDetailView.swift in Sources */,
+				BBBEBBD282D67F1204A47827 /* MeetingLanguagePrompt.swift in Sources */,
 				C4F11B1765BA5E4CE641A405 /* MeetingRecap.swift in Sources */,
 				7B4FF1C0702C0565A47F86AA /* MeetingStore.swift in Sources */,
 				26FB0074AE17C845461190DB /* NodApp.swift in Sources */,
@@ -575,6 +582,7 @@
 				38911BFE6BDB5FF1BD611BA7 /* OnboardingStrings.swift in Sources */,
 				5613A8BEF0A4D85BACF8BFCA /* OnboardingView.swift in Sources */,
 				E921B8D16149DA9377465008 /* OpenRouterClient.swift in Sources */,
+				25560998DFB02D3F0A02AAD7 /* PanelMaterial.swift in Sources */,
 				EEA861C5649D2B980DEE689A /* PanelSharingPreference.swift in Sources */,
 				202E966E3FB86EE0D5366D1D /* PermissionManager.swift in Sources */,
 				B4FC2F2E94721DFC26D17642 /* PermissionRow.swift in Sources */,
