@@ -254,15 +254,18 @@ final class OpenRouterClient: ObservableObject {
     /// to OpenRouter's `/api/v1/audio/transcriptions`, which expects a JSON
     /// body with base64-encoded audio (NOT multipart — sending multipart to
     /// OpenRouter's handler returns a generic 500).
-    func transcribe(audio: Data, fileName: String = "audio.wav", language: String = "en") async throws -> String {
+    func transcribe(audio: Data, language: String = "en", prompt: String? = nil) async throws -> String {
         let inner = TranscriptionRequest(
             model: whisperModel,
             input_audio: .init(data: audio.base64EncodedString(), format: "wav"),
-            language: language
+            language: language,
+            prompt: prompt
         )
         let bodyData = try JSONEncoder().encode(ProxyEnvelope(kind: "transcribe", payload: inner))
 
-        Log.llm.info("→ transcribe via proxy model=\(whisperModel) audio_bytes=\(audio.count) body_bytes=\(bodyData.count) lang=\(language)")
+        Log.llm.info(
+            "→ transcribe via proxy model=\(whisperModel) audio_bytes=\(audio.count) body_bytes=\(bodyData.count) lang=\(language) prompt.len=\(prompt?.count ?? 0)"
+        )
 
         let data = try await postToProxyWithRetry(body: bodyData)
         do {
@@ -549,6 +552,10 @@ private struct TranscriptionRequest: Encodable {
     let model: String
     let input_audio: InputAudio
     let language: String?
+    /// Preceding transcript tail, fed to Whisper as decoding context so a word
+    /// split across a chunk boundary is recovered instead of garbled, and
+    /// terminology stays consistent across chunks.
+    let prompt: String?
 }
 
 private struct WhisperResponse: Decodable {

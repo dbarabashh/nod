@@ -11,6 +11,9 @@ packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle.git
     from: 2.9.2
+  RealTimeCutVADLibrary:
+    url: https://github.com/helloooideeeeea/RealTimeCutVADLibrary.git
+    from: 1.0.14
 settings:
   base:
     SWIFT_VERSION: "5.9"
@@ -30,6 +33,8 @@ targets:
         product: Supabase
       - package: Sparkle
         product: Sparkle
+      - package: RealTimeCutVADLibrary
+        product: RealTimeCutVADLibrary
     info:
       path: Nod/Info.plist
       # Versions MUST be listed here. xcodegen regenerates Info.plist from

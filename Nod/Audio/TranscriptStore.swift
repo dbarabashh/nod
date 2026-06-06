@@ -1,6 +1,6 @@
-import Foundation
 import AVFoundation
 import Combine
+import Foundation
 
 enum TranscriptSource: String {
     case me
@@ -8,15 +8,15 @@ enum TranscriptSource: String {
 
     var label: String {
         switch self {
-        case .me: return "Me"
-        case .them: return "Them"
+        case .me: "Me"
+        case .them: "Them"
         }
     }
 
     var emoji: String {
         switch self {
-        case .me: return "🎙"
-        case .them: return "🔊"
+        case .me: "🎙"
+        case .them: "🔊"
         }
     }
 }
@@ -39,27 +39,27 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     private let system: WhisperTranscriber
 
     init(client: OpenRouterClient, language: LanguagePreference) {
-        self.mic = WhisperTranscriber(source: .me, client: client)
-        self.system = WhisperTranscriber(source: .them, client: client)
+        mic = WhisperTranscriber(source: .me, client: client)
+        system = WhisperTranscriber(source: .them, client: client)
 
         // Each chunk reads the current language at flush time, so toggling the
         // language during a meeting takes effect on the very next chunk.
         let provider: () -> String = { [weak language] in
             language?.currentWhisperCode() ?? "en"
         }
-        self.mic.languageProvider = provider
-        self.system.languageProvider = provider
+        mic.languageProvider = provider
+        system.languageProvider = provider
 
-        self.mic.onFinal = { [weak self] text, source in
+        mic.onFinal = { [weak self] text, source in
             self?.handleFinal(text: text, source: source)
         }
-        self.mic.onFailure = { [weak self] message, source in
+        mic.onFailure = { [weak self] message, source in
             self?.handleFailure(message: message, source: source)
         }
-        self.system.onFinal = { [weak self] text, source in
+        system.onFinal = { [weak self] text, source in
             self?.handleFinal(text: text, source: source)
         }
-        self.system.onFailure = { [weak self] message, source in
+        system.onFailure = { [weak self] message, source in
             self?.handleFailure(message: message, source: source)
         }
     }
@@ -103,23 +103,18 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     /// Force-flush both transcribers and append the results synchronously
     /// on MainActor so `fullContext` is fresh by the time this returns.
     func flushPending() async {
-        async let me = mic.flushPending()
-        async let them = system.flushPending()
-        let (meText, themText) = await (me, them)
-
-        await MainActor.run {
-            let now = Date()
-            if let text = meText {
-                self.appendDeduped(text: text, source: .me, timestamp: now)
-            }
-            if let text = themText {
-                self.appendDeduped(text: text, source: .them, timestamp: now)
-            }
-            self.lastError = nil
-        }
+        // Drain both transcribers' in-flight work so `fullContext` is complete
+        // and in order by the time this returns. The VAD owns segmentation now,
+        // so there's no forced-out partial text to append here.
+        async let me: Void = mic.flushPending()
+        async let them: Void = system.flushPending()
+        _ = await (me, them)
+        await MainActor.run { self.lastError = nil }
     }
 
-    var fullContext: String { recentContext(maxEntries: .max) }
+    var fullContext: String {
+        recentContext(maxEntries: .max)
+    }
 
     /// Last `maxEntries` finalised entries plus live partials, joined into the
     /// same `[Me]:` / `[Them]:` text the LLM expects. Used by mid-call cards
