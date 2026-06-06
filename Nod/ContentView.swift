@@ -245,13 +245,12 @@ struct ContentView: View {
                 } : nil
             )
 
-            if selectedKind.capturesMic {
-                InputDevicePickerRow(audioCapture: audioCapture)
-            }
-
             switch meeting {
             case .idle:
                 SessionKindPicker(selection: $selectedKind)
+                if selectedKind.capturesMic {
+                    InputDevicePickerRow(audioCapture: audioCapture)
+                }
                 if showLanguagePrompt {
                     MeetingLanguagePrompt(
                         language: language.current,
@@ -1186,23 +1185,18 @@ private struct StartMeetingButton: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.92))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
 
                 Text(title)
-                    .font(.system(size: 13.5, weight: .medium))
-                    .foregroundColor(.white.opacity(0.92))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .frame(maxWidth: .infinity, minHeight: 38)
-            .background(
-                ZStack {
-                    PanelMaterial()
-                    Color.white.opacity(hovered ? 0.06 : 0.02)
-                }
-                .clipShape(Capsule(style: .continuous))
-            )
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, minHeight: 42)
+            .softBrandSurface(Capsule(style: .continuous), opacity: hovered ? 0.42 : 0.32)
+            .shadow(color: Color.black.opacity(0.22), radius: 8, x: 0, y: 3)
             .scaleEffect(pressed ? 0.985 : 1.0)
             .animation(.easeOut(duration: 0.10), value: pressed)
             .animation(.hoverReveal(reduceMotion: reduceMotion), value: hovered)

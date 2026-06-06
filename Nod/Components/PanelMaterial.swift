@@ -22,6 +22,23 @@ struct PanelMaterial: View {
     }
 }
 
+extension View {
+    /// Toned-down brand surface for the panel's primary buttons: the brand
+    /// gradient faded over `PanelMaterial` glass with a white hairline, rather
+    /// than the full-saturation `buttonBrand` fill used elsewhere. Pass the
+    /// button's own shape so the fill, clip, and border stay in sync.
+    func softBrandSurface(_ shape: some InsettableShape, opacity: Double) -> some View {
+        background(
+            ZStack {
+                PanelMaterial()
+                shape.fill(Theme.Gradients.buttonBrand).opacity(opacity)
+            }
+            .clipShape(shape)
+        )
+        .overlay(shape.strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
+    }
+}
+
 struct PanelEffect: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .hudWindow
 

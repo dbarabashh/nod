@@ -63,15 +63,19 @@ struct MeetingLanguagePrompt: View {
 
     private func actionButton(_ title: String, primary: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
+            let label = Text(title)
                 .font(.system(size: 13, weight: primary ? .semibold : .medium))
                 .foregroundColor(primary ? .white : .white.opacity(0.72))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
-                .background(
+            if primary {
+                label.softBrandSurface(RoundedRectangle(cornerRadius: 8, style: .continuous), opacity: 0.32)
+            } else {
+                label.background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(primary ? AnyShapeStyle(Theme.Gradients.buttonBrand) : AnyShapeStyle(Color.white.opacity(0.06)))
+                        .fill(Color.white.opacity(0.06))
                 )
+            }
         }
         .buttonStyle(.plain)
     }
