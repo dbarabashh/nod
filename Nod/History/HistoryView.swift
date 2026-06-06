@@ -151,7 +151,6 @@ struct HistoryView: View {
                     .transition(.opacity)
             }
             .navigationTitle("Library")
-            .toolbar { toolbarContent }
             .searchable(text: $searchQuery, prompt: "Search library")
         }
     }
@@ -199,10 +198,12 @@ struct HistoryView: View {
                 Text(meeting == nil ? "Ask across all sessions" : "Chat with this session")
                     .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
-                Text(dockSubtitle(meeting))
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .lineLimit(1)
+                if let subtitle = dockSubtitle(meeting) {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
             if let meeting, chatStore.loadState == .loaded, !chatStore.messages.isEmpty {
@@ -251,12 +252,9 @@ struct HistoryView: View {
         path = [meeting]
     }
 
-    private func dockSubtitle(_ meeting: Meeting?) -> String {
-        if let meeting {
-            return meeting.displayTitle(dateFormatter: Self.dockDateFormatter)
-        }
-        let n = meetingStore.meetings.count
-        return n == 1 ? "1 session" : "\(n) sessions"
+    private func dockSubtitle(_ meeting: Meeting?) -> String? {
+        guard let meeting else { return nil }
+        return meeting.displayTitle(dateFormatter: Self.dockDateFormatter)
     }
 
     private static let dockDateFormatter: DateFormatter = {
@@ -268,22 +266,26 @@ struct HistoryView: View {
 
     // MARK: - Toolbar
 
-    /// All / Trash filter. Lives at the top of the list pane, not the window
-    /// toolbar — a `.principal` toolbar item centers across the *whole* window
-    /// width, which floated it over the chat dock instead of the list it
-    /// filters. Here it sits above the rows it controls.
+    /// All / Trash filter plus the list-level actions (re-index, refresh).
+    /// All of it lives at the top of the list pane, not the window toolbar —
+    /// a window-toolbar item spans the *whole* window width, which floated
+    /// these over the chat dock and crammed the action icons against the
+    /// dock divider. Here they sit within the list column they control.
     private var segmentBar: some View {
-        SegmentedControl(selection: $segment, animation: Self.contentFade)
-            .frame(width: 200)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
-            .padding(.bottom, 10)
-            .onChange(of: segment) { new in
-                if new == .trash, case .idle = meetingStore.trashState {
-                    Task { await meetingStore.refreshTrash() }
-                }
+        HStack(spacing: 8) {
+            SegmentedControl(selection: $segment, animation: Self.contentFade)
+                .frame(width: 200)
+            Spacer(minLength: 12)
+            listActions
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
+        .onChange(of: segment) { new in
+            if new == .trash, case .idle = meetingStore.trashState {
+                Task { await meetingStore.refreshTrash() }
             }
+        }
     }
 
     /// Browse the library by label. Only on the All segment, and only once the
@@ -314,42 +316,44 @@ struct HistoryView: View {
         }
     }
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            HStack(spacing: 8) {
-                if meetingStore.lastRefreshFailed, segment == .all {
-                    // Non-blocking warning when a silent refresh failed
-                    // and we kept showing the cached list. Click to
-                    // retry. Without this the user sees a list that
-                    // looks current but may be stale by hours/days.
-                    Button(action: refreshActive) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 11, weight: .semibold))
-                            Text("Couldn't sync")
-                                .font(.system(size: 11, weight: .regular))
-                        }
-                        .foregroundStyle(Theme.Palette.warning)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Theme.Palette.warning.opacity(0.12))
-                                .overlay(Capsule().stroke(Theme.Palette.warning.opacity(0.35), lineWidth: 0.5))
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .help("Showing cached meetings. Click to retry refresh.")
-                }
-                if segment == .all {
-                    reindexControl
-                }
+    private var listActions: some View {
+        HStack(spacing: 6) {
+            if meetingStore.lastRefreshFailed, segment == .all {
+                // Non-blocking warning when a silent refresh failed
+                // and we kept showing the cached list. Click to
+                // retry. Without this the user sees a list that
+                // looks current but may be stale by hours/days.
                 Button(action: refreshActive) {
-                    Image(systemName: "arrow.clockwise")
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Couldn't sync")
+                            .font(.system(size: 11, weight: .regular))
+                    }
+                    .foregroundStyle(Theme.Palette.warning)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Theme.Palette.warning.opacity(0.12))
+                            .overlay(Capsule().stroke(Theme.Palette.warning.opacity(0.35), lineWidth: 0.5))
+                    )
                 }
-                .disabled(currentLoadState == .loading)
+                .buttonStyle(.plain)
+                .help("Showing cached meetings. Click to retry refresh.")
             }
+            if segment == .all {
+                reindexControl
+            }
+            Button(action: refreshActive) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .disabled(currentLoadState == .loading)
+            .help("Refresh")
         }
     }
 
@@ -365,7 +369,11 @@ struct HistoryView: View {
         } else if !meetingStore.meetings.isEmpty {
             Button(action: rebuildIndex) {
                 Image(systemName: "sparkles.rectangle.stack")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .frame(width: 28, height: 28)
             }
+            .buttonStyle(.plain)
             .help("Rebuild the search index so older sessions are findable in Ask Nod")
         }
     }
@@ -734,6 +742,7 @@ private struct MeetingRow: View {
                             restoreButton
                                 .revealOnHover(showRestore, reduceMotion: reduceMotion, anchor: .trailing)
                         }
+                        .padding(.trailing, 8)
                 }
 
                 Text(meeting.summaryPreview)
