@@ -150,21 +150,86 @@ struct ChatCopyButton: View {
     }
 }
 
-/// The "thinking…" row shown while a reply is in flight. The label varies by
-/// surface ("Thinking…" vs "Searching your sessions…").
-struct ChatTypingIndicator: View {
-    let label: String
+/// The row shown while a reply is in flight: bouncing dots beside a label that
+/// evolves as the work progresses, so the wait reads as activity rather than a
+/// frozen spinner. Two ways to drive it:
+///
+/// - `ThinkingIndicator(phase:)` — the caller owns the label and updates it as
+///   real stages complete (search → read → write). Each change cross-fades.
+/// - `ThinkingIndicator(script:)` — no real sub-stages to report: the component
+///   walks the given phrases on a timer and holds on the last until removed.
+struct ThinkingIndicator: View {
+    private let phrases: [String]
+    private let interval: Double
+
+    /// Caller-driven: `phase` reflects the current real stage; updating it
+    /// animates the label. A single phrase means nothing self-cycles.
+    init(phase: String) {
+        phrases = [phase]
+        interval = 0
+    }
+
+    /// Self-driving: cycles `script` on a timer, then holds on the last phrase.
+    init(script: [String], interval: Double = 1.6) {
+        phrases = script.isEmpty ? [""] : script
+        self.interval = interval
+    }
+
+    @State private var displayed = ""
 
     var body: some View {
-        HStack(spacing: 6) {
-            ProgressView()
-                .progressViewStyle(.circular)
-                .controlSize(.small)
-                .tint(Theme.Palette.muted)
-            Text(label)
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.Palette.muted)
+        HStack(spacing: 8) {
+            BouncingDots()
+            ZStack(alignment: .leading) {
+                Text(displayed)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .id(displayed)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .offset(y: 6)),
+                        removal: .opacity.combined(with: .offset(y: -6))
+                    ))
+            }
+            .frame(height: 16, alignment: .leading)
+            .animation(.easeInOut(duration: 0.3), value: displayed)
             Spacer(minLength: 0)
         }
+        .onAppear { if displayed.isEmpty { displayed = phrases[0] } }
+        .onChange(of: phrases) { new in
+            if new.count == 1 { displayed = new[0] }
+        }
+        .task {
+            guard phrases.count > 1 else { return }
+            for phrase in phrases.dropFirst() {
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                if Task.isCancelled { return }
+                displayed = phrase
+            }
+        }
+    }
+}
+
+/// Three dots that bounce in a staggered wave — the activity glyph for
+/// `ThinkingIndicator`.
+private struct BouncingDots: View {
+    @State private var animating = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0 ..< 3, id: \.self) { index in
+                Circle()
+                    .fill(Theme.Palette.muted)
+                    .frame(width: 4, height: 4)
+                    .opacity(animating ? 1 : 0.35)
+                    .offset(y: animating ? -2 : 1)
+                    .animation(
+                        .easeInOut(duration: 0.5)
+                            .repeatForever()
+                            .delay(Double(index) * 0.16),
+                        value: animating
+                    )
+            }
+        }
+        .onAppear { animating = true }
     }
 }

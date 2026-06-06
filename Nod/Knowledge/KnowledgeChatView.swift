@@ -36,6 +36,7 @@ struct KnowledgeChatView: View {
     @State private var messages: [QAMessage] = []
     @State private var draft: String = ""
     @State private var isSending = false
+    @State private var thinkingPhase = ""
     @State private var errorText: String?
     @FocusState private var inputFocused: Bool
 
@@ -44,6 +45,7 @@ struct KnowledgeChatView: View {
     @State private var mentions: [SessionRef] = []
     @State private var showMentionPicker = false
     @State private var mentionSearch = ""
+    @FocusState private var mentionSearchFocused: Bool
 
     /// When set, questions are answered using ONLY sessions carrying this
     /// label. Persists across turns until the user clears it. An explicit
@@ -196,22 +198,13 @@ struct KnowledgeChatView: View {
     }
 
     private var typingIndicator: some View {
-        ChatTypingIndicator(label: "Searching your sessions…")
+        ThinkingIndicator(phase: thinkingPhase)
     }
 
     private var composer: some View {
-        VStack(spacing: 8) {
-            if let scopeLabel {
-                HStack(spacing: 6) {
-                    Text("SCOPED TO")
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(0.6)
-                        .foregroundStyle(Theme.Palette.muted)
-                    LabelChip(label: scopeLabel) { self.scopeLabel = nil }
-                    Spacer(minLength: 0)
-                }
-            }
+        VStack(alignment: .leading, spacing: 6) {
             composerInput
+            if !labelStore.labels.isEmpty { scopeMenu }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -219,8 +212,6 @@ struct KnowledgeChatView: View {
 
     private var composerInput: some View {
         HStack(spacing: 8) {
-            mentionButton
-            if !labelStore.labels.isEmpty { scopeButton }
             TextField(composerPrompt, text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13.5))
@@ -250,6 +241,9 @@ struct KnowledgeChatView: View {
                                 .stroke(Theme.Palette.border, lineWidth: 0.5)
                         )
                 )
+                // Floats above the field, auto-sized, so opening it never
+                // reflows the composer; dismisses on outside-click or Escape.
+                .popover(isPresented: $showMentionPicker, arrowEdge: .top) { mentionPicker }
 
             Button(action: send) {
                 Image(systemName: "arrow.up")
@@ -268,50 +262,44 @@ struct KnowledgeChatView: View {
         return "Ask across your sessions  (@ to mention a session)"
     }
 
-    private var scopeButton: some View {
+    private var scopeMenu: some View {
         Menu {
             Button { scopeLabel = nil } label: {
-                if scopeLabel == nil { SwiftUI.Label("All sessions", systemImage: "checkmark") } else { Text("All sessions") }
+                menuItemLabel("All sessions", isSelected: scopeLabel == nil)
             }
             Divider()
             ForEach(labelStore.labels) { label in
                 Button { scopeLabel = label } label: {
-                    if scopeLabel?.id == label.id { SwiftUI.Label(label.name, systemImage: "checkmark") } else { Text(label.name) }
+                    menuItemLabel(label.name, isSelected: scopeLabel?.id == label.id)
                 }
             }
         } label: {
-            Image(systemName: scopeLabel == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(scopeLabel == nil ? Theme.Palette.muted : Theme.Palette.violet)
-                .frame(width: 32, height: 32)
-                .background(Circle().fill(Theme.Palette.surface).overlay(Circle().stroke(Theme.Palette.border, lineWidth: 0.5)))
+            HStack(spacing: 4) {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 9, weight: .semibold))
+                Text(scopeLabel?.name ?? "All sessions")
+                    .font(.system(size: 11, weight: .medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .foregroundStyle(scopeLabel == nil ? Theme.Palette.muted : Theme.Palette.violet)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(width: 32, height: 32)
+        .fixedSize()
         .help("Scope questions to a label")
     }
 
-    private var mentionButton: some View {
-        Button {
-            mentionSearch = ""
-            showMentionPicker = true
-        } label: {
-            Image(systemName: "at")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(showMentionPicker ? Theme.Palette.violet : Theme.Palette.muted)
-                .frame(width: 32, height: 32)
-                .background(Circle().fill(Theme.Palette.surface).overlay(Circle().stroke(Theme.Palette.border, lineWidth: 0.5)))
-        }
-        .buttonStyle(.plain)
-        .help("Pin specific sessions to chat about")
-        .popover(isPresented: $showMentionPicker, arrowEdge: .top) { mentionPicker }
+    @ViewBuilder
+    private func menuItemLabel(_ text: String, isSelected: Bool) -> some View {
+        if isSelected { SwiftUI.Label(text, systemImage: "checkmark") } else { Text(text) }
     }
 
     private var mentionPicker: some View {
         VStack(spacing: 0) {
             TextField("Search sessions", text: $mentionSearch)
                 .textFieldStyle(.roundedBorder)
+                .focused($mentionSearchFocused)
                 .padding(8)
             Divider()
             ScrollView {
@@ -331,6 +319,7 @@ struct KnowledgeChatView: View {
             .frame(maxHeight: 280)
         }
         .frame(width: 300)
+        .onAppear { mentionSearchFocused = true }
     }
 
     private func mentionPickerRow(_ meeting: Meeting) -> some View {
@@ -400,6 +389,7 @@ struct KnowledgeChatView: View {
         mentions = []
         errorText = nil
         messages.append(QAMessage(role: .user, content: text, mentions: active))
+        thinkingPhase = "Searching your sessions…"
         isSending = true
         let scope = scopeLabel
         Task {
@@ -439,8 +429,18 @@ struct KnowledgeChatView: View {
             }
             do {
                 // Low temperature — cross-session answers must stay grounded in
-                // the retrieved excerpts, not improvise.
-                let reply = try await llm.chat(system: system, history: history, temperature: 0.2)
+                // the retrieved excerpts, not improvise. The reply is kicked off
+                // first so the "reading" beat below overlaps real work rather
+                // than adding latency.
+                async let pendingReply = llm.chat(system: system, history: history, temperature: 0.2)
+                if !sources.isEmpty {
+                    thinkingPhase = sources.count == 1
+                        ? "Reading 1 session…"
+                        : "Reading \(sources.count) sessions…"
+                    try? await Task.sleep(nanoseconds: 700_000_000)
+                }
+                thinkingPhase = "Writing your answer…"
+                let reply = try await pendingReply
                 messages.append(QAMessage(role: .assistant, content: reply, sources: sources))
             } catch {
                 Log.ui.error("KnowledgeChat send failed: \(error.localizedDescription)")

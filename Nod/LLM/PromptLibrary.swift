@@ -49,6 +49,11 @@ enum PromptKind {
 }
 
 enum PromptLibrary {
+    /// Shared [STYLE] rule keeping chat replies within what the inline-only
+    /// `renderRecapMarkdown` can render — block syntax leaks through as raw
+    /// characters otherwise.
+    private static let inlineMarkdownStyle = "Formatting: use **bold** for any section label and \"- \" for bullet items. Do NOT use \"#\"/\"##\" headings, numbered lists, tables, or code fences — the app renders only inline Markdown, so those show up as raw characters."
+
     static func build(
         kind: PromptKind,
         transcript: String,
@@ -587,7 +592,8 @@ enum PromptLibrary {
 
         [STYLE]
         - Concise and concrete. Short paragraphs or tight bullet lists. No preamble like "Great question".
-        - Plain text only. Never use emoji or decorative symbols.
+        - Never use emoji or decorative symbols.
+        - \(inlineMarkdownStyle)
         - LANGUAGE: reply in \(lang) unless the user clearly writes in another language, in which case match them.
 
         === RECAP ===
@@ -654,7 +660,8 @@ enum PromptLibrary {
 
         [STYLE]
         - Concise and concrete. Synthesize across excerpts when they connect.
-        - Plain text only. Never use emoji or decorative symbols.
+        - Never use emoji or decorative symbols.
+        - \(inlineMarkdownStyle)
         - LANGUAGE: reply in \(lang) unless the user clearly writes in another language.
 
         === RETRIEVED FROM YOUR SESSIONS ===

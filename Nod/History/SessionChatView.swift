@@ -124,7 +124,7 @@ struct SessionChatView: View {
     }
 
     private var typingIndicator: some View {
-        ChatTypingIndicator(label: "Thinking…")
+        ThinkingIndicator(script: ["Thinking…", "Reviewing the transcript…", "Putting it together…"])
             .padding(.vertical, 4)
     }
 
