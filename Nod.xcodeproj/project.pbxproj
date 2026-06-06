@@ -68,6 +68,7 @@
 		D0EFE445F5346D841211CACD /* MeetingDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C1E0C024C287B38F0821F09 /* MeetingDetailView.swift */; };
 		D84D5D9E5ECCF2FFAD649C8B /* VADTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBE1BC44C95C259F37AD22A /* VADTests.swift */; };
 		E061F49FCEB8000FC6F7C7ED /* KnowledgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F87B4B9B59126F1C2C3F03D /* KnowledgeStore.swift */; };
+		E29D53676C4176156086ED77 /* HoverReveal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F51B90413645F47FEFA7F5 /* HoverReveal.swift */; };
 		E921B8D16149DA9377465008 /* OpenRouterClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C387BE5834160BB925911FD /* OpenRouterClient.swift */; };
 		EEA861C5649D2B980DEE689A /* PanelSharingPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82E2F53E4ED8663AD1E80FA8 /* PanelSharingPreference.swift */; };
 		F20C04690CB7F912D45179A8 /* ChatComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D38AB0BD78B0CB793AB8EA /* ChatComponents.swift */; };
@@ -128,6 +129,7 @@
 		836ECC9300366B55625FD336 /* OnboardingStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStrings.swift; sourceTree = "<group>"; };
 		849AD3013760BB7678733664 /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
 		86C4F428FD6F12CEA91AEA39 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
+		89F51B90413645F47FEFA7F5 /* HoverReveal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoverReveal.swift; sourceTree = "<group>"; };
 		8B25A656A2DF3A8075B12613 /* PermissionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionRow.swift; sourceTree = "<group>"; };
 		8CCFE48FE987F890137DEA2E /* AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersion.swift; sourceTree = "<group>"; };
 		9DAACB239AA21201B9FB0276 /* TranscriptRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptRecord.swift; sourceTree = "<group>"; };
@@ -285,6 +287,7 @@
 			isa = PBXGroup;
 			children = (
 				86C4F428FD6F12CEA91AEA39 /* DesignTokens.swift */,
+				89F51B90413645F47FEFA7F5 /* HoverReveal.swift */,
 				FFEA0D933A8789DB4DDAF3BD /* Theme.swift */,
 			);
 			path = Theme;
@@ -555,6 +558,7 @@
 				552D7AE1CAFC3A02C97BEB37 /* HistoryView.swift in Sources */,
 				7C44C3A7A932154674C0FAFF /* HotkeyManager.swift in Sources */,
 				26318A2F40F971937434FED9 /* HotkeyRecorder.swift in Sources */,
+				E29D53676C4176156086ED77 /* HoverReveal.swift in Sources */,
 				91B2DF926E4E4C8DB3021C82 /* InlineConfirmButtons.swift in Sources */,
 				C2A071FF91C68B7A4B4D1AC9 /* KnowledgeChatView.swift in Sources */,
 				E061F49FCEB8000FC6F7C7ED /* KnowledgeStore.swift in Sources */,

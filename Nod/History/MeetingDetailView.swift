@@ -5,10 +5,10 @@ import SwiftUI
 /// from `meeting_transcripts` on first open.
 struct MeetingDetailView: View {
     let meeting: Meeting
+    let onClose: () -> Void
 
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var labelStore: LabelStore
-    @Environment(\.dismiss) private var dismiss
 
     @State private var editableTitle: String = ""
     @State private var editableSummary: String = ""
@@ -139,9 +139,22 @@ struct MeetingDetailView: View {
 
     private var titleRow: some View {
         HStack(alignment: .top, spacing: 12) {
+            backButton
             titleField
             deleteButton
         }
+    }
+
+    private var backButton: some View {
+        Button(action: onClose) {
+            Image(systemName: "chevron.backward")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.Palette.muted)
+                .iconButtonChrome()
+        }
+        .buttonStyle(.plain)
+        .help("Back to library")
+        .linkCursor()
     }
 
     /// Delete lives here, in the content, rather than the window toolbar — a
@@ -152,15 +165,7 @@ struct MeetingDetailView: View {
             Image(systemName: "trash")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.muted)
-                .frame(width: 30, height: 30)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Theme.Palette.surface)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Theme.Palette.border, lineWidth: 0.5)
-                        )
-                )
+                .iconButtonChrome()
         }
         .buttonStyle(.plain)
         .help(isGenerating ? "Available once the summary is ready" : "Move to Trash")
@@ -169,6 +174,7 @@ struct MeetingDetailView: View {
         // moment the row lands.
         .disabled(isDeleting || isGenerating)
         .opacity(isGenerating ? 0.4 : 1)
+        .linkCursor()
     }
 
     @ViewBuilder
@@ -180,10 +186,12 @@ struct MeetingDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .redacted(reason: .placeholder)
         } else {
-            TextField("Meeting title", text: $editableTitle)
+            TextField("Meeting title", text: $editableTitle, axis: .vertical)
                 .textFieldStyle(.plain)
+                .lineLimit(1 ... 3)
                 .font(.system(size: 28, weight: .bold))
                 .foregroundStyle(Theme.Palette.ink)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .onChange(of: editableTitle) { _ in scheduleSave() }
         }
     }
@@ -346,6 +354,7 @@ struct MeetingDetailView: View {
                 .buttonStyle(.plain)
                 .disabled(isGenerating)
                 .opacity(isGenerating ? 0.4 : 1)
+                .linkCursor()
                 subToolbarDivider
                 Button(action: copyAll) {
                     subToolbarLabel(
@@ -356,6 +365,7 @@ struct MeetingDetailView: View {
                 .buttonStyle(.plain)
                 .disabled(isGenerating)
                 .opacity(isGenerating ? 0.4 : 1)
+                .linkCursor()
                 Spacer(minLength: 0)
                 if !isGenerating {
                     saveIndicator
@@ -686,7 +696,7 @@ struct MeetingDetailView: View {
         Task {
             do {
                 try await meetingStore.softDelete(snapshot)
-                await MainActor.run { dismiss() }
+                await MainActor.run { onClose() }
             } catch {
                 Log.ui.error("MeetingDetailView delete failed: \(error.localizedDescription)")
                 await MainActor.run {
@@ -729,4 +739,19 @@ func renderRecapMarkdown(_ source: String) -> AttributedString {
     )
     return (try? AttributedString(markdown: source, options: options))
         ?? AttributedString(source)
+}
+
+private extension View {
+    /// 30×30 surface tile with a hairline border — the detail header's icon-button chrome.
+    func iconButtonChrome() -> some View {
+        frame(width: 30, height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Theme.Palette.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Theme.Palette.border, lineWidth: 0.5)
+                    )
+            )
+    }
 }

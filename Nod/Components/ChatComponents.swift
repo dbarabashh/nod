@@ -68,6 +68,7 @@ struct ChatSuggestionChip: View {
             )
         }
         .buttonStyle(.plain)
+        .linkCursor()
     }
 }
 
@@ -79,6 +80,7 @@ struct AssistantTextBubble: View {
     private let content: String
     private let rendered: AttributedString
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(content: String) {
         self.content = content
@@ -97,11 +99,11 @@ struct AssistantTextBubble: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             ChatCopyButton(text: content)
                 .padding(.leading, 2)
-                .opacity(isHovering ? 1 : 0)
-                .animation(.easeInOut(duration: 0.12), value: isHovering)
+                .revealOnHover(isHovering, reduceMotion: reduceMotion, anchor: .leading)
         }
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
+        .animation(.hoverReveal(reduceMotion: reduceMotion), value: isHovering)
     }
 }
 
@@ -140,6 +142,7 @@ struct ChatCopyButton: View {
         }
         .buttonStyle(.plain)
         .help("Copy to clipboard")
+        .linkCursor()
     }
 
     private func copy() {

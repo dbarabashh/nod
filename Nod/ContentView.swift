@@ -1188,6 +1188,7 @@ private struct StartMeetingButton: View {
     let action: () -> Void
     @State private var hovered = false
     @State private var pressed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -1212,10 +1213,11 @@ private struct StartMeetingButton: View {
             )
             .scaleEffect(pressed ? 0.985 : 1.0)
             .animation(.easeOut(duration: 0.10), value: pressed)
-            .animation(.easeOut(duration: 0.12), value: hovered)
+            .animation(.hoverReveal(reduceMotion: reduceMotion), value: hovered)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .linkCursor()
         .onHover { hovered = $0 }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)

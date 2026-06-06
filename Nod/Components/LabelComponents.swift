@@ -82,6 +82,7 @@ struct LabelPickerPopover: View {
     @State private var renameText = ""
     @State private var hovering: UUID?
     @State private var confirmingDelete: UUID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var assigned: Set<UUID> {
         labelStore.assignments[meetingID] ?? []
@@ -166,8 +167,9 @@ struct LabelPickerPopover: View {
                         .frame(width: 18, height: 18)
                 }
                 .buttonStyle(.plain)
-                .opacity(hovering == label.id ? 1 : 0)
+                .revealOnHover(hovering == label.id, reduceMotion: reduceMotion)
                 .help("Delete label")
+                .linkCursor()
             }
         }
         .frame(height: 18)
@@ -176,6 +178,7 @@ struct LabelPickerPopover: View {
         .contentShape(Rectangle())
         .onTapGesture { if !confirming { toggle(label) } }
         .onHover { if $0 { hovering = label.id } else if hovering == label.id { hovering = nil } }
+        .animation(.hoverReveal(reduceMotion: reduceMotion), value: hovering)
         .contextMenu {
             Button("Rename") { renaming = label; renameText = label.name }
             Button("Delete", role: .destructive) { confirmingDelete = label.id }

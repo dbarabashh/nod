@@ -114,34 +114,50 @@ struct HistoryView: View {
 
     // MARK: - Navigation column (list + detail)
 
+    /// Master/detail as a cross-fade, not a `NavigationStack` push — macOS can't
+    /// give a stack a fade transition. `path.last` stays the source of truth.
     private var navigationColumn: some View {
-        NavigationStack(path: $path) {
-            ZStack(alignment: .bottom) {
-                VStack(spacing: 0) {
-                    segmentBar
-                    labelFilterBar
-                    content
-                }
-                if let pending = meetingStore.pendingUndo {
-                    UndoToast(
-                        message: "Moved to Trash",
-                        onUndo: { Task { try? await meetingStore.restore(pending.id) } },
-                        onDismiss: { meetingStore.dismissUndo() }
-                    )
-                    .padding(.bottom, 18)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+        ZStack(alignment: .bottom) {
+            if let meeting = path.last {
+                MeetingDetailView(meeting: meeting, onClose: closeDetail)
+                    .id(meeting.id)
+                    .transition(.opacity)
+            } else {
+                libraryList
+                    .transition(.opacity)
+            }
+            if let pending = meetingStore.pendingUndo {
+                UndoToast(
+                    message: "Moved to Trash",
+                    onUndo: { Task { try? await meetingStore.restore(pending.id) } },
+                    onDismiss: { meetingStore.dismissUndo() }
+                )
+                .padding(.bottom, 18)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: path.last?.id)
+    }
+
+    /// In a `NavigationStack` only so the title, toolbar, and search field
+    /// render — they need a navigation container. No destinations.
+    private var libraryList: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                segmentBar
+                labelFilterBar
+                content
+                    .id(contentKey)
+                    .transition(.opacity)
             }
             .navigationTitle("Library")
             .toolbar { toolbarContent }
             .searchable(text: $searchQuery, prompt: "Search library")
-            // Registered at the NavigationStack root so programmatic
-            // pushes (via `path = [meeting]`) resolve even when the empty
-            // / loading state is on screen instead of the list.
-            .navigationDestination(for: Meeting.self) { meeting in
-                MeetingDetailView(meeting: meeting)
-            }
         }
+    }
+
+    private func closeDetail() {
+        path.removeAll()
     }
 
     // MARK: - Chat dock (right side)
@@ -257,7 +273,7 @@ struct HistoryView: View {
     /// width, which floated it over the chat dock instead of the list it
     /// filters. Here it sits above the rows it controls.
     private var segmentBar: some View {
-        Picker("View", selection: $segment) {
+        Picker("View", selection: $segment.animation(Self.contentFade)) {
             ForEach(Segment.allCases) { s in
                 Text(s.rawValue).tag(s)
             }
@@ -284,7 +300,7 @@ struct HistoryView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     LabelFilterChip(title: "All", color: Theme.Palette.muted, isSelected: filterLabelID == nil) {
-                        filterLabelID = nil
+                        withAnimation(Self.contentFade) { filterLabelID = nil }
                     }
                     ForEach(labelStore.labels) { label in
                         LabelFilterChip(
@@ -292,7 +308,9 @@ struct HistoryView: View {
                             color: label.swatchColor,
                             isSelected: filterLabelID == label.id
                         ) {
-                            filterLabelID = filterLabelID == label.id ? nil : label.id
+                            withAnimation(Self.contentFade) {
+                                filterLabelID = filterLabelID == label.id ? nil : label.id
+                            }
                         }
                     }
                 }
@@ -393,6 +411,16 @@ struct HistoryView: View {
     }
 
     // MARK: - Content router
+
+    /// Content-fade identity: tab + label, but not search — live-typing should
+    /// filter in place, not re-fade on every keystroke.
+    private var contentKey: String {
+        "\(segment.rawValue)|\(filterLabelID?.uuidString ?? "")"
+    }
+
+    /// Driven via `withAnimation` at the mutation site: `.animation(value:)` on
+    /// the `.id`-keyed content is torn down with that identity and never fires.
+    private static let contentFade = Animation.easeInOut(duration: 0.2)
 
     @ViewBuilder
     private var content: some View {
@@ -551,36 +579,16 @@ struct HistoryView: View {
 
     private func allList(_ rows: [Meeting]) -> some View {
         List(rows) { meeting in
-            NavigationLink(value: meeting) {
-                MeetingRow(meeting: meeting, mode: .all)
-            }
-            .listRowBackground(Color.clear)
-            .listRowSeparatorTint(Theme.Palette.border)
-            .contextMenu {
-                Button {
-                    Task { await performSoftDelete(meeting) }
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-                Button(role: .destructive) {
-                    pendingHardDelete = meeting
-                } label: {
-                    Label("Delete Forever", systemImage: "trash.fill")
-                }
-            }
-        }
-        .listStyle(.inset)
-        .scrollContentBackground(.hidden)
-    }
-
-    private func trashList(_ rows: [Meeting]) -> some View {
-        List(rows) { meeting in
-            MeetingRow(meeting: meeting, mode: .trash)
+            MeetingRow(meeting: meeting, mode: .all)
+                .onTapGesture { path.append(meeting) }
+                .accessibilityAddTraits(.isButton)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.Palette.border)
                 .contextMenu {
                     Button {
-                        Task { try? await meetingStore.restore(meeting.id) }
+                        Task { await performSoftDelete(meeting) }
                     } label: {
-                        Label("Restore", systemImage: "arrow.uturn.backward")
+                        Label("Delete", systemImage: "trash")
                     }
                     Button(role: .destructive) {
                         pendingHardDelete = meeting
@@ -588,8 +596,25 @@ struct HistoryView: View {
                         Label("Delete Forever", systemImage: "trash.fill")
                     }
                 }
-                .listRowBackground(Color.clear)
-                .listRowSeparatorTint(Theme.Palette.border)
+        }
+        .listStyle(.inset)
+        .scrollContentBackground(.hidden)
+    }
+
+    private func trashList(_ rows: [Meeting]) -> some View {
+        List(rows) { meeting in
+            MeetingRow(meeting: meeting, mode: .trash) {
+                Task { try? await meetingStore.restore(meeting.id) }
+            }
+            .contextMenu {
+                Button(role: .destructive) {
+                    pendingHardDelete = meeting
+                } label: {
+                    Label("Delete Forever", systemImage: "trash.fill")
+                }
+            }
+            .listRowBackground(Color.clear)
+            .listRowSeparatorTint(Theme.Palette.border)
         }
         .listStyle(.inset)
         .scrollContentBackground(.hidden)
@@ -639,6 +664,10 @@ private struct MeetingRow: View {
 
     let meeting: Meeting
     let mode: Mode
+    var onRestore: (() -> Void)?
+
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -657,21 +686,14 @@ private struct MeetingRow: View {
                         .foregroundStyle(Theme.Palette.ink)
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    if mode == .trash, let trashedAt = meeting.deletedAt {
-                        Text(Self.relativeTrashedLabel(for: trashedAt))
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Theme.Palette.muted)
-                    }
-                    Text(meeting.language.uppercased())
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .tracking(0.5)
-                        .foregroundStyle(Theme.Palette.muted)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Theme.Palette.surface)
-                        )
+                    // Metadata keeps its slot (only fades) and Restore overlays
+                    // it, so the row never changes height on hover.
+                    trailingMeta
+                        .opacity(showRestore ? 0 : 1)
+                        .overlay(alignment: .trailing) {
+                            restoreButton
+                                .revealOnHover(showRestore, reduceMotion: reduceMotion, anchor: .trailing)
+                        }
                 }
 
                 Text(meeting.summaryPreview)
@@ -682,6 +704,69 @@ private struct MeetingRow: View {
             }
         }
         .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Theme.Palette.surfaceStrong)
+                .opacity(isHovering ? 1 : 0)
+        )
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.hoverReveal(reduceMotion: reduceMotion)) {
+                isHovering = hovering
+            }
+        }
+    }
+
+    private var showRestore: Bool {
+        mode == .trash && isHovering
+    }
+
+    /// Trailing badges, grouped so they fade as a unit under the Restore overlay.
+    private var trailingMeta: some View {
+        HStack(spacing: 8) {
+            if mode == .trash, let trashedAt = meeting.deletedAt {
+                Text(Self.relativeTrashedLabel(for: trashedAt))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.muted)
+            }
+            Text(meeting.language.uppercased())
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .tracking(0.5)
+                .foregroundStyle(Theme.Palette.muted)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Theme.Palette.surface)
+                )
+        }
+    }
+
+    /// Hover affordance in Trash; overlays the metadata slot so layout never shifts.
+    private var restoreButton: some View {
+        Button {
+            onRestore?()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.uturn.backward")
+                Text("Restore")
+            }
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Theme.Palette.ink)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Theme.Palette.surface)
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(Theme.Palette.border, lineWidth: 0.5)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Restore to All")
+        .linkCursor()
     }
 
     /// Leading type marker — color-coded so meeting / voice note / media are
