@@ -273,23 +273,17 @@ struct HistoryView: View {
     /// width, which floated it over the chat dock instead of the list it
     /// filters. Here it sits above the rows it controls.
     private var segmentBar: some View {
-        Picker("View", selection: $segment.animation(Self.contentFade)) {
-            ForEach(Segment.allCases) { s in
-                Text(s.rawValue).tag(s)
+        SegmentedControl(selection: $segment, animation: Self.contentFade)
+            .frame(width: 200)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 10)
+            .onChange(of: segment) { new in
+                if new == .trash, case .idle = meetingStore.trashState {
+                    Task { await meetingStore.refreshTrash() }
+                }
             }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 200)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
-        .padding(.bottom, 10)
-        .onChange(of: segment) { new in
-            if new == .trash, case .idle = meetingStore.trashState {
-                Task { await meetingStore.refreshTrash() }
-            }
-        }
     }
 
     /// Browse the library by label. Only on the All segment, and only once the
@@ -653,6 +647,52 @@ struct HistoryView: View {
         Binding(
             get: { pendingHardDelete != nil },
             set: { if !$0 { pendingHardDelete = nil } }
+        )
+    }
+}
+
+// MARK: - Segmented control
+
+/// Design-system segmented control — replaces `.pickerStyle(.segmented)`, whose
+/// selection paints with the macOS system accent (blue) that's off-palette here.
+/// Selected segment is a raised `surfaceStrong` pill (sliding via matched
+/// geometry) with `ink` text; unselected is `muted`.
+private struct SegmentedControl: View {
+    @Binding var selection: HistoryView.Segment
+    let animation: Animation
+    @Namespace private var pill
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(HistoryView.Segment.allCases) { segment in
+                let isSelected = selection == segment
+                Text(segment.rawValue)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.muted)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                    .background {
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Theme.Palette.surfaceStrong)
+                                .matchedGeometryEffect(id: "pill", in: pill)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard selection != segment else { return }
+                        withAnimation(animation) { selection = segment }
+                    }
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Theme.Palette.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Theme.Palette.border, lineWidth: 0.5)
+                )
         )
     }
 }
