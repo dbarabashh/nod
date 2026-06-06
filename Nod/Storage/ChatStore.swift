@@ -112,6 +112,23 @@ final class ChatStore: ObservableObject {
         openMeetingID = nil
     }
 
+    /// Permanently deletes the saved conversation for a session. The session
+    /// itself (recording, summary, transcript) is untouched.
+    func clearHistory(meetingID: UUID) async {
+        do {
+            try await supabase
+                .from(Self.tableName)
+                .delete()
+                .eq("meeting_id", value: meetingID.uuidString)
+                .execute()
+            guard openMeetingID == meetingID else { return }
+            messages = []
+            sendState = .idle
+        } catch {
+            Log.ui.error("ChatStore.clearHistory failed: \(error.localizedDescription)")
+        }
+    }
+
     /// Best-effort persistence — a network blip shouldn't drop the turn from
     /// the on-screen conversation, so a failed insert is logged, not surfaced.
     private func persist(_ message: ChatMessage) async {

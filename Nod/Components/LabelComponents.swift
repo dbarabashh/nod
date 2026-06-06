@@ -146,27 +146,13 @@ struct LabelPickerPopover: View {
                 .lineLimit(1)
             Spacer(minLength: 0)
             if confirming {
-                HStack(spacing: 6) {
-                    Button { confirmDelete(label) } label: {
-                        Image(systemName: "trash.fill")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 18, height: 18)
-                            .background(Circle().fill(Theme.Palette.danger))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Delete label")
-                    Button { confirmingDelete = nil } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Theme.Palette.muted)
-                            .frame(width: 18, height: 18)
-                            .background(Circle().fill(Theme.Palette.surface))
-                            .overlay(Circle().stroke(Theme.Palette.border, lineWidth: 0.5))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Keep label")
-                }
+                InlineConfirmButtons(
+                    confirmIcon: "trash.fill",
+                    confirmHelp: "Delete label",
+                    cancelHelp: "Keep label",
+                    onConfirm: { confirmDelete(label) },
+                    onCancel: { confirmingDelete = nil }
+                )
             } else {
                 if assigned.contains(label.id) {
                     Image(systemName: "checkmark")

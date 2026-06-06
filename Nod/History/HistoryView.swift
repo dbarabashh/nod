@@ -17,6 +17,7 @@ struct HistoryView: View {
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @EnvironmentObject private var labelStore: LabelStore
+    @EnvironmentObject private var chatStore: ChatStore
 
     /// (done, total) while a backfill re-index is running; nil when idle.
     @State private var reindexProgress: ReindexProgress? = nil
@@ -30,6 +31,7 @@ struct HistoryView: View {
     /// belonging to the previous toast knows to skip its own dismissal.
     @State private var undoToastID: UUID = .init()
     @State private var path: [Meeting] = []
+    @State private var confirmingClearChat = false
 
     init(initialFocusMeetingID: UUID? = nil) {
         self.initialFocusMeetingID = initialFocusMeetingID
@@ -169,6 +171,7 @@ struct HistoryView: View {
                 .fill(Theme.Palette.border)
                 .frame(width: 0.5)
         }
+        .onChange(of: path.last?.id) { _ in confirmingClearChat = false }
     }
 
     private func dockHeader(for meeting: Meeting?) -> some View {
@@ -186,9 +189,42 @@ struct HistoryView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            if let meeting, chatStore.loadState == .loaded, !chatStore.messages.isEmpty {
+                clearChatControl(meetingID: meeting.id)
+            }
         }
         .padding(.horizontal, 16)
         .frame(height: 56)
+    }
+
+    @ViewBuilder
+    private func clearChatControl(meetingID: UUID) -> some View {
+        if confirmingClearChat {
+            HStack(spacing: 6) {
+                Text("Clear history?")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Theme.Palette.danger)
+                InlineConfirmButtons(
+                    confirmIcon: "eraser.fill",
+                    confirmHelp: "Clear history",
+                    cancelHelp: "Keep history",
+                    onConfirm: {
+                        confirmingClearChat = false
+                        Task { await chatStore.clearHistory(meetingID: meetingID) }
+                    },
+                    onCancel: { confirmingClearChat = false }
+                )
+            }
+        } else {
+            Button { confirmingClearChat = true } label: {
+                Image(systemName: "eraser")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .help("Clear chat history")
+        }
     }
 
     /// Navigate the left column to a session (from a mention/source click in
