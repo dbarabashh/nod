@@ -813,28 +813,35 @@ private struct InputDevicePickerRow: View {
             Divider()
             Button("Refresh", action: refresh)
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: "mic.fill")
-                    .font(.system(size: 10))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.white.opacity(0.55))
+                    .frame(width: 12)
                 Text(currentLabel)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white.opacity(0.75))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.88))
                     .lineLimit(1)
+                Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(.white.opacity(0.55))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+            .contentShape(Capsule(style: .continuous))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .fixedSize()
+        .frame(maxWidth: .infinity, minHeight: 38)
+        .background(
+            ZStack {
+                PanelMaterial()
+                Color.white.opacity(0.04)
+            }
+            .clipShape(Capsule(style: .continuous))
+        )
         .onAppear(perform: refresh)
     }
 
