@@ -112,15 +112,11 @@ struct SessionChatView: View {
     @ViewBuilder
     private func bubble(_ message: ChatMessage) -> some View {
         if message.role == .user {
-            HStack {
-                Spacer(minLength: 40)
-                UserTextBubble(text: AttributedString(message.content))
-            }
+            UserTextBubble(text: AttributedString(message.content))
+                .padding(.leading, 40)
         } else {
-            HStack {
-                AssistantTextBubble(content: message.content)
-                Spacer(minLength: 40)
-            }
+            AssistantTextBubble(content: message.content)
+                .padding(.trailing, 40)
         }
     }
 

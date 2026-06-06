@@ -128,16 +128,12 @@ struct KnowledgeChatView: View {
     @ViewBuilder
     private func bubble(_ message: QAMessage) -> some View {
         if message.role == .user {
-            HStack {
-                Spacer(minLength: 40)
-                UserTextBubble(text: userAttributed(message))
-            }
+            UserTextBubble(text: userAttributed(message))
+                .padding(.leading, 40)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    AssistantTextBubble(content: message.content)
-                    Spacer(minLength: 40)
-                }
+                AssistantTextBubble(content: message.content)
+                    .padding(.trailing, 40)
                 if !message.sources.isEmpty {
                     sourcesRow(message.sources)
                 }
