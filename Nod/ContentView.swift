@@ -903,6 +903,11 @@ private struct StatusHeader: View {
             // into both transcribers), so a change takes effect on the next
             // ~5s chunk. Locking it forced a full End-meeting just to fix a
             // wrong pick, with no other recovery path.
+            PanelIconButton(
+                systemName: "rectangle.stack",
+                help: "Library",
+                action: { NotificationCenter.default.post(name: .nodOpenLibrary, object: nil) }
+            )
             LanguagePicker(current: language, onSelect: onLanguageSelect)
             PanelMenuButton()
             if let onCollapse {
@@ -1005,9 +1010,6 @@ private struct PanelMenuButton: View {
             Button("Settings…") {
                 NotificationCenter.default.post(name: .nodOpenSettings, object: nil)
             }
-            Button("Library…") {
-                NotificationCenter.default.post(name: .nodOpenLibrary, object: nil)
-            }
             Divider()
             Button("Hide Panel") {
                 NotificationCenter.default.post(name: .nodHidePanel, object: nil)
@@ -1027,7 +1029,7 @@ private struct PanelMenuButton: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("More — Settings, Library, Quit Nod")
+        .help("More — Settings, Hide Panel, Quit Nod")
     }
 }
 
