@@ -80,6 +80,8 @@ struct LabelPickerPopover: View {
     @State private var newColor = LabelPalette.default
     @State private var renaming: SessionLabel?
     @State private var renameText = ""
+    @State private var hovering: UUID?
+    @State private var confirmingDelete: UUID?
 
     private var assigned: Set<UUID> {
         labelStore.assignments[meetingID] ?? []
@@ -133,30 +135,64 @@ struct LabelPickerPopover: View {
     }
 
     private func row(_ label: SessionLabel) -> some View {
-        Button { toggle(label) } label: {
-            HStack(spacing: 9) {
-                Circle()
-                    .fill(label.swatchColor)
-                    .frame(width: 9, height: 9)
-                Text(label.name)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Theme.Palette.ink)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
+        let confirming = confirmingDelete == label.id
+        return HStack(spacing: 9) {
+            Circle()
+                .fill(label.swatchColor)
+                .frame(width: 9, height: 9)
+            Text(confirming ? "Delete label?" : label.name)
+                .font(.system(size: 12.5, weight: confirming ? .medium : .regular))
+                .foregroundStyle(confirming ? Theme.Palette.danger : Theme.Palette.ink)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if confirming {
+                HStack(spacing: 6) {
+                    Button { confirmDelete(label) } label: {
+                        Image(systemName: "trash.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 18, height: 18)
+                            .background(Circle().fill(Theme.Palette.danger))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete label")
+                    Button { confirmingDelete = nil } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.Palette.muted)
+                            .frame(width: 18, height: 18)
+                            .background(Circle().fill(Theme.Palette.surface))
+                            .overlay(Circle().stroke(Theme.Palette.border, lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Keep label")
+                }
+            } else {
                 if assigned.contains(label.id) {
                     Image(systemName: "checkmark")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Theme.Palette.violet)
                 }
+                Button { confirmingDelete = label.id } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+                .opacity(hovering == label.id ? 1 : 0)
+                .help("Delete label")
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .frame(height: 18)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .contentShape(Rectangle())
+        .onTapGesture { if !confirming { toggle(label) } }
+        .onHover { if $0 { hovering = label.id } else if hovering == label.id { hovering = nil } }
         .contextMenu {
             Button("Rename") { renaming = label; renameText = label.name }
-            Button("Delete", role: .destructive) { Task { try? await labelStore.delete(label.id) } }
+            Button("Delete", role: .destructive) { confirmingDelete = label.id }
         }
     }
 
@@ -186,6 +222,11 @@ struct LabelPickerPopover: View {
             .buttonStyle(.plain)
         }
         .padding(10)
+    }
+
+    private func confirmDelete(_ label: SessionLabel) {
+        confirmingDelete = nil
+        Task { try? await labelStore.delete(label.id) }
     }
 
     private func toggle(_ label: SessionLabel) {

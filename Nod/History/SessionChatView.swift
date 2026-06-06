@@ -20,6 +20,13 @@ struct SessionChatView: View {
     /// nil until the transcript load resolves — the composer stays disabled
     /// until then so the first message is always fully grounded.
     @State private var transcriptText: String? = nil
+    /// The first time saved history lands we jump to the bottom; every later
+    /// update animates. Reset per-meeting because the view is rebuilt with
+    /// `.id(meeting.id)`.
+    @State private var didInitialScroll = false
+    /// The scroll content stays hidden until that first jump lands, so the
+    /// chat appears already at the bottom instead of visibly scrolling down.
+    @State private var positioned = false
     @FocusState private var inputFocused: Bool
 
     /// Freshest copy so chat grounds on the latest edited recap/title.
@@ -69,7 +76,12 @@ struct SessionChatView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-            .onChange(of: chatStore.messages.count) { _ in scrollToEnd(proxy) }
+            .opacity(positioned ? 1 : 0)
+            .onAppear { positionInitially(proxy) }
+            .onChange(of: chatStore.messages.count) { _ in
+                if didInitialScroll { scrollToEnd(proxy) } else { positionInitially(proxy) }
+            }
+            .onChange(of: chatStore.loadState) { _ in positionInitially(proxy) }
             .onChange(of: chatStore.sendState) { _ in scrollToEnd(proxy) }
         }
     }
@@ -249,13 +261,42 @@ struct SessionChatView: View {
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
-        let target: AnyHashable? = isSending
-            ? AnyHashable(Self.typingAnchor)
-            : chatStore.messages.last.map { AnyHashable($0.id) }
-        guard let target else { return }
+        guard let target = scrollTarget else { return }
         withAnimation(.easeOut(duration: 0.15)) {
             proxy.scrollTo(target, anchor: .bottom)
         }
+    }
+
+    /// Place the chat at the bottom before it's first shown. The content is
+    /// hidden until this runs, so there's no visible scroll. The jump is
+    /// deferred a runloop so the `LazyVStack` rows are laid out first —
+    /// scrolling during the same update lands short of the true bottom.
+    private func positionInitially(_ proxy: ScrollViewProxy) {
+        guard !didInitialScroll else { return }
+        guard let target = scrollTarget else {
+            // Nothing to scroll to yet. Reveal an empty chat only once the load
+            // has settled; keep waiting while it's still idle or loading so we
+            // don't mark the initial scroll done before history arrives.
+            switch chatStore.loadState {
+            case .loaded, .failed:
+                didInitialScroll = true
+                positioned = true
+            case .idle, .loading:
+                break
+            }
+            return
+        }
+        didInitialScroll = true
+        DispatchQueue.main.async {
+            proxy.scrollTo(target, anchor: .bottom)
+            positioned = true
+        }
+    }
+
+    private var scrollTarget: AnyHashable? {
+        isSending
+            ? AnyHashable(Self.typingAnchor)
+            : chatStore.messages.last.map { AnyHashable($0.id) }
     }
 
     private var kindNoun: String {

@@ -63,6 +63,11 @@ struct KnowledgeChatView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await meetingStore.refresh() }
+        .onChange(of: labelStore.labels) { labels in
+            if let scope = scopeLabel, !labels.contains(where: { $0.id == scope.id }) {
+                scopeLabel = nil
+            }
+        }
         // Intercept taps on inline mention links (nod-meeting://m/<uuid>).
         .environment(\.openURL, OpenURLAction { url in
             guard url.scheme == "nod-meeting", let id = UUID(uuidString: url.lastPathComponent) else {
@@ -104,7 +109,6 @@ struct KnowledgeChatView: View {
                 .foregroundStyle(Theme.Palette.ink)
             VStack(alignment: .leading, spacing: 5) {
                 suggestion("What have I been thinking about lately?")
-                suggestion("Summarize everything about pricing.")
                 suggestion("What did I say I'd follow up on?")
             }
         }

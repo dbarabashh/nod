@@ -75,6 +75,11 @@ struct HistoryView: View {
                 focus(on: id)
             }
         }
+        .onChange(of: labelStore.labels) { labels in
+            if let id = filterLabelID, !labels.contains(where: { $0.id == id }) {
+                filterLabelID = nil
+            }
+        }
         .onChange(of: meetingStore.pendingUndo?.id) { newID in
             // A fresh soft-delete just landed — start the 5s auto-dismiss
             // window. Stamp a new local id so any in-flight prior timer
