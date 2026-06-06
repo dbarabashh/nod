@@ -313,6 +313,11 @@ async function handleSearch(payload: unknown, userId: string): Promise<Response>
     }
     const query = payload.query.trim();
     if (query.length === 0) return json({ matches: [] }, 200);
+    // HyDE: when the client sends a hypothetical answer, embed THAT (it lives
+    // in the same space as transcript chunks) while keeping `query` for entity
+    // matching + scoping. Absent → embed the raw query (legacy behavior).
+    const hyde = typeof payload.embed_text === "string" ? payload.embed_text.trim() : "";
+    const textToEmbed = hyde.length > 0 ? hyde : query;
     const requestedCount = typeof payload.match_count === "number" ? payload.match_count : 8;
     const matchCount = Math.min(Math.max(1, Math.floor(requestedCount)), MAX_SEARCH_MATCHES);
     const meetingId = typeof payload.meeting_id === "string" ? payload.meeting_id : null;
@@ -323,7 +328,7 @@ async function handleSearch(payload: unknown, userId: string): Promise<Response>
 
     let embedding: number[];
     try {
-        embedding = await embedText(query);
+        embedding = await embedText(textToEmbed);
     } catch (err) {
         console.error(`search embed failed: ${err}`);
         return json({ matches: [], error: "embedding failed" }, 500);

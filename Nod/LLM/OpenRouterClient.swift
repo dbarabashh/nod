@@ -233,11 +233,14 @@ final class OpenRouterClient: ObservableObject {
 
     /// Exponential backoff in milliseconds. 429 gets a longer base because
     /// rate limits are time-bucketed — burning a 200ms retry the moment a
-    /// 429 lands almost always re-trips the same bucket. 5xx / network blips
-    /// retry sooner since they're usually fixed by the next request.
+    /// 429 lands almost always re-trips the same bucket. 546 (Edge Function
+    /// WORKER_RESOURCE_LIMIT) gets the same treatment: the killed worker is
+    /// still hot, so a fast retry just re-hits the same wall — backing off lets
+    /// the platform route to a fresh instance. 5xx / network blips retry sooner
+    /// since they're usually fixed by the next request.
     private static func retryDelayMillis(for error: ClientError, attempt: Int) -> UInt64 {
         let base: UInt64 = switch error {
-        case let .requestFailed(status, _) where status == 429:
+        case let .requestFailed(status, _) where status == 429 || status == 546:
             800
         default:
             400
@@ -277,11 +280,12 @@ final class OpenRouterClient: ObservableObject {
 
     // MARK: - Cross-session knowledge (step 5)
 
-    /// Embedding ~1200-char chunks is CPU-heavy server-side; doing a whole
-    /// session in one request overruns the Edge Function's worker budget
-    /// (WORKER_RESOURCE_LIMIT). Send a few chunks per call so each invocation
-    /// stays well under the limit.
-    private static let indexBatchSize = 4
+    /// Embedding ~1200-char chunks is CPU-heavy server-side; gte-small runs
+    /// in-process in the Edge runtime, so each chunk in a batch is a sequential
+    /// inference on the same invocation. At 4/call the worker still trips its
+    /// CPU budget (WORKER_RESOURCE_LIMIT / HTTP 546), especially when the call
+    /// collides with the recap/title/entity burst at meeting end. Keep it small.
+    private static let indexBatchSize = 2
 
     /// Indexes a session's transcript chunks for cross-session search. The
     /// proxy embeds each chunk server-side (gte-small) and writes the vectors —
@@ -307,6 +311,39 @@ final class OpenRouterClient: ObservableObject {
         }
     }
 
+    /// Pre-retrieval query transform shared by single- and cross-session
+    /// chat. Produces a self-contained query (pronouns/ellipsis resolved
+    /// against `history`) and a hypothetical transcript-style answer to embed
+    /// for retrieval (HyDE). Fails open: any error yields the raw query and no
+    /// HyDE doc, so a failure degrades to plain query-embedding rather than
+    /// breaking search.
+    func prepareSearchQuery(
+        history: [ChatTurn],
+        query: String,
+        language: AppLanguage = .english,
+        personalContext: String = ""
+    ) async -> (standalone: String, hyde: String?) {
+        struct HyDEResult: Decodable {
+            let standalone_query: String
+            let hypothetical_answer: String
+        }
+        let (system, user) = PromptLibrary.buildHyDE(
+            history: history,
+            query: query,
+            language: language,
+            personalContext: personalContext
+        )
+        do {
+            let result = try await completeJSON(system: system, user: user, as: HyDEResult.self)
+            let standalone = result.standalone_query.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hyde = result.hypothetical_answer.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (standalone.isEmpty ? query : standalone, hyde.isEmpty ? nil : hyde)
+        } catch {
+            Log.llm.error("query prep failed (using raw query): \(error.localizedDescription)")
+            return (query, nil)
+        }
+    }
+
     /// Semantic search over the user's chunks. `meetingID` narrows to one
     /// session (used to retrieve relevant parts of a long meeting instead of
     /// stuffing its whole transcript); `meetingIDs` narrows to a set (label
@@ -316,20 +353,25 @@ final class OpenRouterClient: ObservableObject {
         query: String,
         matchCount: Int = 8,
         meetingID: UUID? = nil,
-        meetingIDs: [UUID]? = nil
+        meetingIDs: [UUID]? = nil,
+        embedText: String? = nil
     ) async throws -> [RetrievedChunk] {
         struct Payload: Encodable {
             let query: String
             let match_count: Int
             let meeting_id: String?
             let meeting_ids: [String]?
+            let embed_text: String?
         }
-        Log.llm.info("→ search via proxy q.len=\(query.count) scoped=\(meetingID != nil) labelScoped=\(meetingIDs != nil)")
+        Log.llm.info(
+            "→ search via proxy q.len=\(query.count) scoped=\(meetingID != nil) labelScoped=\(meetingIDs != nil) hyde=\(embedText != nil)"
+        )
         let payload = Payload(
             query: query,
             match_count: matchCount,
             meeting_id: meetingID?.uuidString,
-            meeting_ids: meetingIDs?.map(\.uuidString)
+            meeting_ids: meetingIDs?.map(\.uuidString),
+            embed_text: embedText
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "search", payload: payload))
         let data = try await postToProxyWithRetry(body: body)

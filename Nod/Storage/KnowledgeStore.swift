@@ -54,11 +54,22 @@ final class KnowledgeStore: ObservableObject {
     /// Cross-session drops the weak tail to avoid confabulation; within a
     /// single known session we keep the best chunks regardless, since they're
     /// the only source the user is asking about.
-    func search(query: String, matchCount: Int = 8, meetingID: UUID? = nil, meetingIDs: [UUID]? = nil) async -> [RetrievedChunk] {
+    /// `embedText`, when set, is what gets embedded for the vector match (the
+    /// HyDE hypothetical answer); `query` is still used for entity matching and
+    /// scoping. Nil falls back to embedding the query itself.
+    func search(query: String, matchCount: Int = 8, meetingID: UUID? = nil, meetingIDs: [UUID]? = nil, embedText: String? = nil) async -> [
+        RetrievedChunk
+    ] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
         do {
-            let results = try await llm.searchKnowledge(query: trimmed, matchCount: matchCount, meetingID: meetingID, meetingIDs: meetingIDs)
+            let results = try await llm.searchKnowledge(
+                query: trimmed,
+                matchCount: matchCount,
+                meetingID: meetingID,
+                meetingIDs: meetingIDs,
+                embedText: embedText
+            )
             guard meetingID == nil else { return results }
             return results.filter { $0.similarity >= Self.minSimilarity }
         } catch {

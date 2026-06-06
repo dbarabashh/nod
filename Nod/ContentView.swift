@@ -505,21 +505,25 @@ struct ContentView: View {
                 // landed on the server. If the save was queued for retry, the
                 // parent row doesn't exist yet, so these would FK-fail, waste
                 // an LLM + embedding call, and never re-run — same reasoning as
-                // the transcript-insert guard in persistMeeting. They're
-                // independent, so run them concurrently.
+                // the transcript-insert guard in persistMeeting.
+                //
+                // Run indexing AFTER entities, not concurrently: indexing runs
+                // gte-small embeddings *inside* the edge worker and is CPU-heavy
+                // enough to trip WORKER_RESOURCE_LIMIT (HTTP 546). Serializing
+                // keeps it from sharing a worker instance with the entity call —
+                // the contention that pushed it over the CPU budget. It's all
+                // background, so the extra latency is invisible to the user.
                 if !pendingMeetingSaves.contains(where: { $0.id == updated.id }) {
-                    async let entities: Void = extractEntities(
+                    await extractEntities(
                         meetingID: updated.id,
                         userID: userID,
                         transcript: context,
                         summary: text
                     )
-                    async let indexing: Void = knowledgeStore.index(
+                    await knowledgeStore.index(
                         meetingID: updated.id,
                         transcript: context
                     )
-                    _ = await entities
-                    _ = await indexing
                 }
             } catch {
                 Log.ui.error("Meeting summary generation failed: \(error.localizedDescription)")

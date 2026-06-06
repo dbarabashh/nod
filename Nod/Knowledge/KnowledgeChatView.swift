@@ -388,11 +388,33 @@ struct KnowledgeChatView: View {
         draft = ""
         mentions = []
         errorText = nil
+        // Captured before the new turn is appended — this is the context the
+        // query-prep step resolves follow-ups against.
+        let priorHistory = messages.map {
+            OpenRouterClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
+        }
         messages.append(QAMessage(role: .user, content: text, mentions: active))
         thinkingPhase = "Searching your sessions…"
         isSending = true
         let scope = scopeLabel
         Task {
+            // Answer in the language the user typed, not the app default — the
+            // retrieved excerpts (often Ukrainian) otherwise drag the reply away
+            // from an English question. Resolved up front so query prep writes
+            // the HyDE passage in the same language too.
+            let replyLanguage = AppLanguage.detect(from: text) ?? language.current
+            // HyDE + conversational rewrite: a self-contained query (drives
+            // routing + entity matching) and a hypothetical transcript-style
+            // answer (embedded for the vector match). Runs before routing so a
+            // follow-up like "and the enterprise one?" resolves to the full
+            // question rather than the bare pronoun.
+            let prepared = await llm.prepareSearchQuery(
+                history: priorHistory,
+                query: text,
+                language: replyLanguage,
+                personalContext: profileStore.promptContext
+            )
+
             // Precedence: an explicit @mention is the most specific intent and
             // wins; otherwise an active label scope narrows to its sessions;
             // otherwise the router decides ("last meeting" / "the pricing one"
@@ -412,13 +434,9 @@ struct KnowledgeChatView: View {
                 }
                 route = .scoped(ids)
             } else {
-                route = await routeQuery(text)
+                route = await routeQuery(prepared.standalone)
             }
-            let (excerpts, sources) = await gather(for: route, query: text)
-            // Answer in the language the user typed, not the app default —
-            // the retrieved excerpts (often Ukrainian) otherwise drag the
-            // reply away from an English question.
-            let replyLanguage = AppLanguage.detect(from: text) ?? language.current
+            let (excerpts, sources) = await gather(for: route, query: prepared.standalone, embedText: prepared.hyde)
             let system = PromptLibrary.buildKnowledgeSystem(
                 excerpts: excerpts,
                 language: replyLanguage,
@@ -487,13 +505,13 @@ struct KnowledgeChatView: View {
     /// Builds the grounding excerpts + sources for the routed scope. Specific
     /// sessions are answered from their recap (+ relevant transcript parts if
     /// indexed) so sources show only what the question is actually about.
-    private func gather(for route: Route, query: String) async -> (excerpts: [String], sources: [SessionRef]) {
+    private func gather(for route: Route, query: String, embedText: String?) async -> (excerpts: [String], sources: [SessionRef]) {
         switch route {
         case .all, .scoped:
             // Corpus-style search (similarity + entity boost). A label scope is
             // the same path, constrained server-side to the label's sessions.
             let scopedIDs: [UUID]? = if case let .scoped(ids) = route { ids } else { nil }
-            let chunks = await knowledgeStore.search(query: query, meetingIDs: scopedIDs)
+            let chunks = await knowledgeStore.search(query: query, meetingIDs: scopedIDs, embedText: embedText)
             let byID = Dictionary(meetingStore.meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             return (chunks.map { labeledExcerpt($0, in: byID) }, resolveSources(chunks, in: byID))
         case let .specific(ids):
@@ -513,7 +531,7 @@ struct KnowledgeChatView: View {
             let store = knowledgeStore
             let chunksByIndex = await withTaskGroup(of: (Int, [RetrievedChunk]).self) { group in
                 for (index, session) in resolved.enumerated() {
-                    group.addTask { await (index, store.search(query: query, meetingID: session.id)) }
+                    group.addTask { await (index, store.search(query: query, meetingID: session.id, embedText: embedText)) }
                 }
                 var collected = [[RetrievedChunk]](repeating: [], count: resolved.count)
                 for await (index, chunks) in group {

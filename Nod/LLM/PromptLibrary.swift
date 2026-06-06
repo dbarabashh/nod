@@ -634,6 +634,59 @@ enum PromptLibrary {
         return (system, user)
     }
 
+    // MARK: - Query preparation (HyDE + conversational rewrite)
+
+    /// Pre-retrieval transform for cross-session search. From the user's
+    /// (possibly context-dependent) question it produces two things:
+    ///   • `standalone_query` — the latest question rewritten to stand on its
+    ///     own, with pronouns/ellipsis resolved from the chat history ("the
+    ///     enterprise one" → "the enterprise pricing tier"). Drives routing and
+    ///     entity matching, and is what the user effectively asked.
+    ///   • `hypothetical_answer` — a short passage in the STYLE of a transcript
+    ///     excerpt that would answer the query. Embedded in place of the raw
+    ///     question (HyDE) so retrieval matches answer-shaped chunks instead of
+    ///     question-shaped ones. NEVER shown to the user, NEVER treated as fact.
+    static func buildHyDE(
+        history: [OpenRouterClient.ChatTurn],
+        query: String,
+        language: AppLanguage = .english,
+        personalContext: String = ""
+    ) -> (system: String, user: String) {
+        let lang = language.promptName
+        let base = """
+        You prepare a user's question for semantic search over the transcripts of meetings, voice notes, and recordings they made. You do NOT answer the question for the user — you output a JSON object with exactly two fields.
+
+        1. "standalone_query": rewrite the LATEST question so it stands on its own without the conversation history. Resolve pronouns, ellipsis, and back-references ("it", "that", "the second one", "the enterprise one") into explicit terms using the earlier turns. If the question is already self-contained, return it essentially unchanged. Write it in \(
+            lang
+        ) (or the language the question itself is written in).
+
+        2. "hypothetical_answer": write a SHORT passage (2-4 sentences) that reads like an excerpt of spoken meeting dialogue and would plausibly answer the standalone query. This is a retrieval aid: it gets embedded to find the REAL excerpts, so make it dense with the concrete terms (topics, roles, products, decisions, numbers) the true answer would contain, in the natural phrasing of people talking. It is expected to invent plausible specifics — this text is never surfaced and never used as fact. Write it in \(
+            lang
+        ).
+
+        [OUTPUT FORMAT]
+        Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
+        {"standalone_query": "<the self-contained question>", "hypothetical_answer": "<the transcript-style passage>"}
+        """
+        let system = personalContext.isEmpty ? base : personalContext + "\n\n" + base
+
+        let historyBlock = history.isEmpty
+            ? "(none — this is the first question.)"
+            : history.map { "\($0.role == .assistant ? "Nod" : "User"): \($0.content)" }.joined(separator: "\n")
+        let user = """
+        Conversation so far:
+
+        \(historyBlock)
+
+        Latest question:
+
+        \(query)
+
+        Prepare it now.
+        """
+        return (system, user)
+    }
+
     // MARK: - Cross-session knowledge chat (step 5)
 
     /// System prompt for asking across everything the user has recorded. The

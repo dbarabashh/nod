@@ -10,6 +10,7 @@ struct SessionChatView: View {
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
+    @EnvironmentObject private var llm: OpenRouterClient
 
     /// Above this transcript size we retrieve the parts relevant to the
     /// question instead of stuffing the whole thing — keeps long meetings
@@ -192,17 +193,25 @@ struct SessionChatView: View {
 
     private func send(retryLast: Bool = false) {
         let text: String
+        // Conversation before the current question — what query prep resolves
+        // follow-up references against.
+        let priorTurns: ArraySlice<ChatMessage>
         if retryLast {
             // The last user turn is already saved; resend it to get a reply.
-            guard let last = chatStore.messages.last(where: { $0.role == .user }) else { return }
-            text = last.content
+            guard let lastUserIndex = chatStore.messages.lastIndex(where: { $0.role == .user }) else { return }
+            text = chatStore.messages[lastUserIndex].content
+            priorTurns = chatStore.messages[..<lastUserIndex]
         } else {
             text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
             guard canSend else { return }
+            priorTurns = chatStore.messages[...]
+        }
+        let priorHistory = priorTurns.map {
+            OpenRouterClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
         }
         if !retryLast { draft = "" }
         Task {
-            let systemPrompt = await buildSystemPrompt(for: text)
+            let systemPrompt = await buildSystemPrompt(for: text, history: priorHistory)
             if retryLast {
                 await chatStore.retryLast(
                     systemPrompt: systemPrompt,
@@ -220,16 +229,29 @@ struct SessionChatView: View {
         }
     }
 
-    private func buildSystemPrompt(for query: String) async -> String {
+    private func buildSystemPrompt(for query: String, history: [OpenRouterClient.ChatTurn]) async -> String {
         // Match the user's typed language; fall back to the meeting's language.
         let language = AppLanguage.detect(from: query) ?? AppLanguage(rawValue: current.language) ?? .english
         let full = transcriptText ?? ""
         let grounding: String
         if full.count > Self.longTranscriptChars {
-            // Retrieve the relevant parts of a long meeting. Fall back to the
+            // Retrieve the relevant parts of a long meeting. HyDE: resolve the
+            // question (and any follow-up reference) into a standalone query and
+            // embed a hypothetical transcript-style answer. Fall back to the
             // (truncated) full text if retrieval is empty — e.g. the session
             // isn't indexed yet.
-            let chunks = await knowledgeStore.search(query: query, matchCount: 8, meetingID: meeting.id)
+            let prepared = await llm.prepareSearchQuery(
+                history: history,
+                query: query,
+                language: language,
+                personalContext: profileStore.promptContext
+            )
+            let chunks = await knowledgeStore.search(
+                query: prepared.standalone,
+                matchCount: 8,
+                meetingID: meeting.id,
+                embedText: prepared.hyde
+            )
             grounding = chunks.isEmpty
                 ? String(full.prefix(Self.longTranscriptChars))
                 : chunks.map(\.content).joined(separator: "\n…\n")
