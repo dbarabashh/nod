@@ -97,12 +97,12 @@ struct ContentView: View {
 
     /// Wall-clock start of the current recording. Captured in beginRecording
     /// so we can stamp `started_at` accurately when we persist on summary.
-    @State private var recordingStartedAt: Date? = nil
+    @State private var recordingStartedAt: Date?
     /// In-memory queue of meetings whose insert failed — retried by the
     /// toast button. v1 has no on-disk outbox; if the panel is torn down
     /// (sign-out) before the queue drains, the meetings are lost.
     @State private var pendingMeetingSaves: [Meeting] = []
-    @State private var saveErrorToast: String? = nil
+    @State private var saveErrorToast: String?
 
     /// The panel widens to two columns only when there's something to show
     /// on the right — a ready response, the consent modal, or the save-error
@@ -792,48 +792,53 @@ private struct InputDevicePickerRow: View {
     @ObservedObject var audioCapture: AudioCaptureService
     @State private var devices: [AudioInputDevice] = []
 
+    private let rowHeight: CGFloat = 38
+
     var body: some View {
-        Menu {
-            Button(action: { audioCapture.preferredInputUID = nil; refresh() }) {
-                Label("System Default", systemImage: audioCapture.preferredInputUID == nil ? "checkmark" : "")
-            }
-            Divider()
-            ForEach(devices) { device in
-                Button(action: { audioCapture.preferredInputUID = device.uid; refresh() }) {
-                    HStack {
-                        Text(device.name + (device.isDefault ? "  (default)" : ""))
-                        Spacer()
-                        if device.uid == audioCapture.preferredInputUID {
-                            Image(systemName: "checkmark")
-                        }
-                    }
+        // The visual row is a plain view so its capsule background renders
+        // reliably; a transparent, full-width Menu is overlaid only for the
+        // click + popover. Putting the chrome inside the Menu's label is what
+        // broke across macOS versions — `.borderlessButton` hugs and re-renders
+        // the label, dropping its background and centring it.
+        GeometryReader { geo in
+            ZStack {
+                rowContent(width: geo.size.width)
+
+                Menu {
+                    menuItems
+                } label: {
+                    Color.clear
+                        .frame(width: geo.size.width, height: rowHeight)
+                        .contentShape(Rectangle())
                 }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
             }
-            Divider()
-            Button("Refresh", action: refresh)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "mic.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.55))
-                    .frame(width: 12)
-                Text(currentLabel)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(0.88))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.55))
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
-            .contentShape(Capsule(style: .continuous))
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(maxWidth: .infinity, minHeight: 38)
+        .frame(maxWidth: .infinity)
+        .frame(height: rowHeight)
+        .onAppear(perform: refresh)
+    }
+
+    private func rowContent(width: CGFloat) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "mic.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.white.opacity(0.55))
+                .frame(width: 12)
+            Text(currentLabel)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white.opacity(0.88))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(.white.opacity(0.55))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .frame(width: width, height: rowHeight, alignment: .leading)
         .background(
             ZStack {
                 PanelMaterial()
@@ -841,7 +846,26 @@ private struct InputDevicePickerRow: View {
             }
             .clipShape(Capsule(style: .continuous))
         )
-        .onAppear(perform: refresh)
+    }
+
+    @ViewBuilder private var menuItems: some View {
+        Button(action: { audioCapture.preferredInputUID = nil }) {
+            Label("System Default", systemImage: audioCapture.preferredInputUID == nil ? "checkmark" : "")
+        }
+        Divider()
+        ForEach(devices) { device in
+            Button(action: { audioCapture.preferredInputUID = device.uid }) {
+                HStack {
+                    Text(device.name + (device.isDefault ? "  (default)" : ""))
+                    Spacer()
+                    if device.uid == audioCapture.preferredInputUID {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+        }
+        Divider()
+        Button("Refresh", action: refresh)
     }
 
     private var currentLabel: String {
@@ -1479,7 +1503,7 @@ private struct ResponseCard: View {
     @State private var editableText: String = ""
     @State private var aiInstruction: String = ""
     @State private var isApplyingEdit: Bool = false
-    @State private var editError: String? = nil
+    @State private var editError: String?
     @FocusState private var instructionFocused: Bool
     /// True when the editable recap is shown as rendered markdown; false
     /// when the user has tapped Edit to switch to the raw TextEditor.
