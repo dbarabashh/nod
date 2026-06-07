@@ -7,10 +7,17 @@ export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 staged_swift=$(git diff --cached --name-only --diff-filter=ACM -- '*.swift')
 [ -z "$staged_swift" ] && exit 0
 
+# Autocorrect lint violations first, then let swiftformat have the final say on
+# formatting (run last so the two tools don't fight over style).
+if which swiftlint >/dev/null; then
+  echo "$staged_swift" | xargs swiftlint --fix --quiet >/dev/null 2>&1
+fi
+
 if which swiftformat >/dev/null; then
   echo "$staged_swift" | xargs swiftformat >/dev/null 2>&1
-  echo "$staged_swift" | xargs git add
 fi
+
+echo "$staged_swift" | xargs git add
 
 if which swiftlint >/dev/null; then
   if ! echo "$staged_swift" | xargs swiftlint lint --quiet; then

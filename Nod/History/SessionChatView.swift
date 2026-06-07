@@ -20,7 +20,7 @@ struct SessionChatView: View {
     @State private var draft: String = ""
     /// nil until the transcript load resolves — the composer stays disabled
     /// until then so the first message is always fully grounded.
-    @State private var transcriptText: String? = nil
+    @State private var transcriptText: String?
     /// The first time saved history lands we jump to the bottom; every later
     /// update animates. Reset per-meeting because the view is rebuilt with
     /// `.id(meeting.id)`.
@@ -164,7 +164,7 @@ struct SessionChatView: View {
                         )
                 )
 
-            Button(action: { send() }) {
+            Button(action: { send() }, label: {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white)
@@ -172,7 +172,7 @@ struct SessionChatView: View {
                     .background(
                         Circle().fill(canSend ? Theme.Palette.violet : Theme.Palette.muted.opacity(0.4))
                     )
-            }
+            })
             .buttonStyle(.plain)
             .disabled(!canSend)
         }
