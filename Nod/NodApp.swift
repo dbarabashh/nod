@@ -101,6 +101,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 self?.updaterController.checkForUpdates(nil)
             }
         }
+        NotificationCenter.default.addObserver(forName: .nodDeviceConflict, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in
+                await self?.auth?.forceSignOut(
+                    reason: "Signed out — this account is being used on another device."
+                )
+            }
+        }
 
         let permissions = PermissionManager()
         let onboarding = OnboardingState()
@@ -124,6 +131,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         )
         let auth = AuthService(client: supabase)
         let llmClient = OpenRouterClient(supabase: supabase)
+        // Free the single-device slot on every sign-out path (menu, forced
+        // device-conflict), while the token is still valid.
+        auth.onSignOut = { [weak llmClient] in await llmClient?.releaseDevice() }
         let transcriptStore = TranscriptStore(client: llmClient, language: languagePreference)
         let consent = ConsentPreference(
             supabase: supabase,
@@ -200,6 +210,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     closeSettingsWindow()
                 }
                 if isSignedIn {
+                    // Single-device lock: claim this device's slot now so a
+                    // blocked device is signed out immediately (the claim
+                    // broadcasts .nodDeviceConflict on a 403) rather than only
+                    // failing once the first proxy call lands mid-onboarding.
+                    Task { @MainActor [weak self] in
+                        do { try await self?.llmClient?.claimDevice() } catch { Log.auth.error(
+                            "device claim failed: \(error.localizedDescription)"
+                        ) }
+                    }
                     // Warm the profile so its prompt context is ready before
                     // the first meeting ends. `load` no-ops once cached.
                     Task { await self.profileStore?.load() }
@@ -459,6 +478,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     @objc private func signOutAction() {
+        // Slot release is handled by AuthService.onSignOut, so every sign-out
+        // path frees it — not just this one.
         Task { @MainActor in await self.auth?.signOut() }
     }
 

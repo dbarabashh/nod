@@ -12,6 +12,7 @@ final class OpenRouterClient: ObservableObject {
     enum ClientError: LocalizedError {
         case unauthenticated
         case updateRequired
+        case deviceConflict
         case requestFailed(status: Int, body: String)
         case emptyResponse
         case decodingFailed(String)
@@ -23,6 +24,8 @@ final class OpenRouterClient: ObservableObject {
                 "Session expired, please sign in again."
             case .updateRequired:
                 "This version of Nod is out of date. Please update to continue."
+            case .deviceConflict:
+                "This account is already in use on another device."
             case let .requestFailed(status, body):
                 "LLM proxy HTTP \(status): \(body)"
             case .emptyResponse:
@@ -84,11 +87,6 @@ final class OpenRouterClient: ObservableObject {
         enum Role: String { case user, assistant }
         let role: Role
         let content: String
-
-        init(role: Role, content: String) {
-            self.role = role
-            self.content = content
-        }
     }
 
     func complete(system: String, user: String, jsonMode: Bool = false) async throws -> String {
@@ -226,7 +224,7 @@ final class OpenRouterClient: ObservableObject {
             status == 429 || (status >= 500 && status < 600)
         case .networkFailed:
             true
-        case .unauthenticated, .updateRequired, .emptyResponse, .decodingFailed:
+        case .unauthenticated, .updateRequired, .deviceConflict, .emptyResponse, .decodingFailed:
             false
         }
     }
@@ -386,6 +384,31 @@ final class OpenRouterClient: ObservableObject {
         }
     }
 
+    // MARK: - Single-device lock
+
+    /// Claims this device's slot for the signed-in account. Throws
+    /// `.deviceConflict` (after broadcasting `.nodDeviceConflict`) when the
+    /// account is already bound to another device. Called right after sign-in
+    /// so a blocked device is told immediately, before onboarding.
+    func claimDevice() async throws {
+        _ = try await postToProxyWithRetry(body: deviceEnvelope(kind: "device_claim"))
+    }
+
+    /// Releases this device's slot so the account can sign in elsewhere without
+    /// waiting for the inactivity TTL. Best-effort — called during sign-out, so
+    /// a failure (already offline, expiring token) must not block it.
+    func releaseDevice() async {
+        do {
+            _ = try await postToProxy(body: deviceEnvelope(kind: "device_release"))
+        } catch {
+            Log.llm.error("releaseDevice failed (non-fatal): \(error.localizedDescription)")
+        }
+    }
+
+    private func deviceEnvelope(kind: String) throws -> Data {
+        try JSONEncoder().encode(ProxyEnvelope(kind: kind, payload: EmptyPayload()))
+    }
+
     // MARK: - Transport
 
     /// Wraps `postToProxy` with exponential-backoff retries on transient
@@ -455,6 +478,13 @@ final class OpenRouterClient: ObservableObject {
         request.setValue(String(AppVersion.build), forHTTPHeaderField: "x-app-build")
         request.setValue(AppVersion.version, forHTTPHeaderField: "x-app-version")
         request.setValue(AppVersion.osVersion, forHTTPHeaderField: "x-os-version")
+        // Single-device lock: the proxy binds the account to this hardware id
+        // and 403s any other device. Name is percent-encoded — machine names
+        // aren't ASCII-safe, which an HTTP header value must be.
+        request.setValue(DeviceIdentity.id, forHTTPHeaderField: "x-device-id")
+        if let encodedName = DeviceIdentity.encodedName {
+            request.setValue(encodedName, forHTTPHeaderField: "x-device-name")
+        }
         request.httpBody = body
 
         let data: Data
@@ -481,6 +511,15 @@ final class OpenRouterClient: ObservableObject {
             // the update screen shows even if the launch check was skipped.
             NotificationCenter.default.post(name: .nodUpdateRequired, object: nil)
             throw ClientError.updateRequired
+        }
+        if http.statusCode == 409 {
+            // Single-device lock: the account is bound to another device.
+            // Detected by status (like the 426 update gate) so the client
+            // contract doesn't depend on the error body's exact shape.
+            // Broadcast so the app signs out and explains why, instead of
+            // surfacing a raw HTTP error.
+            NotificationCenter.default.post(name: .nodDeviceConflict, object: nil)
+            throw ClientError.deviceConflict
         }
         if http.statusCode >= 400 {
             let raw = String(data: data, encoding: .utf8) ?? "<binary>"
@@ -541,6 +580,17 @@ final class OpenRouterClient: ObservableObject {
 private struct ProxyEnvelope<Payload: Encodable>: Encodable {
     let kind: String
     let payload: Payload
+}
+
+/// Body for proxy calls that carry no payload (device claim/release); the proxy
+/// still requires `payload` to be present, so we send an empty object.
+private struct EmptyPayload: Encodable {}
+
+extension Notification.Name {
+    /// Posted by `OpenRouterClient` when the proxy refuses a call because the
+    /// account is bound to another device (HTTP 403 `device_conflict`).
+    /// `AppDelegate` observes it to force a sign-out with an explanation.
+    static let nodDeviceConflict = Notification.Name("nod.auth.deviceConflict")
 }
 
 private struct TranscriptionRequest: Encodable {

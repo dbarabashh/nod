@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-06-04_
+_Last updated: 2026-06-07_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -111,7 +111,24 @@ to any analytics service.
 Legal basis: legitimate interest in operating a sustainable service
 (Art. 6(1)(f)).
 
-### 3.5 What we do **not** collect
+### 3.5 Device binding
+
+To enforce that one account is used on one device at a time — preventing a
+single login from being shared across many machines — we store one row per
+signed-in device in `user_devices`: a stable per-machine identifier derived
+from your Mac's hardware UUID, your computer's name, the platform (`macos`),
+and the timestamps the device was first bound and last seen. Your per-account
+device limit lives on your `profiles` row (`device_limit`, default 1).
+
+The hardware identifier is read on-device via Apple's IOKit and is used
+**only** for this access control. It is not an advertising identifier, is not
+shared with any third party, and is not used to profile you or track you
+across apps or the web.
+
+Legal basis: legitimate interest in securing accounts and preventing
+unauthorised credential sharing (Art. 6(1)(f)).
+
+### 3.6 What we do **not** collect
 
 - We do **not** embed analytics SDKs (PostHog, Mixpanel, Amplitude,
   Segment, Google Analytics, Sentry, etc.).
@@ -188,6 +205,7 @@ We can provide our SCCs and transfer impact assessments on request to
 | Data                                 | Retention                                                            |
 |--------------------------------------|----------------------------------------------------------------------|
 | Account (auth profile)               | Until you delete your account.                                       |
+| Device bindings (`user_devices`)     | Until the device signs out, is evicted by the inactivity timeout, or you delete your account (cascade). |
 | Meetings (active)                    | Until you delete them.                                               |
 | Meetings (in trash)                  | 30 days. A nightly Postgres job permanently deletes anything older. |
 | Meeting transcripts                  | Same as the parent meeting (cascade delete).                         |
@@ -220,7 +238,7 @@ you have the following rights. To exercise any of them, email
 - **Restriction** — ask us to pause processing while a dispute is
   resolved.
 - **Objection** — object to processing based on legitimate interest
-  (Sections 3.3 and 3.4 above).
+  (Sections 3.3, 3.4, and 3.5 above).
 - **Withdraw consent** — where processing is based on consent, withdraw
   it at any time (does not affect prior processing).
 - **Lodge a complaint** with your local data protection authority. EU

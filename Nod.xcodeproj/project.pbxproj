@@ -29,12 +29,14 @@
 		44A68DEB7CBFDC12B72E616C /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66860B9D2AA725125B3CD547 /* SignInView.swift */; };
 		4580021606260405D163A78B /* WAVEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05FBEC5365982FF423F3A87E /* WAVEncoder.swift */; };
 		47450284364953F237770A71 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE1282C515482809586F2327 /* Log.swift */; };
+		4D748B69654415EB99DB7D33 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E78FD6F93B40A3B13049CAE3 /* IOKit.framework */; };
 		502B52A47B55266A19FD9D06 /* sherpa-onnx.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 486C97CDDC34BDB0555D25F3 /* sherpa-onnx.xcframework */; };
 		552D7AE1CAFC3A02C97BEB37 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EEF0371FA11D9056F54DB6 /* HistoryView.swift */; };
 		5613A8BEF0A4D85BACF8BFCA /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D81AE28374538021C332981 /* OnboardingView.swift */; };
 		561C40120B247E394753E3CB /* AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CCFE48FE987F890137DEA2E /* AppVersion.swift */; };
 		5DB4AFFD8952636A15A731BB /* Entity.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEC73437E63095476EDD78F2 /* Entity.swift */; };
 		5E5DE89F796124EC1E68A4D4 /* ReplyContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C838A362BA66718EFD64DE98 /* ReplyContext.swift */; };
+		7711083C70AEA2E37F6AD18B /* DeviceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D51AB70F6A036D108ACDDC3 /* DeviceIdentity.swift */; };
 		7AE1B93BB83223335899DAB7 /* LabelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27A6F6654E257B52AAC663BD /* LabelStore.swift */; };
 		7B4FF1C0702C0565A47F86AA /* MeetingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4DAC4B7482C9DF0E4CA1C98 /* MeetingStore.swift */; };
 		7C44C3A7A932154674C0FAFF /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25A33204C81FF7B136D38D90 /* HotkeyManager.swift */; };
@@ -119,6 +121,7 @@
 		5A19A6B64B15C834D9882F79 /* SupabaseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseConfig.swift; sourceTree = "<group>"; };
 		5C1E0C024C287B38F0821F09 /* MeetingDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingDetailView.swift; sourceTree = "<group>"; };
 		5D1EA704F3EC693942C44ADE /* NodTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NodTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5D51AB70F6A036D108ACDDC3 /* DeviceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceIdentity.swift; sourceTree = "<group>"; };
 		6513755E613BC16F66D6583B /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
 		66860B9D2AA725125B3CD547 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
 		67EB2805A121969B0E87944F /* ChatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStore.swift; sourceTree = "<group>"; };
@@ -159,6 +162,7 @@
 		E0C431767878A03C0AB833CA /* Nod.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Nod.entitlements; sourceTree = "<group>"; };
 		E1D50CF8646AB9EB69F2F9C8 /* PromptLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptLibrary.swift; sourceTree = "<group>"; };
 		E4677F0DE5942AB9D9A05642 /* HotkeyRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyRecorder.swift; sourceTree = "<group>"; };
+		E78FD6F93B40A3B13049CAE3 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
 		F262446346BF9FFC15D5AF67 /* WhisperTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperTranscriber.swift; sourceTree = "<group>"; };
 		F82B97BBA049197928C3D5D1 /* UpdateGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateGate.swift; sourceTree = "<group>"; };
 		FB0516E22D5937F9048CF245 /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
@@ -170,6 +174,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4D748B69654415EB99DB7D33 /* IOKit.framework in Frameworks */,
 				2484EA93E6A4F4DC7305E7BE /* Supabase in Frameworks */,
 				AFEE441085ADE17C5D17D3B5 /* Sparkle in Frameworks */,
 				502B52A47B55266A19FD9D06 /* sherpa-onnx.xcframework in Frameworks */,
@@ -306,6 +311,7 @@
 		6BCDF4860BB5313D694B2C5D /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				E78FD6F93B40A3B13049CAE3 /* IOKit.framework */,
 				486C97CDDC34BDB0555D25F3 /* sherpa-onnx.xcframework */,
 			);
 			name = Frameworks;
@@ -314,6 +320,7 @@
 		7DF7A8F0E2B657D45484BF34 /* Backend */ = {
 			isa = PBXGroup;
 			children = (
+				5D51AB70F6A036D108ACDDC3 /* DeviceIdentity.swift */,
 				5A19A6B64B15C834D9882F79 /* SupabaseConfig.swift */,
 			);
 			path = Backend;
@@ -608,6 +615,7 @@
 				8009B94E89488DB1FA3AA0D5 /* ConsentStrings.swift in Sources */,
 				CBAF3F61519380C7AAFFDB18 /* ContentView.swift in Sources */,
 				2038AE601001FDBB84E36204 /* DesignTokens.swift in Sources */,
+				7711083C70AEA2E37F6AD18B /* DeviceIdentity.swift in Sources */,
 				5DB4AFFD8952636A15A731BB /* Entity.swift in Sources */,
 				3D8F057412F9AE997680800C /* EntityStore.swift in Sources */,
 				7DF9FA26FC32B7DBE73267B0 /* FloatingPanel.swift in Sources */,

@@ -26,6 +26,7 @@ targets:
     sources:
       - path: Nod
     dependencies:
+      - sdk: IOKit.framework
       - package: Supabase
         product: Supabase
       - package: Sparkle

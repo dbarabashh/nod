@@ -1,6 +1,6 @@
-import Foundation
 import AppKit
 import AuthenticationServices
+import Foundation
 import Supabase
 
 @MainActor
@@ -10,6 +10,12 @@ final class AuthService: NSObject, ObservableObject {
     @Published private(set) var session: Session?
     @Published private(set) var isSigningIn = false
     @Published var lastError: String?
+
+    /// Runs at the start of every sign-out, while the session token is still
+    /// valid — so any sign-out path (menu, forced device-conflict) gets the
+    /// hook, not just one call site. Used to release the single-device slot.
+    /// Best-effort by contract: it must not throw or block sign-out.
+    var onSignOut: (() async -> Void)?
 
     private let client: SupabaseClient
     private var stateTask: Task<Void, Never>?
@@ -28,7 +34,7 @@ final class AuthService: NSObject, ObservableObject {
     init(client: SupabaseClient) {
         self.client = client
         let cached = client.auth.currentSession
-        self.session = (cached?.isExpired == false) ? cached : nil
+        session = (cached?.isExpired == false) ? cached : nil
         super.init()
         let stream = client.auth.authStateChanges
         stateTask = Task { [weak self] in
@@ -149,11 +155,20 @@ final class AuthService: NSObject, ObservableObject {
     }
 
     func signOut() async {
+        await onSignOut?()
         do {
             try await client.auth.signOut()
         } catch {
             Log.auth.error("signOut failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Sign out and surface `reason` on the sign-in screen. Used when the
+    /// server ends the session out from under the user — e.g. the account was
+    /// claimed by another device (single-device lock).
+    func forceSignOut(reason: String) async {
+        await signOut()
+        lastError = reason
     }
 }
 

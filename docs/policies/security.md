@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-06-04_
+_Last updated: 2026-06-07_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company yet. We've made the
@@ -115,6 +115,11 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
 - **Usage metadata.** Per-API-call: model used, token count or audio seconds,
   upstream cost, and HTTP status. We use this to enforce per-account quotas
   and inform pricing. No content.
+- **Device bindings.** One row per signed-in device in `user_devices`: a stable
+  per-machine identifier (derived from your Mac's hardware UUID), your computer's
+  name, the platform, and first-bound / last-seen timestamps. This enforces the
+  single-device lock (see "Access control") and is used for nothing else — it is
+  not an advertising identifier and is never shared with third parties.
 
 All of this is stored in Supabase Postgres in `eu-west-1`, encrypted at rest,
 scoped per-user with Row-Level Security so one user cannot read another
@@ -124,6 +129,10 @@ user's data.
 
 - Your notes are **private by default**. There is no sharing, no team mode,
   no public links today.
+- **One device at a time.** Each account can be used on a single device. While
+  one device is active, signing in on another is refused until the first signs
+  out or goes idle past a short timeout. The lock is enforced server-side in our
+  `llm-proxy` Edge Function, not just in the app.
 - You can delete any individual meeting from the app. Deletes are soft: the
   meeting moves to a trash that's automatically and permanently purged 30
   days later by a nightly Postgres job.

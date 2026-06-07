@@ -34,6 +34,12 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const CHAT_TIMEOUT_MS      = 30_000;
 const TRANSCRIBE_TIMEOUT_MS = 60_000;
 
+// A device holds its account slot for this long without making a call. During
+// a meeting the steady transcribe traffic keeps it fresh; once the app quits
+// or sits idle past this window the slot frees so another device can claim it
+// (the "timeout" half of the single-device lock — see claim_device migration).
+const DEVICE_ACTIVE_TTL_SECONDS = 900;
+
 const OPENROUTER_CHAT_URL       = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_TRANSCRIBE_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
 
@@ -62,7 +68,7 @@ async function embedText(text: string): Promise<number[]> {
 const PCM_BYTES_PER_SECOND = 32_000;
 const WAV_HEADER_BYTES     = 44;
 
-type Kind = "chat" | "transcribe" | "index" | "search";
+type Kind = "chat" | "transcribe" | "index" | "search" | "device_claim" | "device_release";
 
 interface ProxyRequest {
     kind: Kind;
@@ -155,7 +161,55 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "Missing 'kind' or 'payload'" }, 400);
     }
 
+    // Single-device lock. `x-device-id` is the client's hardware UUID;
+    // `x-device-name` is percent-encoded (machine names aren't ASCII-safe).
+    const deviceId = req.headers.get("x-device-id");
+    const deviceName = decodeDeviceName(req.headers.get("x-device-name"));
+
+    // Explicit sign-out: free this device's slot so the user can sign in
+    // elsewhere immediately, without waiting for the TTL to expire.
+    if (body.kind === "device_release") {
+        if (deviceId) {
+            const { error } = await admin
+                .from("user_devices")
+                .delete()
+                .eq("user_id", user.id)
+                .eq("device_id", deviceId);
+            if (error) console.warn(`device_release failed: ${error.message}`);
+        }
+        return json({ ok: true }, 200);
+    }
+
+    // Enforce on every other call — the proxy is the chokepoint, so a device
+    // that loses the lock stops working regardless of client-side checks. A
+    // refused device gets 403 device_conflict and the client signs out. Fail
+    // open on any DB error: a lookup hiccup must never lock a user out of
+    // their own account.
+    if (deviceId) {
+        try {
+            const { data: allowed, error } = await admin.rpc("claim_device", {
+                p_user_id: user.id,
+                p_device_id: deviceId,
+                p_device_name: deviceName,
+                p_platform: "macos",
+                p_ttl_seconds: DEVICE_ACTIVE_TTL_SECONDS,
+            });
+            if (error) {
+                console.warn(`claim_device error (fail-open): ${error.message}`);
+            } else if (allowed === false) {
+                // 409 Conflict — the client keys off the status (not the body)
+                // to detect the single-device lock and sign out.
+                return json({ error: "device_conflict" }, 409);
+            }
+        } catch (err) {
+            console.warn(`device enforcement skipped (fail-open): ${err}`);
+        }
+    }
+
     switch (body.kind) {
+        case "device_claim":
+            // Reaching here means the device passed the lock above.
+            return json({ ok: true }, 200);
         case "chat":
             return forwardChat(body.payload, user.id);
         case "transcribe":
@@ -479,6 +533,18 @@ function audioSecondsFromPayload(payload: unknown): number | null {
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// The client percent-encodes the machine name (non-ASCII names are invalid in
+// HTTP headers). Decode best-effort; a malformed value falls back to the raw
+// header rather than dropping the name entirely.
+function decodeDeviceName(raw: string | null): string | null {
+    if (!raw) return null;
+    try {
+        return decodeURIComponent(raw);
+    } catch {
+        return raw;
+    }
 }
 
 function json(body: unknown, status: number): Response {
