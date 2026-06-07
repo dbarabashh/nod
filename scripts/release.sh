@@ -186,6 +186,9 @@ rm -rf "${ARCHIVE_PATH}" "${EXPORT_DIR}" "${DMG_STAGE}" "${DMG_PATH}" "${LATEST_
 
 # ───────────────────────── stamp version ─────────────────────────
 
+say "Ensure VAD xcframework (sherpa-onnx)"
+run "./scripts/fetch-vad-xcframework.sh"
+
 say "Regenerate project"
 xcodegen generate
 

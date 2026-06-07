@@ -1,17 +1,19 @@
 import AVFoundation
 import Foundation
-import RealTimeCutVADLibrary
 
-/// Streams audio buffers through Silero VAD (RealTimeCutVADLibrary), which runs
-/// entirely on-device: it detects whole speech segments — start at speech
-/// onset, end after a natural pause — denoises them (WebRTC APM), and hands back
-/// a ready 16 kHz WAV per utterance. Each segment is POSTed to Whisper via
-/// OpenRouter and emitted as one TranscriptEntry.
+/// Streams audio buffers through Silero VAD (sherpa-onnx), which runs entirely
+/// on-device: it detects whole speech segments — start at speech onset, end
+/// after a natural pause — and hands back 16 kHz mono PCM per utterance. Each
+/// segment is POSTed to Whisper via OpenRouter and emitted as one
+/// TranscriptEntry.
 ///
 /// Cutting on real speech boundaries (not a fixed timer) is the whole point:
 /// the previous timer cut sliced words across chunks, and each garbled boundary
-/// propagated into the recap, entities, and search index.
-final class WhisperTranscriber: NSObject, VADDelegate, @unchecked Sendable {
+/// propagated into the recap, entities, and search index. sherpa's VAD config
+/// owns segmentation — `minSilenceDuration` is the pause that closes a segment,
+/// `maxSpeechDuration` caps an unbroken monologue so the live transcript keeps
+/// flowing and chunks stay within Whisper's window.
+final class WhisperTranscriber: @unchecked Sendable {
     let source: TranscriptSource
     var onFinal: ((String, TranscriptSource) -> Void)?
     var onFailure: ((String, TranscriptSource) -> Void)?
@@ -24,42 +26,34 @@ final class WhisperTranscriber: NSObject, VADDelegate, @unchecked Sendable {
     private let queue: DispatchQueue
     private var keepRecognizing = false
 
-    private var vad: VADWrapper
+    private let vad: SherpaOnnxVoiceActivityDetectorWrapper?
     private var chunkCounter: Int = 0
 
     // In-flight transcription Tasks; flushPending awaits these so a Suggest-reply
     // sees all completed segments, in order, before it reads the context.
     private var inFlightFlushes: [UUID: Task<Void, Never>] = [:]
 
-    /// Denoised 16 kHz mono float PCM of the utterance currently being spoken,
-    /// accumulated from the VAD's streaming callback. This is the source for
-    /// every chunk we send — the library's per-segment WAV is ignored so the
-    /// max-length valve can split a long utterance mid-stream and the
-    /// end-of-meeting tail can be flushed when no trailing pause ever arrives.
-    /// Cleared after each flush.
-    private var pendingSegment: [Float] = []
-
-    /// Safety valve for continuous audio that never pauses (media playback, a
-    /// non-stop talker): the VAD only closes a segment after ~1.8s of silence,
-    /// so without this a playing video would accumulate one ever-growing chunk
-    /// and the live transcript would stay empty until the meeting ends. Flush
-    /// the in-progress utterance at this length and keep going. Stays within
-    /// Whisper's ~30s window.
-    private static let maxSegmentFrames = 16_000 * 15 // 15 s
-
     /// Tail of the most recent transcription, fed back to Whisper as the
-    /// `prompt` for the next chunk. When a long utterance is force-cut at the
-    /// max length, the boundary word would otherwise be sliced and mistranscribed
-    /// in both halves; priming Whisper with the preceding words lets it recover
-    /// the boundary and keeps terminology consistent across chunks.
+    /// `prompt` for the next chunk — bridges a word split at a `maxSpeechDuration`
+    /// cut and keeps terminology consistent across chunks.
     private var promptTail: String = ""
-    /// Whisper only conditions on the last ~224 tokens of the prompt, so keep
-    /// the tail short — recent context, not the whole meeting.
     private static let promptTailMaxChars = 200
 
-    // Canonical Whisper input format. The VAD wants mono 16 kHz; we normalize to
-    // it here so any device sample rate (incl. 44.1 kHz, which the library can't
-    // resample itself) is handled before the audio reaches Silero.
+    // Silero segmentation tuning (see sherpaOnnxSileroVadModelConfig):
+    /// Cut a segment only after this much trailing silence. Set high enough to
+    /// bridge mid-phrase pauses so a chunk is a whole utterance — too short and
+    /// the meeting fragments into many one-word chunks, which cost extra Whisper
+    /// calls and make Whisper hallucinate speaker-name prefixes on the tiny
+    /// clips ("Emily King, PhD.: …").
+    private static let minSilenceDuration: Float = 1.0
+    /// Drop sub-this speech blips ("um", "so") so they never reach Whisper.
+    private static let minSpeechDuration: Float = 0.4
+    /// Cap an unbroken segment so a non-stop talker / media playback still
+    /// streams and chunks stay inside Whisper's ~30s window.
+    private static let maxSpeechDuration: Float = 15.0
+
+    // Canonical Whisper/VAD input format: mono 16 kHz Float32. We normalize any
+    // device sample rate (incl. 44.1 kHz) to this before the audio reaches the VAD.
     private static let speechFormat: AVAudioFormat = .init(
         commonFormat: .pcmFormatFloat32,
         sampleRate: 16_000,
@@ -73,48 +67,59 @@ final class WhisperTranscriber: NSObject, VADDelegate, @unchecked Sendable {
         self.source = source
         self.client = client
         queue = DispatchQueue(label: "nod.whisper.\(source.rawValue)", qos: .userInteractive)
-        vad = VADWrapper()
-        super.init()
-        configureVAD()
+        vad = WhisperTranscriber.makeVAD()
+        if vad == nil {
+            Log.stt.error("[\(source.label)] Silero VAD unavailable — model missing or failed to load")
+        }
     }
 
-    private func configureVAD() {
-        vad.setSileroModel(.v5)
-        vad.setSamplerate(.SAMPLERATE_16)
-        vad.delegate = self
+    private static func makeVAD() -> SherpaOnnxVoiceActivityDetectorWrapper? {
+        guard let modelPath = Bundle.main.url(forResource: "silero_vad", withExtension: "onnx")?.path else {
+            return nil
+        }
+        var config = sherpaOnnxVadModelConfig(
+            sileroVad: sherpaOnnxSileroVadModelConfig(
+                model: modelPath,
+                threshold: 0.5,
+                minSilenceDuration: minSilenceDuration,
+                minSpeechDuration: minSpeechDuration,
+                windowSize: 512,
+                maxSpeechDuration: maxSpeechDuration
+            ),
+            sampleRate: 16_000
+        )
+        return withUnsafePointer(to: &config) {
+            SherpaOnnxVoiceActivityDetectorWrapper(config: $0, bufferSizeInSeconds: 30)
+        }
     }
 
     func start() async {
-        Log.stt.info("[\(source.label)] Whisper start() — Silero VAD")
+        Log.stt.info("[\(source.label)] Whisper start() — Silero VAD (sherpa)")
         queue.async {
             self.keepRecognizing = true
-            self.pendingSegment.removeAll(keepingCapacity: true)
             self.promptTail = ""
-            // Fresh VAD instance so Silero's internal state starts clean for the
-            // new meeting (the library has no reset).
-            self.vad = VADWrapper()
-            self.configureVAD()
+            // Reset Silero state for a fresh stream (also drops any queued segments).
+            self.vad?.reset()
         }
     }
 
     func stop() {
         queue.async {
             self.keepRecognizing = false
-            // The VAD only emits a segment after a trailing pause; if the meeting
-            // ends mid-utterance, flush the buffered words ourselves so the last
-            // sentence isn't dropped.
-            self.flushSegment(reason: "stop")
+            // Force out the in-progress utterance so the last words of a meeting
+            // aren't dropped, then drain everything pending.
+            self.vad?.flush()
+            self.drainSegments(reason: "stop")
         }
         Log.stt.info("[\(source.label)] Whisper stopped")
     }
 
     func append(_ buffer: AVAudioPCMBuffer) {
         queue.sync {
-            guard self.keepRecognizing, let normalized = self.normalize(buffer) else { return }
+            guard self.keepRecognizing, let vad = self.vad, let normalized = self.normalize(buffer) else { return }
             guard let channel = normalized.floatChannelData?[0] else { return }
-            // Synchronous: the VAD invokes our delegate callbacks inline on this
-            // queue as it detects a segment start / continuation / end.
-            self.vad.processAudioData(withBuffer: channel, count: UInt(normalized.frameLength))
+            vad.acceptWaveform(channel, count: Int(normalized.frameLength))
+            self.drainSegments(reason: "vad")
         }
     }
 
@@ -129,41 +134,20 @@ final class WhisperTranscriber: NSObject, VADDelegate, @unchecked Sendable {
         for task in inFlight {
             await task.value
         }
-        // Yield to main so any onFinal hops are visible before the caller reads
-        // fullContext.
         await MainActor.run {}
     }
 
-    // MARK: - VADDelegate (invoked inline on `queue` from processAudioData)
+    // MARK: - Segment draining
 
-    func voiceStarted() {
-        pendingSegment.removeAll(keepingCapacity: true)
-        // A 15s segment is ~240k floats; reserve once so the growth doesn't
-        // realloc repeatedly on the audio queue (capacity survives removeAll).
-        pendingSegment.reserveCapacity(Self.maxSegmentFrames)
-    }
-
-    func voiceEnded(withWavData wavData: Data) {
-        // Build the chunk from our accumulated PCM, not the library's wavData —
-        // so the max-length valve can split a long segment mid-stream without
-        // the eventual voiceEnded re-sending the whole thing as a duplicate.
-        flushSegment(reason: "vad")
-    }
-
-    func voiceDidContinue(withPCMFloat pcmFloatData: Data) {
-        pcmFloatData.withUnsafeBytes { raw in
-            pendingSegment.append(contentsOf: raw.bindMemory(to: Float.self))
+    /// Ship every completed speech segment the VAD has queued. Must be on `queue`.
+    private func drainSegments(reason: String) {
+        guard let vad else { return }
+        while !vad.isEmpty() {
+            let segment = vad.front()
+            vad.pop()
+            guard let samples = segment?.samples, let wav = WhisperTranscriber.encodeWAV(samples) else { continue }
+            sendToWhisper(wav: wav, reason: reason)
         }
-        if pendingSegment.count >= Self.maxSegmentFrames {
-            flushSegment(reason: "max")
-        }
-    }
-
-    /// Encode the buffered utterance PCM to a WAV and ship it. Must be on `queue`.
-    private func flushSegment(reason: String) {
-        defer { pendingSegment.removeAll(keepingCapacity: true) }
-        guard let wav = WhisperTranscriber.encodeWAV(pendingSegment) else { return }
-        sendToWhisper(wav: wav, reason: reason)
     }
 
     // MARK: - Whisper
@@ -190,8 +174,8 @@ final class WhisperTranscriber: NSObject, VADDelegate, @unchecked Sendable {
                     return
                 }
                 Log.stt.info("[\(src.label)] chunk #\(chunkID) ← \(trimmed)")
-                // Feed this chunk's tail to the next one so a word split at the
-                // cut is bridged rather than garbled.
+                // Feed this chunk's tail to the next one so a word split at a
+                // max-length cut is bridged rather than garbled.
                 self.queue.async { self.promptTail = String(trimmed.suffix(Self.promptTailMaxChars)) }
                 self.onFinal?(trimmed, src)
             } catch {
@@ -202,7 +186,7 @@ final class WhisperTranscriber: NSObject, VADDelegate, @unchecked Sendable {
         inFlightFlushes[taskID] = task
     }
 
-    /// Wrap raw 16 kHz mono float PCM into a 16-bit WAV via the shared encoder.
+    /// Wrap raw 16 kHz mono float PCM (a VAD segment) into a 16-bit WAV.
     private static func encodeWAV(_ samples: [Float]) -> Data? {
         guard !samples.isEmpty,
               let buffer = AVAudioPCMBuffer(pcmFormat: speechFormat, frameCapacity: AVAudioFrameCount(samples.count)),

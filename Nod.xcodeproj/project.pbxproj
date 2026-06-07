@@ -29,6 +29,7 @@
 		44A68DEB7CBFDC12B72E616C /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66860B9D2AA725125B3CD547 /* SignInView.swift */; };
 		4580021606260405D163A78B /* WAVEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05FBEC5365982FF423F3A87E /* WAVEncoder.swift */; };
 		47450284364953F237770A71 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE1282C515482809586F2327 /* Log.swift */; };
+		502B52A47B55266A19FD9D06 /* sherpa-onnx.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 486C97CDDC34BDB0555D25F3 /* sherpa-onnx.xcframework */; };
 		552D7AE1CAFC3A02C97BEB37 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EEF0371FA11D9056F54DB6 /* HistoryView.swift */; };
 		5613A8BEF0A4D85BACF8BFCA /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D81AE28374538021C332981 /* OnboardingView.swift */; };
 		561C40120B247E394753E3CB /* AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CCFE48FE987F890137DEA2E /* AppVersion.swift */; };
@@ -42,11 +43,11 @@
 		832E36D3ABA89F87DF2CBECC /* WelcomeStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A9FB4627B24FDDB9C6F198 /* WelcomeStep.swift */; };
 		83F9D087C396F52F3B80D84E /* SupabaseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A19A6B64B15C834D9882F79 /* SupabaseConfig.swift */; };
 		85A8EFA2E6AA2AF8CCC1174B /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFEA0D933A8789DB4DDAF3BD /* Theme.swift */; };
-		869D621D2D080A416C7516FB /* RealTimeCutVADLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = 5A62F7260A6F916B52F415AF /* RealTimeCutVADLibrary */; };
 		89A3CB33F89E9F813E1926B7 /* Meeting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A52BC6C5F921E981E5C1B7E /* Meeting.swift */; };
 		8DF62177F21E18339CCD7E22 /* AppLanguageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D382D1AD1CB8C95AB62A8E2F /* AppLanguageTests.swift */; };
 		91B2DF926E4E4C8DB3021C82 /* InlineConfirmButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B7971EBC45701611ECDA50 /* InlineConfirmButtons.swift */; };
 		950293D84B671F172D435EE5 /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 788ED7BF85064ED472B8C746 /* ChatMessage.swift */; };
+		976040925D2311B1605B92EF /* silero_vad.onnx in Resources */ = {isa = PBXBuildFile; fileRef = 2BA118948D2D3D7E9D052F6A /* silero_vad.onnx */; };
 		998D12F8494A2758D6B6E80C /* ProfileStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D03EEAD614C04C403B637C /* ProfileStep.swift */; };
 		9DA84B06D0C3E541040B3A44 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6513755E613BC16F66D6583B /* AudioCaptureService.swift */; };
 		A0DED59AEE2FD16E7B9E6C5E /* TutorialStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D38E021FE65A36A7264FA5F /* TutorialStep.swift */; };
@@ -68,6 +69,7 @@
 		CE781AD1C4EDEFE33346572C /* UpdateGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F82B97BBA049197928C3D5D1 /* UpdateGate.swift */; };
 		CFAD0ACF9B70A94F7454E38C /* AudioDeviceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9212ABCD375EB1D216DCA0D /* AudioDeviceCatalog.swift */; };
 		D0EFE445F5346D841211CACD /* MeetingDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C1E0C024C287B38F0821F09 /* MeetingDetailView.swift */; };
+		D564F6133741983DA7E39CED /* SherpaVAD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77DCFB171A49270432EF9BC5 /* SherpaVAD.swift */; };
 		E061F49FCEB8000FC6F7C7ED /* KnowledgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F87B4B9B59126F1C2C3F03D /* KnowledgeStore.swift */; };
 		E29D53676C4176156086ED77 /* HoverReveal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F51B90413645F47FEFA7F5 /* HoverReveal.swift */; };
 		E921B8D16149DA9377465008 /* OpenRouterClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C387BE5834160BB925911FD /* OpenRouterClient.swift */; };
@@ -99,6 +101,7 @@
 		1FF996169C9AE042293244C8 /* KnowledgeChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeChatView.swift; sourceTree = "<group>"; };
 		25A33204C81FF7B136D38D90 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		27A6F6654E257B52AAC663BD /* LabelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelStore.swift; sourceTree = "<group>"; };
+		2BA118948D2D3D7E9D052F6A /* silero_vad.onnx */ = {isa = PBXFileReference; path = silero_vad.onnx; sourceTree = "<group>"; };
 		2D057ABB830911C520B69DE5 /* OnboardingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingState.swift; sourceTree = "<group>"; };
 		2FFFFE04CAF93754E6A0B4FC /* SessionChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionChatView.swift; sourceTree = "<group>"; };
 		3A52BC6C5F921E981E5C1B7E /* Meeting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting.swift; sourceTree = "<group>"; };
@@ -106,6 +109,7 @@
 		420B40291D1B3DE220552641 /* NodApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodApp.swift; sourceTree = "<group>"; };
 		440A30092CB1376F3EE3904D /* MeetingLanguagePrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingLanguagePrompt.swift; sourceTree = "<group>"; };
 		46016E68ED4B0D0C8BB1D4C9 /* MeetingRecap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRecap.swift; sourceTree = "<group>"; };
+		486C97CDDC34BDB0555D25F3 /* sherpa-onnx.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "sherpa-onnx.xcframework"; path = "Vendor/sherpa-onnx.xcframework"; sourceTree = "<group>"; };
 		4940AE0F466E23E8BD4994BD /* Nod.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nod.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4AB3402D8B19F3F9CFA69FF5 /* SessionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionKind.swift; sourceTree = "<group>"; };
 		50B3845F31D082ECBEEBC80A /* ConsentPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsentPreference.swift; sourceTree = "<group>"; };
@@ -123,6 +127,7 @@
 		6D38E021FE65A36A7264FA5F /* TutorialStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialStep.swift; sourceTree = "<group>"; };
 		6FC234CEB4AB9DCE4538FD36 /* PanelMaterial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelMaterial.swift; sourceTree = "<group>"; };
 		7353A5B91242F165EFCD7D68 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		77DCFB171A49270432EF9BC5 /* SherpaVAD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SherpaVAD.swift; sourceTree = "<group>"; };
 		7859378422F001B532727F35 /* Label.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Label.swift; sourceTree = "<group>"; };
 		788ED7BF85064ED472B8C746 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
 		7F365DD35A0D5B3EA0620B5E /* SampleBufferConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleBufferConverter.swift; sourceTree = "<group>"; };
@@ -132,6 +137,7 @@
 		849AD3013760BB7678733664 /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
 		86C4F428FD6F12CEA91AEA39 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		89F51B90413645F47FEFA7F5 /* HoverReveal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoverReveal.swift; sourceTree = "<group>"; };
+		8AF5E6A49BFCA7D7B2F52CA5 /* Nod-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Nod-Bridging-Header.h"; sourceTree = "<group>"; };
 		8B25A656A2DF3A8075B12613 /* PermissionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionRow.swift; sourceTree = "<group>"; };
 		8CCFE48FE987F890137DEA2E /* AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersion.swift; sourceTree = "<group>"; };
 		9DAACB239AA21201B9FB0276 /* TranscriptRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptRecord.swift; sourceTree = "<group>"; };
@@ -166,7 +172,7 @@
 			files = (
 				2484EA93E6A4F4DC7305E7BE /* Supabase in Frameworks */,
 				AFEE441085ADE17C5D17D3B5 /* Sparkle in Frameworks */,
-				869D621D2D080A416C7516FB /* RealTimeCutVADLibrary in Frameworks */,
+				502B52A47B55266A19FD9D06 /* sherpa-onnx.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -205,7 +211,9 @@
 				5C121E56F6FC5C9505261BCB /* Onboarding */,
 				62A56786ABA072CCAA393454 /* Permissions */,
 				0C542412D795F99F84D24DBB /* Profile */,
+				AD249A3B396512BC359110E8 /* Resources */,
 				C14784DC15C544C1BAC5002A /* Settings */,
+				CE840C417382BF2BDBC88617 /* Sherpa */,
 				DA4D0AD82C039054077B66E7 /* Storage */,
 				66AD341FB8B12E18B8EAFD60 /* Theme */,
 				144072E0225842AC2469E201 /* Update */,
@@ -295,6 +303,14 @@
 			path = Theme;
 			sourceTree = "<group>";
 		};
+		6BCDF4860BB5313D694B2C5D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				486C97CDDC34BDB0555D25F3 /* sherpa-onnx.xcframework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		7DF7A8F0E2B657D45484BF34 /* Backend */ = {
 			isa = PBXGroup;
 			children = (
@@ -308,6 +324,7 @@
 			children = (
 				142DF8797B5E19908B032FF6 /* Nod */,
 				9041C2ACC25BDD5C9CA73D4A /* NodTests */,
+				6BCDF4860BB5313D694B2C5D /* Frameworks */,
 				DEFF421EAA78615B580C1942 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -326,6 +343,14 @@
 				1FF996169C9AE042293244C8 /* KnowledgeChatView.swift */,
 			);
 			path = Knowledge;
+			sourceTree = "<group>";
+		};
+		AD249A3B396512BC359110E8 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				2BA118948D2D3D7E9D052F6A /* silero_vad.onnx */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		B5367D24294EE00D035B7933 /* Language */ = {
@@ -367,6 +392,15 @@
 				6CBC3D13337A7DB6DF08CEFD /* ConsentStrings.swift */,
 			);
 			path = Consent;
+			sourceTree = "<group>";
+		};
+		CE840C417382BF2BDBC88617 /* Sherpa */ = {
+			isa = PBXGroup;
+			children = (
+				8AF5E6A49BFCA7D7B2F52CA5 /* Nod-Bridging-Header.h */,
+				77DCFB171A49270432EF9BC5 /* SherpaVAD.swift */,
+			);
+			path = Sherpa;
 			sourceTree = "<group>";
 		};
 		DA4D0AD82C039054077B66E7 /* Storage */ = {
@@ -415,6 +449,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = FC60EBF79D4B761A1027E0B3 /* Build configuration list for PBXNativeTarget "Nod" */;
 			buildPhases = (
+				863D4A8DA6A2D9EB60144A31 /* Check VAD xcframework */,
 				C4D5F23A89D1DE2A7F4CD050 /* SwiftLint */,
 				FDFF5A63D590AF4AE52380C1 /* Sources */,
 				6C8A778669B440CB7E785C72 /* Resources */,
@@ -428,7 +463,6 @@
 			packageProductDependencies = (
 				FD9425C84A5944FADFEE1DC0 /* Supabase */,
 				F9647C7A89FF4FDC6C10C454 /* Sparkle */,
-				5A62F7260A6F916B52F415AF /* RealTimeCutVADLibrary */,
 			);
 			productName = Nod;
 			productReference = 4940AE0F466E23E8BD4994BD /* Nod.app */;
@@ -481,7 +515,6 @@
 			mainGroup = 84359F757DDBC745C733240B;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				9F2A5F52A33247A34CF39147 /* XCRemoteSwiftPackageReference "RealTimeCutVADLibrary" */,
 				BF172EF072AE5B2CA2452C86 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				014C2426E033A6DB50C0D0FD /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
@@ -502,12 +535,32 @@
 			buildActionMask = 2147483647;
 			files = (
 				25BAFB93063B4B6B623D96DD /* Assets.xcassets in Resources */,
+				976040925D2311B1605B92EF /* silero_vad.onnx in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		863D4A8DA6A2D9EB60144A31 /* Check VAD xcframework */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Check VAD xcframework";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ ! -d \"$SRCROOT/Vendor/sherpa-onnx.xcframework\" ]; then\n  echo \"error: Vendor/sherpa-onnx.xcframework is missing — run ./scripts/fetch-vad-xcframework.sh once, then build again.\" >&2\n  exit 1\nfi\n";
+		};
 		C4D5F23A89D1DE2A7F4CD050 /* SwiftLint */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -594,6 +647,7 @@
 				BFFE8C0BF2FF78B0DCAF2D1D /* SessionChatView.swift in Sources */,
 				AFAC3C104776B5B089DC1E28 /* SessionKind.swift in Sources */,
 				28585E62188F343CFC653CD2 /* SettingsView.swift in Sources */,
+				D564F6133741983DA7E39CED /* SherpaVAD.swift in Sources */,
 				44A68DEB7CBFDC12B72E616C /* SignInView.swift in Sources */,
 				83F9D087C396F52F3B80D84E /* SupabaseConfig.swift in Sources */,
 				85A8EFA2E6AA2AF8CCC1174B /* Theme.swift in Sources */,
@@ -644,12 +698,20 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Vendor\"",
+				);
 				INFOPLIST_FILE = Nod/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				OTHER_LDFLAGS = (
+					"-lc++",
+				);
 				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = "Nod/Sherpa/Nod-Bridging-Header.h";
 			};
 			name = Release;
 		};
@@ -805,12 +867,20 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Vendor\"",
+				);
 				INFOPLIST_FILE = Nod/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				OTHER_LDFLAGS = (
+					"-lc++",
+				);
 				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = "Nod/Sherpa/Nod-Bridging-Header.h";
 			};
 			name = Debug;
 		};
@@ -855,14 +925,6 @@
 				minimumVersion = 2.0.0;
 			};
 		};
-		9F2A5F52A33247A34CF39147 /* XCRemoteSwiftPackageReference "RealTimeCutVADLibrary" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/helloooideeeeea/RealTimeCutVADLibrary.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.14;
-			};
-		};
 		BF172EF072AE5B2CA2452C86 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle.git";
@@ -874,11 +936,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		5A62F7260A6F916B52F415AF /* RealTimeCutVADLibrary */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 9F2A5F52A33247A34CF39147 /* XCRemoteSwiftPackageReference "RealTimeCutVADLibrary" */;
-			productName = RealTimeCutVADLibrary;
-		};
 		F9647C7A89FF4FDC6C10C454 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = BF172EF072AE5B2CA2452C86 /* XCRemoteSwiftPackageReference "Sparkle" */;

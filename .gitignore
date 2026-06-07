@@ -25,5 +25,11 @@ dist/
 *.ed25519
 sparkle_private_key*
 
+# Vendored VAD binary (sherpa-onnx + onnxruntime, universal static, ~168 MB
+# with a file >100 MB → too large for GitHub). Regenerate with
+# scripts/fetch-vad-xcframework.sh. The committed silero_vad.onnx model is the
+# only VAD artifact tracked in git.
+/Vendor/
+
 # Re-include agent docs that ~/.gitignore_global ignores by default
 !CLAUDE.md

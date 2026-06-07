@@ -25,7 +25,28 @@ xcodebuild -project Nod.xcodeproj -scheme Nod test
 xcodebuild -project Nod.xcodeproj -scheme Nod test -only-testing:NodTests/MeetingStoreTests/testInsert
 ```
 
-Targets macOS 13+, Swift 5.9. Single SPM dependency: `supabase-swift` v2+. Bundle ID: `com.example.nod`.
+Targets macOS 13+, Swift 5.9, **universal (Apple silicon + Intel)**. SPM deps: `supabase-swift` v2+, `Sparkle` v2+. The on-device VAD (sherpa-onnx) is a **vendored xcframework, not SPM** — see next section. Bundle ID: `com.example.nod`.
+
+### First-time setup — VAD dependency (required before the first build)
+
+Nod links a vendored, universal (arm64 + x86_64) static build of
+**sherpa-onnx** (on-device Silero VAD + bundled onnxruntime) at
+`Vendor/sherpa-onnx.xcframework`. It is **not** an SPM package (sherpa-onnx
+ships none) and is **not** committed — the universal static lib contains a file
+over GitHub's 100 MB limit. Generate it once per clone, before building:
+
+```sh
+./scripts/fetch-vad-xcframework.sh   # downloads the pinned sherpa-onnx release, builds the xcframework into Vendor/
+xcodegen generate                    # then build / open Nod.xcodeproj as usual
+```
+
+- **Build-time only.** The xcframework is statically linked into the app — nothing
+  extra is embedded, signed, or shipped. A downloaded `.app` is fully
+  self-contained (VAD code + the bundled `silero_vad.onnx` model), so end users
+  need none of this.
+- The Silero model (`Nod/Resources/silero_vad.onnx`, ~600 KB) **is** committed.
+- `scripts/release.sh` runs the fetch step automatically.
+- To bump sherpa-onnx: edit `SHERPA_VERSION` + `SHA256` in the script, re-run with `--force`.
 
 ### Lint, format, and git hooks
 
@@ -107,8 +128,9 @@ The data flow that produces a transcript:
 
 1. **`AudioCaptureService`** captures two independent streams simultaneously: microphone (`AVAudioEngine` with `installTap`) and system audio (`SCStream` via `ScreenCaptureKit`). Both are required for a dialogue transcript. Mic device can be overridden via `preferredInputUID` (persisted to UserDefaults). System audio capture needs Screen Recording TCC permission — that's why the app prompts for it despite "only" wanting audio.
 2. **`TranscriptStore`** owns two `WhisperTranscriber` instances tagged `.me` and `.them`, and forks the mic / system buffers into them respectively. Emits `TranscriptEntry`s for live UI.
-3. **`WhisperTranscriber`** normalizes incoming buffers to 16 kHz mono Float32 via a cached `AVAudioConverter`, accumulates ~5 seconds of audio, runs an asymmetric VAD to skip silent chunks (Whisper is famous for hallucinating "Thanks for watching!" on silence), then POSTs the chunk as a 16-bit PCM WAV through `OpenRouterClient.transcribe(...)`. VAD gates are per-source: `[Me]` uses a strict peak gate (≥0.05) because a silent mic reliably triggers hallucinations; `[Them]` uses a lower peak gate (≥0.015) combined with an RMS gate (≥0.005) because system audio is post-mix and can be much quieter without being silent (low-volume meeting playback, soft-spoken remote participants would otherwise be dropped).
-4. The language for each chunk is resolved **at flush time** via `LanguagePreference.currentWhisperCode()` — so toggling the language mid-meeting takes effect on the very next chunk, not retroactively.
+3. **`WhisperTranscriber`** normalizes incoming buffers to 16 kHz mono Float32 via a cached `AVAudioConverter` and feeds them to an on-device **Silero VAD** (sherpa-onnx, `SherpaVAD.swift`). The VAD detects whole speech segments — start at speech onset, end after a natural pause — so each chunk is a complete utterance cut on a real silence, never mid-word. Each emitted segment is POSTed as a 16-bit PCM WAV through `OpenRouterClient.transcribe(...)` and surfaces as one `TranscriptEntry`. Segmentation is owned by the VAD config in `makeVAD()`: `minSilenceDuration` (the pause that closes a segment), `minSpeechDuration` (drops sub-blips like "um"), and `maxSpeechDuration` (a safety cap so a non-stop talker still streams and chunks stay within Whisper's window). The VAD also subsumes the old "skip silence so Whisper doesn't hallucinate 'Thanks for watching!'" gate — it simply emits no segment for silence.
+4. Each segment is primed with the tail of the previous transcription (`prompt:` on `transcribe`) so a word split at a `maxSpeechDuration` cut is bridged and terminology stays consistent.
+5. The language for each segment is resolved **at flush time** via `LanguagePreference.currentWhisperCode()` — so toggling the language mid-meeting takes effect on the very next segment, not retroactively.
 
 ### Floating-panel UX
 

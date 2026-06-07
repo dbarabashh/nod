@@ -1,15 +1,6 @@
 {
-  "originHash" : "10eaf4ffd389d9e2f257e04b83e4520369660b6eb75c0132ea4b9503d5b6d3ff",
+  "originHash" : "9d9d2cb04981d71fa08e975b792ca8c4bd9d85e7980295ab638559286fedee20",
   "pins" : [
-    {
-      "identity" : "realtimecutvadlibrary",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/helloooideeeeea/RealTimeCutVADLibrary.git",
-      "state" : {
-        "revision" : "b059608836a055dc0ce74ca2d0eeb19fc54cb7d4",
-        "version" : "1.0.14"
-      }
-    },
     {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
