@@ -61,27 +61,37 @@ final class ChatStore: ObservableObject {
         }
     }
 
-    /// Sends a user message: optimistically appends + persists it, calls the
-    /// model with the full history, then appends + persists the reply. On LLM
-    /// failure the user turn stays (it's saved) and `sendState` carries the
-    /// error so the view can offer a retry.
-    func send(text: String, systemPrompt: String, meetingID: UUID, userID: UUID) async {
+    /// Optimistically appends + persists the user's turn and enters the
+    /// `.sending` state. Call this BEFORE building the (slow) grounding prompt
+    /// so the bubble and typing indicator appear instantly; then call `reply`.
+    /// Returns false if the turn is empty or a send is already in flight.
+    func appendUserTurn(text: String, meetingID: UUID, userID: UUID) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, sendState != .sending else { return }
+        guard !trimmed.isEmpty, sendState != .sending else { return false }
 
         let userMessage = ChatMessage.new(meetingID: meetingID, userID: userID, role: .user, content: trimmed)
         messages.append(userMessage)
         sendState = .sending
         await persist(userMessage)
-        await requestReply(systemPrompt: systemPrompt, meetingID: meetingID, userID: userID)
+        return true
     }
 
-    /// Re-runs the model for the last (already-saved) user turn after a
-    /// failure. The turn is not re-appended or re-persisted — doing so would
-    /// duplicate it in the conversation and the `chat_messages` table.
-    func retryLast(systemPrompt: String, meetingID: UUID, userID: UUID) async {
-        guard sendState != .sending, messages.last?.role == .user else { return }
+    /// Enters `.sending` to re-run the model for the last (already-saved) user
+    /// turn after a failure. The turn is not re-appended or re-persisted —
+    /// doing so would duplicate it in the conversation and `chat_messages`.
+    /// Returns false if there's nothing retryable.
+    func beginRetry() -> Bool {
+        guard sendState != .sending, messages.last?.role == .user else { return false }
         sendState = .sending
+        return true
+    }
+
+    /// Calls the model with the full history and appends + persists the reply.
+    /// Pair with `appendUserTurn` / `beginRetry`, which set `.sending` first. On
+    /// LLM failure the user turn stays (it's saved) and `sendState` carries the
+    /// error so the view can offer a retry.
+    func reply(systemPrompt: String, meetingID: UUID, userID: UUID) async {
+        guard sendState == .sending else { return }
         await requestReply(systemPrompt: systemPrompt, meetingID: meetingID, userID: userID)
     }
 

@@ -207,21 +207,15 @@ struct SessionChatView: View {
         }
         if !retryLast { draft = "" }
         Task {
+            // Show the user's bubble + typing indicator immediately, then build
+            // the (slow) grounding prompt while "thinking" is on screen — so the
+            // chat never looks empty between pressing send and the reply landing.
+            let started = retryLast
+                ? chatStore.beginRetry()
+                : await chatStore.appendUserTurn(text: text, meetingID: meeting.id, userID: meeting.userID)
+            guard started else { return }
             let systemPrompt = await buildSystemPrompt(for: text, history: priorHistory)
-            if retryLast {
-                await chatStore.retryLast(
-                    systemPrompt: systemPrompt,
-                    meetingID: meeting.id,
-                    userID: meeting.userID
-                )
-            } else {
-                await chatStore.send(
-                    text: text,
-                    systemPrompt: systemPrompt,
-                    meetingID: meeting.id,
-                    userID: meeting.userID
-                )
-            }
+            await chatStore.reply(systemPrompt: systemPrompt, meetingID: meeting.id, userID: meeting.userID)
         }
     }
 
