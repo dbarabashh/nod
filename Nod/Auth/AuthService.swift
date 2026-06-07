@@ -65,7 +65,8 @@ final class AuthService: NSObject, ObservableObject {
         do {
             let url = try client.auth.getOAuthSignInURL(
                 provider: .google,
-                redirectTo: Self.callbackURL
+                redirectTo: Self.callbackURL,
+                queryParams: [("prompt", "select_account")]
             )
             startAuthSession(url: url)
         } catch {

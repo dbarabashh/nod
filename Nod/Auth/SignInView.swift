@@ -65,13 +65,14 @@ struct SignInView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.Palette.pink)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 320)
                 }
 
                 Spacer(minLength: 0)
             }
             .padding(32)
         }
-        .frame(minWidth: 420, minHeight: 360)
+        .frame(minWidth: 420, minHeight: 420)
     }
 }
