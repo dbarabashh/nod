@@ -13,8 +13,11 @@ struct MeetingDetailView: View {
     @State private var editableTitle: String = ""
     @State private var editableSummary: String = ""
     @State private var saveState: SaveState = .idle
-    @State private var saveTask: Task<Void, Never>? = nil
+    @State private var saveTask: Task<Void, Never>?
     @State private var copyFlash: Bool = false
+    /// Drives the Share button: idle → sharing → copied (transient) or failed
+    /// (transient). Mirrors `SaveState`; a share is summary-only and revocable.
+    @State private var shareState: ShareState = .idle
     /// True while there are pending edits the user has typed but the
     /// debounce hasn't fired yet (or a save is in flight). Used by
     /// `.onDisappear` so a close-mid-typing still flushes the latest
@@ -46,6 +49,13 @@ struct MeetingDetailView: View {
         case saving
         case saved
         case failed(String)
+    }
+
+    private enum ShareState: Equatable {
+        case idle
+        case sharing
+        case copied
+        case failed
     }
 
     private static let createdFormatter: DateFormatter = {
@@ -364,6 +374,17 @@ struct MeetingDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isGenerating)
+                .opacity(isGenerating ? 0.4 : 1)
+                .linkCursor()
+                subToolbarDivider
+                Button(action: shareLink) {
+                    subToolbarLabel(
+                        systemImage: shareIcon,
+                        text: shareLabel
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(isGenerating || shareState == .sharing)
                 .opacity(isGenerating ? 0.4 : 1)
                 .linkCursor()
                 Spacer(minLength: 0)
@@ -718,13 +739,54 @@ struct MeetingDetailView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(payload, forType: .string)
 
-        withAnimation(.easeOut(duration: 0.15)) { copyFlash = true }
+        Task { await flashConfirmation(set: { copyFlash = true }, reset: { copyFlash = false }, for: 1.5) }
+    }
+
+    private var shareIcon: String {
+        switch shareState {
+        case .idle, .sharing: "link"
+        case .copied: "checkmark"
+        case .failed: "exclamationmark.triangle"
+        }
+    }
+
+    private var shareLabel: String {
+        switch shareState {
+        case .idle: "Share link"
+        case .sharing: "Creating…"
+        case .copied: "Link copied"
+        case .failed: "Try again"
+        }
+    }
+
+    /// Mints (or reuses) a public share link for this meeting and drops it on
+    /// the clipboard. The link is summary-only and revocable — sharing is an
+    /// explicit action, never automatic. Errors flip the button to a transient
+    /// "Try again" state rather than throwing a modal.
+    private func shareLink() {
+        guard shareState != .sharing else { return }
+        shareState = .sharing
         Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            await MainActor.run {
-                withAnimation(.easeOut(duration: 0.2)) { copyFlash = false }
+            do {
+                let url = try await meetingStore.createShareURL(for: meeting)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                await flashConfirmation(set: { shareState = .copied }, reset: { shareState = .idle }, for: 1.8)
+            } catch {
+                Log.ui.error("share link failed: \(error.localizedDescription)")
+                await flashConfirmation(set: { shareState = .failed }, reset: { shareState = .idle }, for: 2.5)
             }
         }
+    }
+
+    /// Apply a transient button confirmation: animate `set` in, hold for
+    /// `seconds`, then animate `reset` back. Shared by the copy and share
+    /// buttons so both flash identically.
+    @MainActor
+    private func flashConfirmation(set: () -> Void, reset: () -> Void, for seconds: Double) async {
+        withAnimation(.easeOut(duration: 0.15), set)
+        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        withAnimation(.easeOut(duration: 0.2), reset)
     }
 }
 

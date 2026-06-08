@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 import Supabase
 
 /// Supabase-backed repository for completed meetings.
@@ -42,7 +42,7 @@ final class MeetingStore: ObservableObject {
     /// toolbar surface the same Undo affordance as right-click deletes.
     /// `private(set)` so all mutations flow through the explicit methods
     /// (`softDelete` sets, `dismissUndo` / `restore` / `hardDelete` clear).
-    @Published private(set) var pendingUndo: Meeting? = nil
+    @Published private(set) var pendingUndo: Meeting?
 
     /// True when the most recent `refresh()` attempt failed AND we kept
     /// cached `meetings` instead of flipping to `.failed`. Drives a
@@ -242,7 +242,7 @@ final class MeetingStore: ObservableObject {
         // meetings stay well under this; the cap exists so a runaway
         // (corrupted idx, bug in the ingest path) can't blow up the
         // detail view's memory footprint.
-        let rows: [TranscriptRecord] = try await supabase
+        return try await supabase
             .from(Self.transcriptsTableName)
             .select()
             .eq("meeting_id", value: meetingID.uuidString)
@@ -250,7 +250,41 @@ final class MeetingStore: ObservableObject {
             .limit(5000)
             .execute()
             .value
-        return rows
+    }
+
+    // MARK: - Sharing
+
+    /// Base URL of the share web viewer (share-nod-ui-service), deployed at
+    /// `share.hellonod.app`. Override per-device — e.g. to the Vite dev server
+    /// `http://localhost:5173` while developing the viewer — via the
+    /// `share.viewerBaseURL` UserDefaults key (same pattern as the
+    /// `openrouter.model` / `whisper.model` overrides).
+    private static var shareViewerBaseURL: String {
+        UserDefaults.standard.string(forKey: "share.viewerBaseURL") ?? "https://share.hellonod.app"
+    }
+
+    /// Creates (or reuses) a public share link for a meeting and returns the
+    /// viewer URL to drop on the clipboard.
+    ///
+    /// Privacy-by-default: nothing is shared until this is called. The
+    /// `create_meeting_share` RPC verifies ownership server-side, mints an
+    /// opaque token (reusing the meeting's existing live share if there is
+    /// one — so the same meeting always yields a stable link), and the viewer
+    /// reads only the summary back through that token. The link is revocable.
+    func createShareURL(for meeting: Meeting) async throws -> URL {
+        Log.ui.info("MeetingStore.createShareURL meeting=\(meeting.id.uuidString)")
+        struct Params: Encodable {
+            let p_meeting_id: UUID
+        }
+        let token: UUID = try await supabase
+            .rpc("create_meeting_share", params: Params(p_meeting_id: meeting.id))
+            .execute()
+            .value
+
+        guard let url = URL(string: "\(Self.shareViewerBaseURL)/share/\(token.uuidString.lowercased())") else {
+            throw URLError(.badURL)
+        }
+        return url
     }
 
     // MARK: - Trash (issue #16)
@@ -414,8 +448,7 @@ final class MeetingStore: ObservableObject {
             return
         }
 
-        let hadLoadedCache: Bool
-        if case .loaded = loadState { hadLoadedCache = true } else { hadLoadedCache = false }
+        let hadLoadedCache = if case .loaded = loadState { true } else { false }
 
         // Throttle silent refreshes. `.task` re-fires on every
         // NavigationStack pop; if the cache is < 30s old it's basically
