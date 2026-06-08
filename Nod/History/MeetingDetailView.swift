@@ -366,16 +366,7 @@ struct MeetingDetailView: View {
                 .opacity(isGenerating ? 0.4 : 1)
                 .linkCursor()
                 subToolbarDivider
-                Button(action: copyAll) {
-                    subToolbarLabel(
-                        systemImage: copyFlash ? "checkmark" : "doc.on.doc",
-                        text: copyFlash ? "Copied" : "Copy summary"
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(isGenerating)
-                .opacity(isGenerating ? 0.4 : 1)
-                .linkCursor()
+                copyButton("Copy summary", isActive: !isGenerating, action: copyAll)
                 subToolbarDivider
                 Button(action: shareLink) {
                     subToolbarLabel(
@@ -396,9 +387,16 @@ struct MeetingDetailView: View {
         } else {
             HStack(spacing: 12) {
                 subToolbarItem(systemImage: "character", label: meeting.language.uppercased())
+                subToolbarDivider
+                copyButton("Copy transcript", isActive: transcriptIsCopyable, action: copyTranscript)
                 Spacer(minLength: 0)
             }
         }
+    }
+
+    private var transcriptIsCopyable: Bool {
+        if case let .loaded(records) = transcriptLoad { return !records.isEmpty }
+        return false
     }
 
     private func subToolbarItem(systemImage: String, label: String) -> some View {
@@ -420,6 +418,22 @@ struct MeetingDetailView: View {
                 .font(.system(size: 12, weight: .regular))
         }
         .foregroundStyle(Theme.Palette.ink.opacity(0.92))
+    }
+
+    /// Shared copy button for the summary and transcript sub-toolbars. Both
+    /// flash the same `copyFlash` confirmation (the tabs are never visible at
+    /// once), differing only in label and what gates them.
+    private func copyButton(_ text: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            subToolbarLabel(
+                systemImage: copyFlash ? "checkmark" : "doc.on.doc",
+                text: copyFlash ? "Copied" : text
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isActive)
+        .opacity(isActive ? 1 : 0.4)
+        .linkCursor()
     }
 
     private var subToolbarDivider: some View {
@@ -736,10 +750,29 @@ struct MeetingDetailView: View {
         } else {
             "\(titleLine)\n\(date)\n\n\(editableSummary)"
         }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(payload, forType: .string)
+        copyAndFlash(payload)
+    }
 
+    /// Writes `text` to the clipboard and runs the shared copy-button flash.
+    /// Used by both the summary and transcript copy buttons.
+    private func copyAndFlash(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
         Task { await flashConfirmation(set: { copyFlash = true }, reset: { copyFlash = false }, for: 1.5) }
+    }
+
+    /// Copies the loaded transcript as plain text, one line per utterance:
+    /// `[HH:MM:SS] Me: …`. No-op until the transcript has loaded (the button
+    /// is disabled in that state).
+    private func copyTranscript() {
+        guard case let .loaded(records) = transcriptLoad, !records.isEmpty else { return }
+        let payload = records
+            .map { record in
+                let label = TranscriptSource(rawValue: record.source)?.label ?? record.source
+                return "[\(Self.timeFormatter.string(from: record.ts))] \(label): \(record.text)"
+            }
+            .joined(separator: "\n")
+        copyAndFlash(payload)
     }
 
     private var shareIcon: String {
