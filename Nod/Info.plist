@@ -42,7 +42,7 @@
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://nod-landing.vercel.app/appcast.xml</string>
+	<string>https://hellonod.app/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>/uu8USNElUMN+Bbw/SPdJywlJq2XfEVI/Rf+W7XzFBw=</string>
 	<key>SUScheduledCheckInterval</key>

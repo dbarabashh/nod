@@ -54,7 +54,7 @@ targets:
           - CFBundleURLName: com.example.nod.auth
             CFBundleURLSchemes:
               - nod
-        SUFeedURL: "https://nod-landing.vercel.app/appcast.xml"
+        SUFeedURL: "https://hellonod.app/appcast.xml"
         SUPublicEDKey: "/uu8USNElUMN+Bbw/SPdJywlJq2XfEVI/Rf+W7XzFBw="
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 86400

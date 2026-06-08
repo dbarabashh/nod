@@ -179,7 +179,7 @@ APPCAST_PATH="${DIST_DIR}/appcast.xml"
 # repo is private, so GitHub's release-download URLs return 404 to unauthenticated
 # clients — and Sparkle is an unauthenticated client. nod-landing/public/dmg/
 # is public via Vercel CDN, so the URL Sparkle resolves actually serves bytes.
-APPCAST_BASE_URL="https://nod-landing.vercel.app/dmg"
+APPCAST_BASE_URL="https://hellonod.app/dmg"
 
 mkdir -p "${DIST_DIR}"
 rm -rf "${ARCHIVE_PATH}" "${EXPORT_DIR}" "${DMG_STAGE}" "${DMG_PATH}" "${LATEST_DMG_PATH}"
@@ -365,8 +365,8 @@ say "Deploy nod-landing to Vercel (prod)"
 # available" and immediately fails to download X. Poll both, fail loudly
 # after 3 min.
 say "Wait for appcast + DMG ${VERSION} to go live"
-APPCAST_URL="https://nod-landing.vercel.app/appcast.xml"
-DMG_URL="https://nod-landing.vercel.app/dmg/Nod-${VERSION}.dmg"
+APPCAST_URL="https://hellonod.app/appcast.xml"
+DMG_URL="https://hellonod.app/dmg/Nod-${VERSION}.dmg"
 DEADLINE=$(( $(date +%s) + 180 ))
 APPCAST_OK=0
 DMG_OK=0
@@ -396,8 +396,8 @@ echo
 echo "🎉 Nod ${VERSION} (${BUILD}) released."
 echo
 echo "  DMG:     ${APPCAST_BASE_URL}/Nod-${VERSION}.dmg"
-echo "  Latest:  https://nod-landing.vercel.app/dmg/Nod-latest.dmg"
-echo "  Appcast: https://nod-landing.vercel.app/appcast.xml"
+echo "  Latest:  https://hellonod.app/dmg/Nod-latest.dmg"
+echo "  Appcast: https://hellonod.app/appcast.xml"
 echo
 echo "Installed clients will see the update on their next scheduled check (≤ 24h),"
 echo "or immediately via status-bar menu → Check for Updates…"
