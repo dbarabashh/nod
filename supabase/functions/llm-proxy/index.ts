@@ -99,6 +99,41 @@ async function minimumBuild(admin: ReturnType<typeof adminClient>): Promise<numb
     return value;
 }
 
+// Server-side entitlement gate (#17). Client-side feature gates are UX; this
+// is the enforcement, at the only place a patched client can't skip. Resolved
+// via `resolve_entitlement` (SECURITY DEFINER, service-role only) and cached
+// per warm instance: steady transcribe traffic (~12 calls/min in a meeting)
+// costs one DB round-trip per user per TTL, not per call. The cached
+// hours_used therefore lags up to the TTL — fine, the cap is soft anyway.
+interface Entitlement {
+    plan: string;
+    status: string;
+    hours_used: number;
+    hours_limit: number;
+}
+
+const ENTITLEMENT_TTL_MS = 60_000;
+const entitlementCache = new Map<string, { ent: Entitlement; at: number }>();
+
+async function entitlementFor(admin: ReturnType<typeof adminClient>, userId: string): Promise<Entitlement | null> {
+    const cached = entitlementCache.get(userId);
+    const now = Date.now();
+    if (cached && now - cached.at < ENTITLEMENT_TTL_MS) return cached.ent;
+    const { data, error } = await admin.rpc("resolve_entitlement", { p_user_id: userId });
+    if (error || !isObject(data)) {
+        console.warn(`entitlement lookup failed (fail-open): ${error?.message ?? "unexpected shape"}`);
+        return null;
+    }
+    const ent: Entitlement = {
+        plan: typeof data.plan === "string" ? data.plan : "none",
+        status: typeof data.status === "string" ? data.status : "none",
+        hours_used: typeof data.hours_used === "number" ? data.hours_used : 0,
+        hours_limit: typeof data.hours_limit === "number" ? data.hours_limit : 0,
+    };
+    entitlementCache.set(userId, { ent, at: now });
+    return ent;
+}
+
 // Stamp the client's build/version onto its profile row — version visibility
 // without an analytics SDK. Best-effort: a logging failure must never block
 // the LLM call. `update` (not upsert) so we never create empty profile rows.
@@ -206,6 +241,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }
     }
 
+    // Entitlement gate — only on the kinds that spend money upstream (index/
+    // search run on free in-runtime embeddings and are gated by the client UI).
+    // A locked account (expired trial, canceled sub, no subscription) gets 403
+    // entitlement_required. The hour cap is deliberately soft — pricing
+    // promises "overage, not a hard stop" — so an over-cap call is served and
+    // flagged via x-nod-* headers, never blocked. Fail open on lookup errors:
+    // a DB hiccup must never cut a live meeting.
+    let entitlement: Entitlement | null = null;
+    if (body.kind === "chat" || body.kind === "transcribe") {
+        entitlement = await entitlementFor(admin, user.id);
+        if (entitlement && entitlement.status !== "trialing" && entitlement.status !== "active") {
+            return json({ error: "entitlement_required", status: entitlement.status, plan: entitlement.plan }, 403);
+        }
+    }
+
     switch (body.kind) {
         case "device_claim":
             // Reaching here means the device passed the lock above.
@@ -213,7 +263,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         case "chat":
             return forwardChat(body.payload, user.id);
         case "transcribe":
-            return forwardTranscribe(body.payload, user.id);
+            return forwardTranscribe(body.payload, user.id, entitlement);
         case "index":
             return handleIndex(body.payload, user.id);
         case "search":
@@ -256,7 +306,7 @@ async function forwardChat(payload: unknown, userId: string): Promise<Response> 
     });
 }
 
-async function forwardTranscribe(payload: unknown, userId: string): Promise<Response> {
+async function forwardTranscribe(payload: unknown, userId: string, entitlement: Entitlement | null): Promise<Response> {
     const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";
     const audioSeconds = audioSecondsFromPayload(payload);
 
@@ -275,10 +325,20 @@ async function forwardTranscribe(payload: unknown, userId: string): Promise<Resp
         console.warn(`transcribe usage record skipped: ${err}`);
     }
 
-    return new Response(text, {
-        status,
-        headers: { "Content-Type": "application/json" },
-    });
+    // Soft cap: the call is always served; past the plan's hours the response
+    // carries an overage flag so the client can surface "buy an hour pack"
+    // while the meeting keeps recording.
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (entitlement && entitlement.hours_limit > 0) {
+        headers["x-nod-hours-used"] = String(entitlement.hours_used);
+        headers["x-nod-hours-limit"] = String(entitlement.hours_limit);
+        if (entitlement.hours_used >= entitlement.hours_limit) {
+            headers["x-nod-overage"] = "true";
+            console.log(`overage user=${userId} hours=${entitlement.hours_used}/${entitlement.hours_limit}`);
+        }
+    }
+
+    return new Response(text, { status, headers });
 }
 
 // Index a session's transcript chunks: embed each with gte-small and upsert

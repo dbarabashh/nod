@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var signInWindow: NSWindow?
     private var historyWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var paywallWindow: NSWindow?
     private var permissions: PermissionManager?
     private var onboarding: OnboardingState?
     private var audioCapture: AudioCaptureService?
@@ -36,6 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var entityStore: EntityStore?
     private var knowledgeStore: KnowledgeStore?
     private var labelStore: LabelStore?
+    private var entitlements: EntitlementService?
+    private var billing: BillingService?
     private var panelSharing: PanelSharingPreference?
     private var updateGate: UpdateGate?
     private var authObserveTask: Task<Void, Never>?
@@ -108,6 +111,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 )
             }
         }
+        // Re-resolve the entitlement whenever the app regains focus — this is
+        // how a plan bought in the browser checkout (Paddle webhook → DB) shows
+        // up here without the user restarting Nod.
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in
+                guard self?.auth?.session != nil else { return }
+                await self?.entitlements?.refresh()
+            }
+        }
 
         let permissions = PermissionManager()
         let onboarding = OnboardingState()
@@ -145,6 +157,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let entityStore = EntityStore(supabase: supabase)
         let knowledgeStore = KnowledgeStore(llm: llmClient)
         let labelStore = LabelStore(supabase: supabase, auth: auth)
+        let entitlements = EntitlementService(supabase: supabase)
+        let billing = BillingService(supabase: supabase)
         let panelSharing = PanelSharingPreference()
         let updateGate = UpdateGate(supabase: supabase)
 
@@ -170,6 +184,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         self.entityStore = entityStore
         self.knowledgeStore = knowledgeStore
         self.labelStore = labelStore
+        self.entitlements = entitlements
+        self.billing = billing
         self.panelSharing = panelSharing
         self.updateGate = updateGate
         Task { await updateGate.check() }
@@ -206,8 +222,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     self.profileStore?.clear()
                     self.chatStore?.clear()
                     self.labelStore?.clear()
+                    self.entitlements?.clear()
                     closeHistoryWindow()
                     closeSettingsWindow()
+                    closePaywallWindow()
                 }
                 if isSignedIn {
                     // Single-device lock: claim this device's slot now so a
@@ -223,6 +241,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     // the first meeting ends. `load` no-ops once cached.
                     Task { await self.profileStore?.load() }
                     Task { await self.labelStore?.refresh() }
+                    Task { await self.entitlements?.refresh() }
+                    Task { await self.billing?.loadPrices() }
                 }
                 wasSignedIn = isSignedIn
                 reconcileWindows()
@@ -366,6 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let entityStore else { Log.ui.error("showFloatingPanel: missing entityStore"); return }
         guard let knowledgeStore else { Log.ui.error("showFloatingPanel: missing knowledgeStore"); return }
         guard let labelStore else { Log.ui.error("showFloatingPanel: missing labelStore"); return }
+        guard let entitlements else { Log.ui.error("showFloatingPanel: missing entitlements"); return }
         guard let updateGate else { Log.ui.error("showFloatingPanel: missing updateGate"); return }
 
         NSApp.setActivationPolicy(.accessory)
@@ -384,6 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         .environmentObject(entityStore)
         .environmentObject(knowledgeStore)
         .environmentObject(labelStore)
+        .environmentObject(entitlements)
         .environmentObject(updateGate)
 
         // Start at the compact width — the panel launches idle. ContentView
@@ -498,6 +520,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @objc private func showPaywallAction() {
+        showPaywallWindow()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Trial/locked accounts see "Upgrade…"; an active paid plan sees "Manage
+    /// Plan…" since the same surface is where they change tier.
+    private var upgradeMenuTitle: String {
+        switch entitlements?.entitlement?.status {
+        case .active: "Manage Plan…"
+        default: "Upgrade…"
+        }
+    }
+
     // MARK: - Settings window
 
     private func showSettingsWindow() {
@@ -530,11 +566,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         settingsWindow = nil
     }
 
+    // MARK: - Paywall window (issue #18)
+
+    private func showPaywallWindow() {
+        guard let billing, let entitlements else { return }
+
+        if let existing = paywallWindow {
+            existing.makeKeyAndOrderFront(nil)
+            return
+        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 660, height: 600),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Nod Plans"
+        window.titlebarAppearsTransparent = true
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.center()
+        window.contentViewController = NSHostingController(
+            rootView: PaywallView(billing: billing, entitlements: entitlements)
+        )
+        window.makeKeyAndOrderFront(nil)
+        paywallWindow = window
+    }
+
+    private func closePaywallWindow() {
+        if let window = paywallWindow {
+            window.delegate = nil
+            window.close()
+        }
+        paywallWindow = nil
+    }
+
     // MARK: - History window (issue #14)
 
     private func showHistoryWindow(focusing meetingID: UUID? = nil) {
         guard let meetingStore, let chatStore, let profileStore, let entityStore,
-              let knowledgeStore, let llmClient, let languagePreference, let labelStore else { return }
+              let knowledgeStore, let llmClient, let languagePreference, let labelStore,
+              let entitlements else { return }
 
         if let existing = historyWindow {
             existing.makeKeyAndOrderFront(nil)
@@ -574,6 +647,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             .environmentObject(llmClient)
             .environmentObject(languagePreference)
             .environmentObject(labelStore)
+            .environmentObject(entitlements)
 
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)
@@ -609,6 +683,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 return
             } else if closed === settingsWindow {
                 settingsWindow = nil
+                return
+            } else if closed === paywallWindow {
+                paywallWindow = nil
                 return
             }
             // User-initiated close of the only UI: re-open whichever window
@@ -684,6 +761,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 )
                 settings.target = self
                 menu.addItem(settings)
+
+                let upgrade = NSMenuItem(
+                    title: upgradeMenuTitle,
+                    action: #selector(showPaywallAction),
+                    keyEquivalent: ""
+                )
+                upgrade.target = self
+                menu.addItem(upgrade)
 
                 menu.addItem(.separator())
             } else if !signedIn {
