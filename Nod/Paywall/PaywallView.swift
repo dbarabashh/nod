@@ -53,40 +53,36 @@ struct PaywallView: View {
         )
     ]
 
+    // Embeddable content — lives inside the Settings → Subscription pane, which
+    // supplies its own ScrollView, title, and window chrome.
     var body: some View {
-        ScrollView {
-            VStack(spacing: 22) {
-                header
-                BillingCycleToggle(cycle: $cycle)
-                    .frame(width: 240)
-                HStack(alignment: .top, spacing: 14) {
-                    ForEach(Self.plans, id: \.id) { plan in
-                        planCard(plan)
-                    }
+        VStack(spacing: 20) {
+            header
+            BillingCycleToggle(cycle: $cycle)
+                .frame(width: 240)
+            HStack(alignment: .top, spacing: 14) {
+                ForEach(Self.plans, id: \.id) { plan in
+                    planCard(plan)
                 }
-                if isPaid {
-                    manageButton
-                }
-                if let error = billing.lastError {
-                    Text(error)
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Theme.Palette.danger)
-                        .multilineTextAlignment(.center)
-                }
-                Text(
-                    "Checkout opens in your browser. Your plan updates here automatically once payment completes — billed via our Merchant of Record, taxes included, cancel anytime."
-                )
-                .font(.system(size: 11.5, weight: .regular))
-                .foregroundStyle(Theme.Palette.muted)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 520)
             }
-            .padding(.horizontal, 28)
-            .padding(.bottom, 28)
-            .padding(.top, 36)
+            if isPaid {
+                manageButton
+            }
+            if let error = billing.lastError {
+                Text(error)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(Theme.Palette.danger)
+                    .multilineTextAlignment(.center)
+            }
+            Text(
+                "Checkout opens in your browser. Your plan updates here automatically once payment completes — billed via our Merchant of Record, taxes included, cancel anytime."
+            )
+            .font(.system(size: 11.5, weight: .regular))
+            .foregroundStyle(Theme.Palette.muted)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 520)
         }
-        .frame(minWidth: 620, minHeight: 560)
-        .background(WindowBackdrop().ignoresSafeArea())
+        .frame(maxWidth: .infinity)
         .task {
             await billing.loadPrices()
             await entitlements.refresh()

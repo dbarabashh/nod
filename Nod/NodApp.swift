@@ -21,7 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var signInWindow: NSWindow?
     private var historyWindow: NSWindow?
     private var settingsWindow: NSWindow?
-    private var paywallWindow: NSWindow?
     private var permissions: PermissionManager?
     private var onboarding: OnboardingState?
     private var audioCapture: AudioCaptureService?
@@ -225,7 +224,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     self.entitlements?.clear()
                     closeHistoryWindow()
                     closeSettingsWindow()
-                    closePaywallWindow()
                 }
                 if isSignedIn {
                     // Single-device lock: claim this device's slot now so a
@@ -269,12 +267,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 }
             case "checkout-complete":
                 // Paddle's hosted checkout (success URL → /checkout/done) deep-links
-                // back here once payment lands. Bring the app forward, refocus the
-                // paywall, and re-resolve the entitlement so the new plan shows
-                // without waiting for the user to switch windows.
+                // back here once payment lands. Bring the app forward, open Settings
+                // on the Subscription tab, and re-resolve the entitlement so the new
+                // plan shows without waiting for the user to switch windows.
                 Log.ui.info("received checkout-complete url")
                 NSApp.activate(ignoringOtherApps: true)
-                showPaywallWindow()
+                showSettingsWindow()
+                NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
                 Task { @MainActor in await self.entitlements?.refresh() }
             default:
                 break
@@ -532,20 +531,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    @objc private func showPaywallAction() {
-        showPaywallWindow()
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    /// Trial/locked accounts see "Upgrade…"; an active paid plan sees "Manage
-    /// Plan…" since the same surface is where they change tier.
-    private var upgradeMenuTitle: String {
-        switch entitlements?.entitlement?.status {
-        case .active: "Manage Plan…"
-        default: "Upgrade…"
-        }
-    }
-
     // MARK: - Settings window
 
     private func showSettingsWindow() {
@@ -565,7 +550,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.delegate = self
         window.appearance = NSAppearance(named: .darkAqua)
         window.center()
-        window.contentViewController = NSHostingController(rootView: SettingsView(profileStore: profileStore, panelSharing: panelSharing))
+        window.contentViewController = NSHostingController(rootView: SettingsView(
+            profileStore: profileStore,
+            panelSharing: panelSharing,
+            billing: billing,
+            entitlements: entitlements
+        ))
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window
     }
@@ -576,42 +566,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             window.close()
         }
         settingsWindow = nil
-    }
-
-    // MARK: - Paywall window (issue #18)
-
-    private func showPaywallWindow() {
-        guard let billing, let entitlements else { return }
-
-        if let existing = paywallWindow {
-            existing.makeKeyAndOrderFront(nil)
-            return
-        }
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 660, height: 600),
-            styleMask: [.titled, .closable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Nod Plans"
-        window.titlebarAppearsTransparent = true
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.center()
-        window.contentViewController = NSHostingController(
-            rootView: PaywallView(billing: billing, entitlements: entitlements)
-        )
-        window.makeKeyAndOrderFront(nil)
-        paywallWindow = window
-    }
-
-    private func closePaywallWindow() {
-        if let window = paywallWindow {
-            window.delegate = nil
-            window.close()
-        }
-        paywallWindow = nil
     }
 
     // MARK: - History window (issue #14)
@@ -696,9 +650,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             } else if closed === settingsWindow {
                 settingsWindow = nil
                 return
-            } else if closed === paywallWindow {
-                paywallWindow = nil
-                return
             }
             // User-initiated close of the only UI: re-open whichever window
             // matches the current state. closing the sign-in window with no
@@ -774,14 +725,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 settings.target = self
                 menu.addItem(settings)
 
-                let upgrade = NSMenuItem(
-                    title: upgradeMenuTitle,
-                    action: #selector(showPaywallAction),
-                    keyEquivalent: ""
-                )
-                upgrade.target = self
-                menu.addItem(upgrade)
-
                 menu.addItem(.separator())
             } else if !signedIn {
                 let showSignIn = NSMenuItem(
@@ -836,6 +779,9 @@ extension Notification.Name {
     static let nodOpenSettings = Notification.Name("nod.app.openSettings")
     static let nodOpenLibrary = Notification.Name("nod.app.openLibrary")
     static let nodHidePanel = Notification.Name("nod.app.hidePanel")
+    /// Posted after a completed checkout (and from the panel) to open Settings
+    /// on the Subscription tab — the single home for plan/billing.
+    static let nodOpenSubscription = Notification.Name("nod.app.openSubscription")
 }
 
 extension Notification {
