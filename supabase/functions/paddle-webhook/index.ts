@@ -15,6 +15,9 @@
 //
 // Secret (set via `supabase secrets set`, or a local --env-file):
 //   PADDLE_WEBHOOK_SECRET — the destination's signing secret (`pdl_ntfset_…`)
+//
+// Deployed per-branch via git: the `develop` branch (sandbox secret) and
+// `main` (live secret) each get their own copy from their git branch.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 

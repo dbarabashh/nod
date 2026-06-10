@@ -15,6 +15,9 @@
 // Secrets (set via `supabase secrets set`, or a local --env-file):
 //   PADDLE_API_KEY   — server-side API key (sandbox `apikey_…` or live)
 //   PADDLE_API_BASE  — defaults to the sandbox host
+//
+// Deployed per-branch via git: the `develop` branch (sandbox secrets) and
+// `main` (live secrets) each get their own copy from their git branch.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 
