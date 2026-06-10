@@ -216,16 +216,21 @@ struct PaywallView: View {
     }
 
     private func ctaButton(plan: PlanCopy, price: PlanPrice?, isCurrent: Bool) -> some View {
-        Button {
-            if let id = price?.paddlePriceID {
-                Task { await billing.startCheckout(priceID: id) }
+        // Already subscribed → switching plans updates the one subscription in
+        // place (no second checkout). Not subscribed → a fresh checkout.
+        let label = isCurrent ? "Current plan" : (isPaid ? "Switch to \(plan.name)" : "Choose \(plan.name)")
+        return Button {
+            guard let id = price?.paddlePriceID else { return }
+            Task {
+                let outcome = await billing.startCheckout(priceID: id)
+                if outcome == .planChanged { await entitlements.refresh() }
             }
         } label: {
             HStack(spacing: 7) {
                 if billing.isStartingCheckout {
                     ProgressView().controlSize(.small).tint(Theme.Palette.ink)
                 }
-                Text(isCurrent ? "Current plan" : "Choose \(plan.name)")
+                Text(label)
                     .font(.system(size: 13, weight: .semibold))
             }
             .foregroundStyle(isCurrent ? Theme.Palette.muted : Theme.Palette.ink)

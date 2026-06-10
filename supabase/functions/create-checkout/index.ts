@@ -27,18 +27,25 @@ const PADDLE_API_KEY  = Deno.env.get("PADDLE_API_KEY");
 // swap (PADDLE_API_KEY), nothing else. PADDLE_API_BASE stays as an override.
 const PADDLE_API_BASE = Deno.env.get("PADDLE_API_BASE")
     ?? (PADDLE_API_KEY?.startsWith("pdl_live_") ? "https://api.paddle.com" : "https://sandbox-api.paddle.com");
-const SUPABASE_URL      = Deno.env.get("SUPABASE_URL");
-const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
+const SUPABASE_ANON_KEY         = Deno.env.get("SUPABASE_ANON_KEY");
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 interface CheckoutRequest {
     price_id: string;
 }
 
+const PADDLE_HEADERS = {
+    "Authorization": `Bearer ${PADDLE_API_KEY}`,
+    "Content-Type": "application/json",
+    "Paddle-Version": "1",
+};
+
 Deno.serve(async (req: Request): Promise<Response> => {
     if (req.method !== "POST") return json({ error: "Method Not Allowed" }, 405);
 
-    if (!PADDLE_API_KEY || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        console.error("missing env: PADDLE_API_KEY / SUPABASE_URL / SUPABASE_ANON_KEY");
+    if (!PADDLE_API_KEY || !SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
+        console.error("missing env: PADDLE_API_KEY / SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY");
         return json({ error: "Server misconfigured" }, 500);
     }
 
@@ -63,11 +70,45 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "Missing 'price_id'" }, 400);
     }
 
-    // Best-effort customer prefill: matching the user's email to (or creating)
-    // a Paddle customer lets the checkout skip its first page. Any failure here
-    // is non-fatal — we just open a checkout that collects the email instead.
-    let customerId: string | undefined;
-    if (user.email) {
+    // One subscription per user. If they already have a live Paddle subscription,
+    // a plan/cycle switch must UPDATE it in place — never spin up a second one
+    // (which would double-bill). A new checkout is only for users with no active
+    // subscription (trial, expired, or canceled).
+    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: sub } = await admin
+        .from("subscriptions")
+        .select("paddle_subscription_id, paddle_customer_id, status")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+    if (sub?.paddle_subscription_id && (sub.status === "active" || sub.status === "past_due")) {
+        const res = await fetch(`${PADDLE_API_BASE}/subscriptions/${sub.paddle_subscription_id}`, {
+            method: "PATCH",
+            headers: PADDLE_HEADERS,
+            body: JSON.stringify({
+                items: [{ price_id: body.price_id, quantity: 1 }],
+                proration_billing_mode: "prorated_immediately",
+            }),
+        });
+        const text = await res.text();
+        if (!res.ok) {
+            console.error(`paddle subscription update failed status=${res.status} body=${text.slice(0, 400)}`);
+            return json({ error: "Plan change failed" }, 502);
+        }
+        console.log(`plan change user=${user.id} sub=${sub.paddle_subscription_id} price=${body.price_id}`);
+        // No checkout needed — Paddle charges the card on file and fires
+        // subscription.updated, which the webhook applies to our DB.
+        return json({ updated: true }, 200);
+    }
+
+    // New subscription. Reuse the stored Paddle customer if we have one;
+    // otherwise match-or-create by email so the checkout can skip its first
+    // page. Customer lookup is best-effort — a failure just means the checkout
+    // collects the email itself.
+    let customerId: string | undefined = sub?.paddle_customer_id ?? undefined;
+    if (!customerId && user.email) {
         try {
             customerId = await findOrCreateCustomer(user.email);
         } catch (err) {

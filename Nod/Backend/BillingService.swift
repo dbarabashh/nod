@@ -72,25 +72,42 @@ final class BillingService: ObservableObject {
         prices.first { $0.plan == plan && $0.billingCycle == cycle && $0.kind == "subscription" }
     }
 
-    func startCheckout(priceID: String) async {
-        guard !isStartingCheckout else { return }
+    /// `opened` — a checkout URL was launched in the browser (new subscriber).
+    /// `planChanged` — the existing subscription was switched in place (no
+    /// browser); the caller should re-resolve the entitlement. `failed` — error.
+    enum CheckoutOutcome { case opened, planChanged, failed }
+
+    func startCheckout(priceID: String) async -> CheckoutOutcome {
+        guard !isStartingCheckout else { return .failed }
         isStartingCheckout = true
         lastError = nil
         defer { isStartingCheckout = false }
 
         struct Request: Encodable { let price_id: String }
-        struct CheckoutResponse: Decodable { let url: URL }
+        // create-checkout returns either { url } (new subscription → open it) or
+        // { updated: true } (existing subscription changed in place).
+        struct Response: Decodable { let url: URL?; let updated: Bool? }
 
         do {
-            let response: CheckoutResponse = try await supabase.functions.invoke(
+            let response: Response = try await supabase.functions.invoke(
                 "create-checkout",
                 options: FunctionInvokeOptions(body: Request(price_id: priceID))
             )
-            Log.ui.info("BillingService.startCheckout opening \(response.url.absoluteString)")
-            NSWorkspace.shared.open(response.url)
+            if let url = response.url {
+                Log.ui.info("BillingService.startCheckout opening \(url.absoluteString)")
+                NSWorkspace.shared.open(url)
+                return .opened
+            }
+            if response.updated == true {
+                Log.ui.info("BillingService.startCheckout changed plan in place")
+                return .planChanged
+            }
+            lastError = "Couldn't start checkout. Please try again."
+            return .failed
         } catch {
             Log.ui.error("BillingService.startCheckout failed: \(error.localizedDescription)")
             lastError = "Couldn't start checkout. Please try again."
+            return .failed
         }
     }
 
