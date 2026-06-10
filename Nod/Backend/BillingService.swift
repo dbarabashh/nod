@@ -40,6 +40,7 @@ struct PlanPrice: Decodable, Identifiable {
 final class BillingService: ObservableObject {
     @Published private(set) var prices: [PlanPrice] = []
     @Published private(set) var isStartingCheckout = false
+    @Published private(set) var isOpeningPortal = false
     @Published var lastError: String?
 
     private let supabase: SupabaseClient
@@ -90,6 +91,26 @@ final class BillingService: ObservableObject {
         } catch {
             Log.ui.error("BillingService.startCheckout failed: \(error.localizedDescription)")
             lastError = "Couldn't start checkout. Please try again."
+        }
+    }
+
+    /// Opens Paddle's hosted customer portal (cancel, update card, invoices).
+    /// As MoR, Paddle owns this surface — the app just hands the user off.
+    func openCustomerPortal() async {
+        guard !isOpeningPortal else { return }
+        isOpeningPortal = true
+        lastError = nil
+        defer { isOpeningPortal = false }
+
+        struct PortalResponse: Decodable { let url: URL }
+
+        do {
+            let response: PortalResponse = try await supabase.functions.invoke("customer-portal")
+            Log.ui.info("BillingService.openCustomerPortal opening portal")
+            NSWorkspace.shared.open(response.url)
+        } catch {
+            Log.ui.error("BillingService.openCustomerPortal failed: \(error.localizedDescription)")
+            lastError = "Couldn't open subscription management. Please try again."
         }
     }
 }

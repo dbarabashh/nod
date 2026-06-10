@@ -69,12 +69,25 @@ struct SettingsView: View {
             Spacer(minLength: 0)
 
             // Selectable so a user can copy it verbatim into a bug report.
-            Text(Self.versionString)
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.Palette.muted)
-                .textSelection(.enabled)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 4)
+            // The DEBUG badge only compiles into Debug builds — a visible cue
+            // that this build talks to the sandbox branch, never shipped to prod.
+            HStack(spacing: 6) {
+                Text(Self.versionString)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .textSelection(.enabled)
+                #if DEBUG
+                    Text("DEBUG")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .tracking(0.5)
+                        .foregroundStyle(Theme.Palette.warning)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule(style: .continuous).fill(Theme.Palette.warning.opacity(0.15)))
+                #endif
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 4)
         }
         .padding(12)
         // Clear the traffic-light buttons that float over the transparent titlebar.

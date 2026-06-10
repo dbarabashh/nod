@@ -64,6 +64,9 @@ struct PaywallView: View {
                         planCard(plan)
                     }
                 }
+                if isPaid {
+                    manageButton
+                }
                 if let error = billing.lastError {
                     Text(error)
                         .font(.system(size: 12, weight: .regular))
@@ -125,6 +128,31 @@ struct PaywallView: View {
             return String(format: "%.1f of %.0f hours used this period", ent.hoursUsed, ent.hoursLimit)
         }
         return nil
+    }
+
+    /// A paid (not trial) subscription has a Paddle customer to manage. Trial
+    /// users have nothing to cancel, so the button stays hidden for them.
+    private var isPaid: Bool {
+        entitlements.entitlement?.status == .active
+    }
+
+    private var manageButton: some View {
+        Button {
+            Task { await billing.openCustomerPortal() }
+        } label: {
+            HStack(spacing: 6) {
+                if billing.isOpeningPortal {
+                    ProgressView().controlSize(.small).tint(Theme.Palette.muted)
+                }
+                Text("Manage subscription")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(Theme.Palette.graphite)
+                    .underline()
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(billing.isOpeningPortal)
+        .help("Cancel, change plan, update your card, or view invoices")
     }
 
     // MARK: - Plan card

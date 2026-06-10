@@ -258,14 +258,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls
-            where url.scheme?.lowercased() == AuthService.callbackURL.scheme
-            && url.host == AuthService.callbackURL.host {
-            Log.auth.info("received callback url")
-            if let auth = self.auth {
-                Task { @MainActor in await auth.handleCallback(url) }
-            } else {
-                pendingCallbackURLs.append(url)
+        for url in urls where url.scheme?.lowercased() == AuthService.callbackURL.scheme {
+            switch url.host {
+            case AuthService.callbackURL.host:
+                Log.auth.info("received auth callback url")
+                if let auth = self.auth {
+                    Task { @MainActor in await auth.handleCallback(url) }
+                } else {
+                    pendingCallbackURLs.append(url)
+                }
+            case "checkout-complete":
+                // Paddle's hosted checkout (success URL → /checkout/done) deep-links
+                // back here once payment lands. Bring the app forward, refocus the
+                // paywall, and re-resolve the entitlement so the new plan shows
+                // without waiting for the user to switch windows.
+                Log.ui.info("received checkout-complete url")
+                NSApp.activate(ignoringOtherApps: true)
+                showPaywallWindow()
+                Task { @MainActor in await self.entitlements?.refresh() }
+            default:
+                break
             }
         }
     }
