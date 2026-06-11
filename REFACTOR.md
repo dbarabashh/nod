@@ -130,9 +130,13 @@ thread stops doing heavy work.
         not ours.
       - Doc-audit note (2026-06-11): `AVAudioNode.installTap(onBus:…)` is
         marked **deprecated** in current Apple docs in favor of
-        `installAudioTap(onBus:bufferSize:format:tapProvider:)`; the
-        replacement is newer than our macOS 13 target, so `installTap` stays —
-        revisit when the deployment target moves.
+        `installAudioTap(onBus:bufferSize:format:tapProvider:)` — but the
+        replacement requires **macOS 27.0+ (currently Beta)** vs our 13.0
+        target, so `installTap` is the only available API and stays.
+        When the target eventually reaches 27: the new tap hands out
+        `AVReadOnlyAudioPCMBuffer`s that are documented "safe for concurrent
+        use", which would also make `WhisperTranscriber`'s defensive
+        mic-buffer copy unnecessary.
 
 ## Phase 3 — structural extraction
 
