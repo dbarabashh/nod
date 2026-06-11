@@ -406,27 +406,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let profileStore else { Log.ui.error("showFloatingPanel: missing profileStore"); return }
         guard let entityStore else { Log.ui.error("showFloatingPanel: missing entityStore"); return }
         guard let knowledgeStore else { Log.ui.error("showFloatingPanel: missing knowledgeStore"); return }
-        guard let labelStore else { Log.ui.error("showFloatingPanel: missing labelStore"); return }
         guard let entitlements else { Log.ui.error("showFloatingPanel: missing entitlements"); return }
         guard let updateGate else { Log.ui.error("showFloatingPanel: missing updateGate"); return }
         guard let hotkeys else { Log.ui.error("showFloatingPanel: missing hotkeys"); return }
 
         NSApp.setActivationPolicy(.accessory)
 
+        // One session per panel — its lifetime matches the old view-local
+        // @State (created with the panel, dropped on sign-out teardown), so
+        // a mid-recording sign-out can't leak a stale REC state into the
+        // next user's panel.
+        let meetingSession = MeetingSession(
+            audioCapture: audioCapture,
+            store: transcriptStore,
+            llm: llmClient,
+            meetingStore: meetingStore,
+            entityStore: entityStore,
+            knowledgeStore: knowledgeStore,
+            language: languagePreference,
+            auth: auth,
+            profileStore: profileStore
+        )
+
         let content = ContentView(
             onPreferredWidthChange: { [weak self] width in self?.panel?.setWidth(to: width) }
         )
+        .environmentObject(meetingSession)
         .environmentObject(audioCapture)
-        .environmentObject(llmClient)
-        .environmentObject(transcriptStore)
         .environmentObject(languagePreference)
         .environmentObject(consent)
-        .environmentObject(meetingStore)
-        .environmentObject(auth)
-        .environmentObject(profileStore)
-        .environmentObject(entityStore)
-        .environmentObject(knowledgeStore)
-        .environmentObject(labelStore)
         .environmentObject(entitlements)
         .environmentObject(updateGate)
         .environmentObject(hotkeys)
