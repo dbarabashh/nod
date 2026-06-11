@@ -126,10 +126,12 @@ struct PaywallView: View {
         return nil
     }
 
-    /// A paid (not trial) subscription has a Paddle customer to manage. Trial
-    /// users have nothing to cancel, so the button stays hidden for them.
+    /// A paid (not trial) subscription has a Paddle customer to manage. Includes
+    /// `past_due` so a subscriber whose card failed can still reach the portal to
+    /// fix it. Trial users have nothing to cancel, so the button stays hidden.
     private var isPaid: Bool {
-        entitlements.entitlement?.status == .active
+        let status = entitlements.entitlement?.status
+        return status == .active || status == .pastDue
     }
 
     private var manageButton: some View {
@@ -155,7 +157,12 @@ struct PaywallView: View {
 
     private func planCard(_ plan: PlanCopy) -> some View {
         let price = billing.subscriptionPrice(plan: plan.id, cycle: cycle)
-        let isCurrent = entitlements.entitlement?.plan == plan.id && entitlements.entitlement?.isActive == true
+        // Match on the exact price, not just the plan, so the OTHER billing cycle
+        // of the current plan reads "Switch to …" (a real in-place change) rather
+        // than a disabled "Current plan".
+        let isCurrent = isPaid
+            && price?.paddlePriceID != nil
+            && entitlements.entitlement?.priceID == price?.paddlePriceID
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {

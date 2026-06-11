@@ -92,6 +92,10 @@ async function handleSubscription(admin: ReturnType<typeof adminClient>, data: R
         console.warn(`subscription event without resolvable user — sub=${subscriptionId} customer=${customerId}`);
         return;
     }
+    if (!subscriptionId) {
+        console.warn("subscription event missing data.id — skipping");
+        return;
+    }
 
     const { error } = await admin.rpc("apply_paddle_subscription", {
         p_user_id:         userId,
@@ -115,12 +119,17 @@ async function handleTransaction(admin: ReturnType<typeof adminClient>, data: Re
     // aren't overage packs, so subscription line items are harmlessly skipped.
     const items = Array.isArray(data.items) ? data.items : [];
     for (const item of items) {
-        const priceId = isObject(item) && isObject(item.price) ? str(item.price.id) : str(isObject(item) ? item.price_id : undefined);
+        if (!isObject(item)) continue;
+        const priceId = isObject(item.price) ? str(item.price.id) : str(item.price_id);
         if (!priceId) continue;
+        const quantity = typeof item.quantity === "number" ? item.quantity : 1;
+        // Idempotent per (transaction, price); the RPC no-ops on non-overage
+        // prices and scales the credited hours by quantity.
         const { error } = await admin.rpc("apply_paddle_overage", {
             p_user_id:        userId,
             p_transaction_id: transactionId,
             p_price_id:       priceId,
+            p_quantity:       quantity,
         });
         if (error) throw new Error(`apply_paddle_overage: ${error.message}`);
     }
@@ -149,18 +158,23 @@ async function resolveUserId(
 }
 
 // Paddle-Signature: `ts=<unix>;h1=<hex hmac>`. The signed payload is
-// `<ts>:<rawBody>`, HMAC-SHA256'd with the destination's secret. Constant-time
-// compared against h1.
+// `<ts>:<rawBody>`, HMAC-SHA256'd with the destination's secret, constant-time
+// compared against h1. During a secret rotation Paddle sends MULTIPLE h1
+// values in one header (`ts=…;h1=<old>;h1=<new>`), so collect them all and
+// accept if any matches — a single `Object.fromEntries` would keep only the
+// last and reject otherwise-valid deliveries mid-rotation.
 async function verifySignature(header: string, body: string, secret: string): Promise<boolean> {
-    const parts = Object.fromEntries(
-        header.split(";").map((p) => {
-            const idx = p.indexOf("=");
-            return [p.slice(0, idx).trim(), p.slice(idx + 1).trim()];
-        }),
-    );
-    const ts = parts["ts"];
-    const h1 = parts["h1"];
-    if (!ts || !h1) return false;
+    let ts = "";
+    const h1s: string[] = [];
+    for (const part of header.split(";")) {
+        const idx = part.indexOf("=");
+        if (idx < 0) continue;
+        const k = part.slice(0, idx).trim();
+        const v = part.slice(idx + 1).trim();
+        if (k === "ts") ts = v;
+        else if (k === "h1") h1s.push(v);
+    }
+    if (!ts || h1s.length === 0) return false;
 
     const key = await crypto.subtle.importKey(
         "raw",
@@ -171,7 +185,7 @@ async function verifySignature(header: string, body: string, secret: string): Pr
     );
     const sigBytes = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${ts}:${body}`));
     const computed = [...new Uint8Array(sigBytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
-    return timingSafeEqual(computed, h1);
+    return h1s.some((h1) => timingSafeEqual(computed, h1));
 }
 
 function timingSafeEqual(a: string, b: string): boolean {

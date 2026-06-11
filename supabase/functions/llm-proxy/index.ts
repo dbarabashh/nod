@@ -116,6 +116,10 @@ interface Entitlement {
 const ENTITLEMENT_TTL_MS = 60_000;
 const entitlementCache = new Map<string, { ent: Entitlement; at: number }>();
 
+// Kinds exempt from the entitlement gate. Everything else is gated by default
+// (see the gate below) so a new billable kind can't be added without one.
+const UNGATED_KINDS = new Set(["device_claim", "device_release"]);
+
 async function entitlementFor(admin: ReturnType<typeof adminClient>, userId: string): Promise<Entitlement | null> {
     const cached = entitlementCache.get(userId);
     const now = Date.now();
@@ -252,8 +256,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // deliberately soft — pricing promises "overage, not a hard stop" — so an
     // over-cap call is served and flagged via x-nod-* headers, never blocked.
     // Fail open on lookup errors: a DB hiccup must never cut a live meeting.
+    // Gate by EXEMPTION, not by an allowlist of kinds: anything that isn't an
+    // explicitly-exempt device op is gated, so a future billable kind is gated
+    // by default rather than silently served free until someone remembers to
+    // add it here. (device_release already returned above; device_claim is the
+    // signed-in device handshake and carries no entitlement cost.)
     let entitlement: Entitlement | null = null;
-    if (body.kind === "chat" || body.kind === "transcribe" || body.kind === "index" || body.kind === "search") {
+    if (!UNGATED_KINDS.has(body.kind)) {
         entitlement = await entitlementFor(admin, user.id);
         if (entitlement && entitlement.status !== "trialing" && entitlement.status !== "active") {
             return json({ error: "entitlement_required", status: entitlement.status, plan: entitlement.plan }, 403);

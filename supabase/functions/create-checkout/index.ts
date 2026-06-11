@@ -83,7 +83,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
         .eq("user_id", user.id)
         .maybeSingle();
 
-    if (sub?.paddle_subscription_id && (sub.status === "active" || sub.status === "past_due")) {
+    // Any non-terminal Paddle subscription is changed IN PLACE — keying on the
+    // subscription id (not a status whitelist) so a `trialing` or `paused`
+    // subscription can't slip through and spawn a second one (double-bill).
+    // Only canceled/expired fall through to a fresh checkout (resubscribe).
+    const hasLiveSubscription = !!sub?.paddle_subscription_id
+        && sub.status !== "canceled"
+        && sub.status !== "expired";
+    if (hasLiveSubscription) {
         const res = await fetch(`${PADDLE_API_BASE}/subscriptions/${sub.paddle_subscription_id}`, {
             method: "PATCH",
             headers: PADDLE_HEADERS,
@@ -125,11 +132,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const res = await fetch(`${PADDLE_API_BASE}/transactions`, {
         method: "POST",
-        headers: {
-            "Authorization": `Bearer ${PADDLE_API_KEY}`,
-            "Content-Type": "application/json",
-            "Paddle-Version": "1",
-        },
+        headers: PADDLE_HEADERS,
         body: JSON.stringify(payload),
     });
     const text = await res.text();
@@ -159,11 +162,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 // Paddle has no upsert-by-email; list first, create only on a miss. Returns the
 // customer id (`ctm_…`). Throws on a hard API error so the caller logs + omits.
 async function findOrCreateCustomer(email: string): Promise<string | undefined> {
-    const headers = {
-        "Authorization": `Bearer ${PADDLE_API_KEY}`,
-        "Content-Type": "application/json",
-        "Paddle-Version": "1",
-    };
+    const headers = PADDLE_HEADERS;
 
     const listRes = await fetch(`${PADDLE_API_BASE}/customers?email=${encodeURIComponent(email)}`, { headers });
     if (listRes.ok) {

@@ -44,6 +44,10 @@ struct Entitlement: Decodable {
     }
 
     let plan: String
+    /// The Paddle price the subscription is currently on (nil for trial / none).
+    /// Lets the UI tell monthly from yearly so a same-plan cycle switch isn't
+    /// mistaken for "current plan".
+    let priceID: String?
     let status: Status
     let features: Set<String>
     let hoursUsed: Double
@@ -70,6 +74,7 @@ struct Entitlement: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case plan, status, features, limits
+        case priceID = "price_id"
         case hoursUsed = "hours_used"
         case hoursLimit = "hours_limit"
         case trialEndsAt = "trial_ends_at"
@@ -79,6 +84,7 @@ struct Entitlement: Decodable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         plan = try c.decodeIfPresent(String.self, forKey: .plan) ?? "none"
+        priceID = try c.decodeIfPresent(String.self, forKey: .priceID)
         status = try Status(raw: c.decodeIfPresent(String.self, forKey: .status) ?? "none")
         features = try Set(c.decodeIfPresent([String].self, forKey: .features) ?? [])
         hoursUsed = try c.decodeIfPresent(Double.self, forKey: .hoursUsed) ?? 0

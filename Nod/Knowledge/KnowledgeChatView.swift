@@ -64,7 +64,7 @@ struct KnowledgeChatView: View {
             // Cross-session "Ask Nod" is a Pro feature (`ask_across_meetings`).
             // The server enforces it too; this gate is the UX side — show an
             // upsell instead of a composer that would only 403.
-            if entitlements.can(.askAcrossMeetings) {
+            if canAskAcross {
                 VStack(spacing: 0) {
                     messageList
                     composer
@@ -88,6 +88,13 @@ struct KnowledgeChatView: View {
             onOpenMeeting(id)
             return .handled
         })
+    }
+
+    /// Fail OPEN on an unresolved entitlement (nil / load failure): the proxy is
+    /// the real gate and also fails open, so a Pro user whose entitlement fetch
+    /// transiently failed isn't wrongly shown the upsell for a feature they own.
+    private var canAskAcross: Bool {
+        entitlements.entitlement == nil || entitlements.can(.askAcrossMeetings)
     }
 
     private var upsell: some View {
