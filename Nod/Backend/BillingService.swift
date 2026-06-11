@@ -10,7 +10,6 @@ struct PlanPrice: Decodable, Identifiable {
     let plan: String
     let billingCycle: String
     let kind: String
-    let overageHours: Double?
     let displayAmount: Double
     let currency: String
     let sortOrder: Int
@@ -24,7 +23,6 @@ struct PlanPrice: Decodable, Identifiable {
         case plan
         case billingCycle = "billing_cycle"
         case kind
-        case overageHours = "overage_hours"
         case displayAmount = "display_amount"
         case currency
         case sortOrder = "sort_order"

@@ -1,17 +1,15 @@
 // paddle-webhook — the ONLY thing that writes a user's plan in production.
 //
 // Paddle calls this (no Supabase JWT — deploy with verify_jwt = false) whenever
-// a subscription or transaction changes. We verify the `Paddle-Signature`
-// HMAC before trusting a single byte, then map the event onto the entitlement
-// schema via service-role RPCs (`apply_paddle_subscription` /
-// `apply_paddle_overage`). The client never sees any of this; it just re-reads
-// `get_entitlement()` and finds itself upgraded.
+// a subscription changes. We verify the `Paddle-Signature` HMAC before trusting
+// a single byte, then map the event onto the entitlement schema via the
+// service-role RPC `apply_paddle_subscription`. The client never sees any of
+// this; it just re-reads `get_entitlement()` and finds itself upgraded.
 //
 // Event handling (per Paddle's guidance — subscription.updated already covers
 // renewals, upgrades, downgrades, pauses, and past_due):
 //   subscription.created / .updated / .activated / .canceled / .past_due /
 //   .paused / .resumed  → upsert the subscription (plan + status + period)
-//   transaction.completed → record any overage hour-pack line items
 //
 // Secret (set via `supabase secrets set`, or a local --env-file):
 //   PADDLE_WEBHOOK_SECRET — the destination's signing secret (`pdl_ntfset_…`)
@@ -62,8 +60,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
     try {
         if (type.startsWith("subscription.")) {
             await handleSubscription(admin, data);
-        } else if (type === "transaction.completed") {
-            await handleTransaction(admin, data);
         } else {
             console.log(`paddle webhook ignored event_type=${type}`);
         }
@@ -108,31 +104,6 @@ async function handleSubscription(admin: ReturnType<typeof adminClient>, data: R
     });
     if (error) throw new Error(`apply_paddle_subscription: ${error.message}`);
     console.log(`subscription applied user=${userId} status=${status} price=${priceId}`);
-}
-
-async function handleTransaction(admin: ReturnType<typeof adminClient>, data: Record<string, unknown>): Promise<void> {
-    const transactionId = str(data.id);
-    const userId = await resolveUserId(admin, data, str(data.subscription_id), str(data.customer_id));
-    if (!userId || !transactionId) return;
-
-    // Call apply_paddle_overage for every line item; it no-ops on prices that
-    // aren't overage packs, so subscription line items are harmlessly skipped.
-    const items = Array.isArray(data.items) ? data.items : [];
-    for (const item of items) {
-        if (!isObject(item)) continue;
-        const priceId = isObject(item.price) ? str(item.price.id) : str(item.price_id);
-        if (!priceId) continue;
-        const quantity = typeof item.quantity === "number" ? item.quantity : 1;
-        // Idempotent per (transaction, price); the RPC no-ops on non-overage
-        // prices and scales the credited hours by quantity.
-        const { error } = await admin.rpc("apply_paddle_overage", {
-            p_user_id:        userId,
-            p_transaction_id: transactionId,
-            p_price_id:       priceId,
-            p_quantity:       quantity,
-        });
-        if (error) throw new Error(`apply_paddle_overage: ${error.message}`);
-    }
 }
 
 // Prefer the custom_data breadcrumb our own checkout stamps; fall back to

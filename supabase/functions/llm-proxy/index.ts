@@ -253,8 +253,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // gets 403 entitlement_required. `search` is additionally gated on the
     // SPECIFIC plan feature its scope maps to, so a Starter user can ask within a
     // single meeting but not across all of them or by label. The hour cap is
-    // deliberately soft — pricing promises "overage, not a hard stop" — so an
-    // over-cap call is served and flagged via x-nod-* headers, never blocked.
+    // deliberately soft — an over-cap call is still served (never blocked) and
+    // the remaining hours are surfaced via x-nod-hours-* headers.
     // Fail open on lookup errors: a DB hiccup must never cut a live meeting.
     // Gate by EXEMPTION, not by an allowlist of kinds: anything that isn't an
     // explicitly-exempt device op is gated, so a future billable kind is gated
@@ -344,17 +344,13 @@ async function forwardTranscribe(payload: unknown, userId: string, entitlement: 
         console.warn(`transcribe usage record skipped: ${err}`);
     }
 
-    // Soft cap: the call is always served; past the plan's hours the response
-    // carries an overage flag so the client can surface "buy an hour pack"
-    // while the meeting keeps recording.
+    // Soft cap: the call is always served (no hard stop). The response carries
+    // the user's hours-used/limit so the client can show how much of the plan's
+    // monthly allowance is left.
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (entitlement && entitlement.hours_limit > 0) {
         headers["x-nod-hours-used"] = String(entitlement.hours_used);
         headers["x-nod-hours-limit"] = String(entitlement.hours_limit);
-        if (entitlement.hours_used >= entitlement.hours_limit) {
-            headers["x-nod-overage"] = "true";
-            console.log(`overage user=${userId} hours=${entitlement.hours_used}/${entitlement.hours_limit}`);
-        }
     }
 
     return new Response(text, { status, headers });

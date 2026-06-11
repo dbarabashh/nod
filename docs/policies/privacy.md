@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-06-07_
+_Last updated: 2026-06-11_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -26,9 +26,11 @@ honest disclosure, not a gap we're hiding.
 For the purposes of the EU/UK GDPR, the data controller is Dima Barabash
 personally. The contact point is **dbarabashdev@gmail.com**.
 
-A legal entity will be incorporated before any paid tier launches, and this
-policy will be updated to reflect the entity's registered name and address.
-Existing users will receive notice when that happens.
+Paid subscription plans are operated by Dima Barabash as an individual
+developer during this phase; payments are processed by **Paddle** as merchant
+of record (see § 3.6). A legal entity will be incorporated as Nod grows, and
+this policy will be updated to reflect the entity's registered name and
+address, with notice to existing users.
 
 ## 2. What Nod is
 
@@ -128,7 +130,24 @@ across apps or the web.
 Legal basis: legitimate interest in securing accounts and preventing
 unauthorised credential sharing (Art. 6(1)(f)).
 
-### 3.6 What we do **not** collect
+### 3.6 Subscription and billing data
+
+When you subscribe to a paid plan, payment is processed by **Paddle** as our
+merchant of record. Paddle collects and processes your payment details (card
+or other method), billing address, and the email tied to the subscription.
+**We never receive or store your card or full payment details** — they stay
+with Paddle.
+
+On our side we store only what's needed to grant your entitlement:
+
+| Data                                                                 | Why we need it                                          | Legal basis |
+|----------------------------------------------------------------------|---------------------------------------------------------|-------------|
+| Subscription state (plan, status, billing period, Paddle customer/subscription ids, in `subscriptions`) | To grant the features you paid for and manage renewal/cancellation | Contract (Art. 6(1)(b)) |
+
+Payment data held by Paddle is governed by Paddle's own privacy policy; see
+our [Subprocessors list](./subprocessors.md) for exactly what Paddle receives.
+
+### 3.7 What we do **not** collect
 
 - We do **not** embed analytics SDKs (PostHog, Mixpanel, Amplitude,
   Segment, Google Analytics, Sentry, etc.).
@@ -169,7 +188,7 @@ third parties only when one of the following applies:
 
 - It's a subprocessor on the published list, acting under a data
   processing agreement (Supabase, OpenRouter, OpenAI via Azure, Google
-  Cloud / Vertex, Google OAuth, Apple, future billing provider).
+  Cloud / Vertex, Google OAuth, Apple, Paddle).
 - We're legally compelled (court order, lawful subpoena). We will notify
   you unless prohibited by law.
 - You explicitly ask us to (for example, exporting your data to another
@@ -194,6 +213,9 @@ Some subprocessors operate globally and may process data outside the EU:
   (SCCs) otherwise.
 - **Google OAuth** and **Apple** are global services and may process
   authentication / app-distribution data outside the EU under SCCs.
+- **Paddle** (billing) is UK-based and processes payment and subscription
+  data; transfers rely on the UK's adequacy status and/or Standard
+  Contractual Clauses as applicable.
 
 We can provide our SCCs and transfer impact assessments on request to
 **dbarabashdev@gmail.com**.
@@ -210,6 +232,7 @@ We can provide our SCCs and transfer impact assessments on request to
 | Meetings (in trash)                  | 30 days. A nightly Postgres job permanently deletes anything older. |
 | Meeting transcripts                  | Same as the parent meeting (cascade delete).                         |
 | Transcript embeddings, session chats, entity links, label links | Same as the parent meeting (cascade delete). Extracted entities and the labels you create are per-user and removed on account deletion. |
+| Subscription & billing records (`subscriptions`) | Subscription state kept while your account exists; Paddle retains its own invoice/tax records per its legal obligations. |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |
 | Usage metadata                       | 24 months, then aggregated and anonymised.                           |
 | Encrypted database backups           | 7 days rolling.                                                      |

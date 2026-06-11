@@ -18,7 +18,6 @@ base you can ask questions about.
 | **Price** | **$0** for 14 days | **$9/mo** billed yearly _(or $14/mo monthly)_ | **$19/mo** billed yearly _(or $29/mo monthly)_ |
 | **Annual savings** | — | ~36% | ~34% |
 | **Meeting hours** | Full access | **15 hrs / month** | **50 hrs / month** |
-| **Need more?** | — | +5 hrs for $4 | +10 hrs for $7 |
 | **Devices** | — | 1 | Up to 3 |
 | Records you **+ the other side** | ✅ | ✅ | ✅ |
 | Live transcription, summaries & action items | ✅ | ✅ | ✅ |
@@ -71,7 +70,6 @@ people with a steady, focused meeting load.
 - Multilingual transcription — 12 languages
 - Unlimited history, labels, and search
 - Private by design — your audio is never stored
-- **Overage:** +5 hours for $4 (you keep recording; no hard stop)
 
 ---
 
@@ -89,7 +87,6 @@ questions and scope by project — for power users running back-to-back calls.
   - **Ask Nod across all meetings** — your personal knowledge base
   - **Label-scoped questions** — tag sessions and narrow Ask Nod to a project or topic
   - Early access to new features + priority support
-- **Overage:** +10 hours for $7 (you keep recording; no hard stop)
 
 ---
 
@@ -111,7 +108,7 @@ standard prices change. A thank-you to the people who back Nod early.
   Merchant of Record.
 - **Yearly is the best value.** A single transaction per year (instead of 12)
   lowers payment fees, which is why the annual discount is steep.
-- **At the hour cap: overage, not a hard stop.** Keep recording and add an hour
-  pack — this covers the marginal cost instead of blocking you.
+- **The monthly hours are a soft cap.** You won't be cut off mid-meeting if you
+  go over — recording keeps working.
 - **Regional (PPP) pricing.** Lower prices for countries with lower purchasing
   power, so Nod is fair worldwide.
