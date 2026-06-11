@@ -16,6 +16,7 @@ struct KnowledgeChatView: View {
     @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var language: LanguagePreference
+    @EnvironmentObject private var entitlements: EntitlementService
 
     private struct QAMessage: Identifiable, Equatable {
         let id = UUID()
@@ -59,9 +60,18 @@ struct KnowledgeChatView: View {
     }()
 
     var body: some View {
-        VStack(spacing: 0) {
-            messageList
-            composer
+        Group {
+            // Cross-session "Ask Nod" is a Pro feature (`ask_across_meetings`).
+            // The server enforces it too; this gate is the UX side — show an
+            // upsell instead of a composer that would only 403.
+            if entitlements.can(.askAcrossMeetings) {
+                VStack(spacing: 0) {
+                    messageList
+                    composer
+                }
+            } else {
+                upsell
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await meetingStore.refresh() }
@@ -78,6 +88,36 @@ struct KnowledgeChatView: View {
             onOpenMeeting(id)
             return .handled
         })
+    }
+
+    private var upsell: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 30, weight: .regular))
+                .foregroundStyle(Theme.Palette.violet)
+            Text("Ask across all your meetings")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.Palette.ink)
+            Text("Search and ask questions across everything you've recorded — your personal knowledge base. Available on Pro.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.graphite)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+            } label: {
+                Text("Upgrade to Pro")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 9)
+                    .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 28)
     }
 
     private var messageList: some View {

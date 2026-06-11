@@ -108,6 +108,7 @@ async function minimumBuild(admin: ReturnType<typeof adminClient>): Promise<numb
 interface Entitlement {
     plan: string;
     status: string;
+    features: string[];
     hours_used: number;
     hours_limit: number;
 }
@@ -127,6 +128,7 @@ async function entitlementFor(admin: ReturnType<typeof adminClient>, userId: str
     const ent: Entitlement = {
         plan: typeof data.plan === "string" ? data.plan : "none",
         status: typeof data.status === "string" ? data.status : "none",
+        features: Array.isArray(data.features) ? data.features.filter((f): f is string => typeof f === "string") : [],
         hours_used: typeof data.hours_used === "number" ? data.hours_used : 0,
         hours_limit: typeof data.hours_limit === "number" ? data.hours_limit : 0,
     };
@@ -241,18 +243,26 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }
     }
 
-    // Entitlement gate — only on the kinds that spend money upstream (index/
-    // search run on free in-runtime embeddings and are gated by the client UI).
-    // A locked account (expired trial, canceled sub, no subscription) gets 403
-    // entitlement_required. The hour cap is deliberately soft — pricing
-    // promises "overage, not a hard stop" — so an over-cap call is served and
-    // flagged via x-nod-* headers, never blocked. Fail open on lookup errors:
-    // a DB hiccup must never cut a live meeting.
+    // Entitlement gate. Every billable/feature-bearing kind is gated here — the
+    // proxy is the chokepoint a patched client can't skip (client-side gates are
+    // UX only). A locked account (expired trial, canceled sub, no subscription)
+    // gets 403 entitlement_required. `search` is additionally gated on the
+    // SPECIFIC plan feature its scope maps to, so a Starter user can ask within a
+    // single meeting but not across all of them or by label. The hour cap is
+    // deliberately soft — pricing promises "overage, not a hard stop" — so an
+    // over-cap call is served and flagged via x-nod-* headers, never blocked.
+    // Fail open on lookup errors: a DB hiccup must never cut a live meeting.
     let entitlement: Entitlement | null = null;
-    if (body.kind === "chat" || body.kind === "transcribe") {
+    if (body.kind === "chat" || body.kind === "transcribe" || body.kind === "index" || body.kind === "search") {
         entitlement = await entitlementFor(admin, user.id);
         if (entitlement && entitlement.status !== "trialing" && entitlement.status !== "active") {
             return json({ error: "entitlement_required", status: entitlement.status, plan: entitlement.plan }, 403);
+        }
+        if (body.kind === "search" && entitlement) {
+            const required = requiredSearchFeature(body.payload);
+            if (!entitlement.features.includes(required)) {
+                return json({ error: "feature_required", feature: required, plan: entitlement.plan }, 403);
+            }
         }
     }
 
@@ -589,6 +599,17 @@ function audioSecondsFromPayload(payload: unknown): number | null {
     } catch {
         return null;
     }
+}
+
+// Which plan feature a search requires, by scope: a single-meeting question is
+// Starter-tier (`ask_single_meeting`); a label-scoped question and a
+// cross-session question are Pro (`label_scoping` / `ask_across_meetings`).
+function requiredSearchFeature(payload: unknown): string {
+    if (isObject(payload)) {
+        if (Array.isArray(payload.meeting_ids) && payload.meeting_ids.length > 0) return "label_scoping";
+        if (typeof payload.meeting_id === "string" && payload.meeting_id.length > 0) return "ask_single_meeting";
+    }
+    return "ask_across_meetings";
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

@@ -16,12 +16,14 @@ struct SettingsView: View {
         profileStore: ProfileStore? = nil,
         panelSharing: PanelSharingPreference? = nil,
         billing: BillingService? = nil,
-        entitlements: EntitlementService? = nil
+        entitlements: EntitlementService? = nil,
+        focusSubscription: Bool = false
     ) {
         self.profileStore = profileStore
         self.panelSharing = panelSharing
         self.billing = billing
         self.entitlements = entitlements
+        _tab = State(initialValue: focusSubscription ? .subscription : .profile)
     }
 
     /// Left-rail categories. Each maps to one detail pane.
@@ -52,7 +54,7 @@ struct SettingsView: View {
         }
     }
 
-    @State private var tab: Tab = .profile
+    @State private var tab: Tab
 
     var body: some View {
         HStack(spacing: 0) {

@@ -93,6 +93,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
+        // Upsell buttons (and the post-checkout deep link) route here to open
+        // Settings on the Subscription tab.
+        NotificationCenter.default.addObserver(forName: .nodOpenSubscription, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in
+                self?.showSettingsWindow(focusSubscription: true)
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
         NotificationCenter.default.addObserver(forName: .nodHidePanel, object: nil, queue: nil) { [weak self] _ in
             Task { @MainActor in
                 self?.panel?.orderOut(nil)
@@ -271,8 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 // on the Subscription tab, and re-resolve the entitlement so the new
                 // plan shows without waiting for the user to switch windows.
                 Log.ui.info("received checkout-complete url")
-                NSApp.activate(ignoringOtherApps: true)
-                showSettingsWindow()
+                // Opens Settings on the Subscription tab via the observer above.
                 NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
                 Task { @MainActor in await self.entitlements?.refresh() }
             default:
@@ -533,7 +540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     // MARK: - Settings window
 
-    private func showSettingsWindow() {
+    private func showSettingsWindow(focusSubscription: Bool = false) {
         if let existing = settingsWindow {
             existing.makeKeyAndOrderFront(nil)
             return
@@ -554,7 +561,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             profileStore: profileStore,
             panelSharing: panelSharing,
             billing: billing,
-            entitlements: entitlements
+            entitlements: entitlements,
+            focusSubscription: focusSubscription
         ))
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window
