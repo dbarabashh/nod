@@ -21,26 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var signInWindow: NSWindow?
     private var historyWindow: NSWindow?
     private var settingsWindow: NSWindow?
-    private var permissions: PermissionManager?
-    private var onboarding: OnboardingState?
-    private var audioCapture: AudioCaptureService?
-    private var llmClient: OpenRouterClient?
-    private var transcriptStore: TranscriptStore?
-    private var languagePreference: LanguagePreference?
-    private var supabase: SupabaseClient?
-    private var auth: AuthService?
-    private var consent: ConsentPreference?
-    private var meetingStore: MeetingStore?
-    private var profileStore: ProfileStore?
-    private var chatStore: ChatStore?
-    private var entityStore: EntityStore?
-    private var knowledgeStore: KnowledgeStore?
-    private var labelStore: LabelStore?
-    private var entitlements: EntitlementService?
-    private var billing: BillingService?
-    private var panelSharing: PanelSharingPreference?
-    private var updateGate: UpdateGate?
-    private var hotkeys: HotkeyManager?
+    /// nil only before `applicationDidFinishLaunching` ran — every code path
+    /// that can fire earlier (URL callbacks) queues instead of touching it.
+    private var services: AppServices?
     private var authObserveTask: Task<Void, Never>?
     private var statusObserveTask: Task<Void, Never>?
     private var panelSharingObserveTask: Task<Void, Never>?
@@ -59,10 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
 
+        let services = AppServices.make()
+        self.services = services
+
         // Suggest reply reuses the on-screen pill's notification path (ContentView observes it).
-        let hotkeys = HotkeyManager()
-        self.hotkeys = hotkeys
-        hotkeys.onTrigger = { [weak self] action in
+        services.hotkeys.onTrigger = { [weak self] action in
             switch action {
             case .suggestReply:
                 NotificationCenter.default.post(name: .nodSuggestHotkey, object: nil)
@@ -116,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
         NotificationCenter.default.addObserver(forName: .nodDeviceConflict, object: nil, queue: nil) { [weak self] _ in
             Task { @MainActor in
-                await self?.auth?.forceSignOut(
+                await self?.services?.auth.forceSignOut(
                     reason: "Signed out — this account is being used on another device."
                 )
             }
@@ -126,113 +110,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         // up here without the user restarting Nod.
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in
             Task { @MainActor in
-                guard self?.auth?.session != nil else { return }
-                await self?.entitlements?.refresh()
+                guard self?.services?.auth.session != nil else { return }
+                await self?.services?.entitlements.refresh()
             }
         }
 
-        let permissions = PermissionManager()
-        let onboarding = OnboardingState()
-        let audioCapture = AudioCaptureService()
-        let languagePreference = LanguagePreference()
-        // Supabase client must exist before the LLM client — all LLM traffic
-        // is JWT-authenticated through the `llm-proxy` Edge Function (#11).
-        // Opt into the new authStateChanges behavior — the SDK emits the
-        // locally stored session immediately as `.initialSession`, even if
-        // expired, and refreshes in the background. AuthService treats an
-        // expired session as nil so the UI doesn't flip to "signed in"
-        // with an unusable token. See supabase-swift PR #822.
-        let supabase = SupabaseClient(
-            supabaseURL: SupabaseConfig.url,
-            supabaseKey: SupabaseConfig.anonKey,
-            options: SupabaseClientOptions(
-                auth: SupabaseClientOptions.AuthOptions(
-                    emitLocalSessionAsInitialSession: true
-                )
-            )
-        )
-        let auth = AuthService(client: supabase)
-        let llmClient = OpenRouterClient(supabase: supabase)
-        // Free the single-device slot on every sign-out path (menu, forced
-        // device-conflict), while the token is still valid.
-        auth.onSignOut = { [weak llmClient] in await llmClient?.releaseDevice() }
-        let transcriptStore = TranscriptStore(client: llmClient, language: languagePreference)
-        let consent = ConsentPreference(
-            supabase: supabase,
-            auth: auth
-        )
-        let meetingStore = MeetingStore(supabase: supabase)
-        let profileStore = ProfileStore(supabase: supabase, auth: auth)
-        let chatStore = ChatStore(supabase: supabase, llm: llmClient)
-        let entityStore = EntityStore(supabase: supabase)
-        let knowledgeStore = KnowledgeStore(llm: llmClient)
-        let labelStore = LabelStore(supabase: supabase, auth: auth)
-        let entitlements = EntitlementService(supabase: supabase)
-        let billing = BillingService(supabase: supabase)
-        let panelSharing = PanelSharingPreference()
-        let updateGate = UpdateGate(supabase: supabase)
-
-        audioCapture.onMicBuffer = { [weak transcriptStore] buffer in
-            transcriptStore?.appendMicBuffer(buffer)
-        }
-        audioCapture.onSystemBuffer = { [weak transcriptStore] buffer in
-            transcriptStore?.appendSystemBuffer(buffer)
-        }
-
-        self.permissions = permissions
-        self.onboarding = onboarding
-        self.audioCapture = audioCapture
-        self.llmClient = llmClient
-        self.transcriptStore = transcriptStore
-        self.languagePreference = languagePreference
-        self.supabase = supabase
-        self.auth = auth
-        self.consent = consent
-        self.meetingStore = meetingStore
-        self.profileStore = profileStore
-        self.chatStore = chatStore
-        self.entityStore = entityStore
-        self.knowledgeStore = knowledgeStore
-        self.labelStore = labelStore
-        self.entitlements = entitlements
-        self.billing = billing
-        self.panelSharing = panelSharing
-        self.updateGate = updateGate
-        Task { await updateGate.check() }
+        Task { await services.updateGate.check() }
 
         panelSharingObserveTask = Task { @MainActor [weak self] in
             // `@Published` fires in willSet, so use the yielded value rather
             // than re-reading the (still-stale) stored property.
-            for await visible in panelSharing.$visibleWhenSharing.values {
+            for await visible in services.panelSharing.$visibleWhenSharing.values {
                 self?.panel?.sharingType = visible ? .readOnly : .none
             }
         }
 
         statusObserveTask = Task { @MainActor [weak self] in
-            guard let self, let audioCapture = self.audioCapture else { return }
-            for await state in audioCapture.$state.values {
-                updateStatusItem(for: state)
+            for await state in services.audioCapture.$state.values {
+                self?.updateStatusItem(for: state)
             }
         }
 
         // Observer drives every window transition, including the initial one.
         // Idempotent show*/close* methods make repeat emissions safe.
         authObserveTask = Task { @MainActor [weak self] in
-            guard let self, let auth = self.auth else { return }
             var wasSignedIn = false
-            for await _ in auth.$session.values {
-                let isSignedIn = auth.session != nil
+            for await _ in services.auth.$session.values {
+                guard let self else { return }
+                let isSignedIn = services.auth.session != nil
                 if wasSignedIn, !isSignedIn {
                     // Sign-out: tear down the recording pipeline AND drop
                     // the per-user caches so the next signed-in user can't
                     // see the previous one's data through the in-memory
                     // store or a stale History window.
                     await stopRecordingServices()
-                    self.meetingStore?.clear()
-                    self.profileStore?.clear()
-                    self.chatStore?.clear()
-                    self.labelStore?.clear()
-                    self.entitlements?.clear()
+                    services.meetingStore.clear()
+                    services.profileStore.clear()
+                    services.chatStore.clear()
+                    services.labelStore.clear()
+                    services.entitlements.clear()
                     closeHistoryWindow()
                     closeSettingsWindow()
                 }
@@ -241,17 +157,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     // blocked device is signed out immediately (the claim
                     // broadcasts .nodDeviceConflict on a 403) rather than only
                     // failing once the first proxy call lands mid-onboarding.
-                    Task { @MainActor [weak self] in
-                        do { try await self?.llmClient?.claimDevice() } catch { Log.auth.error(
+                    Task { @MainActor in
+                        do { try await services.llmClient.claimDevice() } catch { Log.auth.error(
                             "device claim failed: \(error.localizedDescription)"
                         ) }
                     }
                     // Warm the profile so its prompt context is ready before
                     // the first meeting ends. `load` no-ops once cached.
-                    Task { await self.profileStore?.load() }
-                    Task { await self.labelStore?.refresh() }
-                    Task { await self.entitlements?.refresh() }
-                    Task { await self.billing?.loadPrices() }
+                    Task { await services.profileStore.load() }
+                    Task { await services.labelStore.refresh() }
+                    Task { await services.entitlements.refresh() }
+                    Task { await services.billing.loadPrices() }
                 }
                 wasSignedIn = isSignedIn
                 reconcileWindows()
@@ -262,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let pending = pendingCallbackURLs
         pendingCallbackURLs.removeAll()
         for url in pending {
-            Task { @MainActor in await auth.handleCallback(url) }
+            Task { @MainActor in await services.auth.handleCallback(url) }
         }
     }
 
@@ -271,7 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             switch url.host {
             case AuthService.callbackURL.host:
                 Log.auth.info("received auth callback url")
-                if let auth = self.auth {
+                if let auth = services?.auth {
                     Task { @MainActor in await auth.handleCallback(url) }
                 } else {
                     pendingCallbackURLs.append(url)
@@ -284,7 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 Log.ui.info("received checkout-complete url")
                 // Opens Settings on the Subscription tab via the observer above.
                 NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
-                Task { @MainActor in await self.entitlements?.refresh() }
+                Task { @MainActor in await self.services?.entitlements.refresh() }
             default:
                 break
             }
@@ -292,18 +208,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func stopRecordingServices() async {
-        await audioCapture?.stop()
-        transcriptStore?.stop()
-        transcriptStore?.clear()
+        await services?.audioCapture.stop()
+        services?.transcriptStore.stop()
+        services?.transcriptStore.clear()
     }
 
     private func reconcileWindows() {
-        guard let auth, let onboarding else { return }
-        if auth.session == nil {
+        guard let services else { return }
+        if services.auth.session == nil {
             closeFloatingPanel()
             closeOnboardingWindow()
             showSignInWindow()
-        } else if !onboarding.isCompleted {
+        } else if !services.onboarding.isCompleted {
             closeFloatingPanel()
             closeSignInWindow()
             showOnboardingWindow()
@@ -315,7 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func showSignInWindow() {
-        guard let auth, signInWindow == nil else { return }
+        guard let services, signInWindow == nil else { return }
         NSApp.setActivationPolicy(.regular)
 
         let window = NSWindow(
@@ -331,7 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.appearance = NSAppearance(named: .darkAqua)
         window.center()
 
-        let root = SignInView().environmentObject(auth)
+        let root = SignInView().environmentObject(services.auth)
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -348,7 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func showOnboardingWindow() {
-        guard let permissions, let onboarding, let languagePreference, let profileStore, let auth, onboardingWindow == nil else { return }
+        guard let services, onboardingWindow == nil else { return }
 
         NSApp.setActivationPolicy(.regular)
 
@@ -370,11 +286,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let root = OnboardingView(onComplete: { [weak self] in
             self?.reconcileWindows()
         })
-        .environmentObject(permissions)
-        .environmentObject(onboarding)
-        .environmentObject(languagePreference)
-        .environmentObject(profileStore)
-        .environmentObject(auth)
+        .environmentObject(services.permissions)
+        .environmentObject(services.onboarding)
+        .environmentObject(services.languagePreference)
+        .environmentObject(services.profileStore)
+        .environmentObject(services.auth)
 
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)
@@ -392,23 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private func showFloatingPanel() {
         // Idempotent — re-entrant from the auth observer is normal.
-        guard panel == nil else { return }
-        // Surface init-order bugs loudly. The chained `guard let` above used
-        // to silently swallow a missing dep — now each absence logs which
-        // service didn't land in time for the panel.
-        guard let audioCapture else { Log.ui.error("showFloatingPanel: missing audioCapture"); return }
-        guard let llmClient else { Log.ui.error("showFloatingPanel: missing llmClient"); return }
-        guard let transcriptStore else { Log.ui.error("showFloatingPanel: missing transcriptStore"); return }
-        guard let languagePreference else { Log.ui.error("showFloatingPanel: missing languagePreference"); return }
-        guard let consent else { Log.ui.error("showFloatingPanel: missing consent"); return }
-        guard let meetingStore else { Log.ui.error("showFloatingPanel: missing meetingStore"); return }
-        guard let auth else { Log.ui.error("showFloatingPanel: missing auth"); return }
-        guard let profileStore else { Log.ui.error("showFloatingPanel: missing profileStore"); return }
-        guard let entityStore else { Log.ui.error("showFloatingPanel: missing entityStore"); return }
-        guard let knowledgeStore else { Log.ui.error("showFloatingPanel: missing knowledgeStore"); return }
-        guard let entitlements else { Log.ui.error("showFloatingPanel: missing entitlements"); return }
-        guard let updateGate else { Log.ui.error("showFloatingPanel: missing updateGate"); return }
-        guard let hotkeys else { Log.ui.error("showFloatingPanel: missing hotkeys"); return }
+        guard panel == nil, let services else { return }
 
         NSApp.setActivationPolicy(.accessory)
 
@@ -417,27 +317,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         // a mid-recording sign-out can't leak a stale REC state into the
         // next user's panel.
         let meetingSession = MeetingSession(
-            audioCapture: audioCapture,
-            store: transcriptStore,
-            llm: llmClient,
-            meetingStore: meetingStore,
-            entityStore: entityStore,
-            knowledgeStore: knowledgeStore,
-            language: languagePreference,
-            auth: auth,
-            profileStore: profileStore
+            audioCapture: services.audioCapture,
+            store: services.transcriptStore,
+            llm: services.llmClient,
+            meetingStore: services.meetingStore,
+            entityStore: services.entityStore,
+            knowledgeStore: services.knowledgeStore,
+            language: services.languagePreference,
+            auth: services.auth,
+            profileStore: services.profileStore
         )
 
         let content = ContentView(
             onPreferredWidthChange: { [weak self] width in self?.panel?.setWidth(to: width) }
         )
         .environmentObject(meetingSession)
-        .environmentObject(audioCapture)
-        .environmentObject(languagePreference)
-        .environmentObject(consent)
-        .environmentObject(entitlements)
-        .environmentObject(updateGate)
-        .environmentObject(hotkeys)
+        .environmentObject(services.audioCapture)
+        .environmentObject(services.languagePreference)
+        .environmentObject(services.consent)
+        .environmentObject(services.entitlements)
+        .environmentObject(services.updateGate)
+        .environmentObject(services.hotkeys)
 
         // Start at the compact width — the panel launches idle. ContentView
         // reports the desired width as the layout changes and the panel
@@ -446,7 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             contentRect: NSRect(x: 0, y: 0, width: PanelWidth.compact, height: 560),
             content: content
         )
-        panel.sharingType = panelSharing?.sharingType ?? .none
+        panel.sharingType = services.panelSharing.sharingType
         panel.positionOnLeftCenter()
         panel.orderFrontRegardless()
         self.panel = panel
@@ -533,7 +433,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc private func signOutAction() {
         // Slot release is handled by AuthService.onSignOut, so every sign-out
         // path frees it — not just this one.
-        Task { @MainActor in await self.auth?.signOut() }
+        Task { @MainActor in await self.services?.auth.signOut() }
     }
 
     @objc private func showSignInAction() {
@@ -554,7 +454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     // MARK: - Settings window
 
     private func showSettingsWindow(focusSubscription: Bool = false) {
-        guard let hotkeys else { Log.ui.error("showSettingsWindow: missing hotkeys"); return }
+        guard let services else { return }
         if let existing = settingsWindow {
             existing.makeKeyAndOrderFront(nil)
             return
@@ -572,11 +472,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.appearance = NSAppearance(named: .darkAqua)
         window.center()
         window.contentViewController = NSHostingController(rootView: SettingsView(
-            hotkey: hotkeys,
-            profileStore: profileStore,
-            panelSharing: panelSharing,
-            billing: billing,
-            entitlements: entitlements,
+            hotkey: services.hotkeys,
+            profileStore: services.profileStore,
+            panelSharing: services.panelSharing,
+            billing: services.billing,
+            entitlements: services.entitlements,
             focusSubscription: focusSubscription
         ))
         window.makeKeyAndOrderFront(nil)
@@ -594,9 +494,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     // MARK: - History window (issue #14)
 
     private func showHistoryWindow(focusing meetingID: UUID? = nil) {
-        guard let meetingStore, let chatStore, let profileStore, let entityStore,
-              let knowledgeStore, let llmClient, let languagePreference, let labelStore,
-              let entitlements else { return }
+        guard let services else { return }
 
         if let existing = historyWindow {
             existing.makeKeyAndOrderFront(nil)
@@ -628,15 +526,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         // `initialFocusMeetingID` after the initial refresh instead.
         let root = HistoryView(initialFocusMeetingID: meetingID)
             .frame(minWidth: 860, minHeight: 520)
-            .environmentObject(meetingStore)
-            .environmentObject(chatStore)
-            .environmentObject(profileStore)
-            .environmentObject(entityStore)
-            .environmentObject(knowledgeStore)
-            .environmentObject(llmClient)
-            .environmentObject(languagePreference)
-            .environmentObject(labelStore)
-            .environmentObject(entitlements)
+            .environmentObject(services.meetingStore)
+            .environmentObject(services.chatStore)
+            .environmentObject(services.profileStore)
+            .environmentObject(services.entityStore)
+            .environmentObject(services.knowledgeStore)
+            .environmentObject(services.llmClient)
+            .environmentObject(services.languagePreference)
+            .environmentObject(services.labelStore)
+            .environmentObject(services.entitlements)
 
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)
@@ -687,9 +585,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         MainActor.assumeIsolated {
             menu.removeAllItems()
 
-            let signedIn = auth?.session != nil
+            let signedIn = services?.auth.session != nil
 
-            if let user = auth?.session?.user {
+            if let user = services?.auth.session?.user {
                 let name = displayName(for: user)
                 let email = user.email ?? ""
 
@@ -724,7 +622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 )
                 toggle.target = self
                 // Display-only mirror of the binding; the Carbon global hotkey is the real trigger.
-                if let (key, mask) = hotkeys?.combo(for: .togglePanel).menuKeyEquivalent {
+                if let (key, mask) = services?.hotkeys.combo(for: .togglePanel).menuKeyEquivalent {
                     toggle.keyEquivalent = key
                     toggle.keyEquivalentModifierMask = mask
                 }
@@ -791,7 +689,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 }
 
 extension Notification.Name {
-    /// Posted by ContentView once a freshly-ended meeting has been
+    /// Posted by MeetingSession once a freshly-ended meeting has been
     /// summarised and persisted. AppDelegate opens/focuses the History
     /// window; HistoryView pushes the meeting's detail view onto its
     /// NavigationStack. `userInfo` carries the meeting id under
