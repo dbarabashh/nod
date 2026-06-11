@@ -128,6 +128,11 @@ thread stops doing heavy work.
         or `nonisolated(unsafe)` when Swift 6 lands.
       - SwiftUI `AttributeScopes` key-path warnings — framework-side noise,
         not ours.
+      - Doc-audit note (2026-06-11): `AVAudioNode.installTap(onBus:…)` is
+        marked **deprecated** in current Apple docs in favor of
+        `installAudioTap(onBus:bufferSize:format:tapProvider:)`; the
+        replacement is newer than our macOS 13 target, so `installTap` stays —
+        revisit when the deployment target moves.
 
 ## Phase 3 — structural extraction
 
