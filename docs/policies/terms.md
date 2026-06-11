@@ -1,11 +1,11 @@
 # Terms of Service
 
-_Last updated: 2026-05-27_
+_Last updated: 2026-06-11_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not an incorporated company. These Terms describe how the
 > beta works today; they will be replaced and you will be re-notified
-> when Nod incorporates and the paid tier launches.
+> when Nod incorporates as a company.
 
 Welcome to Nod. These Terms of Service ("Terms") are the agreement between
 you ("you", "your") and **Dima Barabash**, an individual developer
@@ -114,27 +114,29 @@ fit for any particular purpose. The output is provided "as is".
 
 ## 7. Pricing, billing, refunds
 
-The macOS app is currently offered free of charge during private beta. A
-paid tier is planned for after general availability, once Nod is
-incorporated as a company. When the paid tier launches:
+Nod offers paid subscription plans (**Starter** and **Pro**) after a 14-day
+free trial. Pricing, billing cycle, and the features included are shown in the
+app and at `nod.app/pricing` before you subscribe.
 
-- Pricing, billing cycle, and the features included will be displayed
-  in the app and at `nod.app/pricing` before you subscribe.
-- Subscriptions are processed by **Paddle.com Market Limited** as our
-  merchant of record. Paddle handles payment processing, VAT, and
-  invoicing.
-- Subscriptions auto-renew at the end of each billing period. You can
-  cancel anytime — cancellation takes effect at the end of the current
-  period and you retain access until then.
-- **EU and UK consumers** have a 14-day cooling-off period from the
-  start of the subscription, in line with consumer-rights law. To
-  withdraw, email **dbarabashdev@gmail.com** within 14 days.
-- Outside the cooling-off period we do not generally refund unused
-  portions of a billing cycle, but we'll make exceptions for service
-  outages, billing errors, or cases where we've materially reduced
-  promised functionality. Contact **dbarabashdev@gmail.com**.
-- Prices are exclusive of taxes; Paddle adds VAT/GST where required by
-  your location.
+- The **14-day trial requires no payment method**. When it ends, pick a plan
+  to keep access; you can choose a plan at any point during the trial.
+- Subscriptions are processed by **Paddle.com Market Limited** as our merchant
+  of record. Paddle handles payment processing, card data, VAT/sales tax, and
+  invoicing — **we never receive or store your card details**.
+- Subscriptions auto-renew at the end of each billing period. You can cancel
+  anytime from **Settings → Subscription** (which opens Paddle's customer
+  portal); cancellation takes effect at the end of the current period and you
+  retain access until then.
+- **7-day money-back guarantee.** If you're not satisfied, email
+  **dbarabashdev@gmail.com** within 7 days of a charge for a full refund.
+- **EU and UK consumers** additionally have a 14-day cooling-off period from
+  the start of the subscription, in line with consumer-rights law.
+- Outside these windows we do not generally refund unused portions of a
+  billing cycle, but we'll make exceptions for service outages, billing
+  errors, or cases where we've materially reduced promised functionality.
+  Contact **dbarabashdev@gmail.com**.
+- Prices are exclusive of taxes; Paddle adds VAT/GST where required by your
+  location. Regional (PPP) pricing may apply.
 
 ## 8. Termination
 
