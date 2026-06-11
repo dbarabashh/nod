@@ -52,6 +52,7 @@ struct ContentView: View {
     @EnvironmentObject private var entityStore: EntityStore
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @EnvironmentObject private var updateGate: UpdateGate
+    @EnvironmentObject private var entitlements: EntitlementService
 
     /// Always-on personal context prepended to every LLM system prompt so
     /// recaps and live cards read as if Nod already knows the user. "" when
@@ -372,6 +373,16 @@ struct ContentView: View {
     }
 
     private func startMeeting() {
+        // Subscription gate: a locked account (trial ended / canceled) can't
+        // record — the proxy 403s transcription anyway, so send them to the
+        // paywall instead of failing mid-meeting. An unresolved entitlement
+        // (nil — not yet loaded or a transient lookup failure) falls through to
+        // the server so a paying user is never blocked client-side.
+        if entitlements.entitlement?.isActive == false {
+            Log.ui.info("startMeeting blocked — entitlement not active; opening paywall")
+            NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+            return
+        }
         // Consent gate: show the disclaimer modal before any audio capture
         // on the user's first meeting. See issue #4.
         if !consent.isAccepted {
