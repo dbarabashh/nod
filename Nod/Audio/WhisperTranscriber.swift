@@ -115,12 +115,33 @@ final class WhisperTranscriber: @unchecked Sendable {
     }
 
     func append(_ buffer: AVAudioPCMBuffer) {
-        queue.sync {
-            guard self.keepRecognizing, let vad = self.vad, let normalized = self.normalize(buffer) else { return }
+        // Copy on the calling (real-time audio) thread — the engine reuses the
+        // tap buffer once the callback returns, so it can't cross into the
+        // async block. Everything heavy (resample, VAD inference, WAV encode)
+        // then runs on the serial queue instead of blocking the RT thread,
+        // which the old `queue.sync` did. The queue is serial, so segment
+        // order and prompt-tail chaining are unchanged.
+        guard let copy = Self.copyBuffer(buffer) else { return }
+        queue.async {
+            guard self.keepRecognizing, let vad = self.vad, let normalized = self.normalize(copy) else { return }
             guard let channel = normalized.floatChannelData?[0] else { return }
             vad.acceptWaveform(channel, count: Int(normalized.frameLength))
             self.drainSegments(reason: "vad")
         }
+    }
+
+    private static func copyBuffer(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard buffer.frameLength > 0,
+              let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength)
+        else { return nil }
+        copy.frameLength = buffer.frameLength
+        let source = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: buffer.audioBufferList))
+        let destination = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
+        for (src, dst) in zip(source, destination) {
+            guard let srcData = src.mData, let dstData = dst.mData else { return nil }
+            memcpy(dstData, srcData, Int(min(src.mDataByteSize, dst.mDataByteSize)))
+        }
+        return copy
     }
 
     /// Awaitable drain for low-latency callers (Suggest reply). The VAD owns
