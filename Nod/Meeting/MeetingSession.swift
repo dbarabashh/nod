@@ -222,9 +222,7 @@ final class MeetingSession: ObservableObject {
                 // date label.
                 let title = await generateMeetingTitle(from: text)
                 let updated = draft.updating(title: title, summary: text, recap: recap)
-                await MainActor.run {
-                    meetingStore.applyGenerated(updated)
-                }
+                meetingStore.applyGenerated(updated)
                 await persistMeeting(
                     meeting: updated,
                     transcriptEntries: transcriptEntries
@@ -256,12 +254,10 @@ final class MeetingSession: ObservableObject {
                 }
             } catch {
                 Log.ui.error("Meeting summary generation failed: \(error.localizedDescription)")
-                await MainActor.run {
-                    meetingStore.markGenerationFailed(
-                        id: draftID,
-                        errorMessage: "⚠️ \(error.localizedDescription)"
-                    )
-                }
+                meetingStore.markGenerationFailed(
+                    id: draftID,
+                    errorMessage: "⚠️ \(error.localizedDescription)"
+                )
             }
         }
     }
