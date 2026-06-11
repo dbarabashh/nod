@@ -97,7 +97,11 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     }
 
     func appendSystemBuffer(_ buffer: AVAudioPCMBuffer) {
-        system.append(buffer)
+        // The system path's mono buffer is freshly allocated per callback by
+        // SampleBufferConverter and never reused — hand it over instead of
+        // paying a second copy (the mic path keeps the default copy because
+        // its tap buffer is engine-owned).
+        system.append(buffer, copying: false)
     }
 
     /// Force-flush both transcribers and append the results synchronously
