@@ -420,10 +420,12 @@ enum PromptLibrary {
 
         decisions — one item per entry in your DECISIONS list. State WHAT in `text`, WHY in `why` (null if reason wasn't stated).
           - REREAD each `text` before emitting: if it contains "maybe", "might", "could", "perhaps", "may", or any speculative phrasing — DELETE this decision and move it to `open_questions` instead.
+          - `why` must be a reason someone actually stated out loud. If no reason was said, use null — never infer or reconstruct one, however obvious it seems.
           - Empty `decisions` array is allowed; do not invent.
 
         actions — one item per entry in your ACTIONS list.
           - `owner` MUST be a resolved label per [SPEAKER LABELS] (a person name, a role, or a natural noun phrase) — never the literal `[Me]` / `[Them]`. If you can't identify an owner, DROP the action — never invent one.
+          - `when` only if a deadline was stated in the transcript ("by Friday", "next week", "before the demo"). If none was said, use null — never infer urgency or invent a date.
           - REREAD each item: (1) is the task FUTURE work, not something already done in past tense? (2) can you point to the exact transcript sentence where the owner committed? (3) is the action literal and not your reading of an idiom? If any answer is "no", DELETE the item.
           - Empty `actions` array is allowed.
 
@@ -453,24 +455,7 @@ enum PromptLibrary {
         - No preamble, no closing remark, no meta-commentary about the recap.
         - Output ONLY the JSON object. No markdown fences, no leading "Here is…", nothing.
 
-        ===========================
-        FEW-SHOT EXAMPLE — for calibration only; do NOT copy names or facts into the real recap
-        ===========================
-
-        --- Example transcript ---
-        Alex: I shipped the auth fix yesterday, but two users still report being logged out.
-        Priya: I traced one of them — looks like the refresh token isn't rotating on Safari.
-        Alex: Want to pair on it after standup?
-        Priya: Yes. Also, are we cutting the 0.4 release this week or next?
-        Alex: Let's do next week. I want the auth thing landed first.
-        Priya: Works. I'll move the release ticket.
-        Alex: Also, maybe we should start running a weekly bug bash?
-        Priya: Hmm, let me think about that.
-        --- End example transcript ---
-
-        GOOD JSON (this is the quality bar):
-
-        {"topics":[{"text":"Two users were still being logged out after yesterday's auth fix; Priya traced one case to Safari and the team agreed to pair on it.","quote":"the refresh token isn't rotating on Safari"},{"text":"Timing of the 0.4 release was settled — pushed back a week so the auth fix can land first.","quote":null},{"text":"A weekly bug bash was floated but left unresolved (see open questions).","quote":null}],"decisions":[{"text":"Release 0.4 will ship next week instead of this week.","why":"so the auth fix can land first"}],"actions":[{"owner":"Alex and Priya","task":"pair on the Safari refresh-token bug after standup","when":null},{"owner":"Priya","task":"move the release ticket","when":null}],"open_questions":[{"text":"Whether to start a weekly bug bash — Priya wants to think about it."}]}
+        \(fewShotExample(sessionKind))
 
         BAD examples (do NOT produce):
         - `"owner": "[Me]"` — speaker labels must be resolved per [SPEAKER LABELS], never literal.
@@ -478,11 +463,82 @@ enum PromptLibrary {
         - `"owner": "Someone"` — missing owner; drop the action instead.
         - `"quote": "the team agreed on this"` — paraphrase in quotes; quote must be verbatim from transcript or null.
         - `"text": "Alex will bury the lead..."` — idiom trap; figurative phrases are not actions.
-
-        REMINDER: Alex, Priya, Safari, "0.4 release" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
+        - `"why": "to keep the team aligned"` when no one said that reason out loud — `why` is a stated reason or null, never your inference.
+        - `"when": "soon"` — vague or inferred deadline; `when` is a deadline stated in the transcript or null.
 
         LANGUAGE (repeat): all string values in \(lang). JSON keys remain in English.
         """
+    }
+
+    /// Few-shot calibration matched to the session kind, so a solo voice note
+    /// or media recap isn't calibrated against meeting-shaped dialogue. The
+    /// BAD examples stay shared in the prompt body — they ban kind-independent
+    /// failure modes.
+    private static func fewShotExample(_ sessionKind: SessionKind) -> String {
+        switch sessionKind {
+        case .meeting:
+            """
+            ===========================
+            FEW-SHOT EXAMPLE — for calibration only; do NOT copy names or facts into the real recap
+            ===========================
+
+            --- Example transcript ---
+            Alex: I shipped the auth fix yesterday, but two users still report being logged out.
+            Priya: I traced one of them — looks like the refresh token isn't rotating on Safari.
+            Alex: Want to pair on it after standup?
+            Priya: Yes. Also, are we cutting the 0.4 release this week or next?
+            Alex: Let's do next week. I want the auth thing landed first.
+            Priya: Works. I'll move the release ticket.
+            Alex: Also, maybe we should start running a weekly bug bash?
+            Priya: Hmm, let me think about that.
+            --- End example transcript ---
+
+            GOOD JSON (this is the quality bar):
+
+            {"topics":[{"text":"Two users were still being logged out after yesterday's auth fix; Priya traced one case to Safari and the team agreed to pair on it.","quote":"the refresh token isn't rotating on Safari"},{"text":"Timing of the 0.4 release was settled — pushed back a week so the auth fix can land first.","quote":null},{"text":"A weekly bug bash was floated but left unresolved (see open questions).","quote":null}],"decisions":[{"text":"Release 0.4 will ship next week instead of this week.","why":"so the auth fix can land first"}],"actions":[{"owner":"Alex and Priya","task":"pair on the Safari refresh-token bug after standup","when":null},{"owner":"Priya","task":"move the release ticket","when":null}],"open_questions":[{"text":"Whether to start a weekly bug bash — Priya wants to think about it."}]}
+
+            REMINDER: Alex, Priya, Safari, "0.4 release" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
+            """
+        case .voiceNote:
+            """
+            ===========================
+            FEW-SHOT EXAMPLE — for calibration only; do NOT copy names or facts into the real recap
+            ===========================
+
+            --- Example transcript ---
+            [Me]: Okay, thinking through the pricing page rewrite. I keep flip-flopping between three tiers and two.
+            [Me]: You know what, two is cleaner. Let's go with two — free, and pro at twelve euros.
+            [Me]: I need to mock that up in Figma and send it to Olena before Friday.
+            [Me]: Still torn on annual discounts though. Twenty percent maybe? Should check what competitors do.
+            --- End example transcript ---
+
+            GOOD JSON (this is the quality bar):
+
+            {"topics":[{"text":"You worked through the pricing page rewrite and settled on two tiers instead of three.","quote":"two is cleaner"},{"text":"Annual discounts came up but stayed unresolved (see open questions).","quote":null}],"decisions":[{"text":"The pricing page will have two tiers — free, and pro at twelve euros.","why":"two is cleaner"}],"actions":[{"owner":"You","task":"mock up the two-tier pricing page in Figma and send it to Olena","when":"before Friday"}],"open_questions":[{"text":"Whether to offer an annual discount — twenty percent was floated, pending a look at competitors."}]}
+
+            REMINDER: the pricing page, Figma, Olena, "twelve euros" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
+            """
+        case .media:
+            """
+            ===========================
+            FEW-SHOT EXAMPLE — for calibration only; do NOT copy names or facts into the real recap
+            ===========================
+
+            --- Example transcript ---
+            [Them]: The core argument here is that retrieval quality matters more than model size — we measured a thirty percent gain just from better chunking.
+            [Them]: What nobody has cracked yet is evaluation. There's still no good benchmark for multi-hop retrieval.
+            [Me]: Huh, interesting.
+            --- End example transcript ---
+
+            GOOD JSON (this is the quality bar):
+
+            {"topics":[{"text":"The speaker argued that retrieval quality matters more than model size, citing a thirty percent gain from better chunking.","quote":"retrieval quality matters more than model size"}],"decisions":[],"actions":[],"open_questions":[{"text":"Evaluation of multi-hop retrieval — the speaker said there is still no good benchmark."}]}
+
+            Note the empty `decisions` and `actions` — that is the EXPECTED shape for media; the user stated no personal takeaway action out loud.
+
+            REMINDER: retrieval quality, chunking, "thirty percent" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
+            """
+        }
     }
 
     private static func userMessage(for kind: PromptKind, context: String) -> String {
