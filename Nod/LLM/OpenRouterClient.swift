@@ -194,7 +194,7 @@ final class OpenRouterClient: ObservableObject {
     /// transcript is too vague…" *after* the closing ```). Drops the fence
     /// (everything from the closing ``` onward), then narrows to the outermost
     /// `{…}` / `[…]` so leading or trailing prose can't reach the decoder.
-    private static func extractJSON(_ s: String) -> String {
+    static func extractJSON(_ s: String) -> String {
         var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.hasPrefix("```") {
             t.removeFirst(3)
@@ -218,7 +218,7 @@ final class OpenRouterClient: ObservableObject {
     /// (provider hiccups), 429 (rate limits — time-bucketed, usually clear
     /// within seconds), and URLError-class transport blips. Excludes 4xx
     /// (other than 429), decoding errors, empty responses, and auth failures.
-    private static func isTransient(_ error: ClientError) -> Bool {
+    static func isTransient(_ error: ClientError) -> Bool {
         switch error {
         case let .requestFailed(status, _):
             status == 429 || (status >= 500 && status < 600)
@@ -236,7 +236,7 @@ final class OpenRouterClient: ObservableObject {
     /// still hot, so a fast retry just re-hits the same wall — backing off lets
     /// the platform route to a fresh instance. 5xx / network blips retry sooner
     /// since they're usually fixed by the next request.
-    private static func retryDelayMillis(for error: ClientError, attempt: Int) -> UInt64 {
+    static func retryDelayMillis(for error: ClientError, attempt: Int) -> UInt64 {
         let base: UInt64 = switch error {
         case let .requestFailed(status, _) where status == 429 || status == 546:
             800
@@ -533,7 +533,7 @@ final class OpenRouterClient: ObservableObject {
     /// Reduce arbitrary error response bodies (HTML pages, giant JSON with
     /// nested metadata, etc.) to something short and human-readable so they
     /// don't flood log/UI.
-    private static func sanitizeErrorBody(_ body: String) -> String {
+    static func sanitizeErrorBody(_ body: String) -> String {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowered = trimmed.lowercased()
 
