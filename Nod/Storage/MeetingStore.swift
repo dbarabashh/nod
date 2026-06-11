@@ -259,8 +259,10 @@ final class MeetingStore: ObservableObject {
     /// `http://localhost:5173` while developing the viewer — via the
     /// `share.viewerBaseURL` UserDefaults key (same pattern as the
     /// `openrouter.model` / `whisper.model` overrides).
+    private static let shareViewerBaseURLKey = "share.viewerBaseURL"
+
     private static var shareViewerBaseURL: String {
-        UserDefaults.standard.string(forKey: "share.viewerBaseURL") ?? "https://share.hellonod.app"
+        UserDefaults.standard.string(forKey: shareViewerBaseURLKey) ?? "https://share.hellonod.app"
     }
 
     /// Creates (or reuses) a public share link for a meeting and returns the

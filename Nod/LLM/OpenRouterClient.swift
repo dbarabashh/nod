@@ -40,8 +40,12 @@ final class OpenRouterClient: ObservableObject {
 
     /// Chat model override — kept in UserDefaults so devs can A/B models
     /// without rebuilding. Default points at Gemini 2.0 Flash via OpenRouter.
+    private static let modelKey = "openrouter.model"
+    private static let fallbackModelKey = "openrouter.model.fallback"
+    private static let whisperModelKey = "whisper.model"
+
     var model: String {
-        UserDefaults.standard.string(forKey: "openrouter.model") ?? "google/gemini-2.0-flash-001"
+        UserDefaults.standard.string(forKey: Self.modelKey) ?? "google/gemini-2.0-flash-001"
     }
 
     /// Cross-provider fallback used when the primary model is unavailable
@@ -52,7 +56,7 @@ final class OpenRouterClient: ObservableObject {
     /// triggering the 429s on `gemini-2.0-flash-001 (via Google AI Studio)`.
     /// Override via `defaults write com.example.nod openrouter.model.fallback "..."`.
     var fallbackModel: String {
-        UserDefaults.standard.string(forKey: "openrouter.model.fallback") ?? "anthropic/claude-haiku-4.5"
+        UserDefaults.standard.string(forKey: Self.fallbackModelKey) ?? "anthropic/claude-haiku-4.5"
     }
 
     /// Whisper model override — same rationale as above. `large-v3-turbo` is
@@ -62,7 +66,7 @@ final class OpenRouterClient: ObservableObject {
     /// whisper.model "openai/whisper-large-v3"` to A/B against full v3, or
     /// `"openai/whisper-1"` if a route drops the v3 family.
     private var whisperModel: String {
-        UserDefaults.standard.string(forKey: "whisper.model") ?? "openai/whisper-large-v3-turbo"
+        UserDefaults.standard.string(forKey: Self.whisperModelKey) ?? "openai/whisper-large-v3-turbo"
     }
 
     private let proxyURL: URL
