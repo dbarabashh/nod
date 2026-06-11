@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @ObservedObject private var hotkey = HotkeyManager.shared
+    @ObservedObject private var hotkey: HotkeyManager
     @AppStorage(ReplyContext.defaultsKey) private var replyContext: ReplyContext = .auto
     @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting: Bool = MeetingLanguagePromptDefaults.defaultValue
 
@@ -13,12 +13,14 @@ struct SettingsView: View {
     private let entitlements: EntitlementService?
 
     init(
+        hotkey: HotkeyManager,
         profileStore: ProfileStore? = nil,
         panelSharing: PanelSharingPreference? = nil,
         billing: BillingService? = nil,
         entitlements: EntitlementService? = nil,
         focusSubscription: Bool = false
     ) {
+        _hotkey = ObservedObject(wrappedValue: hotkey)
         self.profileStore = profileStore
         self.panelSharing = panelSharing
         self.billing = billing
@@ -486,5 +488,5 @@ private struct ProfileSettingsSection: View {
 }
 
 #Preview {
-    SettingsView()
+    SettingsView(hotkey: HotkeyManager())
 }

@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var billing: BillingService?
     private var panelSharing: PanelSharingPreference?
     private var updateGate: UpdateGate?
+    private var hotkeys: HotkeyManager?
     private var authObserveTask: Task<Void, Never>?
     private var statusObserveTask: Task<Void, Never>?
     private var panelSharingObserveTask: Task<Void, Never>?
@@ -59,7 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         setupStatusItem()
 
         // Suggest reply reuses the on-screen pill's notification path (ContentView observes it).
-        HotkeyManager.shared.onTrigger = { [weak self] action in
+        let hotkeys = HotkeyManager()
+        self.hotkeys = hotkeys
+        hotkeys.onTrigger = { [weak self] action in
             switch action {
             case .suggestReply:
                 NotificationCenter.default.post(name: .nodSuggestHotkey, object: nil)
@@ -406,6 +409,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let labelStore else { Log.ui.error("showFloatingPanel: missing labelStore"); return }
         guard let entitlements else { Log.ui.error("showFloatingPanel: missing entitlements"); return }
         guard let updateGate else { Log.ui.error("showFloatingPanel: missing updateGate"); return }
+        guard let hotkeys else { Log.ui.error("showFloatingPanel: missing hotkeys"); return }
 
         NSApp.setActivationPolicy(.accessory)
 
@@ -425,6 +429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         .environmentObject(labelStore)
         .environmentObject(entitlements)
         .environmentObject(updateGate)
+        .environmentObject(hotkeys)
 
         // Start at the compact width — the panel launches idle. ContentView
         // reports the desired width as the layout changes and the panel
@@ -541,6 +546,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     // MARK: - Settings window
 
     private func showSettingsWindow(focusSubscription: Bool = false) {
+        guard let hotkeys else { Log.ui.error("showSettingsWindow: missing hotkeys"); return }
         if let existing = settingsWindow {
             existing.makeKeyAndOrderFront(nil)
             return
@@ -558,6 +564,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.appearance = NSAppearance(named: .darkAqua)
         window.center()
         window.contentViewController = NSHostingController(rootView: SettingsView(
+            hotkey: hotkeys,
             profileStore: profileStore,
             panelSharing: panelSharing,
             billing: billing,
@@ -709,7 +716,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 )
                 toggle.target = self
                 // Display-only mirror of the binding; the Carbon global hotkey is the real trigger.
-                if let (key, mask) = HotkeyManager.shared.combo(for: .togglePanel).menuKeyEquivalent {
+                if let (key, mask) = hotkeys?.combo(for: .togglePanel).menuKeyEquivalent {
                     toggle.keyEquivalent = key
                     toggle.keyEquivalentModifierMask = mask
                 }

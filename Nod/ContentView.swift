@@ -80,7 +80,7 @@ struct ContentView: View {
         profileStore.promptContext
     }
 
-    @ObservedObject private var hotkey = HotkeyManager.shared
+    @EnvironmentObject private var hotkey: HotkeyManager
 
     /// Reports the panel's desired width as the layout switches between the
     /// compact single-column state and the wide two-column state. The
@@ -1769,5 +1769,6 @@ private struct SaveErrorToast: View {
         .environmentObject(ConsentPreference(defaults: previewDefaults))
         .environmentObject(MeetingStore(supabase: supabase))
         .environmentObject(auth)
+        .environmentObject(HotkeyManager())
         .background(Color.gray.opacity(0.3))
 }
