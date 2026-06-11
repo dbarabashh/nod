@@ -68,6 +68,18 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: Nod/Sherpa/Nod-Bridging-Header.h
         # sherpa-onnx is C++; link libc++ (onnxruntime is bundled in the .a).
         OTHER_LDFLAGS: [-lc++]
+      configs:
+        Release:
+          # Strip the symbol table from shipped binaries so `nm` reveals no
+          # internal names. Postprocessing makes stripping run on plain Release
+          # builds too, not only `xcodebuild archive`. Swift type metadata
+          # (__swift5 sections) survives by design — the runtime needs it —
+          # and SWIFT_REFLECTION_METADATA_LEVEL must stay at its default:
+          # SwiftUI's @State re-rendering depends on reflection metadata.
+          DEPLOYMENT_POSTPROCESSING: YES
+          STRIP_INSTALLED_PRODUCT: YES
+          STRIP_STYLE: all
+          STRIP_SWIFT_SYMBOLS: YES
     preBuildScripts:
       - name: Check VAD xcframework
         basedOnDependencyAnalysis: false
