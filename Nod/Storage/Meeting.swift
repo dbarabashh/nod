@@ -120,6 +120,25 @@ struct Meeting: Codable, Identifiable {
         )
     }
 
+    /// Returns a copy with only `deletedAt` replaced — the local-cache mirror
+    /// of a soft delete / restore while the next refresh fetches the
+    /// server-stamped value.
+    func updating(deletedAt: Date?) -> Meeting {
+        Meeting(
+            id: id,
+            userID: userID,
+            createdAt: createdAt,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            title: title,
+            kind: kind,
+            summary: summary,
+            recap: recap,
+            language: language,
+            deletedAt: deletedAt
+        )
+    }
+
     /// Convenience for HistoryView row rendering — finds the first line of
     /// actual content (skipping section headers like `**Topics covered**`,
     /// `**Topics covered:**`, or `**Topics covered**:`) and returns it

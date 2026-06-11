@@ -311,20 +311,7 @@ final class MeetingStore: ObservableObject {
             // The trash-list copy carries a client-side `deletedAt` for
             // the "trashed Xd ago" badge until the next refreshTrash
             // overwrites with the server-stamped value.
-            let trashedCopy = Meeting(
-                id: meeting.id,
-                userID: meeting.userID,
-                createdAt: meeting.createdAt,
-                startedAt: meeting.startedAt,
-                endedAt: meeting.endedAt,
-                title: meeting.title,
-                kind: meeting.kind,
-                summary: meeting.summary,
-                recap: meeting.recap,
-                language: meeting.language,
-                deletedAt: Date()
-            )
-            trashedMeetings.insert(trashedCopy, at: 0)
+            trashedMeetings.insert(meeting.updating(deletedAt: Date()), at: 0)
         }
         pendingUndo = meeting
     }
@@ -346,20 +333,7 @@ final class MeetingStore: ObservableObject {
         if let idx = trashedMeetings.firstIndex(where: { $0.id == id }) {
             let row = trashedMeetings.remove(at: idx)
             if case .loaded = loadState {
-                let restored = Meeting(
-                    id: row.id,
-                    userID: row.userID,
-                    createdAt: row.createdAt,
-                    startedAt: row.startedAt,
-                    endedAt: row.endedAt,
-                    title: row.title,
-                    kind: row.kind,
-                    summary: row.summary,
-                    recap: row.recap,
-                    language: row.language,
-                    deletedAt: nil
-                )
-                meetings.insert(restored, at: 0)
+                meetings.insert(row.updating(deletedAt: nil), at: 0)
                 meetings.sort { $0.startedAt > $1.startedAt }
             }
         }
