@@ -1,7 +1,7 @@
 # Nod policies
 
 Working drafts of every policy and trust document Nod ships during beta.
-Pages target `nod.app/policies` — markdown here, mirrored to the
+Pages target `hellonod.app/policies` — markdown here, mirrored to the
 marketing site.
 
 > **Status:** Nod is in **private beta**, operated by an individual
@@ -47,7 +47,7 @@ state.
 
 | Item | Notes |
 |---|---|
-| Publish these pages on `nod.app/policies` | mirror md → website (static is fine) |
+| Publish these pages on `hellonod.app/policies` | mirror md → website (static is fine) |
 | Generate Third-Party Licenses page | one OSS dep today (`supabase-swift`, Apache 2.0); regenerate before each release |
 
 ### Before the paid tier launches

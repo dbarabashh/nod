@@ -1,16 +1,16 @@
 # Terms of Service
 
-_Last updated: 2026-06-11_
+_Last updated: 2026-06-10_
 
-> **Nod is in private beta.** It is built and operated by an individual
-> developer, not an incorporated company. These Terms describe how the
-> beta works today; they will be replaced and you will be re-notified
-> when Nod incorporates as a company.
+> **Nod is built and operated by an individual developer**, Dima Barabash,
+> not an incorporated company. Paid subscriptions are sold through
+> **Paddle**, which acts as our Merchant of Record. These Terms describe
+> how Nod works today; we'll re-notify you of any material change.
 
 Welcome to Nod. These Terms of Service ("Terms") are the agreement between
 you ("you", "your") and **Dima Barabash**, an individual developer
 operating Nod during private beta ("Nod", "we", "us") that governs your
-use of the Nod macOS app, the related services hosted at `nod.app`, and
+use of the Nod macOS app, the related services hosted at `hellonod.app`, and
 anything else we offer (the "Service").
 
 By installing or using the Service you agree to these Terms. If you don't
@@ -114,29 +114,32 @@ fit for any particular purpose. The output is provided "as is".
 
 ## 7. Pricing, billing, refunds
 
-Nod offers paid subscription plans (**Starter** and **Pro**) after a 14-day
-free trial. Pricing, billing cycle, and the features included are shown in the
-app and at `nod.app/pricing` before you subscribe.
+Nod offers paid subscriptions (Starter and Pro) alongside a 14-day free
+trial. Pricing, the billing cycle, and the features included are shown in
+the app and at `hellonod.app/pricing` before you subscribe.
 
-- The **14-day trial requires no payment method**. When it ends, pick a plan
-  to keep access; you can choose a plan at any point during the trial.
-- Subscriptions are processed by **Paddle.com Market Limited** as our merchant
-  of record. Paddle handles payment processing, card data, VAT/sales tax, and
-  invoicing — **we never receive or store your card details**.
-- Subscriptions auto-renew at the end of each billing period. You can cancel
-  anytime from **Settings → Subscription** (which opens Paddle's customer
-  portal); cancellation takes effect at the end of the current period and you
-  retain access until then.
-- **7-day money-back guarantee.** If you're not satisfied, email
-  **dbarabashdev@gmail.com** within 7 days of a charge for a full refund.
-- **EU and UK consumers** additionally have a 14-day cooling-off period from
-  the start of the subscription, in line with consumer-rights law.
-- Outside these windows we do not generally refund unused portions of a
+- Your subscription is sold by **Dima Barabash** (the individual operating
+  Nod) through **Paddle.com Market Limited**, which acts as our **Merchant
+  of Record**. Paddle is the seller on record for the transaction and
+  handles payment processing, VAT/sales tax, invoicing, and refunds.
+- Subscriptions auto-renew at the end of each billing period. You can
+  cancel anytime — cancellation takes effect at the end of the current
+  period and you retain access until then.
+- Every paid plan includes a **7-day money-back guarantee** on your first
+  payment.
+- **EU and UK consumers** also have a 14-day cooling-off period from the
+  start of the subscription, in line with consumer-rights law. To
+  withdraw, email **dbarabashdev@gmail.com** within 14 days.
+- Outside those windows we do not generally refund unused portions of a
   billing cycle, but we'll make exceptions for service outages, billing
   errors, or cases where we've materially reduced promised functionality.
   Contact **dbarabashdev@gmail.com**.
-- Prices are exclusive of taxes; Paddle adds VAT/GST where required by your
-  location. Regional (PPP) pricing may apply.
+- Prices are exclusive of taxes; Paddle adds VAT/GST where required by
+  your location.
+
+See our [Refund Policy](./refund.md) for the full detail on the
+money-back guarantee, cooling-off rights, and how refunds are processed
+by Paddle.
 
 ## 8. Termination
 
@@ -186,14 +189,15 @@ the statutory rights of consumers.
 
 ## 11. Governing law
 
-Because Nod is currently operated by an individual developer rather than
-a registered company, these Terms do not designate an exclusive governing
-law for the beta period. Mandatory consumer-protection law in your
-country of residence applies in full.
+Because Nod is operated by an individual developer rather than a
+registered company, these Terms do not designate an exclusive governing
+law. Mandatory consumer-protection law in your country of residence
+applies in full.
 
-When Nod is incorporated, this section will be updated to name the
-governing law of the entity's jurisdiction, with at least 30 days'
-notice to you.
+Payments are handled by Paddle as Merchant of Record under Paddle's own
+buyer terms, which apply to the payment transaction in addition to these
+Terms. We'll give you at least 30 days' notice of any material change to
+this section.
 
 ## 12. Disputes
 

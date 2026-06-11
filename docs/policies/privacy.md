@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-06-11_
+_Last updated: 2026-06-10_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -9,7 +9,7 @@ _Last updated: 2026-06-11_
 
 This Privacy Policy describes how Nod ("Nod", "we", "us", "I") collects, uses,
 stores, and shares personal data when you use the Nod macOS application
-and the related services hosted at `nod.app`. It applies to all users,
+and the related services hosted at `hellonod.app`. It applies to all users,
 worldwide.
 
 If you have questions about this policy or your data, contact
@@ -19,18 +19,18 @@ If you have questions about this policy or your data, contact
 
 ## 1. Who we are (data controller)
 
-Nod is operated, during private beta, by **Dima Barabash**, an individual
-developer. There is no incorporated company behind Nod yet — that's an
-honest disclosure, not a gap we're hiding.
+Nod is operated by **Dima Barabash**, an individual developer. There is no
+incorporated company behind Nod — that's an honest disclosure, not a gap
+we're hiding.
 
 For the purposes of the EU/UK GDPR, the data controller is Dima Barabash
 personally. The contact point is **dbarabashdev@gmail.com**.
 
-Paid subscription plans are operated by Dima Barabash as an individual
-developer during this phase; payments are processed by **Paddle** as merchant
-of record (see § 3.6). A legal entity will be incorporated as Nod grows, and
-this policy will be updated to reflect the entity's registered name and
-address, with notice to existing users.
+Paid subscriptions are sold through **Paddle.com Market Limited**, which
+acts as our Merchant of Record. Paddle is an independent controller of the
+billing and tax data it collects to process your payment — see Paddle's own
+privacy notice for how it handles that data. Nod never receives or stores
+your full card details.
 
 ## 2. What Nod is
 
@@ -67,7 +67,6 @@ Calendar, Drive, or contacts.
 | Transcript **embeddings** (vector + chunk text, in `session_embeddings`) | To let you ask questions across your past sessions ("Ask Nod") | Contract (Art. 6(1)(b)) |
 | **Chat messages** with the per-session assistant (`chat_messages`) | To answer your questions about a session and keep the thread | Contract (Art. 6(1)(b)) |
 | **Entities** (people / projects / topics extracted from a session) | To link related sessions and power scoped search | Contract (Art. 6(1)(b)) |
-| **Labels** you create (name + colour, in `labels`) and their links to sessions (`meeting_labels`) | To group sessions, filter your library, and scope a question to one label | Contract (Art. 6(1)(b)) |
 | Your optional **profile** (name, role, current focus) | To give the assistant context about you | Contract (Art. 6(1)(b)); you may leave it blank or clear it anytime |
 
 The embeddings, chat messages, and entities are derived from transcript
@@ -104,50 +103,10 @@ response content in this table.
 We use this to enforce per-account quotas, choose pricing, and detect
 abuse.
 
-On each proxy call we also stamp your client's app version, build number,
-OS version, and a last-seen timestamp onto your `profiles` row. We use this
-only to support you (knowing your version when you report an issue) and to
-prompt you to update when a release requires it. It is first-party — not sent
-to any analytics service.
-
 Legal basis: legitimate interest in operating a sustainable service
 (Art. 6(1)(f)).
 
-### 3.5 Device binding
-
-To enforce that one account is used on one device at a time — preventing a
-single login from being shared across many machines — we store one row per
-signed-in device in `user_devices`: a stable per-machine identifier derived
-from your Mac's hardware UUID, your computer's name, the platform (`macos`),
-and the timestamps the device was first bound and last seen. Your per-account
-device limit lives on your `profiles` row (`device_limit`, default 1).
-
-The hardware identifier is read on-device via Apple's IOKit and is used
-**only** for this access control. It is not an advertising identifier, is not
-shared with any third party, and is not used to profile you or track you
-across apps or the web.
-
-Legal basis: legitimate interest in securing accounts and preventing
-unauthorised credential sharing (Art. 6(1)(f)).
-
-### 3.6 Subscription and billing data
-
-When you subscribe to a paid plan, payment is processed by **Paddle** as our
-merchant of record. Paddle collects and processes your payment details (card
-or other method), billing address, and the email tied to the subscription.
-**We never receive or store your card or full payment details** — they stay
-with Paddle.
-
-On our side we store only what's needed to grant your entitlement:
-
-| Data                                                                 | Why we need it                                          | Legal basis |
-|----------------------------------------------------------------------|---------------------------------------------------------|-------------|
-| Subscription state (plan, status, billing period, Paddle customer/subscription ids, in `subscriptions`) | To grant the features you paid for and manage renewal/cancellation | Contract (Art. 6(1)(b)) |
-
-Payment data held by Paddle is governed by Paddle's own privacy policy; see
-our [Subprocessors list](./subprocessors.md) for exactly what Paddle receives.
-
-### 3.7 What we do **not** collect
+### 3.5 What we do **not** collect
 
 - We do **not** embed analytics SDKs (PostHog, Mixpanel, Amplitude,
   Segment, Google Analytics, Sentry, etc.).
@@ -188,7 +147,7 @@ third parties only when one of the following applies:
 
 - It's a subprocessor on the published list, acting under a data
   processing agreement (Supabase, OpenRouter, OpenAI via Azure, Google
-  Cloud / Vertex, Google OAuth, Apple, Paddle).
+  Cloud / Vertex, Google OAuth, Apple, and Paddle for billing).
 - We're legally compelled (court order, lawful subpoena). We will notify
   you unless prohibited by law.
 - You explicitly ask us to (for example, exporting your data to another
@@ -213,9 +172,6 @@ Some subprocessors operate globally and may process data outside the EU:
   (SCCs) otherwise.
 - **Google OAuth** and **Apple** are global services and may process
   authentication / app-distribution data outside the EU under SCCs.
-- **Paddle** (billing) is UK-based and processes payment and subscription
-  data; transfers rely on the UK's adequacy status and/or Standard
-  Contractual Clauses as applicable.
 
 We can provide our SCCs and transfer impact assessments on request to
 **dbarabashdev@gmail.com**.
@@ -227,12 +183,10 @@ We can provide our SCCs and transfer impact assessments on request to
 | Data                                 | Retention                                                            |
 |--------------------------------------|----------------------------------------------------------------------|
 | Account (auth profile)               | Until you delete your account.                                       |
-| Device bindings (`user_devices`)     | Until the device signs out, is evicted by the inactivity timeout, or you delete your account (cascade). |
 | Meetings (active)                    | Until you delete them.                                               |
 | Meetings (in trash)                  | 30 days. A nightly Postgres job permanently deletes anything older. |
 | Meeting transcripts                  | Same as the parent meeting (cascade delete).                         |
-| Transcript embeddings, session chats, entity links, label links | Same as the parent meeting (cascade delete). Extracted entities and the labels you create are per-user and removed on account deletion. |
-| Subscription & billing records (`subscriptions`) | Subscription state kept while your account exists; Paddle retains its own invoice/tax records per its legal obligations. |
+| Transcript embeddings, session chats, entity links | Same as the parent meeting (cascade delete). Extracted entities themselves are per-user and removed on account deletion. |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |
 | Usage metadata                       | 24 months, then aggregated and anonymised.                           |
 | Encrypted database backups           | 7 days rolling.                                                      |
@@ -261,7 +215,7 @@ you have the following rights. To exercise any of them, email
 - **Restriction** — ask us to pause processing while a dispute is
   resolved.
 - **Objection** — object to processing based on legitimate interest
-  (Sections 3.3, 3.4, and 3.5 above).
+  (Sections 3.3 and 3.4 above).
 - **Withdraw consent** — where processing is based on consent, withdraw
   it at any time (does not affect prior processing).
 - **Lodge a complaint** with your local data protection authority. EU
@@ -304,7 +258,7 @@ up, contact us and we will delete the account.
 ## 11. Cookies
 
 The Nod macOS app does not use cookies (it's a native app, not a
-website). Our marketing site at `nod.app` uses only strictly necessary
+website). Our marketing site at `hellonod.app` uses only strictly necessary
 cookies (session, CSRF). We do not use advertising or third-party
 analytics cookies. If this changes we will publish a separate Cookie
 Policy.

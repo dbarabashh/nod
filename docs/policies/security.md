@@ -1,9 +1,9 @@
 # Security & Privacy
 
-_Last updated: 2026-06-07_
+_Last updated: 2026-06-10_
 
 > **Nod is in private beta.** It's built and operated by an individual
-> developer (Dima Barabash), not a registered company yet. We've made the
+> developer (Dima Barabash), not a registered company. We've made the
 > security and privacy decisions documented below to be defensible for a
 > production product — but we want you to know exactly where we stand.
 
@@ -90,23 +90,12 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
   is produced **in-region by Supabase's built-in `gte-small` model**, inside our
   Edge Function — the chunk text is not sent to any external embedding provider
   (see Subprocessors). Search is scoped to your own rows by Row-Level Security.
-- **Your profile.** The optional name and preferences you enter (in `profiles`),
-  used to give the AI context. You can view, edit, or clear it in Settings. The
-  same row also records your app version, build, OS version, and a last-seen
-  timestamp (see "App version" below).
-- **App version.** On each call to our LLM proxy we stamp your client's app
-  version, build number, OS version, and a last-seen timestamp onto your
-  `profiles` row. This is first-party operational data — used only to help you
-  when you report an issue and to tell you when a release requires an update; it
-  is not sent to any analytics service. A separate `app_config` table holds the
-  minimum/recommended build numbers and contains no personal data.
+- **Your profile.** The optional name / role / focus you enter (in `profiles`),
+  used to give the AI context. You can view, edit, or clear it in Settings.
 - **Session chats.** Messages you exchange with the per-session assistant, in
   `chat_messages`. (The cross-session "Ask Nod" chat is not persisted.)
 - **Entities.** People, projects, and topics extracted from your sessions
   (`entities` + `meeting_entities`) so related sessions can be linked.
-- **Labels.** Names and colours you create to group sessions (`labels`) and the
-  links between them and your sessions (`meeting_labels`). Used to filter your
-  library and scope a cross-session question to one label's sessions.
 - **Account profile.** Your email and Google OAuth identity, stored in
   Supabase Auth.
 - **Consent acknowledgements.** An audit row each time you click "Acknowledge
@@ -115,11 +104,6 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
 - **Usage metadata.** Per-API-call: model used, token count or audio seconds,
   upstream cost, and HTTP status. We use this to enforce per-account quotas
   and inform pricing. No content.
-- **Device bindings.** One row per signed-in device in `user_devices`: a stable
-  per-machine identifier (derived from your Mac's hardware UUID), your computer's
-  name, the platform, and first-bound / last-seen timestamps. This enforces the
-  single-device lock (see "Access control") and is used for nothing else — it is
-  not an advertising identifier and is never shared with third parties.
 
 All of this is stored in Supabase Postgres in `eu-west-1`, encrypted at rest,
 scoped per-user with Row-Level Security so one user cannot read another
@@ -129,10 +113,6 @@ user's data.
 
 - Your notes are **private by default**. There is no sharing, no team mode,
   no public links today.
-- **One device at a time.** Each account can be used on a single device. While
-  one device is active, signing in on another is refused until the first signs
-  out or goes idle past a short timeout. The lock is enforced server-side in our
-  `llm-proxy` Edge Function, not just in the app.
 - You can delete any individual meeting from the app. Deletes are soft: the
   meeting moves to a trash that's automatically and permanently purged 30
   days later by a nightly Postgres job.
