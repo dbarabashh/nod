@@ -52,24 +52,43 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         panel?.sharingType = visible ? .readOnly : .none
     }
 
+    /// Shared chrome for every coordinator-owned window: transparent
+    /// titlebar, dark appearance, this coordinator as delegate, centred.
+    private func makeWindow(contentRect: NSRect, styleMask: NSWindow.StyleMask) -> NSWindow {
+        let window = NSWindow(
+            contentRect: contentRect,
+            styleMask: styleMask,
+            backing: .buffered,
+            defer: false
+        )
+        window.titlebarAppearsTransparent = true
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.center()
+        return window
+    }
+
+    private func close(_ window: inout NSWindow?) {
+        if let window {
+            // Detach delegate so the windowWillClose handler doesn't recurse.
+            window.delegate = nil
+            window.close()
+        }
+        window = nil
+    }
+
     // MARK: - Sign-in window
 
     private func showSignInWindow() {
         guard signInWindow == nil else { return }
         NSApp.setActivationPolicy(.regular)
 
-        let window = NSWindow(
+        let window = makeWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 420),
-            styleMask: [.titled, .closable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
+            styleMask: [.titled, .closable, .fullSizeContentView]
         )
-        window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.center()
 
         let root = SignInView().environmentObject(services.auth)
         window.contentViewController = NSHostingController(rootView: root)
@@ -79,12 +98,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func closeSignInWindow() {
-        if let window = signInWindow {
-            // Detach delegate so the windowWillClose handler doesn't recurse.
-            window.delegate = nil
-            window.close()
-        }
-        signInWindow = nil
+        close(&signInWindow)
     }
 
     // MARK: - Onboarding window
@@ -96,18 +110,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
         // .resizable so users with large system text settings can grow the
         // window when content overflows the 580x540 default.
-        let window = NSWindow(
+        let window = makeWindow(
             contentRect: NSRect(x: 0, y: 0, width: 580, height: 540),
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView]
         )
-        window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.center()
 
         let root = OnboardingView(onComplete: { [weak self] in
             self?.reconcile()
@@ -125,11 +132,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func closeOnboardingWindow() {
-        if let window = onboardingWindow {
-            window.delegate = nil
-            window.close()
-        }
-        onboardingWindow = nil
+        close(&onboardingWindow)
     }
 
     // MARK: - Floating panel
@@ -192,18 +195,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             existing.makeKeyAndOrderFront(nil)
             return
         }
-        let window = NSWindow(
+        let window = makeWindow(
             contentRect: NSRect(x: 0, y: 0, width: 740, height: 560),
-            styleMask: [.titled, .closable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
+            styleMask: [.titled, .closable, .fullSizeContentView]
         )
         window.title = "Settings"
-        window.titlebarAppearsTransparent = true
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.center()
         window.contentViewController = NSHostingController(rootView: SettingsView(
             hotkey: services.hotkeys,
             profileStore: services.profileStore,
@@ -217,11 +213,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     func closeSettingsWindow() {
-        if let window = settingsWindow {
-            window.delegate = nil
-            window.close()
-        }
-        settingsWindow = nil
+        close(&settingsWindow)
     }
 
     // MARK: - History window (issue #14)
@@ -235,21 +227,14 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             return
         }
 
-        let window = NSWindow(
+        let window = makeWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1040, height: 640),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         )
         window.title = "Library"
-        window.titlebarAppearsTransparent = true
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.appearance = NSAppearance(named: .darkAqua)
         // Min size accommodates the list/detail column + the fixed 380pt chat
         // dock so neither can collapse below a usable width.
         window.contentMinSize = NSSize(width: 860, height: 520)
-        window.center()
 
         // First-mount focus is handed in via init — the open-detail
         // notification fires before HistoryView's `.onReceive` subscribes
@@ -273,11 +258,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     func closeHistoryWindow() {
-        if let window = historyWindow {
-            window.delegate = nil
-            window.close()
-        }
-        historyWindow = nil
+        close(&historyWindow)
     }
 
     // MARK: - NSWindowDelegate
