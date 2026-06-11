@@ -131,7 +131,18 @@ thread stops doing heavy work.
 
 ## Phase 3 — structural extraction
 
-- [ ] **Extract the meeting lifecycle out of `ContentView`.**
+- [x] **Extract the meeting lifecycle out of `ContentView`.**
+      *Done — notes:* `Nod/Meeting/MeetingSession.swift` now owns the
+      lifecycle, generation, and persistence verbatim; ContentView dropped
+      from 2022 to ~1300 lines. Two deliberate deviations from the task
+      text: (1) the `startMeeting` entitlement/consent gate stayed in the
+      view — it manipulates view-modal state (`showConsentDisclaimer`) and
+      posts the paywall notification, both presentation concerns; the view
+      delegates to `session.beginRecording()` after the gates. (2) the
+      session is created **per panel** in `showFloatingPanel`, not once in
+      the AppDelegate — the old `@State` died with the panel on sign-out,
+      and an app-lifetime session would have leaked a stale REC state into
+      the next user's panel.
       `Nod/ContentView.swift` is 2022 lines and owns the whole end-of-meeting
       flow: `startMeeting`, `beginRecording`, `endMeeting`, `persistMeeting`,
       `extractEntities`, `generateMeetingTitle`, `attemptSave`,
@@ -145,7 +156,11 @@ thread stops doing heavy work.
       LLM calls → `applyGenerated` → `insert` → `insertTranscript` →
       `indexSession`, including every failure branch
       (`markGenerationFailed`, save-retry toast).
-- [ ] **De-optional the service graph.** `AppDelegate` holds 20+ optional
+- [x] **De-optional the service graph.**
+      *Done* — `Nod/AppServices.swift` with `AppServices.make()`; the
+      construction block (and its ordering comments) moved verbatim,
+      HotkeyManager stays first so Carbon registration timing is unchanged.
+      Both guard walls are gone. `AppDelegate` holds 20+ optional
       service properties and a 13-line `guard let` wall in `showFloatingPanel`
       (`Nod/NodApp.swift:24-47, 396-408`). Introduce an `AppServices` struct
       whose memberwise init builds everything currently constructed in
@@ -153,7 +168,12 @@ thread stops doing heavy work.
       `services: AppServices?`. The construction ORDER is load-bearing
       (Supabase before LLM client; `auth.onSignOut` wiring; audio-capture
       callbacks) — move it as one block, don't re-derive it.
-- [ ] **Split `AppDelegate` responsibilities.** After the services struct:
+- [x] **Split `AppDelegate` responsibilities.**
+      *Done* — `WindowCoordinator` (windows + reconcile + NSWindowDelegate)
+      and `StatusItemController` (status item + NSMenuDelegate);
+      `NodApp.swift` is bootstrap + observers only (804 → 245 lines).
+      Sign-out still runs `stopRecordingServices` → cache clears → window
+      closes → reconcile in the original order inside the auth observer. After the services struct:
       extract window management (`reconcileWindows`, the five
       `show*/close*Window` pairs, `NSWindowDelegate`) into a
       `WindowCoordinator`, and the status item + `NSMenuDelegate` into a
@@ -161,7 +181,13 @@ thread stops doing heavy work.
       wiring only. Window reconciliation on sign-out (cache clears at
       `Nod/NodApp.swift:222-235`) must keep firing in the same order relative
       to `stopRecordingServices`.
-- [ ] **Narrow the NotificationCenter event bus (optional).**
+- [x] **Narrow the NotificationCenter event bus (optional).**
+      *Resolved by decision: skipped.* `.nodDeviceConflict` lands in
+      AppDelegate, `.nodUpdateRequired` in UpdateGate — replacing them with
+      injected callbacks means threading two closures from `AppServices.make`
+      into OpenRouterClient: the same coupling through a different mechanism,
+      with no behavior gain. The posts are documented at both ends; revisit
+      if the observer set grows.
       `OpenRouterClient` posting `.nodDeviceConflict` / `.nodUpdateRequired`
       (`Nod/LLM/OpenRouterClient.swift:512, 521`) is hidden coupling to
       AppDelegate. Replace with injected callbacks set during wiring; keep
