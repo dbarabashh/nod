@@ -18,7 +18,7 @@ base you can ask questions about.
 | **Price** | **$0** for 14 days | **$9/mo** billed yearly _(or $14/mo monthly)_ | **$19/mo** billed yearly _(or $29/mo monthly)_ |
 | **Annual savings** | — | ~36% | ~34% |
 | **Meeting hours** | Full access | **15 hrs / month** | **50 hrs / month** |
-| **Devices** | — | 1 | Up to 3 |
+| **Devices** | 1 | 1 | Up to 3 |
 | Records you **+ the other side** | ✅ | ✅ | ✅ |
 | Live transcription, summaries & action items | ✅ | ✅ | ✅ |
 | **Ask Nod** about any meeting | ✅ | ✅ | ✅ |
@@ -44,7 +44,7 @@ The Trial unlocks the full Pro experience for 14 days with **no credit card
 required**. It replaces a permanent free tier: you get the complete product, not
 a stripped-down version, so you can judge Nod on its best day.
 
-- Full access to all Pro features for 14 days
+- Full access to all Pro features for 14 days, on 1 device
 - No credit card, no commitment
 - No permanent free tier — every transcription has a real cost, so Nod stays
   paid to stay private

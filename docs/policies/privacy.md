@@ -113,7 +113,7 @@ across many machines — we store one row per signed-in device in `user_devices`
 a stable per-machine identifier derived from your Mac's hardware UUID, your
 computer's name, the platform (`macos`), and the timestamps the device was
 first bound and last seen. How many devices you can use at once follows your
-plan (Starter 1, Pro up to 3).
+plan (Trial and Starter 1, Pro up to 3).
 
 The hardware identifier is read on-device via Apple's IOKit and is used **only**
 for this access control. It is not an advertising identifier, is not shared with
