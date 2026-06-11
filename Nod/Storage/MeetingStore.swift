@@ -414,6 +414,18 @@ final class MeetingStore: ObservableObject {
         }
     }
 
+    /// Server rows plus any local drafts still mid-generation — they aren't
+    /// on the server yet, so a naive `meetings = rows` would yank the row out
+    /// from under MeetingDetailView while it renders the loading placeholder.
+    static func merging(rows: [Meeting], drafts: [Meeting]) -> [Meeting] {
+        var merged = rows
+        for draft in drafts where !merged.contains(where: { $0.id == draft.id }) {
+            merged.append(draft)
+        }
+        merged.sort { $0.startedAt > $1.startedAt }
+        return merged
+    }
+
     // MARK: - Lifecycle
 
     /// Drops any cached meetings + resets the state machine. Call on sign-out
@@ -495,17 +507,8 @@ final class MeetingStore: ObservableObject {
                 .limit(500)
                 .execute()
                 .value
-            // Preserve drafts that are still mid-generation — they
-            // aren't on the server yet, so a naive `meetings = rows`
-            // would yank the row out from under MeetingDetailView while
-            // it's rendering the loading placeholder.
             let drafts = meetings.filter { generatingSummaryIDs.contains($0.id) }
-            var merged = rows
-            for draft in drafts where !merged.contains(where: { $0.id == draft.id }) {
-                merged.append(draft)
-            }
-            merged.sort { $0.startedAt > $1.startedAt }
-            meetings = merged
+            meetings = Self.merging(rows: rows, drafts: drafts)
             loadState = .loaded
             lastSuccessfulFetchAt = Date()
             lastRefreshFailed = false
