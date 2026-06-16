@@ -27,6 +27,7 @@ struct SegmentRange {
 /// touched from a single diarization call at meeting end.
 final class SherpaSpeakerDiarization: @unchecked Sendable {
     private let sd: OpaquePointer
+    private let processLock = NSLock()
 
     /// Threshold for the built-in FastClustering (number of speakers unknown →
     /// threshold mode). Tuned per pyannote-3.0 + CAM++ embeddings; lower merges
@@ -66,13 +67,17 @@ final class SherpaSpeakerDiarization: @unchecked Sendable {
     }
 
     var sampleRate: Int {
-        Int(SherpaOnnxOfflineSpeakerDiarizationGetSampleRate(sd))
+        processLock.lock()
+        defer { processLock.unlock() }
+        return Int(SherpaOnnxOfflineSpeakerDiarizationGetSampleRate(sd))
     }
 
     /// Diarize 16 kHz mono Float32 audio into speaker-labelled ranges, sorted by
     /// start time. Empty if the model produced nothing.
     func process(_ samples: [Float]) -> [DiarizedRange] {
         guard !samples.isEmpty else { return [] }
+        processLock.lock()
+        defer { processLock.unlock() }
         guard let result = samples.withUnsafeBufferPointer({ buf in
             SherpaOnnxOfflineSpeakerDiarizationProcess(sd, buf.baseAddress, Int32(buf.count))
         }) else { return [] }

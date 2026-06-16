@@ -1,6 +1,9 @@
 # AGENTS.md
 
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+It intentionally mirrors [`CLAUDE.md`](./CLAUDE.md): every repository rule in
+`CLAUDE.md` applies here too. When changing agent instructions, keep both files
+in sync unless a rule is explicitly tool-specific.
 
 ## Project
 
@@ -228,4 +231,4 @@ Short version of what's there:
 - **Logging via `Log.<area>`**, not `print`. See above.
 - **No edits to `Nod.xcodeproj`** — change `project.yml` and run `xcodegen generate`.
 - **Supabase changes via CLI**, not dashboard — see above.
-- **Commit messages**: all lowercase, max 4–5 words, no `Co-Authored-By` trailers (no AI attribution). Examples: `add llm proxy edge function`, `fix screen recording prompt`, `drop en/uk language constraint`. **Do not** include the `Co-Authored-By: Codex ...` line that Codex adds by default — strip it.
+- **Commit messages**: all lowercase, max 4–5 words, no `Co-Authored-By` trailers (no AI attribution). Examples: `add llm proxy edge function`, `fix screen recording prompt`, `drop en/uk language constraint`. **Do not** include any AI-generated `Co-Authored-By: ...` line (Codex, Claude, or other tools) — strip it.

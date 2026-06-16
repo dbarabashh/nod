@@ -230,8 +230,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         Log.stt.info("diarization refine: \(bySpeaker.count) speaker(s) across \(themCount) segments")
         for speaker in bySpeaker.keys.sorted() {
             let group = bySpeaker[speaker] ?? []
-            let sample = group.first.map { $0.text.split(separator: " ").prefix(6).joined(separator: " ") } ?? ""
-            Log.stt.info("  speaker \(speaker + 1): \(group.count) segments — e.g. \"\(sample)…\"")
+            Log.stt.info("  speaker \(speaker + 1): \(group.count) segments")
         }
     }
 
