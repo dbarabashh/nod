@@ -399,7 +399,8 @@ final class MeetingSession: ObservableObject {
                 source: entry.source.rawValue,
                 text: entry.text,
                 ts: entry.timestamp,
-                idx: idx
+                idx: idx,
+                speaker: entry.speaker
             )
         }
         do {

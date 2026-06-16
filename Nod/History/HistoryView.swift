@@ -20,12 +20,12 @@ struct HistoryView: View {
     @EnvironmentObject private var chatStore: ChatStore
 
     /// (done, total) while a backfill re-index is running; nil when idle.
-    @State private var reindexProgress: ReindexProgress? = nil
+    @State private var reindexProgress: ReindexProgress?
     @State private var searchQuery: String = ""
     @State private var segment: Segment = .all
     /// Active label filter on the All segment; nil shows every meeting.
     @State private var filterLabelID: UUID?
-    @State private var pendingHardDelete: Meeting? = nil
+    @State private var pendingHardDelete: Meeting?
     /// Identity of the currently-displayed undo toast — flipped each time
     /// `meetingStore.pendingUndo` changes, so the auto-dismiss timer
     /// belonging to the previous toast knows to skip its own dismissal.
@@ -390,9 +390,9 @@ struct HistoryView: View {
                 meetings,
                 transcript: { id in
                     let records = try await meetingStore.fetchTranscript(meetingID: id)
+                    let numbered = TranscriptRecord.speakersAreNumbered(records)
                     return records.map { record in
-                        let label = TranscriptSource(rawValue: record.source)?.label ?? record.source
-                        return "[\(label)] \(record.text)"
+                        "[\(record.displayLabel(numbered: numbered))] \(record.text)"
                     }.joined(separator: "\n")
                 },
                 progress: { done, total in

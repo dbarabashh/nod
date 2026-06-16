@@ -261,9 +261,9 @@ struct SessionChatView: View {
     private func loadTranscript() async {
         do {
             let records = try await meetingStore.fetchTranscript(meetingID: meeting.id)
+            let numbered = TranscriptRecord.speakersAreNumbered(records)
             transcriptText = records.map { record in
-                let label = TranscriptSource(rawValue: record.source)?.label ?? record.source
-                return "[\(label)] \(record.text)"
+                "[\(record.displayLabel(numbered: numbered))] \(record.text)"
             }.joined(separator: "\n")
         } catch {
             Log.ui.error("SessionChatView transcript load failed: \(error.localizedDescription)")
