@@ -224,11 +224,16 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         }
         guard let snapshot else { return }
 
-        // Run the O(n²) agglomerative clustering OFF the main thread — this
-        // method is nonisolated, so work outside a `MainActor.run` block lands
-        // on a background executor. A long meeting (hundreds of segments) would
-        // otherwise freeze the UI for seconds at meeting end.
-        let labels = SpeakerClusterer.cluster(snapshot.vectors)
+        // Run the O(n²) agglomerative clustering OFF the main thread — a long
+        // meeting (hundreds of segments) would otherwise freeze the UI for
+        // seconds at meeting end. `Task.detached` guarantees the hop regardless
+        // of this type's isolation: relying on `refineSpeakers` being
+        // nonisolated would silently regress if `TranscriptStore` ever became
+        // `@MainActor` (common for an ObservableObject).
+        let vectors = snapshot.vectors
+        let labels = await Task.detached(priority: .userInitiated) {
+            SpeakerClusterer.cluster(vectors)
+        }.value
         var labelByID: [UUID: Int] = [:]
         for (index, id) in snapshot.embeddedIDs.enumerated() {
             labelByID[id] = labels[index]
