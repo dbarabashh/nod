@@ -497,17 +497,16 @@ struct MeetingDetailView: View {
     @ViewBuilder
     private var transcriptContent: some View {
         if isGenerating {
-            VStack(spacing: 10) {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .controlSize(.small)
-                    .tint(Theme.Palette.muted)
-                Text("Transcript will appear once the summary is ready.")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
+            // Same animated indicator as the summary tab. The transcript is
+            // persisted only after the diarization pass labels speakers, so the
+            // wait reads as separating speakers, not just transcribing.
+            ThinkingIndicator(script: [
+                "Preparing transcript…",
+                "Separating speakers…",
+                "Labelling who said what…",
+                "Almost there…"
+            ])
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 40)
         } else {
             transcriptLoadedContent
