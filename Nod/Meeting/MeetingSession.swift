@@ -210,25 +210,23 @@ final class MeetingSession: ObservableObject {
 
         let draftID = draft.id
         Task {
-            // Finalize in-flight transcription, then diarize speakers, so the
-            // summary (and the entries snapshot persisted to `meeting_transcripts`)
-            // read a complete, diarized dialogue — "Them 1/2/…" instead of an
-            // unattributed wall of "Them".
             await store.flushPending()
-            await store.refineSpeakers()
 
-            // A new recording started during the flush/diarize window — the
-            // store now belongs to it. Abandon this meeting's finalize rather
-            // than snapshot the new transcript or clear the live recording.
+            // A new recording started during the flush window — the store now
+            // belongs to it. Abandon this meeting's finalize rather than
+            // summarize/snapshot the new transcript or clear the live recording.
             guard sessionGeneration == generation else {
                 Log.ui.info("End Meeting finalize abandoned — newer session started")
                 return
             }
 
+            // Snapshot the (un-diarized) transcript for the summary up front.
+            // Diarization only adds "Them 1/2/…" labels, which the summary
+            // infers from content anyway — so the recap doesn't need to wait
+            // out the pyannote pass, which is many seconds on a long meeting.
             let context = store.fullContext
-            let transcriptEntries = store.entries
-            store.clear()
             guard !context.isEmpty else {
+                store.clear()
                 meetingStore.markGenerationFailed(id: draftID, errorMessage: "⚠️ No transcript captured")
                 return
             }
@@ -240,6 +238,11 @@ final class MeetingSession: ObservableObject {
                 personalContext: profile,
                 sessionKind: draft.kind
             )
+
+            // Diarization and the summary are independent — run them
+            // concurrently so the recap lands in seconds. Speaker labels are
+            // stitched into the persisted transcript once diarization finishes.
+            async let diarized: Void = store.refineSpeakers()
             do {
                 let recap = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self)
                 let text = recap.toMarkdown()
@@ -249,6 +252,18 @@ final class MeetingSession: ObservableObject {
                 let title = await generateMeetingTitle(from: text)
                 let updated = draft.updating(title: title, summary: text, recap: recap)
                 meetingStore.applyGenerated(updated)
+
+                // Wait for diarization before snapshotting entries so the
+                // persisted transcript carries "Them 1/2/…". Re-check the
+                // generation guard — a new session may have started during the
+                // summary + diarization window.
+                await diarized
+                guard sessionGeneration == generation else {
+                    Log.ui.info("End Meeting finalize abandoned — newer session started")
+                    return
+                }
+                let transcriptEntries = store.entries
+                store.clear()
                 await persistMeeting(
                     meeting: updated,
                     transcriptEntries: transcriptEntries
@@ -279,6 +294,11 @@ final class MeetingSession: ObservableObject {
                     )
                 }
             } catch {
+                // Let the concurrent diarization settle before clearing the
+                // store, then drop the transcript — the summary (the artifact
+                // worth persisting) failed, so there's nothing to attribute.
+                _ = await diarized
+                store.clear()
                 Log.ui.error("Meeting summary generation failed: \(error.localizedDescription)")
                 meetingStore.markGenerationFailed(
                     id: draftID,
