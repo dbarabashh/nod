@@ -57,10 +57,17 @@ final class MeetingStore: ObservableObject {
     /// MeetingDetailView at end-of-meeting, drained by
     /// `applyGenerated(_:)` / `markGenerationFailed(...)` when the LLM
     /// returns. MeetingDetailView watches this set to swap the Summary
-    /// tab between the live loading placeholder and the real content,
-    /// and to gate edit/copy/transcript affordances that don't make
-    /// sense until the row has been finalised.
+    /// tab between the live loading placeholder and the real content.
     @Published private(set) var generatingSummaryIDs: Set<UUID> = []
+
+    /// Meeting IDs whose local draft has not fully landed on the server yet.
+    /// Summary generation may already be done, but edit/chat/transcript
+    /// affordances still need the meeting row and transcript records to exist.
+    @Published private(set) var finalizingMeetingIDs: Set<UUID> = []
+
+    /// Bumped when transcript speaker labels are patched after the first
+    /// transcript insert, so open detail/chat views can refetch the transcript.
+    @Published private(set) var transcriptSpeakerRevisions: [UUID: Int] = [:]
 
     private let supabase: SupabaseClient
     private static let tableName = "meetings"
@@ -129,6 +136,7 @@ final class MeetingStore: ObservableObject {
             meetings.sort { $0.startedAt > $1.startedAt }
         }
         generatingSummaryIDs.insert(draft.id)
+        finalizingMeetingIDs.insert(draft.id)
         loadState = .loaded
     }
 
@@ -152,6 +160,12 @@ final class MeetingStore: ObservableObject {
         generatingSummaryIDs.remove(meeting.id)
     }
 
+    /// Marks the end-of-meeting persistence path complete for a local draft.
+    func finishFinalizing(id: UUID) {
+        Log.ui.info("MeetingStore.finishFinalizing id=\(id.uuidString)")
+        finalizingMeetingIDs.remove(id)
+    }
+
     /// Summary generation failed end-to-end. Stamp the error message into
     /// `summary` so the detail view can show it inline, then clear the
     /// generating flag. Local-only — a failed generation never gets
@@ -165,6 +179,7 @@ final class MeetingStore: ObservableObject {
             )
         }
         generatingSummaryIDs.remove(id)
+        finalizingMeetingIDs.remove(id)
     }
 
     /// Patches `title` + `summary` for an existing meeting. Only those two
@@ -227,10 +242,58 @@ final class MeetingStore: ObservableObject {
     func insertTranscript(_ records: [TranscriptRecord]) async throws {
         guard !records.isEmpty else { return }
         Log.ui.info("MeetingStore.insertTranscript meeting=\(records[0].meetingID.uuidString) count=\(records.count)")
-        try await supabase
-            .from(Self.transcriptsTableName)
-            .insert(records)
-            .execute()
+        do {
+            try await supabase
+                .from(Self.transcriptsTableName)
+                .insert(records)
+                .execute()
+        } catch {
+            // Deploy-ordering guard: if the `speaker` column hasn't been applied
+            // to this environment yet, PostgREST rejects the whole batch. Don't
+            // lose the transcript over a not-yet-migrated column — retry without
+            // the diarization labels (they backfill once the column exists).
+            guard Self.isMissingSpeakerColumn(error) else { throw error }
+            Log.ui.error("insertTranscript: 'speaker' column absent — retrying without diarization labels")
+            try await supabase
+                .from(Self.transcriptsTableName)
+                .insert(records.map { $0.droppingSpeaker() })
+                .execute()
+        }
+    }
+
+    /// Best-effort backfill for diarization labels that finish after the plain
+    /// transcript has already been saved. The matching migration grants
+    /// authenticated clients update access only to the `speaker` column.
+    func updateTranscriptSpeakers(_ records: [TranscriptRecord]) async throws {
+        let labelled = records.filter { $0.source == TranscriptSource.them.rawValue && $0.speaker != nil }
+        guard let meetingID = labelled.first?.meetingID else { return }
+        Log.ui.info("MeetingStore.updateTranscriptSpeakers meeting=\(meetingID.uuidString) count=\(labelled.count)")
+
+        struct SpeakerPatch: Encodable {
+            let speaker: Int?
+        }
+
+        do {
+            for record in labelled {
+                try await supabase
+                    .from(Self.transcriptsTableName)
+                    .update(SpeakerPatch(speaker: record.speaker))
+                    .eq("id", value: record.id.uuidString)
+                    .execute()
+            }
+            transcriptSpeakerRevisions[meetingID, default: 0] += 1
+        } catch {
+            guard Self.isMissingSpeakerColumn(error) else { throw error }
+            Log.ui.error("updateTranscriptSpeakers skipped — 'speaker' column absent")
+        }
+    }
+
+    /// PostgREST reports an unknown column as PGRST204 with a message naming it
+    /// ("Could not find the 'speaker' column … in the schema cache"). Match on
+    /// the column name so an unrelated failure still propagates.
+    private static func isMissingSpeakerColumn(_ error: Error) -> Bool {
+        let text = String(describing: error).lowercased()
+        return text.contains("speaker") && text.contains("column")
     }
 
     /// Loads the full transcript for one meeting, ordered chronologically.
@@ -415,6 +478,8 @@ final class MeetingStore: ObservableObject {
         lastRefreshFailed = false
         lastSuccessfulFetchAt = nil
         generatingSummaryIDs = []
+        finalizingMeetingIDs = []
+        transcriptSpeakerRevisions = [:]
     }
 
     // MARK: - Read
@@ -483,7 +548,8 @@ final class MeetingStore: ObservableObject {
                 .limit(500)
                 .execute()
                 .value
-            let drafts = meetings.filter { generatingSummaryIDs.contains($0.id) }
+            let localOnlyIDs = generatingSummaryIDs.union(finalizingMeetingIDs)
+            let drafts = meetings.filter { localOnlyIDs.contains($0.id) }
             meetings = Self.merging(rows: rows, drafts: drafts)
             loadState = .loaded
             lastSuccessfulFetchAt = Date()

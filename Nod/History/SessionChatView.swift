@@ -39,8 +39,16 @@ struct SessionChatView: View {
         chatStore.sendState == .sending
     }
 
+    private var isFinalizing: Bool {
+        meetingStore.finalizingMeetingIDs.contains(meeting.id)
+    }
+
     private var isReady: Bool {
-        transcriptText != nil
+        !isFinalizing && transcriptText != nil
+    }
+
+    private var transcriptSpeakerRevision: Int {
+        meetingStore.transcriptSpeakerRevisions[meeting.id] ?? 0
     }
 
     var body: some View {
@@ -51,7 +59,20 @@ struct SessionChatView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             await chatStore.open(meetingID: meeting.id)
-            await loadTranscript()
+            if !isFinalizing {
+                await loadTranscript()
+            }
+        }
+        .onChange(of: isFinalizing) { finalizing in
+            if finalizing {
+                transcriptText = nil
+            } else {
+                Task { await loadTranscript() }
+            }
+        }
+        .onChange(of: transcriptSpeakerRevision) { _ in
+            guard !isFinalizing else { return }
+            Task { await loadTranscript() }
         }
     }
 
@@ -145,7 +166,7 @@ struct SessionChatView: View {
 
     private var composer: some View {
         HStack(spacing: 8) {
-            TextField(isReady ? "Message" : "Loading session…", text: $draft, axis: .vertical)
+            TextField(isReady ? "Message" : loadingPlaceholder, text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13.5))
                 .foregroundStyle(Theme.Palette.ink)
@@ -183,6 +204,10 @@ struct SessionChatView: View {
 
     private var canSend: Bool {
         isReady && !isSending && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var loadingPlaceholder: String {
+        isFinalizing ? "Finishing session…" : "Loading session…"
     }
 
     // MARK: - Actions
@@ -261,9 +286,9 @@ struct SessionChatView: View {
     private func loadTranscript() async {
         do {
             let records = try await meetingStore.fetchTranscript(meetingID: meeting.id)
+            let numbered = TranscriptRecord.speakersAreNumbered(records)
             transcriptText = records.map { record in
-                let label = TranscriptSource(rawValue: record.source)?.label ?? record.source
-                return "[\(label)] \(record.text)"
+                "[\(record.displayLabel(numbered: numbered))] \(record.text)"
             }.joined(separator: "\n")
         } catch {
             Log.ui.error("SessionChatView transcript load failed: \(error.localizedDescription)")

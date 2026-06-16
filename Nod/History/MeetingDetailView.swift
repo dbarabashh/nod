@@ -86,24 +86,32 @@ struct MeetingDetailView: View {
     }
 
     /// True while ContentView's post-meeting Task is still waiting on the
-    /// LLM. Drives the loading placeholder in the Summary tab and gates
-    /// every affordance that needs a real row (edit, copy, transcript
-    /// load, server-side save, soft-delete).
+    /// LLM. Drives the loading placeholder in the Summary tab.
     private var isGenerating: Bool {
         meetingStore.generatingSummaryIDs.contains(meeting.id)
+    }
+
+    /// True until the generated meeting row and transcript have finished their
+    /// first persistence pass.
+    private var isFinalizing: Bool {
+        meetingStore.finalizingMeetingIDs.contains(meeting.id)
+    }
+
+    private var transcriptSpeakerRevision: Int {
+        meetingStore.transcriptSpeakerRevisions[meeting.id] ?? 0
     }
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 18) {
                 titleRow
-                if !isGenerating { labelsRow }
+                if !isFinalizing { labelsRow }
                 metadataTable
                 tabBar
                 subToolbar
                 Divider().overlay(Theme.Palette.border)
                 content
-                if selectedTab == .summary, !isGenerating {
+                if selectedTab == .summary, !isFinalizing {
                     RelatedSessionsView(meeting: meeting)
                 }
             }
@@ -118,7 +126,7 @@ struct MeetingDetailView: View {
             editableSummary = current.summary
         }
         .onChange(of: selectedTab) { tab in
-            if tab == .transcript, !isGenerating, case .idle = transcriptLoad {
+            if tab == .transcript, !isFinalizing, case .idle = transcriptLoad {
                 Task { await loadTranscript() }
             }
         }
@@ -138,7 +146,19 @@ struct MeetingDetailView: View {
             if editableTitle != liveTitle {
                 editableTitle = liveTitle
             }
-            if selectedTab == .transcript, case .idle = transcriptLoad {
+        }
+        .onChange(of: isFinalizing) { finalizing in
+            if finalizing {
+                if selectedTab == .transcript { transcriptLoad = .idle }
+                return
+            }
+            if selectedTab == .transcript, shouldLoadTranscriptAfterFinalizing {
+                Task { await loadTranscript() }
+            }
+        }
+        .onChange(of: transcriptSpeakerRevision) { _ in
+            guard selectedTab == .transcript, !isFinalizing else { return }
+            if case .loaded = transcriptLoad {
                 Task { await loadTranscript() }
             }
         }
@@ -178,12 +198,12 @@ struct MeetingDetailView: View {
                 .iconButtonChrome()
         }
         .buttonStyle(.plain)
-        .help(isGenerating ? "Available once the summary is ready" : "Move to Trash")
+        .help(isFinalizing ? "Available once the meeting is saved" : "Move to Trash")
         // Soft-delete hits the server `soft_delete_meeting` RPC, which would
         // 404 for a meeting that hasn't been inserted yet. Re-enables the
         // moment the row lands.
-        .disabled(isDeleting || isGenerating)
-        .opacity(isGenerating ? 0.4 : 1)
+        .disabled(isDeleting || isFinalizing)
+        .opacity(isFinalizing ? 0.4 : 1)
         .linkCursor()
     }
 
@@ -203,6 +223,7 @@ struct MeetingDetailView: View {
                 .foregroundStyle(Theme.Palette.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .onChange(of: editableTitle) { _ in scheduleSave() }
+                .disabled(isFinalizing)
         }
     }
 
@@ -362,8 +383,8 @@ struct MeetingDetailView: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .disabled(isGenerating)
-                .opacity(isGenerating ? 0.4 : 1)
+                .disabled(isFinalizing)
+                .opacity(isFinalizing ? 0.4 : 1)
                 .linkCursor()
                 subToolbarDivider
                 copyButton("Copy summary", isActive: !isGenerating, action: copyAll)
@@ -375,11 +396,11 @@ struct MeetingDetailView: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .disabled(isGenerating || shareState == .sharing)
-                .opacity(isGenerating ? 0.4 : 1)
+                .disabled(isFinalizing || shareState == .sharing)
+                .opacity(isFinalizing ? 0.4 : 1)
                 .linkCursor()
                 Spacer(minLength: 0)
-                if !isGenerating {
+                if !isFinalizing {
                     saveIndicator
                 }
             }
@@ -397,6 +418,17 @@ struct MeetingDetailView: View {
     private var transcriptIsCopyable: Bool {
         if case let .loaded(records) = transcriptLoad { return !records.isEmpty }
         return false
+    }
+
+    private var shouldLoadTranscriptAfterFinalizing: Bool {
+        switch transcriptLoad {
+        case .idle:
+            true
+        case let .loaded(records):
+            records.isEmpty
+        case .loading, .failed:
+            false
+        }
     }
 
     private func subToolbarItem(systemImage: String, label: String) -> some View {
@@ -481,36 +513,32 @@ struct MeetingDetailView: View {
     }
 
     private var generatingSummaryPlaceholder: some View {
-        VStack(spacing: 14) {
-            ProgressView()
-                .progressViewStyle(.circular)
-                .controlSize(.regular)
-                .tint(Theme.Palette.ink)
-            Text("Generating summary…")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Theme.Palette.ink)
-            Text("This usually takes a few seconds.")
-                .font(.system(size: 11.5, weight: .regular))
-                .foregroundStyle(Theme.Palette.muted)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 60)
+        // Same bouncing-dots indicator as the in-call chat — the label walks a
+        // few stages and holds on the last, so the wait reads as live activity
+        // instead of a spinner that promises a fixed "few seconds".
+        ThinkingIndicator(script: [
+            "Generating summary…",
+            "Pulling out key points…",
+            "Capturing decisions & action items…",
+            "Almost there…"
+        ])
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 40)
     }
 
     @ViewBuilder
     private var transcriptContent: some View {
-        if isGenerating {
-            VStack(spacing: 10) {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .controlSize(.small)
-                    .tint(Theme.Palette.muted)
-                Text("Transcript will appear once the summary is ready.")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
+        if isFinalizing {
+            // The first transcript fetch waits until the meeting row and
+            // transcript insert have completed, so it cannot cache an early
+            // empty result for the just-finished meeting.
+            ThinkingIndicator(script: [
+                "Preparing transcript…",
+                "Separating speakers…",
+                "Labelling who said what…",
+                "Almost there…"
+            ])
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 40)
         } else {
             transcriptLoadedContent
@@ -542,9 +570,10 @@ struct MeetingDetailView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
             } else {
+                let numbered = TranscriptRecord.speakersAreNumbered(records)
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(records) { record in
-                        transcriptRow(record)
+                        transcriptRow(record, numbered: numbered)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -570,10 +599,10 @@ struct MeetingDetailView: View {
         }
     }
 
-    private func transcriptRow(_ record: TranscriptRecord) -> some View {
+    private func transcriptRow(_ record: TranscriptRecord, numbered: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(sourceLabel(record.source))
+                Text(record.displayLabel(numbered: numbered).uppercased())
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .tracking(0.4)
                     .foregroundStyle(Theme.Palette.ink.opacity(0.85))
@@ -581,7 +610,7 @@ struct MeetingDetailView: View {
                     .padding(.vertical, 2)
                     .background(
                         Capsule(style: .continuous)
-                            .fill(sourceBackground(record.source))
+                            .fill(speakerBackground(record))
                     )
                 Text(Self.timeFormatter.string(from: record.ts))
                     .font(.system(size: 10.5))
@@ -596,16 +625,17 @@ struct MeetingDetailView: View {
         }
     }
 
-    private func sourceLabel(_ source: String) -> String {
-        TranscriptSource(rawValue: source)?.label.uppercased() ?? source.uppercased()
-    }
-
-    private func sourceBackground(_ source: String) -> Color {
-        switch TranscriptSource(rawValue: source) {
-        case .me: Theme.Palette.violet.opacity(0.18)
-        case .them: Theme.Palette.cyan.opacity(0.18)
-        case .none: Theme.Palette.surface
+    /// Mic is always violet; each diarized remote speaker gets a distinct hue
+    /// rotating around the wheel so "Them 1/2/3" are visually separable.
+    private func speakerBackground(_ record: TranscriptRecord) -> Color {
+        guard TranscriptSource(rawValue: record.source) == .them else {
+            return TranscriptSource(rawValue: record.source) == .me
+                ? Theme.Palette.violet.opacity(0.18)
+                : Theme.Palette.surface
         }
+        guard let speaker = record.speaker else { return Theme.Palette.cyan.opacity(0.18) }
+        let hue = Double(speaker).truncatingRemainder(dividingBy: 8) / 8.0
+        return Color(hue: hue, saturation: 0.5, brightness: 0.9).opacity(0.22)
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -616,6 +646,7 @@ struct MeetingDetailView: View {
     }()
 
     private func loadTranscript() async {
+        guard !isFinalizing else { return }
         transcriptLoad = .loading
         do {
             let records = try await meetingStore.fetchTranscript(meetingID: meeting.id)
@@ -689,7 +720,7 @@ struct MeetingDetailView: View {
         // path that could trigger this, so reaching here while
         // generating means SwiftUI fired .onChange for an internal sync
         // we don't want persisted.
-        guard !isGenerating else { return }
+        guard !isFinalizing else { return }
         saveTask?.cancel()
         isDirty = true
         saveTask = Task {
@@ -701,6 +732,7 @@ struct MeetingDetailView: View {
     }
 
     private func performSave() async {
+        guard !isFinalizing else { return }
         let titleTrimmed = editableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let updated = meeting.updating(
             title: titleTrimmed.isEmpty ? nil : titleTrimmed,
@@ -718,13 +750,14 @@ struct MeetingDetailView: View {
 
     private func flushPendingSaveOnDisappear() {
         saveTask?.cancel()
-        guard isDirty, !isDeleting else { return }
+        guard isDirty, !isDeleting, !isFinalizing else { return }
         Task { await performSave() }
     }
 
     // MARK: - Delete
 
     private func deleteMeeting() {
+        guard !isFinalizing else { return }
         isDeleting = true
         saveTask?.cancel()
         let snapshot = meeting
@@ -766,10 +799,10 @@ struct MeetingDetailView: View {
     /// is disabled in that state).
     private func copyTranscript() {
         guard case let .loaded(records) = transcriptLoad, !records.isEmpty else { return }
+        let numbered = TranscriptRecord.speakersAreNumbered(records)
         let payload = records
             .map { record in
-                let label = TranscriptSource(rawValue: record.source)?.label ?? record.source
-                return "[\(Self.timeFormatter.string(from: record.ts))] \(label): \(record.text)"
+                "[\(Self.timeFormatter.string(from: record.ts))] \(record.displayLabel(numbered: numbered)): \(record.text)"
             }
             .joined(separator: "\n")
         copyAndFlash(payload)
@@ -797,6 +830,7 @@ struct MeetingDetailView: View {
     /// explicit action, never automatic. Errors flip the button to a transient
     /// "Try again" state rather than throwing a modal.
     private func shareLink() {
+        guard !isFinalizing else { return }
         guard shareState != .sharing else { return }
         shareState = .sharing
         Task {

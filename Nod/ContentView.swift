@@ -840,79 +840,6 @@ private struct SessionKindPicker: View {
     }
 }
 
-// MARK: - Transcript
-
-private struct TranscriptBubble: View {
-    let transcript: String
-    let paused: Bool
-    let onClose: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            RecordingIcon(paused: paused)
-
-            Text(transcript)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(Color(red: 0.18, green: 0.22, blue: 0.36))
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            CloseButton(action: onClose)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(lightFrostedBubble(cornerRadius: 18))
-        .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 4)
-    }
-}
-
-private struct RecordingIcon: View {
-    let paused: Bool
-    @State private var pulsing = false
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(Color(red: 0.12, green: 0.13, blue: 0.16))
-            .frame(width: 28, height: 28)
-            .overlay(content)
-            .onAppear { pulsing = true }
-    }
-
-    @ViewBuilder private var content: some View {
-        if paused {
-            Image(systemName: "pause.fill")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(.white.opacity(0.7))
-        } else {
-            Circle()
-                .fill(Color(red: 0.95, green: 0.25, blue: 0.30))
-                .frame(width: 8, height: 8)
-                .opacity(pulsing ? 0.4 : 1.0)
-                .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: pulsing)
-        }
-    }
-}
-
-private struct CloseButton: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: {
-            print("→ Close bubble")
-            action()
-        }) {
-            ZStack {
-                Circle().fill(Color.black.opacity(0.08))
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(Color.black.opacity(0.55))
-            }
-            .frame(width: 18, height: 18)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 // MARK: - Hero
 
 private struct HeroButton: View {
@@ -1104,21 +1031,6 @@ private struct StatusIcon<Content: View>: View {
         }
         .buttonStyle(.plain)
     }
-}
-
-// MARK: - Shared
-
-private func lightFrostedBubble(cornerRadius: CGFloat) -> some View {
-    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        .fill(.ultraThinMaterial)
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.55))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(0.4), lineWidth: 0.5)
-        )
 }
 
 /// Blocking screen shown when the running build is below the server

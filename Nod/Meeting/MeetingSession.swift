@@ -72,6 +72,13 @@ final class MeetingSession: ObservableObject {
     /// so we can stamp `started_at` accurately when we persist on summary.
     private var recordingStartedAt: Date?
 
+    /// Bumped each time a recording starts. `endMeeting`'s deferred finalize
+    /// captures the value and bails if it changed — otherwise a meeting started
+    /// during the post-meeting flush/re-cluster window would have its fresh
+    /// transcript snapshotted into the old summary and then wiped by the old
+    /// meeting's `cleanupToIdle()`.
+    private var sessionGeneration = 0
+
     private let audioCapture: AudioCaptureService
     private let store: TranscriptStore
     private let llm: OpenRouterClient
@@ -81,6 +88,16 @@ final class MeetingSession: ObservableObject {
     private let language: LanguagePreference
     private let auth: AuthService
     private let profileStore: ProfileStore
+
+    private enum DiarizationWaitResult {
+        case completed([TranscriptEntry]?)
+        case timedOut
+    }
+
+    private struct TranscriptSnapshot {
+        let entries: [TranscriptEntry]
+        let pendingDiarization: Task<[TranscriptEntry]?, Never>?
+    }
 
     init(
         audioCapture: AudioCaptureService,
@@ -131,6 +148,7 @@ final class MeetingSession: ObservableObject {
 
     func beginRecording() {
         Log.ui.info("Start Meeting")
+        sessionGeneration += 1
         meeting = .recording
         elapsed = 0
         response = .none
@@ -152,68 +170,88 @@ final class MeetingSession: ObservableObject {
     }
 
     func endMeeting() {
-        let context = store.fullContext
-        Log.ui.info("End Meeting — entries=\(store.entries.count) context.len=\(context.count)")
+        Log.ui.info("End Meeting — entries=\(store.entries.count)")
         store.stop()
         Task { await audioCapture.stop() }
 
-        if context.isEmpty {
+        guard store.hasContent else {
             cleanupToIdle()
             return
         }
-
-        // Snapshot the recording bookends BEFORE the async work — endedAt
-        // marks the user's stop, not the summary-ready instant. Snapshot
-        // the transcript entries too so the post-meeting save persists
-        // them to `meeting_transcripts` (the Transcript tab in
-        // MeetingDetailView reads them back).
-        let startedAt = recordingStartedAt ?? Date()
-        let endedAt = Date()
-        let langCode = language.current.whisperCode
-        let transcriptEntries = store.entries
-
         guard let userID = auth.currentSupabaseSession?.user.id else {
             Log.ui.error("End Meeting skipped — no session")
             cleanupToIdle()
             return
         }
 
-        // Build the draft up front so MeetingDetailView opens on a real
-        // row with the timestamps + language populated and only the
-        // summary / title visibly loading. The same id flows through the
-        // server insert later — id is client-generated for idempotency.
+        // Snapshot the recording bookends + session config BEFORE the async
+        // work — endedAt marks the user's stop, not the summary-ready instant,
+        // and the kind/language shouldn't shift if the user reconfigures while
+        // the summary generates.
+        let startedAt = recordingStartedAt ?? Date()
+        let endedAt = Date()
+        let lang = language.current
+        let langCode = lang.whisperCode
+        let kind = selectedKind
+        let profile = profileContext
+        let generation = sessionGeneration
+
+        // Open the detail view and reset the panel IMMEDIATELY — the diarization
+        // pass runs once over the whole meeting and can take many seconds on a
+        // long call, so it (and the summary) must not block the user. The detail
+        // view shows its "Generating…" state meanwhile. The transcript stays in
+        // the store until the background task snapshots it below.
         let draft = Meeting.newCompleted(
             userID: userID,
             startedAt: startedAt,
             endedAt: endedAt,
             summary: "",
             language: langCode,
-            kind: selectedKind,
+            kind: kind,
             title: nil
         )
         meetingStore.beginGenerating(draft)
-
         NotificationCenter.default.post(
             name: .nodOpenMeetingDetail,
             object: nil,
             userInfo: [Notification.nodMeetingIDKey: draft.id]
         )
-
-        // Panel returns to ready BEFORE the LLM call so a "Generating
-        // summary…" placeholder doesn't double up — once in the small
-        // panel card and once in the detail view. The user only sees
-        // the detail-view loading state.
-        cleanupToIdle()
+        resetPanelForIdle()
 
         let draftID = draft.id
         Task {
+            await store.flushPending()
+
+            // A new recording started during the flush window — the store now
+            // belongs to it. Abandon this meeting's finalize rather than
+            // summarize/snapshot the new transcript or clear the live recording.
+            guard sessionGeneration == generation else {
+                Log.ui.info("End Meeting finalize abandoned — newer session started")
+                return
+            }
+
+            // Snapshot the (un-diarized) transcript for the summary up front.
+            // Diarization only adds "Them 1/2/…" labels, which the summary
+            // infers from content anyway — so the recap doesn't need to wait
+            // out the pyannote pass, which is many seconds on a long meeting.
+            let context = store.fullContext
+            guard !context.isEmpty else {
+                store.clear()
+                meetingStore.markGenerationFailed(id: draftID, errorMessage: "⚠️ No transcript captured")
+                return
+            }
+
             let (system, user) = PromptLibrary.build(
                 kind: .summary,
                 transcript: context,
-                language: language.current,
-                personalContext: profileContext,
+                language: lang,
+                personalContext: profile,
                 sessionKind: draft.kind
             )
+
+            // Diarization and the summary are independent. Give speaker labels
+            // a short chance to land, but never let them block transcript save.
+            let diarizationTask = Task { await store.diarizedEntriesSnapshot() }
             do {
                 let recap = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self)
                 let text = recap.toMarkdown()
@@ -223,10 +261,31 @@ final class MeetingSession: ObservableObject {
                 let title = await generateMeetingTitle(from: text)
                 let updated = draft.updating(title: title, summary: text, recap: recap)
                 meetingStore.applyGenerated(updated)
-                await persistMeeting(
-                    meeting: updated,
-                    transcriptEntries: transcriptEntries
+
+                let plainEntries = store.entries
+                let transcriptSnapshot = await transcriptSnapshot(
+                    from: diarizationTask,
+                    fallback: plainEntries
                 )
+                guard sessionGeneration == generation else {
+                    Log.ui.info("End Meeting finalize abandoned — newer session started")
+                    meetingStore.finishFinalizing(id: updated.id)
+                    return
+                }
+                store.clear()
+                let saved = await persistMeeting(
+                    meeting: updated,
+                    transcriptEntries: transcriptSnapshot.entries
+                )
+                meetingStore.finishFinalizing(id: updated.id)
+                if saved, let pendingDiarization = transcriptSnapshot.pendingDiarization {
+                    Task {
+                        await self.backfillTranscriptSpeakers(
+                            from: pendingDiarization,
+                            meeting: updated
+                        )
+                    }
+                }
                 // Enrichment (entities for "Related" + embeddings for
                 // cross-session search) only runs once the meeting actually
                 // landed on the server. If the save was queued for retry, the
@@ -240,7 +299,7 @@ final class MeetingSession: ObservableObject {
                 // keeps it from sharing a worker instance with the entity call —
                 // the contention that pushed it over the CPU budget. It's all
                 // background, so the extra latency is invisible to the user.
-                if !pendingMeetingSaves.contains(where: { $0.id == updated.id }) {
+                if saved {
                     await extractEntities(
                         meetingID: updated.id,
                         userID: userID,
@@ -253,6 +312,12 @@ final class MeetingSession: ObservableObject {
                     )
                 }
             } catch {
+                diarizationTask.cancel()
+                if sessionGeneration == generation {
+                    store.clear()
+                } else {
+                    Log.ui.info("End Meeting transcript clear skipped — newer session started")
+                }
                 Log.ui.error("Meeting summary generation failed: \(error.localizedDescription)")
                 meetingStore.markGenerationFailed(
                     id: draftID,
@@ -262,11 +327,17 @@ final class MeetingSession: ObservableObject {
         }
     }
 
-    private func cleanupToIdle() {
+    /// Reset the panel to its ready state without touching the transcript —
+    /// used when the post-meeting finalize still needs `store` for diarization.
+    private func resetPanelForIdle() {
         meeting = .idle
         response = .none
         elapsed = 0
         micMuted = false
+    }
+
+    private func cleanupToIdle() {
+        resetPanelForIdle()
         store.clear()
     }
 
@@ -348,6 +419,50 @@ final class MeetingSession: ObservableObject {
 
     // MARK: - Meeting persistence (issue #14)
 
+    private func transcriptSnapshot(
+        from task: Task<[TranscriptEntry]?, Never>,
+        fallback: [TranscriptEntry]
+    ) async -> TranscriptSnapshot {
+        switch await waitForDiarization(task, timeout: 8) {
+        case let .completed(entries):
+            return TranscriptSnapshot(entries: entries ?? fallback, pendingDiarization: nil)
+        case .timedOut:
+            Log.stt.info("diarization: timed out — saving transcript now, speaker labels will backfill")
+            return TranscriptSnapshot(entries: fallback, pendingDiarization: task)
+        }
+    }
+
+    private func waitForDiarization(
+        _ task: Task<[TranscriptEntry]?, Never>,
+        timeout: TimeInterval
+    ) async -> DiarizationWaitResult {
+        await withTaskGroup(of: DiarizationWaitResult.self) { group in
+            group.addTask {
+                await .completed(task.value)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return .timedOut
+            }
+            let result = await group.next() ?? .timedOut
+            group.cancelAll()
+            return result
+        }
+    }
+
+    private func backfillTranscriptSpeakers(
+        from task: Task<[TranscriptEntry]?, Never>,
+        meeting: Meeting
+    ) async {
+        guard let entries = await task.value else { return }
+        let records = transcriptRecords(from: entries, meeting: meeting)
+        do {
+            try await meetingStore.updateTranscriptSpeakers(records)
+        } catch {
+            Log.ui.error("MeetingStore.updateTranscriptSpeakers failed (non-fatal) — \(error.localizedDescription)")
+        }
+    }
+
     /// Fires the Supabase insert for a finalised meeting and best-effort
     /// follows with a transcript bulk-insert. On insert failure the row
     /// is cached in `pendingMeetingSaves` so the retry toast can re-fire
@@ -357,7 +472,7 @@ final class MeetingSession: ObservableObject {
     private func persistMeeting(
         meeting: Meeting,
         transcriptEntries: [TranscriptEntry]
-    ) async {
+    ) async -> Bool {
         await attemptSave(meeting)
         // If attemptSave failed it queues `meeting` on pendingMeetingSaves —
         // inserting transcripts now would FK-fail (no parent row on the
@@ -370,14 +485,27 @@ final class MeetingSession: ObservableObject {
         // preserved by the existing retry path.
         if pendingMeetingSaves.contains(where: { $0.id == meeting.id }) {
             Log.ui.info("insertTranscript skipped — meeting save still pending")
-            return
+            return false
         }
         // Transcript best-effort: the summary row is already saved, so a
         // transcript failure shouldn't surface a retry toast — log and
         // move on. The detail view degrades gracefully when transcripts
         // are missing (shows "No transcript saved for this meeting.").
-        guard !transcriptEntries.isEmpty else { return }
-        let records = transcriptEntries.enumerated().map { idx, entry in
+        guard !transcriptEntries.isEmpty else { return true }
+        let records = transcriptRecords(from: transcriptEntries, meeting: meeting)
+        do {
+            try await meetingStore.insertTranscript(records)
+        } catch {
+            Log.ui.error("MeetingStore.insertTranscript failed (non-fatal) — \(error.localizedDescription)")
+        }
+        return true
+    }
+
+    private func transcriptRecords(
+        from entries: [TranscriptEntry],
+        meeting: Meeting
+    ) -> [TranscriptRecord] {
+        entries.enumerated().map { idx, entry in
             TranscriptRecord(
                 id: entry.id,
                 meetingID: meeting.id,
@@ -386,13 +514,9 @@ final class MeetingSession: ObservableObject {
                 source: entry.source.rawValue,
                 text: entry.text,
                 ts: entry.timestamp,
-                idx: idx
+                idx: idx,
+                speaker: entry.speaker
             )
-        }
-        do {
-            try await meetingStore.insertTranscript(records)
-        } catch {
-            Log.ui.error("MeetingStore.insertTranscript failed (non-fatal) — \(error.localizedDescription)")
         }
     }
 
@@ -481,13 +605,15 @@ final class MeetingSession: ObservableObject {
         return line
     }
 
-    private func attemptSave(_ meeting: Meeting) async {
+    @discardableResult
+    private func attemptSave(_ meeting: Meeting) async -> Bool {
         do {
             try await meetingStore.insert(meeting)
             pendingMeetingSaves.removeAll { $0.id == meeting.id }
             if pendingMeetingSaves.isEmpty {
                 saveErrorToast = nil
             }
+            return true
         } catch {
             Log.ui.error("MeetingStore.insert failed — \(error.localizedDescription)")
             // Queue the failed save so the retry toast can re-fire it.
@@ -500,6 +626,7 @@ final class MeetingSession: ObservableObject {
                 pendingMeetingSaves.append(meeting)
             }
             saveErrorToast = "Couldn't save meeting — \(error.localizedDescription)"
+            return false
         }
     }
 

@@ -16,7 +16,7 @@ import os
 /// flowing and chunks stay within Whisper's window.
 final class WhisperTranscriber: @unchecked Sendable {
     let source: TranscriptSource
-    var onFinal: ((String, TranscriptSource) -> Void)?
+    var onFinal: ((TranscribedChunk) -> Void)?
     var onFailure: ((String, TranscriptSource) -> Void)?
     /// Called per-segment to determine which language code to send to Whisper.
     /// Default is English; TranscriptStore overrides this to read from the
@@ -41,6 +41,27 @@ final class WhisperTranscriber: @unchecked Sendable {
     private let vad: SherpaOnnxVoiceActivityDetectorWrapper?
     private var chunkCounter: Int = 0
 
+    /// Speaker diarization runs on the system-audio (`.them`) stream only — the
+    /// mic is always the local user, one speaker. We spool every VAD utterance
+    /// and, at meeting end, run pyannote offline diarization over the whole
+    /// spool (see SherpaSpeakerDiarization) — far more robust on many-speaker
+    /// calls than per-utterance embedding clustering. nil for `.me` and if the
+    /// models fail to load.
+    private let diarizer: SherpaSpeakerDiarization?
+    /// Concatenated 16 kHz mono speech (VAD utterances only, no silence) for the
+    /// end-of-meeting diarization pass. `segmentRanges[i]` is the span of the
+    /// i-th emitted `.them` segment within `spool`; `TranscribedChunk.segmentIndex`
+    /// carries `i` so TranscriptStore can map the diarizer's speakers back.
+    /// Touched only on `queue`.
+    private var spool: [Float] = []
+    private var segmentRanges: [SegmentRange] = []
+    /// Cap the spool so a marathon meeting can't grow memory without bound:
+    /// 16 kHz × 40 min of speech ≈ 38.4M floats (~150 MB). Beyond this, later
+    /// segments are left unlabelled (carry-forward fills them).
+    private static let maxSpoolSamples = 16_000 * 60 * 40
+    private static let diarizationWindowSeconds: Double = 5 * 60
+    private static let diarizationWindowOverlapSeconds: Double = 20
+
     // In-flight transcription Tasks; flushPending awaits these so a Suggest-reply
     // sees all completed segments, in order, before it reads the context.
     private var inFlightFlushes: [UUID: Task<Void, Never>] = [:]
@@ -50,6 +71,19 @@ final class WhisperTranscriber: @unchecked Sendable {
     /// cut and keeps terminology consistent across chunks.
     private var promptTail: String = ""
     private static let promptTailMaxChars = 200
+
+    private struct AudioClockSpan {
+        let startSample: Int
+        let count: Int
+        let startDate: Date
+
+        var endSample: Int {
+            startSample + count
+        }
+    }
+
+    private var acceptedSampleCount = 0
+    private var audioClockSpans: [AudioClockSpan] = []
 
     // Silero segmentation tuning (see sherpaOnnxSileroVadModelConfig):
     /// Cut a segment only after this much trailing silence. Set high enough to
@@ -83,6 +117,21 @@ final class WhisperTranscriber: @unchecked Sendable {
         if vad == nil {
             Log.stt.error("[\(source.label)] Silero VAD unavailable — model missing or failed to load")
         }
+        if source == .them {
+            diarizer = WhisperTranscriber.makeDiarizer()
+            if diarizer == nil {
+                Log.stt.error("[\(source.label)] diarization models unavailable — speaker labels disabled")
+            }
+        } else {
+            diarizer = nil
+        }
+    }
+
+    private static func makeDiarizer() -> SherpaSpeakerDiarization? {
+        guard let segmentation = Bundle.main.url(forResource: "speaker_segmentation", withExtension: "onnx")?.path,
+              let embedding = Bundle.main.url(forResource: "speaker_embedding", withExtension: "onnx")?.path
+        else { return nil }
+        return SherpaSpeakerDiarization(segmentationModel: segmentation, embeddingModel: embedding)
     }
 
     private static func makeVAD() -> SherpaOnnxVoiceActivityDetectorWrapper? {
@@ -112,6 +161,11 @@ final class WhisperTranscriber: @unchecked Sendable {
             self.promptTail = ""
             // Reset Silero state for a fresh stream (also drops any queued segments).
             self.vad?.reset()
+            // Drop the previous meeting's diarization spool.
+            self.spool.removeAll(keepingCapacity: false)
+            self.segmentRanges.removeAll(keepingCapacity: false)
+            self.acceptedSampleCount = 0
+            self.audioClockSpans.removeAll(keepingCapacity: false)
         }
     }
 
@@ -133,6 +187,7 @@ final class WhisperTranscriber: @unchecked Sendable {
     /// once the callback returns, so it can't cross into the async block.
     func append(_ buffer: AVAudioPCMBuffer, copying: Bool = true) {
         guard buffer.frameLength > 0 else { return }
+        let receivedAt = Date()
         let admitted = pendingBuffers.withLock { count -> Bool in
             guard count < Self.maxPendingBuffers else { return false }
             count += 1
@@ -165,7 +220,10 @@ final class WhisperTranscriber: @unchecked Sendable {
             defer { self.pendingBuffers.withLock { $0 -= 1 } }
             guard self.keepRecognizing, let vad = self.vad, let normalized = self.normalize(owned) else { return }
             guard let channel = normalized.floatChannelData?[0] else { return }
-            vad.acceptWaveform(channel, count: Int(normalized.frameLength))
+            let frameCount = Int(normalized.frameLength)
+            guard frameCount > 0 else { return }
+            self.noteAcceptedAudio(frameCount: frameCount, receivedAt: receivedAt)
+            vad.acceptWaveform(channel, count: frameCount)
             self.drainSegments(reason: "vad")
         }
     }
@@ -206,15 +264,180 @@ final class WhisperTranscriber: @unchecked Sendable {
         while !vad.isEmpty() {
             let segment = vad.front()
             vad.pop()
-            guard let samples = segment?.samples, let wav = WhisperTranscriber.encodeWAV(samples) else { continue }
-            sendToWhisper(wav: wav, reason: reason)
+            guard let segment,
+                  let wav = WhisperTranscriber.encodeWAV(segment.samples)
+            else { continue }
+            sendToWhisper(
+                wav: wav,
+                reason: reason,
+                timestamp: timestamp(forSampleIndex: segment.start),
+                segmentIndex: spoolForDiarization(segment.samples)
+            )
         }
+    }
+
+    private func noteAcceptedAudio(frameCount: Int, receivedAt: Date) {
+        let startSample = acceptedSampleCount
+        let duration = Double(frameCount) / Self.speechFormat.sampleRate
+        audioClockSpans.append(AudioClockSpan(
+            startSample: startSample,
+            count: frameCount,
+            startDate: receivedAt.addingTimeInterval(-duration)
+        ))
+        acceptedSampleCount += frameCount
+    }
+
+    private func timestamp(forSampleIndex sampleIndex: Int) -> Date {
+        for span in audioClockSpans.reversed() {
+            if sampleIndex >= span.startSample, sampleIndex < span.endSample {
+                let offset = Double(sampleIndex - span.startSample) / Self.speechFormat.sampleRate
+                return span.startDate.addingTimeInterval(offset)
+            }
+        }
+        if let first = audioClockSpans.first {
+            let offset = Double(sampleIndex - first.startSample) / Self.speechFormat.sampleRate
+            return first.startDate.addingTimeInterval(offset)
+        }
+        return Date()
+    }
+
+    /// Append a `.them` utterance to the diarization spool and return its index,
+    /// or nil for `.me`, when diarization is unavailable, or once the spool cap
+    /// is hit (those utterances inherit a neighbour's speaker at mapping time).
+    /// Must be on `queue`.
+    private func spoolForDiarization(_ samples: [Float]) -> Int? {
+        guard diarizer != nil, spool.count + samples.count <= Self.maxSpoolSamples else { return nil }
+        let start = spool.count
+        spool.append(contentsOf: samples)
+        segmentRanges.append(SegmentRange(start: start, count: samples.count))
+        return segmentRanges.count - 1
+    }
+
+    /// Run pyannote offline diarization over the whole spool and map each
+    /// emitted segment to a speaker. Returns labels indexed by `segmentIndex`
+    /// (renumbered by first appearance), or nil if diarization is unavailable.
+    /// Snapshots the spool on `queue`, then diarizes off the main actor.
+    func diarizeSpeakers() async -> [Int]? {
+        guard let diarizer else { return nil }
+        let snapshot: ([Float], [SegmentRange]) = await withCheckedContinuation { cont in
+            queue.async { cont.resume(returning: (self.spool, self.segmentRanges)) }
+        }
+        let (audio, ranges) = snapshot
+        guard !audio.isEmpty, !ranges.isEmpty else { return nil }
+        let audioSeconds = Double(audio.count) / 16_000
+        let started = Date()
+        Log.stt.info("diarization: processing \(ranges.count) segments (\(String(format: "%.0f", audioSeconds))s audio)…")
+        let diarized = await diarize(audio, with: diarizer)
+        Log.stt.info("diarization: done in \(String(format: "%.1f", Date().timeIntervalSince(started)))s, \(diarized.count) ranges")
+        return SpeakerMapping.assign(segmentRanges: ranges, diarization: diarized, sampleRate: diarizer.sampleRate)
+    }
+
+    private func diarize(
+        _ audio: [Float],
+        with diarizer: SherpaSpeakerDiarization
+    ) async -> [DiarizedRange] {
+        let sampleRate = diarizer.sampleRate
+        let windowSamples = Int(Self.diarizationWindowSeconds * Double(sampleRate))
+        guard audio.count > windowSamples else {
+            return await processDiarizationWindow(audio, with: diarizer)
+        }
+
+        let overlapSamples = Int(Self.diarizationWindowOverlapSeconds * Double(sampleRate))
+        Log.stt.info("diarization: windowed mode (\(String(format: "%.0f", Self.diarizationWindowSeconds))s windows)")
+        var stitched: [DiarizedRange] = []
+        var nextGlobalSpeaker = 0
+        var startSample = 0
+        var acceptedUntil: Float = 0
+
+        while startSample < audio.count {
+            let endSample = min(audio.count, startSample + windowSamples)
+            let window = Array(audio[startSample ..< endSample])
+            let localRanges = await processDiarizationWindow(window, with: diarizer)
+            let shifted = localRanges.map {
+                DiarizedRange(
+                    start: $0.start + Float(startSample) / Float(sampleRate),
+                    end: $0.end + Float(startSample) / Float(sampleRate),
+                    speaker: $0.speaker
+                )
+            }
+            let mapping = speakerMapping(
+                for: shifted,
+                existing: stitched,
+                nextGlobalSpeaker: &nextGlobalSpeaker,
+                overlapStart: Float(startSample) / Float(sampleRate),
+                overlapEnd: acceptedUntil
+            )
+            for range in shifted {
+                guard let speaker = mapping[range.speaker], range.end > acceptedUntil else { continue }
+                stitched.append(DiarizedRange(
+                    start: max(range.start, acceptedUntil),
+                    end: range.end,
+                    speaker: speaker
+                ))
+            }
+            acceptedUntil = Float(endSample) / Float(sampleRate)
+            guard endSample < audio.count else { break }
+            startSample = max(0, endSample - overlapSamples)
+        }
+        return stitched.sorted { $0.start < $1.start }
+    }
+
+    private func processDiarizationWindow(
+        _ audio: [Float],
+        with diarizer: SherpaSpeakerDiarization
+    ) async -> [DiarizedRange] {
+        await Task.detached(priority: .utility) {
+            diarizer.process(audio)
+        }.value
+    }
+
+    private func speakerMapping(
+        for current: [DiarizedRange],
+        existing: [DiarizedRange],
+        nextGlobalSpeaker: inout Int,
+        overlapStart: Float,
+        overlapEnd: Float
+    ) -> [Int: Int] {
+        var scores: [Int: [Int: Float]] = [:]
+        if overlapEnd > overlapStart {
+            for currentRange in current {
+                let currentStart = max(currentRange.start, overlapStart)
+                let currentEnd = min(currentRange.end, overlapEnd)
+                guard currentEnd > currentStart else { continue }
+                for existingRange in existing {
+                    let overlap = Self.overlap(
+                        currentStart,
+                        currentEnd,
+                        existingRange.start,
+                        existingRange.end
+                    )
+                    guard overlap > 0 else { continue }
+                    scores[currentRange.speaker, default: [:]][existingRange.speaker, default: 0] += overlap
+                }
+            }
+        }
+
+        var mapping: [Int: Int] = [:]
+        for (local, byGlobal) in scores {
+            if let best = byGlobal.max(by: { $0.value < $1.value })?.key {
+                mapping[local] = best
+            }
+        }
+        for range in current where mapping[range.speaker] == nil {
+            mapping[range.speaker] = nextGlobalSpeaker
+            nextGlobalSpeaker += 1
+        }
+        return mapping
+    }
+
+    private static func overlap(_ aStart: Float, _ aEnd: Float, _ bStart: Float, _ bEnd: Float) -> Float {
+        max(0, min(aEnd, bEnd) - max(aStart, bStart))
     }
 
     // MARK: - Whisper
 
     /// Must be called on `queue`.
-    private func sendToWhisper(wav: Data, reason: String) {
+    private func sendToWhisper(wav: Data, reason: String, timestamp: Date, segmentIndex: Int?) {
         chunkCounter += 1
         let chunkID = chunkCounter
         Log.stt.info("[\(source.label)] chunk #\(chunkID) → Whisper (\(wav.count) bytes, \(reason))")
@@ -238,7 +461,7 @@ final class WhisperTranscriber: @unchecked Sendable {
                 // Feed this chunk's tail to the next one so a word split at a
                 // max-length cut is bridged rather than garbled.
                 self.queue.async { self.promptTail = String(trimmed.suffix(Self.promptTailMaxChars)) }
-                self.onFinal?(trimmed, src)
+                self.onFinal?(TranscribedChunk(text: trimmed, source: src, timestamp: timestamp, segmentIndex: segmentIndex))
             } catch {
                 Log.stt.error("[\(src.label)] chunk #\(chunkID) Whisper failed: \(error.localizedDescription)")
                 self.onFailure?(error.localizedDescription, src)

@@ -23,6 +23,11 @@ final class FloatingPanel<Content: View>: NSPanel {
         isMovableByWindowBackground = true
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = true
+        // Deliver mouse-moved / cursor-update events even while the panel isn't
+        // the key window. Without this, `pointerStyle(.link)` (.linkCursor) on
+        // the pills can't update the pointer on a non-activating accessory-app
+        // panel, and the cursor appears to vanish over hovered controls.
+        acceptsMouseMovedEvents = true
         // Force dark appearance regardless of system theme — the SwiftUI
         // content is hardcoded white-on-dark (Theme.Palette.ink = frost,
         // borders = white.opacity(...)), so a light `.hudWindow` material
