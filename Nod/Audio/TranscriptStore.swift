@@ -19,6 +19,16 @@ enum TranscriptSource: String {
         case .them: "🔊"
         }
     }
+
+    /// `Me` / `Them`, or `Them N` when diarization separated more than one
+    /// remote speaker. Single source of truth for both the live transcript and
+    /// persisted-record rendering.
+    func displayLabel(speaker: Int?, numbered: Bool) -> String {
+        if self == .them, numbered, let speaker {
+            return "Them \(speaker + 1)"
+        }
+        return label
+    }
 }
 
 struct TranscriptEntry: Identifiable, Equatable {
@@ -190,10 +200,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     /// `Me` / `Them` for the live bubble + persistence, or `Them N` once more
     /// than one remote speaker is present (see `recentContext`).
     private func label(for entry: TranscriptEntry, numbered: Bool) -> String {
-        if entry.source == .them, numbered, let speaker = entry.speaker {
-            return "Them \(speaker + 1)"
-        }
-        return entry.source.label
+        entry.source.displayLabel(speaker: entry.speaker, numbered: numbered)
     }
 
     /// Re-cluster every `.them` voiceprint collected this meeting into globally
@@ -201,46 +208,61 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     /// assignment. Call after `flushPending()` and before reading `fullContext`
     /// for the summary, so the LLM sees stable "Them N" attribution.
     func refineSpeakers() async {
-        await MainActor.run {
-            let themIndices = entries.indices.filter { entries[$0].source == .them }
-            guard themIndices.count >= 2 else { return }
-
-            // Cluster only segments that produced a voiceprint — short clips are
-            // skipped at capture time (their embeddings are unreliable).
-            let embeddedPositions = themIndices.filter { embeddings[entries[$0].id] != nil }
-            guard embeddedPositions.count >= 2 else { return }
-
-            let vectors = embeddedPositions.map { embeddings[entries[$0].id]! }
-            let labels = SpeakerClusterer.cluster(vectors)
-            var labelByPosition: [Int: Int] = [:]
-            for (k, pos) in embeddedPositions.enumerated() {
-                labelByPosition[pos] = labels[k]
+        // Snapshot the ordered them-entry ids and their voiceprints on the main
+        // queue, where `entries`/`embeddings` are mutated. Only segments that
+        // produced a voiceprint are clustered — short clips are skipped at
+        // capture time (their embeddings are unreliable).
+        let snapshot: (themIDs: [UUID], embeddedIDs: [UUID], vectors: [[Float]])? = await MainActor.run {
+            let them = entries.filter { $0.source == .them }
+            guard them.count >= 2 else { return nil }
+            let pairs = them.compactMap { entry -> (UUID, [Float])? in
+                guard let vector = embeddings[entry.id] else { return nil }
+                return (entry.id, vector)
             }
+            guard pairs.count >= 2 else { return nil }
+            return (them.map(\.id), pairs.map(\.0), pairs.map(\.1))
+        }
+        guard let snapshot else { return }
 
-            // Walk all them-entries in order; carry the last known speaker onto
-            // the embedding-less short segments so they don't read as new voices.
+        // Run the O(n²) agglomerative clustering OFF the main thread — this
+        // method is nonisolated, so work outside a `MainActor.run` block lands
+        // on a background executor. A long meeting (hundreds of segments) would
+        // otherwise freeze the UI for seconds at meeting end.
+        let labels = SpeakerClusterer.cluster(snapshot.vectors)
+        var labelByID: [UUID: Int] = [:]
+        for (index, id) in snapshot.embeddedIDs.enumerated() {
+            labelByID[id] = labels[index]
+        }
+
+        await MainActor.run {
+            let positionByID = Dictionary(
+                entries.enumerated().map { ($1.id, $0) },
+                uniquingKeysWith: { existing, _ in existing }
+            )
+            // Carry the last known speaker onto the embedding-less short
+            // segments so they don't read as new voices.
             var lastSpeaker = labels.first ?? 0
-            for pos in themIndices {
-                let speaker = labelByPosition[pos] ?? lastSpeaker
-                entries[pos].speaker = speaker
+            for id in snapshot.themIDs {
+                let speaker = labelByID[id] ?? lastSpeaker
+                if let idx = positionByID[id] { entries[idx].speaker = speaker }
                 lastSpeaker = speaker
             }
-
-            logSpeakerDistribution(themIndices)
+            logSpeakerDistribution()
         }
     }
 
-    private func logSpeakerDistribution(_ themIndices: [Int]) {
-        var positionsBySpeaker: [Int: [Int]] = [:]
-        for pos in themIndices {
-            guard let speaker = entries[pos].speaker else { continue }
-            positionsBySpeaker[speaker, default: []].append(pos)
+    private func logSpeakerDistribution() {
+        var bySpeaker: [Int: [TranscriptEntry]] = [:]
+        for entry in entries where entry.source == .them {
+            guard let speaker = entry.speaker else { continue }
+            bySpeaker[speaker, default: []].append(entry)
         }
-        Log.stt.info("diarization refine: \(positionsBySpeaker.count) speaker(s) across \(themIndices.count) segments")
-        for speaker in positionsBySpeaker.keys.sorted() {
-            let positions = positionsBySpeaker[speaker]!
-            let sample = entries[positions[0]].text.split(separator: " ").prefix(6).joined(separator: " ")
-            Log.stt.info("  speaker \(speaker + 1): \(positions.count) segments — e.g. \"\(sample)…\"")
+        let themCount = entries.lazy.filter { $0.source == .them }.count
+        Log.stt.info("diarization refine: \(bySpeaker.count) speaker(s) across \(themCount) segments")
+        for speaker in bySpeaker.keys.sorted() {
+            let group = bySpeaker[speaker] ?? []
+            let sample = group.first.map { $0.text.split(separator: " ").prefix(6).joined(separator: " ") } ?? ""
+            Log.stt.info("  speaker \(speaker + 1): \(group.count) segments — e.g. \"\(sample)…\"")
         }
     }
 

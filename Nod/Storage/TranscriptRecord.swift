@@ -52,9 +52,7 @@ extension TranscriptRecord {
 
     /// `Me` / `Them`, or `Them N` when `numbered` and a speaker index is set.
     func displayLabel(numbered: Bool) -> String {
-        if source == TranscriptSource.them.rawValue, numbered, let speaker {
-            return "Them \(speaker + 1)"
-        }
-        return TranscriptSource(rawValue: source)?.label ?? source
+        guard let src = TranscriptSource(rawValue: source) else { return source }
+        return src.displayLabel(speaker: speaker, numbered: numbered)
     }
 }

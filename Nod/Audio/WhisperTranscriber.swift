@@ -48,12 +48,10 @@ final class WhisperTranscriber: @unchecked Sendable {
     /// `.me` and if the embedding model fails to load.
     private let embeddingExtractor: SherpaSpeakerEmbeddingExtractor?
     private let clusterer: SpeakerClusterer?
-    /// Live speaker carried onto sub-`minDiarizationDuration` segments, which
-    /// are too short for a trustworthy voiceprint (a 0.5 s "yeah" embeds as
-    /// noise and would otherwise spawn a phantom speaker).
-    private var lastThemSpeaker = 0
-    /// Segments shorter than this (seconds) skip embedding and inherit the
-    /// previous speaker, both live and in the end-of-meeting re-cluster.
+    /// Segments shorter than this (seconds) are too brief for a trustworthy
+    /// voiceprint (a 0.5 s "yeah" embeds as noise and would spawn a phantom
+    /// speaker), so they get no embedding and stay unlabeled live; the
+    /// end-of-meeting re-cluster carries the previous speaker onto them.
     private static let minDiarizationDuration: Float = 1.0
 
     // In-flight transcription Tasks; flushPending awaits these so a Suggest-reply
@@ -146,7 +144,6 @@ final class WhisperTranscriber: @unchecked Sendable {
             self.vad?.reset()
             // Drop speakers learned in the previous meeting.
             self.clusterer?.reset()
-            self.lastThemSpeaker = 0
         }
     }
 
@@ -250,20 +247,15 @@ final class WhisperTranscriber: @unchecked Sendable {
     /// Voiceprint + live speaker index for a `.them` segment. The embedding is
     /// computed on `queue` (single-threaded with the clusterer, so no locking)
     /// and forwarded so TranscriptStore can re-cluster globally at meeting end.
-    /// Returns `(nil, nil)` for `.me` or when the model is unavailable.
+    /// Returns `(nil, nil)` for `.me`, an unavailable model, or a clip too short
+    /// to embed reliably — the meeting-end re-cluster carries a speaker onto the
+    /// short-clip gaps, so there's no live carry-forward to track here.
     private func resolveSpeaker(samples: [Float]) -> (Int?, [Float]?) {
-        guard let extractor = embeddingExtractor, let clusterer else { return (nil, nil) }
-        // Too short for a reliable voiceprint — carry the last speaker forward
-        // rather than embedding noise.
-        guard Float(samples.count) / 16_000 >= Self.minDiarizationDuration else {
-            return (lastThemSpeaker, nil)
-        }
-        guard let embedding = extractor.compute(samples: samples) else {
-            return (lastThemSpeaker, nil)
-        }
-        let speaker = clusterer.assign(embedding)
-        lastThemSpeaker = speaker
-        return (speaker, embedding)
+        guard let extractor = embeddingExtractor, let clusterer,
+              Float(samples.count) / 16_000 >= Self.minDiarizationDuration,
+              let embedding = extractor.compute(samples: samples)
+        else { return (nil, nil) }
+        return (clusterer.assign(embedding), embedding)
     }
 
     // MARK: - Whisper

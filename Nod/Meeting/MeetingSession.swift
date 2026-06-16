@@ -72,6 +72,13 @@ final class MeetingSession: ObservableObject {
     /// so we can stamp `started_at` accurately when we persist on summary.
     private var recordingStartedAt: Date?
 
+    /// Bumped each time a recording starts. `endMeeting`'s deferred finalize
+    /// captures the value and bails if it changed — otherwise a meeting started
+    /// during the post-meeting flush/re-cluster window would have its fresh
+    /// transcript snapshotted into the old summary and then wiped by the old
+    /// meeting's `cleanupToIdle()`.
+    private var sessionGeneration = 0
+
     private let audioCapture: AudioCaptureService
     private let store: TranscriptStore
     private let llm: OpenRouterClient
@@ -131,6 +138,7 @@ final class MeetingSession: ObservableObject {
 
     func beginRecording() {
         Log.ui.info("Start Meeting")
+        sessionGeneration += 1
         meeting = .recording
         elapsed = 0
         response = .none
@@ -176,6 +184,7 @@ final class MeetingSession: ObservableObject {
         let langCode = lang.whisperCode
         let kind = selectedKind
         let profile = profileContext
+        let generation = sessionGeneration
 
         Task {
             // Finalize in-flight transcription, then re-cluster speakers, so the
@@ -184,6 +193,14 @@ final class MeetingSession: ObservableObject {
             // unattributed wall of "Them".
             await store.flushPending()
             await store.refineSpeakers()
+
+            // A new recording started during the flush/re-cluster window — the
+            // store now belongs to it. Abandon this meeting's finalize rather
+            // than snapshot the new transcript or clear the live recording.
+            guard sessionGeneration == generation else {
+                Log.ui.info("End Meeting finalize abandoned — newer session started")
+                return
+            }
 
             let context = store.fullContext
             let transcriptEntries = store.entries
