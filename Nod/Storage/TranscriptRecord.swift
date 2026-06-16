@@ -55,4 +55,21 @@ extension TranscriptRecord {
         guard let src = TranscriptSource(rawValue: source) else { return source }
         return src.displayLabel(speaker: speaker, numbered: numbered)
     }
+
+    /// A copy with the diarized speaker stripped — used to retry an insert
+    /// against a database where the `speaker` column hasn't been applied yet,
+    /// so a not-yet-migrated environment never costs the whole transcript.
+    func droppingSpeaker() -> TranscriptRecord {
+        TranscriptRecord(
+            id: id,
+            meetingID: meetingID,
+            userID: userID,
+            createdAt: createdAt,
+            source: source,
+            text: text,
+            ts: ts,
+            idx: idx,
+            speaker: nil
+        )
+    }
 }

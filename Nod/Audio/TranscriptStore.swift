@@ -42,14 +42,13 @@ struct TranscriptEntry: Identifiable, Equatable {
     var speaker: Int?
 }
 
-/// One Whisper-finalised chunk handed up from a `WhisperTranscriber`. Carries
-/// the diarization payload for `.them`: the live speaker index plus the raw
-/// voiceprint, which TranscriptStore keeps for the end-of-meeting re-cluster.
+/// One Whisper-finalised chunk handed up from a `WhisperTranscriber`. For
+/// `.them` it carries the index of the spooled utterance, which the
+/// end-of-meeting diarization pass maps to a speaker.
 struct TranscribedChunk {
     let text: String
     let source: TranscriptSource
-    let speaker: Int?
-    let embedding: [Float]?
+    let segmentIndex: Int?
 }
 
 final class TranscriptStore: ObservableObject, @unchecked Sendable {
@@ -62,10 +61,11 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     private let mic: WhisperTranscriber
     private let system: WhisperTranscriber
 
-    /// Voiceprints for `.them` entries, keyed by entry id, accumulated during
-    /// the meeting and re-clustered by `refineSpeakers()` at the end. Touched
-    /// only on the main queue (alongside `entries`), so no locking.
-    private var embeddings: [UUID: [Float]] = [:]
+    /// Spool index of each `.them` entry's utterance, keyed by entry id. The
+    /// end-of-meeting diarization pass returns one speaker per index;
+    /// `refineSpeakers()` joins them back onto entries. Touched only on the main
+    /// queue (alongside `entries`), so no locking.
+    private var segmentIndexByEntry: [UUID: Int] = [:]
 
     init(client: OpenRouterClient, language: LanguagePreference) {
         mic = WhisperTranscriber(source: .me, client: client)
@@ -114,7 +114,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     func clear() {
         DispatchQueue.main.async {
             self.entries = []
-            self.embeddings = [:]
+            self.segmentIndexByEntry = [:]
             self.liveMe = ""
             self.liveThem = ""
             self.lastSource = nil
@@ -203,54 +203,18 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         entry.source.displayLabel(speaker: entry.speaker, numbered: numbered)
     }
 
-    /// Re-cluster every `.them` voiceprint collected this meeting into globally
-    /// consistent speaker labels, fixing the drift inherent in live greedy
-    /// assignment. Call after `flushPending()` and before reading `fullContext`
-    /// for the summary, so the LLM sees stable "Them N" attribution.
+    /// Diarize the meeting's system audio and join the resulting speaker labels
+    /// onto the `.them` entries. Call after `flushPending()` and before reading
+    /// `fullContext` for the summary, so the LLM sees stable "Them N"
+    /// attribution. The pyannote pass runs off the main actor inside
+    /// `system.diarizeSpeakers()`.
     func refineSpeakers() async {
-        // Snapshot the ordered them-entry ids and their voiceprints on the main
-        // queue, where `entries`/`embeddings` are mutated. Only segments that
-        // produced a voiceprint are clustered — short clips are skipped at
-        // capture time (their embeddings are unreliable).
-        let snapshot: (themIDs: [UUID], embeddedIDs: [UUID], vectors: [[Float]])? = await MainActor.run {
-            let them = entries.filter { $0.source == .them }
-            guard them.count >= 2 else { return nil }
-            let pairs = them.compactMap { entry -> (UUID, [Float])? in
-                guard let vector = embeddings[entry.id] else { return nil }
-                return (entry.id, vector)
-            }
-            guard pairs.count >= 2 else { return nil }
-            return (them.map(\.id), pairs.map(\.0), pairs.map(\.1))
-        }
-        guard let snapshot else { return }
-
-        // Run the O(n²) agglomerative clustering OFF the main thread — a long
-        // meeting (hundreds of segments) would otherwise freeze the UI for
-        // seconds at meeting end. `Task.detached` guarantees the hop regardless
-        // of this type's isolation: relying on `refineSpeakers` being
-        // nonisolated would silently regress if `TranscriptStore` ever became
-        // `@MainActor` (common for an ObservableObject).
-        let vectors = snapshot.vectors
-        let labels = await Task.detached(priority: .userInitiated) {
-            SpeakerClusterer.cluster(vectors)
-        }.value
-        var labelByID: [UUID: Int] = [:]
-        for (index, id) in snapshot.embeddedIDs.enumerated() {
-            labelByID[id] = labels[index]
-        }
-
+        guard let labels = await system.diarizeSpeakers() else { return }
         await MainActor.run {
-            let positionByID = Dictionary(
-                entries.enumerated().map { ($1.id, $0) },
-                uniquingKeysWith: { existing, _ in existing }
-            )
-            // Carry the last known speaker onto the embedding-less short
-            // segments so they don't read as new voices.
-            var lastSpeaker = labels.first ?? 0
-            for id in snapshot.themIDs {
-                let speaker = labelByID[id] ?? lastSpeaker
-                if let idx = positionByID[id] { entries[idx].speaker = speaker }
-                lastSpeaker = speaker
+            for idx in entries.indices where entries[idx].source == .them {
+                guard let segmentIndex = segmentIndexByEntry[entries[idx].id],
+                      segmentIndex < labels.count else { continue }
+                entries[idx].speaker = labels[segmentIndex]
             }
             logSpeakerDistribution()
         }
@@ -308,9 +272,11 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             switch (source, existing.source) {
             case (.them, .me):
                 Log.stt.info("dedup: replaced ME bleed with cleaner THEM ('\(text.prefix(48))…')")
-                let replacement = TranscriptEntry(source: .them, text: text, timestamp: timestamp, speaker: chunk.speaker)
-                embeddings.removeValue(forKey: existing.id)
-                embeddings[replacement.id] = chunk.embedding
+                let replacement = TranscriptEntry(source: .them, text: text, timestamp: timestamp, speaker: nil)
+                segmentIndexByEntry.removeValue(forKey: existing.id)
+                if let segmentIndex = chunk.segmentIndex {
+                    segmentIndexByEntry[replacement.id] = segmentIndex
+                }
                 entries[idx] = replacement
                 lastSource = .them
             case (.me, .them):
@@ -321,8 +287,10 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             return
         }
 
-        let entry = TranscriptEntry(source: source, text: text, timestamp: timestamp, speaker: chunk.speaker)
-        embeddings[entry.id] = chunk.embedding
+        let entry = TranscriptEntry(source: source, text: text, timestamp: timestamp, speaker: nil)
+        if let segmentIndex = chunk.segmentIndex {
+            segmentIndexByEntry[entry.id] = segmentIndex
+        }
         entries.append(entry)
         lastSource = source
     }

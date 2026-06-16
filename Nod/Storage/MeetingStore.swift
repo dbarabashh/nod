@@ -227,10 +227,31 @@ final class MeetingStore: ObservableObject {
     func insertTranscript(_ records: [TranscriptRecord]) async throws {
         guard !records.isEmpty else { return }
         Log.ui.info("MeetingStore.insertTranscript meeting=\(records[0].meetingID.uuidString) count=\(records.count)")
-        try await supabase
-            .from(Self.transcriptsTableName)
-            .insert(records)
-            .execute()
+        do {
+            try await supabase
+                .from(Self.transcriptsTableName)
+                .insert(records)
+                .execute()
+        } catch {
+            // Deploy-ordering guard: if the `speaker` column hasn't been applied
+            // to this environment yet, PostgREST rejects the whole batch. Don't
+            // lose the transcript over a not-yet-migrated column — retry without
+            // the diarization labels (they backfill once the column exists).
+            guard Self.isMissingSpeakerColumn(error) else { throw error }
+            Log.ui.error("insertTranscript: 'speaker' column absent — retrying without diarization labels")
+            try await supabase
+                .from(Self.transcriptsTableName)
+                .insert(records.map { $0.droppingSpeaker() })
+                .execute()
+        }
+    }
+
+    /// PostgREST reports an unknown column as PGRST204 with a message naming it
+    /// ("Could not find the 'speaker' column … in the schema cache"). Match on
+    /// the column name so an unrelated failure still propagates.
+    private static func isMissingSpeakerColumn(_ error: Error) -> Bool {
+        let text = String(describing: error).lowercased()
+        return text.contains("speaker") && text.contains("column")
     }
 
     /// Loads the full transcript for one meeting, ordered chronologically.

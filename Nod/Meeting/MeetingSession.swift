@@ -186,15 +186,38 @@ final class MeetingSession: ObservableObject {
         let profile = profileContext
         let generation = sessionGeneration
 
+        // Open the detail view and reset the panel IMMEDIATELY — the diarization
+        // pass runs once over the whole meeting and can take many seconds on a
+        // long call, so it (and the summary) must not block the user. The detail
+        // view shows its "Generating…" state meanwhile. The transcript stays in
+        // the store until the background task snapshots it below.
+        let draft = Meeting.newCompleted(
+            userID: userID,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            summary: "",
+            language: langCode,
+            kind: kind,
+            title: nil
+        )
+        meetingStore.beginGenerating(draft)
+        NotificationCenter.default.post(
+            name: .nodOpenMeetingDetail,
+            object: nil,
+            userInfo: [Notification.nodMeetingIDKey: draft.id]
+        )
+        resetPanelForIdle()
+
+        let draftID = draft.id
         Task {
-            // Finalize in-flight transcription, then re-cluster speakers, so the
+            // Finalize in-flight transcription, then diarize speakers, so the
             // summary (and the entries snapshot persisted to `meeting_transcripts`)
             // read a complete, diarized dialogue — "Them 1/2/…" instead of an
             // unattributed wall of "Them".
             await store.flushPending()
             await store.refineSpeakers()
 
-            // A new recording started during the flush/re-cluster window — the
+            // A new recording started during the flush/diarize window — the
             // store now belongs to it. Abandon this meeting's finalize rather
             // than snapshot the new transcript or clear the live recording.
             guard sessionGeneration == generation else {
@@ -204,39 +227,12 @@ final class MeetingSession: ObservableObject {
 
             let context = store.fullContext
             let transcriptEntries = store.entries
+            store.clear()
             guard !context.isEmpty else {
-                cleanupToIdle()
+                meetingStore.markGenerationFailed(id: draftID, errorMessage: "⚠️ No transcript captured")
                 return
             }
 
-            // Build the draft up front so MeetingDetailView opens on a real
-            // row with the timestamps + language populated and only the
-            // summary / title visibly loading. The same id flows through the
-            // server insert later — id is client-generated for idempotency.
-            let draft = Meeting.newCompleted(
-                userID: userID,
-                startedAt: startedAt,
-                endedAt: endedAt,
-                summary: "",
-                language: langCode,
-                kind: kind,
-                title: nil
-            )
-            meetingStore.beginGenerating(draft)
-
-            NotificationCenter.default.post(
-                name: .nodOpenMeetingDetail,
-                object: nil,
-                userInfo: [Notification.nodMeetingIDKey: draft.id]
-            )
-
-            // Panel returns to ready BEFORE the LLM call so a "Generating
-            // summary…" placeholder doesn't double up — once in the small
-            // panel card and once in the detail view. The user only sees
-            // the detail-view loading state.
-            cleanupToIdle()
-
-            let draftID = draft.id
             let (system, user) = PromptLibrary.build(
                 kind: .summary,
                 transcript: context,
@@ -292,11 +288,17 @@ final class MeetingSession: ObservableObject {
         }
     }
 
-    private func cleanupToIdle() {
+    /// Reset the panel to its ready state without touching the transcript —
+    /// used when the post-meeting finalize still needs `store` for diarization.
+    private func resetPanelForIdle() {
         meeting = .idle
         response = .none
         elapsed = 0
         micMuted = false
+    }
+
+    private func cleanupToIdle() {
+        resetPanelForIdle()
         store.clear()
     }
 
