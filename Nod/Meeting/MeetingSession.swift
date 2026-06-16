@@ -152,66 +152,79 @@ final class MeetingSession: ObservableObject {
     }
 
     func endMeeting() {
-        let context = store.fullContext
-        Log.ui.info("End Meeting — entries=\(store.entries.count) context.len=\(context.count)")
+        Log.ui.info("End Meeting — entries=\(store.entries.count)")
         store.stop()
         Task { await audioCapture.stop() }
 
-        if context.isEmpty {
+        guard store.hasContent else {
             cleanupToIdle()
             return
         }
-
-        // Snapshot the recording bookends BEFORE the async work — endedAt
-        // marks the user's stop, not the summary-ready instant. Snapshot
-        // the transcript entries too so the post-meeting save persists
-        // them to `meeting_transcripts` (the Transcript tab in
-        // MeetingDetailView reads them back).
-        let startedAt = recordingStartedAt ?? Date()
-        let endedAt = Date()
-        let langCode = language.current.whisperCode
-        let transcriptEntries = store.entries
-
         guard let userID = auth.currentSupabaseSession?.user.id else {
             Log.ui.error("End Meeting skipped — no session")
             cleanupToIdle()
             return
         }
 
-        // Build the draft up front so MeetingDetailView opens on a real
-        // row with the timestamps + language populated and only the
-        // summary / title visibly loading. The same id flows through the
-        // server insert later — id is client-generated for idempotency.
-        let draft = Meeting.newCompleted(
-            userID: userID,
-            startedAt: startedAt,
-            endedAt: endedAt,
-            summary: "",
-            language: langCode,
-            kind: selectedKind,
-            title: nil
-        )
-        meetingStore.beginGenerating(draft)
+        // Snapshot the recording bookends + session config BEFORE the async
+        // work — endedAt marks the user's stop, not the summary-ready instant,
+        // and the kind/language shouldn't shift if the user reconfigures while
+        // the summary generates.
+        let startedAt = recordingStartedAt ?? Date()
+        let endedAt = Date()
+        let lang = language.current
+        let langCode = lang.whisperCode
+        let kind = selectedKind
+        let profile = profileContext
 
-        NotificationCenter.default.post(
-            name: .nodOpenMeetingDetail,
-            object: nil,
-            userInfo: [Notification.nodMeetingIDKey: draft.id]
-        )
-
-        // Panel returns to ready BEFORE the LLM call so a "Generating
-        // summary…" placeholder doesn't double up — once in the small
-        // panel card and once in the detail view. The user only sees
-        // the detail-view loading state.
-        cleanupToIdle()
-
-        let draftID = draft.id
         Task {
+            // Finalize in-flight transcription, then re-cluster speakers, so the
+            // summary (and the entries snapshot persisted to `meeting_transcripts`)
+            // read a complete, diarized dialogue — "Them 1/2/…" instead of an
+            // unattributed wall of "Them".
+            await store.flushPending()
+            await store.refineSpeakers()
+
+            let context = store.fullContext
+            let transcriptEntries = store.entries
+            guard !context.isEmpty else {
+                cleanupToIdle()
+                return
+            }
+
+            // Build the draft up front so MeetingDetailView opens on a real
+            // row with the timestamps + language populated and only the
+            // summary / title visibly loading. The same id flows through the
+            // server insert later — id is client-generated for idempotency.
+            let draft = Meeting.newCompleted(
+                userID: userID,
+                startedAt: startedAt,
+                endedAt: endedAt,
+                summary: "",
+                language: langCode,
+                kind: kind,
+                title: nil
+            )
+            meetingStore.beginGenerating(draft)
+
+            NotificationCenter.default.post(
+                name: .nodOpenMeetingDetail,
+                object: nil,
+                userInfo: [Notification.nodMeetingIDKey: draft.id]
+            )
+
+            // Panel returns to ready BEFORE the LLM call so a "Generating
+            // summary…" placeholder doesn't double up — once in the small
+            // panel card and once in the detail view. The user only sees
+            // the detail-view loading state.
+            cleanupToIdle()
+
+            let draftID = draft.id
             let (system, user) = PromptLibrary.build(
                 kind: .summary,
                 transcript: context,
-                language: language.current,
-                personalContext: profileContext,
+                language: lang,
+                personalContext: profile,
                 sessionKind: draft.kind
             )
             do {

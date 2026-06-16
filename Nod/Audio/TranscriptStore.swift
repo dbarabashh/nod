@@ -26,6 +26,20 @@ struct TranscriptEntry: Identifiable, Equatable {
     let source: TranscriptSource
     let text: String
     let timestamp: Date
+    /// Diarized speaker index within the `.them` stream (0-based); nil for `.me`
+    /// and while diarization is unavailable. Set live, then overwritten by the
+    /// global re-clustering at meeting end.
+    var speaker: Int?
+}
+
+/// One Whisper-finalised chunk handed up from a `WhisperTranscriber`. Carries
+/// the diarization payload for `.them`: the live speaker index plus the raw
+/// voiceprint, which TranscriptStore keeps for the end-of-meeting re-cluster.
+struct TranscribedChunk {
+    let text: String
+    let source: TranscriptSource
+    let speaker: Int?
+    let embedding: [Float]?
 }
 
 final class TranscriptStore: ObservableObject, @unchecked Sendable {
@@ -37,6 +51,11 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
 
     private let mic: WhisperTranscriber
     private let system: WhisperTranscriber
+
+    /// Voiceprints for `.them` entries, keyed by entry id, accumulated during
+    /// the meeting and re-clustered by `refineSpeakers()` at the end. Touched
+    /// only on the main queue (alongside `entries`), so no locking.
+    private var embeddings: [UUID: [Float]] = [:]
 
     init(client: OpenRouterClient, language: LanguagePreference) {
         mic = WhisperTranscriber(source: .me, client: client)
@@ -50,14 +69,14 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         mic.languageProvider = provider
         system.languageProvider = provider
 
-        mic.onFinal = { [weak self] text, source in
-            self?.handleFinal(text: text, source: source)
+        mic.onFinal = { [weak self] chunk in
+            self?.handleFinal(chunk)
         }
         mic.onFailure = { [weak self] message, source in
             self?.handleFailure(message: message, source: source)
         }
-        system.onFinal = { [weak self] text, source in
-            self?.handleFinal(text: text, source: source)
+        system.onFinal = { [weak self] chunk in
+            self?.handleFinal(chunk)
         }
         system.onFailure = { [weak self] message, source in
             self?.handleFailure(message: message, source: source)
@@ -85,6 +104,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     func clear() {
         DispatchQueue.main.async {
             self.entries = []
+            self.embeddings = [:]
             self.liveMe = ""
             self.liveThem = ""
             self.lastSource = nil
@@ -127,9 +147,14 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     /// improving answer quality. `maxEntries: .max` degrades to the full
     /// history (`fullContext`).
     func recentContext(maxEntries: Int) -> String {
+        let included = Array(entries.suffix(maxEntries))
+        // Only number "Them" speakers once diarization has actually separated
+        // more than one — a single remote voice reads cleaner as plain "Them".
+        let themSpeakers = Set(included.compactMap { $0.source == .them ? $0.speaker : nil })
+        let numbered = themSpeakers.count > 1
         var lines: [String] = []
-        for entry in entries.suffix(maxEntries) {
-            lines.append("[\(entry.source.label)]: \(entry.text)")
+        for entry in included {
+            lines.append("[\(label(for: entry, numbered: numbered))]: \(entry.text)")
         }
         // No live partials with Whisper (it's batch), but kept for forward-compat
         // in case we ever wire a streaming STT alongside.
@@ -155,10 +180,67 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
 
     // MARK: - Callbacks from WhisperTranscriber
 
-    private func handleFinal(text: String, source: TranscriptSource) {
+    private func handleFinal(_ chunk: TranscribedChunk) {
         DispatchQueue.main.async {
-            self.appendDeduped(text: text, source: source, timestamp: Date())
+            self.appendDeduped(chunk: chunk, timestamp: Date())
             self.lastError = nil
+        }
+    }
+
+    /// `Me` / `Them` for the live bubble + persistence, or `Them N` once more
+    /// than one remote speaker is present (see `recentContext`).
+    private func label(for entry: TranscriptEntry, numbered: Bool) -> String {
+        if entry.source == .them, numbered, let speaker = entry.speaker {
+            return "Them \(speaker + 1)"
+        }
+        return entry.source.label
+    }
+
+    /// Re-cluster every `.them` voiceprint collected this meeting into globally
+    /// consistent speaker labels, fixing the drift inherent in live greedy
+    /// assignment. Call after `flushPending()` and before reading `fullContext`
+    /// for the summary, so the LLM sees stable "Them N" attribution.
+    func refineSpeakers() async {
+        await MainActor.run {
+            let themIndices = entries.indices.filter { entries[$0].source == .them }
+            guard themIndices.count >= 2 else { return }
+
+            // Cluster only segments that produced a voiceprint — short clips are
+            // skipped at capture time (their embeddings are unreliable).
+            let embeddedPositions = themIndices.filter { embeddings[entries[$0].id] != nil }
+            guard embeddedPositions.count >= 2 else { return }
+
+            let vectors = embeddedPositions.map { embeddings[entries[$0].id]! }
+            let labels = SpeakerClusterer.cluster(vectors)
+            var labelByPosition: [Int: Int] = [:]
+            for (k, pos) in embeddedPositions.enumerated() {
+                labelByPosition[pos] = labels[k]
+            }
+
+            // Walk all them-entries in order; carry the last known speaker onto
+            // the embedding-less short segments so they don't read as new voices.
+            var lastSpeaker = labels.first ?? 0
+            for pos in themIndices {
+                let speaker = labelByPosition[pos] ?? lastSpeaker
+                entries[pos].speaker = speaker
+                lastSpeaker = speaker
+            }
+
+            logSpeakerDistribution(themIndices)
+        }
+    }
+
+    private func logSpeakerDistribution(_ themIndices: [Int]) {
+        var positionsBySpeaker: [Int: [Int]] = [:]
+        for pos in themIndices {
+            guard let speaker = entries[pos].speaker else { continue }
+            positionsBySpeaker[speaker, default: []].append(pos)
+        }
+        Log.stt.info("diarization refine: \(positionsBySpeaker.count) speaker(s) across \(themIndices.count) segments")
+        for speaker in positionsBySpeaker.keys.sorted() {
+            let positions = positionsBySpeaker[speaker]!
+            let sample = entries[positions[0]].text.split(separator: " ").prefix(6).joined(separator: " ")
+            Log.stt.info("  speaker \(speaker + 1): \(positions.count) segments — e.g. \"\(sample)…\"")
         }
     }
 
@@ -186,7 +268,9 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     ///
     /// When both sides genuinely overlap (different speakers, different
     /// content), neither metric fires and both rows survive.
-    private func appendDeduped(text: String, source: TranscriptSource, timestamp: Date) {
+    private func appendDeduped(chunk: TranscribedChunk, timestamp: Date) {
+        let text = chunk.text
+        let source = chunk.source
         let cutoff = timestamp.addingTimeInterval(-Self.dedupWindowSeconds)
         let incoming = Self.wordSet(text)
         for (idx, existing) in entries.enumerated().reversed() {
@@ -197,7 +281,10 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             switch (source, existing.source) {
             case (.them, .me):
                 Log.stt.info("dedup: replaced ME bleed with cleaner THEM ('\(text.prefix(48))…')")
-                entries[idx] = TranscriptEntry(source: .them, text: text, timestamp: timestamp)
+                let replacement = TranscriptEntry(source: .them, text: text, timestamp: timestamp, speaker: chunk.speaker)
+                embeddings.removeValue(forKey: existing.id)
+                embeddings[replacement.id] = chunk.embedding
+                entries[idx] = replacement
                 lastSource = .them
             case (.me, .them):
                 Log.stt.info("dedup: dropped ME bleed of existing THEM ('\(text.prefix(48))…')")
@@ -207,7 +294,9 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             return
         }
 
-        entries.append(TranscriptEntry(source: source, text: text, timestamp: timestamp))
+        let entry = TranscriptEntry(source: source, text: text, timestamp: timestamp, speaker: chunk.speaker)
+        embeddings[entry.id] = chunk.embedding
+        entries.append(entry)
         lastSource = source
     }
 

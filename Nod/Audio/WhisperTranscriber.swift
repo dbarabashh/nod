@@ -16,7 +16,7 @@ import os
 /// flowing and chunks stay within Whisper's window.
 final class WhisperTranscriber: @unchecked Sendable {
     let source: TranscriptSource
-    var onFinal: ((String, TranscriptSource) -> Void)?
+    var onFinal: ((TranscribedChunk) -> Void)?
     var onFailure: ((String, TranscriptSource) -> Void)?
     /// Called per-segment to determine which language code to send to Whisper.
     /// Default is English; TranscriptStore overrides this to read from the
@@ -40,6 +40,21 @@ final class WhisperTranscriber: @unchecked Sendable {
 
     private let vad: SherpaOnnxVoiceActivityDetectorWrapper?
     private var chunkCounter: Int = 0
+
+    /// Speaker diarization runs on the system-audio (`.them`) stream only — the
+    /// mic is always the local user, one speaker. Each VAD segment yields one
+    /// voiceprint, greedily assigned to a speaker for the live label; the global
+    /// re-clustering at meeting end happens in TranscriptStore. Both nil for
+    /// `.me` and if the embedding model fails to load.
+    private let embeddingExtractor: SherpaSpeakerEmbeddingExtractor?
+    private let clusterer: SpeakerClusterer?
+    /// Live speaker carried onto sub-`minDiarizationDuration` segments, which
+    /// are too short for a trustworthy voiceprint (a 0.5 s "yeah" embeds as
+    /// noise and would otherwise spawn a phantom speaker).
+    private var lastThemSpeaker = 0
+    /// Segments shorter than this (seconds) skip embedding and inherit the
+    /// previous speaker, both live and in the end-of-meeting re-cluster.
+    private static let minDiarizationDuration: Float = 1.0
 
     // In-flight transcription Tasks; flushPending awaits these so a Suggest-reply
     // sees all completed segments, in order, before it reads the context.
@@ -83,6 +98,23 @@ final class WhisperTranscriber: @unchecked Sendable {
         if vad == nil {
             Log.stt.error("[\(source.label)] Silero VAD unavailable — model missing or failed to load")
         }
+        if source == .them, let extractor = WhisperTranscriber.makeEmbeddingExtractor() {
+            embeddingExtractor = extractor
+            clusterer = SpeakerClusterer()
+        } else {
+            if source == .them {
+                Log.stt.error("[\(source.label)] speaker-embedding model unavailable — diarization disabled")
+            }
+            embeddingExtractor = nil
+            clusterer = nil
+        }
+    }
+
+    private static func makeEmbeddingExtractor() -> SherpaSpeakerEmbeddingExtractor? {
+        guard let modelPath = Bundle.main.url(forResource: "speaker_embedding", withExtension: "onnx")?.path else {
+            return nil
+        }
+        return SherpaSpeakerEmbeddingExtractor(model: modelPath)
     }
 
     private static func makeVAD() -> SherpaOnnxVoiceActivityDetectorWrapper? {
@@ -112,6 +144,9 @@ final class WhisperTranscriber: @unchecked Sendable {
             self.promptTail = ""
             // Reset Silero state for a fresh stream (also drops any queued segments).
             self.vad?.reset()
+            // Drop speakers learned in the previous meeting.
+            self.clusterer?.reset()
+            self.lastThemSpeaker = 0
         }
     }
 
@@ -207,14 +242,34 @@ final class WhisperTranscriber: @unchecked Sendable {
             let segment = vad.front()
             vad.pop()
             guard let samples = segment?.samples, let wav = WhisperTranscriber.encodeWAV(samples) else { continue }
-            sendToWhisper(wav: wav, reason: reason)
+            let (speaker, embedding) = resolveSpeaker(samples: samples)
+            sendToWhisper(wav: wav, reason: reason, speaker: speaker, embedding: embedding)
         }
+    }
+
+    /// Voiceprint + live speaker index for a `.them` segment. The embedding is
+    /// computed on `queue` (single-threaded with the clusterer, so no locking)
+    /// and forwarded so TranscriptStore can re-cluster globally at meeting end.
+    /// Returns `(nil, nil)` for `.me` or when the model is unavailable.
+    private func resolveSpeaker(samples: [Float]) -> (Int?, [Float]?) {
+        guard let extractor = embeddingExtractor, let clusterer else { return (nil, nil) }
+        // Too short for a reliable voiceprint — carry the last speaker forward
+        // rather than embedding noise.
+        guard Float(samples.count) / 16_000 >= Self.minDiarizationDuration else {
+            return (lastThemSpeaker, nil)
+        }
+        guard let embedding = extractor.compute(samples: samples) else {
+            return (lastThemSpeaker, nil)
+        }
+        let speaker = clusterer.assign(embedding)
+        lastThemSpeaker = speaker
+        return (speaker, embedding)
     }
 
     // MARK: - Whisper
 
     /// Must be called on `queue`.
-    private func sendToWhisper(wav: Data, reason: String) {
+    private func sendToWhisper(wav: Data, reason: String, speaker: Int?, embedding: [Float]?) {
         chunkCounter += 1
         let chunkID = chunkCounter
         Log.stt.info("[\(source.label)] chunk #\(chunkID) → Whisper (\(wav.count) bytes, \(reason))")
@@ -238,7 +293,7 @@ final class WhisperTranscriber: @unchecked Sendable {
                 // Feed this chunk's tail to the next one so a word split at a
                 // max-length cut is bridged rather than garbled.
                 self.queue.async { self.promptTail = String(trimmed.suffix(Self.promptTailMaxChars)) }
-                self.onFinal?(trimmed, src)
+                self.onFinal?(TranscribedChunk(text: trimmed, source: src, speaker: speaker, embedding: embedding))
             } catch {
                 Log.stt.error("[\(src.label)] chunk #\(chunkID) Whisper failed: \(error.localizedDescription)")
                 self.onFailure?(error.localizedDescription, src)
