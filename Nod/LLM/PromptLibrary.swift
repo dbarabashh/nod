@@ -7,17 +7,6 @@ enum PromptKind {
     case summary // "Recap so far" / "Meeting Summary"
     case suggestReply // "Suggest reply" — real-time response suggestion
 
-    init?(rawLabel: String) {
-        switch rawLabel {
-        case "hero": self = .hero
-        case "Key points": self = .smartReply
-        case "Suggest follow-up questions": self = .followUp
-        case "Recap so far": self = .summary
-        case "Suggest reply": self = .suggestReply
-        default: return nil
-        }
-    }
-
     /// How many recent transcript entries this prompt actually needs. `nil`
     /// means "everything" — only `.summary` (end-of-meeting recap) and the
     /// kinds whose prompts explicitly anchor on the entire history qualify.

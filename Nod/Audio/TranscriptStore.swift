@@ -97,7 +97,11 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     }
 
     func appendSystemBuffer(_ buffer: AVAudioPCMBuffer) {
-        system.append(buffer)
+        // The system path's mono buffer is freshly allocated per callback by
+        // SampleBufferConverter and never reused — hand it over instead of
+        // paying a second copy (the mic path keeps the default copy because
+        // its tap buffer is engine-owned).
+        system.append(buffer, copying: false)
     }
 
     /// Force-flush both transcribers and append the results synchronously
@@ -212,7 +216,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     private static let dedupContainmentThreshold: Double = 0.8
     private static let dedupMinContainmentWords: Int = 4
 
-    private static func isAcousticBleed(_ setA: Set<String>, _ setB: Set<String>) -> Bool {
+    static func isAcousticBleed(_ setA: Set<String>, _ setB: Set<String>) -> Bool {
         if setA.isEmpty || setB.isEmpty { return false }
         let intersection = setA.intersection(setB).count
         let union = setA.count + setB.count - intersection
@@ -226,7 +230,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         return Double(intersection) / Double(smaller) >= dedupContainmentThreshold
     }
 
-    private static func wordSet(_ text: String) -> Set<String> {
+    static func wordSet(_ text: String) -> Set<String> {
         var current = ""
         var words: Set<String> = []
         for scalar in text.lowercased().unicodeScalars {

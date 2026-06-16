@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import os
 
 /// Streams audio buffers through Silero VAD (sherpa-onnx), which runs entirely
 /// on-device: it detects whole speech segments — start at speech onset, end
@@ -25,6 +26,17 @@ final class WhisperTranscriber: @unchecked Sendable {
     private let client: OpenRouterClient
     private let queue: DispatchQueue
     private var keepRecognizing = false
+
+    /// Buffers admitted to `queue` but not yet processed. The old `queue.sync`
+    /// gave natural backpressure (a stalled queue blocked the audio callback);
+    /// with `queue.async` we bound the backlog by dropping instead, so a
+    /// stalled VAD (thermal throttling, onnxruntime hiccup) can't grow the
+    /// queue without limit during a long meeting. 256 buffers ≈ 5–20 s of
+    /// audio (~1 MB) — never reached in normal operation.
+    private let pendingBuffers = OSAllocatedUnfairLock(initialState: 0)
+    /// Touched only on the producing audio-callback thread.
+    private var droppedBuffers = 0
+    private static let maxPendingBuffers = 256
 
     private let vad: SherpaOnnxVoiceActivityDetectorWrapper?
     private var chunkCounter: Int = 0
@@ -114,13 +126,62 @@ final class WhisperTranscriber: @unchecked Sendable {
         Log.stt.info("[\(source.label)] Whisper stopped")
     }
 
-    func append(_ buffer: AVAudioPCMBuffer) {
-        queue.sync {
-            guard self.keepRecognizing, let vad = self.vad, let normalized = self.normalize(buffer) else { return }
+    /// `copying: false` is for callers that hand over a freshly allocated
+    /// buffer they never touch again (the system-audio path — its mono buffer
+    /// is built per-callback by SampleBufferConverter). The default copies,
+    /// which the engine-owned mic tap buffer requires: the engine reuses it
+    /// once the callback returns, so it can't cross into the async block.
+    func append(_ buffer: AVAudioPCMBuffer, copying: Bool = true) {
+        guard buffer.frameLength > 0 else { return }
+        let admitted = pendingBuffers.withLock { count -> Bool in
+            guard count < Self.maxPendingBuffers else { return false }
+            count += 1
+            return true
+        }
+        guard admitted else {
+            // Sampled 1-in-50 after the first — a sustained stall would
+            // otherwise flood the log at buffer rate.
+            droppedBuffers += 1
+            if droppedBuffers == 1 || droppedBuffers % 50 == 0 {
+                Log.stt.error("[\(source.label)] processing backlog — dropped \(droppedBuffers) buffers")
+            }
+            return
+        }
+        let owned: AVAudioPCMBuffer
+        if copying {
+            guard let copy = Self.copyBuffer(buffer) else {
+                pendingBuffers.withLock { $0 -= 1 }
+                return
+            }
+            owned = copy
+        } else {
+            owned = buffer
+        }
+        // Everything heavy (resample, VAD inference, WAV encode) runs on the
+        // serial queue instead of blocking the audio thread, which the old
+        // `queue.sync` did. The queue is serial, so segment order and
+        // prompt-tail chaining are unchanged.
+        queue.async {
+            defer { self.pendingBuffers.withLock { $0 -= 1 } }
+            guard self.keepRecognizing, let vad = self.vad, let normalized = self.normalize(owned) else { return }
             guard let channel = normalized.floatChannelData?[0] else { return }
             vad.acceptWaveform(channel, count: Int(normalized.frameLength))
             self.drainSegments(reason: "vad")
         }
+    }
+
+    private static func copyBuffer(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard buffer.frameLength > 0,
+              let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength)
+        else { return nil }
+        copy.frameLength = buffer.frameLength
+        let source = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: buffer.audioBufferList))
+        let destination = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
+        for (src, dst) in zip(source, destination) {
+            guard let srcData = src.mData, let dstData = dst.mData else { return nil }
+            memcpy(dstData, srcData, Int(min(src.mDataByteSize, dst.mDataByteSize)))
+        }
+        return copy
     }
 
     /// Awaitable drain for low-latency callers (Suggest reply). The VAD owns

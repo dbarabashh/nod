@@ -259,8 +259,10 @@ final class MeetingStore: ObservableObject {
     /// `http://localhost:5173` while developing the viewer — via the
     /// `share.viewerBaseURL` UserDefaults key (same pattern as the
     /// `openrouter.model` / `whisper.model` overrides).
+    private static let shareViewerBaseURLKey = "share.viewerBaseURL"
+
     private static var shareViewerBaseURL: String {
-        UserDefaults.standard.string(forKey: "share.viewerBaseURL") ?? "https://share.hellonod.app"
+        UserDefaults.standard.string(forKey: shareViewerBaseURLKey) ?? "https://share.hellonod.app"
     }
 
     /// Creates (or reuses) a public share link for a meeting and returns the
@@ -311,20 +313,7 @@ final class MeetingStore: ObservableObject {
             // The trash-list copy carries a client-side `deletedAt` for
             // the "trashed Xd ago" badge until the next refreshTrash
             // overwrites with the server-stamped value.
-            let trashedCopy = Meeting(
-                id: meeting.id,
-                userID: meeting.userID,
-                createdAt: meeting.createdAt,
-                startedAt: meeting.startedAt,
-                endedAt: meeting.endedAt,
-                title: meeting.title,
-                kind: meeting.kind,
-                summary: meeting.summary,
-                recap: meeting.recap,
-                language: meeting.language,
-                deletedAt: Date()
-            )
-            trashedMeetings.insert(trashedCopy, at: 0)
+            trashedMeetings.insert(meeting.updating(deletedAt: Date()), at: 0)
         }
         pendingUndo = meeting
     }
@@ -346,20 +335,7 @@ final class MeetingStore: ObservableObject {
         if let idx = trashedMeetings.firstIndex(where: { $0.id == id }) {
             let row = trashedMeetings.remove(at: idx)
             if case .loaded = loadState {
-                let restored = Meeting(
-                    id: row.id,
-                    userID: row.userID,
-                    createdAt: row.createdAt,
-                    startedAt: row.startedAt,
-                    endedAt: row.endedAt,
-                    title: row.title,
-                    kind: row.kind,
-                    summary: row.summary,
-                    recap: row.recap,
-                    language: row.language,
-                    deletedAt: nil
-                )
-                meetings.insert(restored, at: 0)
+                meetings.insert(row.updating(deletedAt: nil), at: 0)
                 meetings.sort { $0.startedAt > $1.startedAt }
             }
         }
@@ -412,6 +388,18 @@ final class MeetingStore: ObservableObject {
             Log.ui.error("MeetingStore.refreshTrash failed: \(error.localizedDescription)")
             trashState = .failed(error.localizedDescription)
         }
+    }
+
+    /// Server rows plus any local drafts still mid-generation — they aren't
+    /// on the server yet, so a naive `meetings = rows` would yank the row out
+    /// from under MeetingDetailView while it renders the loading placeholder.
+    static func merging(rows: [Meeting], drafts: [Meeting]) -> [Meeting] {
+        var merged = rows
+        for draft in drafts where !merged.contains(where: { $0.id == draft.id }) {
+            merged.append(draft)
+        }
+        merged.sort { $0.startedAt > $1.startedAt }
+        return merged
     }
 
     // MARK: - Lifecycle
@@ -495,17 +483,8 @@ final class MeetingStore: ObservableObject {
                 .limit(500)
                 .execute()
                 .value
-            // Preserve drafts that are still mid-generation — they
-            // aren't on the server yet, so a naive `meetings = rows`
-            // would yank the row out from under MeetingDetailView while
-            // it's rendering the loading placeholder.
             let drafts = meetings.filter { generatingSummaryIDs.contains($0.id) }
-            var merged = rows
-            for draft in drafts where !merged.contains(where: { $0.id == draft.id }) {
-                merged.append(draft)
-            }
-            merged.sort { $0.startedAt > $1.startedAt }
-            meetings = merged
+            meetings = Self.merging(rows: rows, drafts: drafts)
             loadState = .loaded
             lastSuccessfulFetchAt = Date()
             lastRefreshFailed = false

@@ -40,8 +40,12 @@ final class OpenRouterClient: ObservableObject {
 
     /// Chat model override — kept in UserDefaults so devs can A/B models
     /// without rebuilding. Default points at Gemini 2.0 Flash via OpenRouter.
+    private static let modelKey = "openrouter.model"
+    private static let fallbackModelKey = "openrouter.model.fallback"
+    private static let whisperModelKey = "whisper.model"
+
     var model: String {
-        UserDefaults.standard.string(forKey: "openrouter.model") ?? "google/gemini-2.0-flash-001"
+        UserDefaults.standard.string(forKey: Self.modelKey) ?? "google/gemini-2.0-flash-001"
     }
 
     /// Cross-provider fallback used when the primary model is unavailable
@@ -52,7 +56,7 @@ final class OpenRouterClient: ObservableObject {
     /// triggering the 429s on `gemini-2.0-flash-001 (via Google AI Studio)`.
     /// Override via `defaults write com.example.nod openrouter.model.fallback "..."`.
     var fallbackModel: String {
-        UserDefaults.standard.string(forKey: "openrouter.model.fallback") ?? "anthropic/claude-haiku-4.5"
+        UserDefaults.standard.string(forKey: Self.fallbackModelKey) ?? "anthropic/claude-haiku-4.5"
     }
 
     /// Whisper model override — same rationale as above. `large-v3-turbo` is
@@ -62,7 +66,7 @@ final class OpenRouterClient: ObservableObject {
     /// whisper.model "openai/whisper-large-v3"` to A/B against full v3, or
     /// `"openai/whisper-1"` if a route drops the v3 family.
     private var whisperModel: String {
-        UserDefaults.standard.string(forKey: "whisper.model") ?? "openai/whisper-large-v3-turbo"
+        UserDefaults.standard.string(forKey: Self.whisperModelKey) ?? "openai/whisper-large-v3-turbo"
     }
 
     private let proxyURL: URL
@@ -194,7 +198,7 @@ final class OpenRouterClient: ObservableObject {
     /// transcript is too vague…" *after* the closing ```). Drops the fence
     /// (everything from the closing ``` onward), then narrows to the outermost
     /// `{…}` / `[…]` so leading or trailing prose can't reach the decoder.
-    private static func extractJSON(_ s: String) -> String {
+    static func extractJSON(_ s: String) -> String {
         var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.hasPrefix("```") {
             t.removeFirst(3)
@@ -218,7 +222,7 @@ final class OpenRouterClient: ObservableObject {
     /// (provider hiccups), 429 (rate limits — time-bucketed, usually clear
     /// within seconds), and URLError-class transport blips. Excludes 4xx
     /// (other than 429), decoding errors, empty responses, and auth failures.
-    private static func isTransient(_ error: ClientError) -> Bool {
+    static func isTransient(_ error: ClientError) -> Bool {
         switch error {
         case let .requestFailed(status, _):
             status == 429 || (status >= 500 && status < 600)
@@ -236,7 +240,7 @@ final class OpenRouterClient: ObservableObject {
     /// still hot, so a fast retry just re-hits the same wall — backing off lets
     /// the platform route to a fresh instance. 5xx / network blips retry sooner
     /// since they're usually fixed by the next request.
-    private static func retryDelayMillis(for error: ClientError, attempt: Int) -> UInt64 {
+    static func retryDelayMillis(for error: ClientError, attempt: Int) -> UInt64 {
         let base: UInt64 = switch error {
         case let .requestFailed(status, _) where status == 429 || status == 546:
             800
@@ -533,7 +537,7 @@ final class OpenRouterClient: ObservableObject {
     /// Reduce arbitrary error response bodies (HTML pages, giant JSON with
     /// nested metadata, etc.) to something short and human-readable so they
     /// don't flood log/UI.
-    private static func sanitizeErrorBody(_ body: String) -> String {
+    static func sanitizeErrorBody(_ body: String) -> String {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowered = trimmed.lowercased()
 
