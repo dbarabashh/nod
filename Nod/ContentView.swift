@@ -21,7 +21,6 @@ struct ContentView: View {
     @EnvironmentObject private var updateGate: UpdateGate
     @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var hotkey: HotkeyManager
-    @EnvironmentObject private var transcriptStore: TranscriptStore
 
     /// Reports the panel's desired width as the layout switches between the
     /// compact single-column state and the wide two-column state. The
@@ -211,8 +210,6 @@ struct ContentView: View {
                 }
 
             case .recording, .paused:
-                transcriptBubble
-
                 // One primary action (Catch me up — absorbs the old "Recap
                 // so far"; they answered the same "summarise what happened"
                 // need). The rest are a quieter secondary tier with glyphs
@@ -293,27 +290,6 @@ struct ContentView: View {
 
     private var elapsedString: String {
         String(format: "%02d:%02d", session.elapsed / 60, session.elapsed % 60)
-    }
-
-    @ViewBuilder
-    private var transcriptBubble: some View {
-        if let error = transcriptStore.lastError {
-            TranscriptBubble(
-                title: "Transcription",
-                transcript: error,
-                systemName: "exclamationmark.triangle.fill",
-                tint: Theme.Palette.warning,
-                isPaused: true
-            )
-        } else if let snapshot = transcriptStore.bubbleSnapshot {
-            TranscriptBubble(
-                title: snapshot.source.displayLabel(speaker: nil, numbered: false),
-                transcript: snapshot.text,
-                systemName: snapshot.source == .me ? "mic.fill" : "speaker.wave.2.fill",
-                tint: snapshot.source == .me ? Theme.Palette.success : Theme.Palette.cyan,
-                isPaused: session.meeting == .paused
-            )
-        }
     }
 
     // MARK: - Actions
@@ -864,58 +840,6 @@ private struct SessionKindPicker: View {
     }
 }
 
-// MARK: - Transcript
-
-private struct TranscriptBubble: View {
-    let title: String
-    let transcript: String
-    let systemName: String
-    let tint: Color
-    let isPaused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 7) {
-                Image(systemName: systemName)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(tint)
-                    .frame(width: 13)
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.72))
-                Spacer(minLength: 0)
-                if isPaused {
-                    Image(systemName: "pause.fill")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(Theme.Palette.warning)
-                }
-            }
-
-            Text(transcript)
-                .font(.system(size: 12.5, weight: .regular))
-                .foregroundColor(.white.opacity(0.90))
-                .lineLimit(5)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(width: 246, alignment: .leading)
-        .background(
-            ZStack {
-                PanelMaterial()
-                Color.white.opacity(0.04)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-        )
-        .animation(.easeOut(duration: 0.18), value: transcript)
-    }
-}
-
 // MARK: - Hero
 
 private struct HeroButton: View {
@@ -1291,6 +1215,5 @@ private struct SaveErrorToast: View {
         .environmentObject(UpdateGate(supabase: supabase))
         .environmentObject(EntitlementService(supabase: supabase))
         .environmentObject(HotkeyManager())
-        .environmentObject(transcriptStore)
         .background(Color.gray.opacity(0.3))
 }
