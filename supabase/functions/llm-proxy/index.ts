@@ -18,7 +18,8 @@
 // chat, we inject `usage: { include: true }` so the response carries cost in
 // dollars — the client never sees this field, it just lands in the DB.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
+import { adminClient, authenticate } from "../_shared/supabase.ts";
+import { json } from "../_shared/http.ts";
 
 // `Supabase.ai` is an ambient global provided by the Edge Function runtime —
 // declare it so TypeScript doesn't choke on the gte-small embedding session.
@@ -75,12 +76,6 @@ interface ProxyRequest {
     payload: unknown;
 }
 
-function adminClient() {
-    return createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
-}
-
 // `app_config.minimum_build`, cached per warm instance so the gate doesn't add
 // a DB round-trip to every proxy call. 0 (fail-open) when the row can't be read.
 let cachedMinBuild: { value: number; at: number } | null = null;
@@ -97,6 +92,59 @@ async function minimumBuild(admin: ReturnType<typeof adminClient>): Promise<numb
     const value = (!error && data && typeof data.minimum_build === "number") ? data.minimum_build : 0;
     cachedMinBuild = { value, at: now };
     return value;
+}
+
+// Server-side entitlement gate (#17). Client-side feature gates are UX; this
+// is the enforcement, at the only place a patched client can't skip. Resolved
+// via `resolve_entitlement` (SECURITY DEFINER, service-role only) and cached
+// per warm instance: steady transcribe traffic (~12 calls/min in a meeting)
+// costs one DB round-trip per user per TTL, not per call. The cached
+// hours_used therefore lags up to the TTL — fine, the cap is soft anyway.
+interface Entitlement {
+    plan: string;
+    status: string;
+    features: string[];
+    hours_used: number;
+    hours_limit: number;
+}
+
+const ENTITLEMENT_TTL_MS = 60_000;
+// Sweep expired entries once the map crosses this size, so a warm instance
+// serving many one-shot users doesn't accumulate entries unbounded (each is
+// only TTL-checked on read, never otherwise removed).
+const ENTITLEMENT_CACHE_MAX = 1_000;
+const entitlementCache = new Map<string, { ent: Entitlement; at: number }>();
+
+// Kinds exempt from the entitlement gate. Everything else is gated by default
+// (see the gate below) so a new billable kind can't be added without one.
+const UNGATED_KINDS = new Set(["device_claim", "device_release"]);
+
+async function entitlementFor(admin: ReturnType<typeof adminClient>, userId: string): Promise<Entitlement | null> {
+    const cached = entitlementCache.get(userId);
+    const now = Date.now();
+    if (cached) {
+        if (now - cached.at < ENTITLEMENT_TTL_MS) return cached.ent;
+        entitlementCache.delete(userId);
+    }
+    if (entitlementCache.size > ENTITLEMENT_CACHE_MAX) {
+        for (const [k, v] of entitlementCache) {
+            if (now - v.at >= ENTITLEMENT_TTL_MS) entitlementCache.delete(k);
+        }
+    }
+    const { data, error } = await admin.rpc("resolve_entitlement", { p_user_id: userId });
+    if (error || !isObject(data)) {
+        console.warn(`entitlement lookup failed (fail-open): ${error?.message ?? "unexpected shape"}`);
+        return null;
+    }
+    const ent: Entitlement = {
+        plan: typeof data.plan === "string" ? data.plan : "none",
+        status: typeof data.status === "string" ? data.status : "none",
+        features: Array.isArray(data.features) ? data.features.filter((f): f is string => typeof f === "string") : [],
+        hours_used: typeof data.hours_used === "number" ? data.hours_used : 0,
+        hours_limit: typeof data.hours_limit === "number" ? data.hours_limit : 0,
+    };
+    entitlementCache.set(userId, { ent, at: now });
+    return ent;
 }
 
 // Stamp the client's build/version onto its profile row — version visibility
@@ -123,16 +171,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "Server misconfigured" }, 500);
     }
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return json({ error: "Unauthenticated" }, 401);
-
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-    if (userError || !user) {
-        console.warn(`JWT rejected: ${userError?.message ?? "no user"}`);
-        return json({ error: "Unauthenticated" }, 401);
-    }
+    const auth = await authenticate(req);
+    if (auth instanceof Response) return auth;
+    const { user } = auth;
 
     // Version gate + stamp. The gate (426) is the backstop for a stale client
     // that slipped past the launch check; the stamp records the build for
@@ -206,6 +247,34 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }
     }
 
+    // Entitlement gate. Every billable/feature-bearing kind is gated here — the
+    // proxy is the chokepoint a patched client can't skip (client-side gates are
+    // UX only). A locked account (expired trial, canceled sub, no subscription)
+    // gets 403 entitlement_required. `search` is additionally gated on the
+    // SPECIFIC plan feature its scope maps to, so a Starter user can ask within a
+    // single meeting but not across all of them or by label. The hour cap is
+    // deliberately soft — an over-cap call is still served (never blocked) and
+    // the remaining hours are surfaced via x-nod-hours-* headers.
+    // Fail open on lookup errors: a DB hiccup must never cut a live meeting.
+    // Gate by EXEMPTION, not by an allowlist of kinds: anything that isn't an
+    // explicitly-exempt device op is gated, so a future billable kind is gated
+    // by default rather than silently served free until someone remembers to
+    // add it here. (device_release already returned above; device_claim is the
+    // signed-in device handshake and carries no entitlement cost.)
+    let entitlement: Entitlement | null = null;
+    if (!UNGATED_KINDS.has(body.kind)) {
+        entitlement = await entitlementFor(admin, user.id);
+        if (entitlement && entitlement.status !== "trialing" && entitlement.status !== "active") {
+            return json({ error: "entitlement_required", status: entitlement.status, plan: entitlement.plan }, 403);
+        }
+        if (body.kind === "search" && entitlement) {
+            const required = requiredSearchFeature(body.payload);
+            if (!entitlement.features.includes(required)) {
+                return json({ error: "feature_required", feature: required, plan: entitlement.plan }, 403);
+            }
+        }
+    }
+
     switch (body.kind) {
         case "device_claim":
             // Reaching here means the device passed the lock above.
@@ -213,7 +282,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         case "chat":
             return forwardChat(body.payload, user.id);
         case "transcribe":
-            return forwardTranscribe(body.payload, user.id);
+            return forwardTranscribe(body.payload, user.id, entitlement);
         case "index":
             return handleIndex(body.payload, user.id);
         case "search":
@@ -256,7 +325,7 @@ async function forwardChat(payload: unknown, userId: string): Promise<Response> 
     });
 }
 
-async function forwardTranscribe(payload: unknown, userId: string): Promise<Response> {
+async function forwardTranscribe(payload: unknown, userId: string, entitlement: Entitlement | null): Promise<Response> {
     const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";
     const audioSeconds = audioSecondsFromPayload(payload);
 
@@ -275,10 +344,16 @@ async function forwardTranscribe(payload: unknown, userId: string): Promise<Resp
         console.warn(`transcribe usage record skipped: ${err}`);
     }
 
-    return new Response(text, {
-        status,
-        headers: { "Content-Type": "application/json" },
-    });
+    // Soft cap: the call is always served (no hard stop). The response carries
+    // the user's hours-used/limit so the client can show how much of the plan's
+    // monthly allowance is left.
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (entitlement && entitlement.hours_limit > 0) {
+        headers["x-nod-hours-used"] = String(entitlement.hours_used);
+        headers["x-nod-hours-limit"] = String(entitlement.hours_limit);
+    }
+
+    return new Response(text, { status, headers });
 }
 
 // Index a session's transcript chunks: embed each with gte-small and upsert
@@ -299,9 +374,7 @@ async function handleIndex(payload: unknown, userId: string): Promise<Response> 
     const baseIdx = typeof payload.base_idx === "number" ? Math.max(0, Math.floor(payload.base_idx)) : 0;
     const total = typeof payload.total === "number" ? Math.floor(payload.total) : baseIdx + chunks.length;
 
-    const admin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const admin = adminClient();
 
     // Denormalize the session's start time + kind onto each chunk so search
     // can scope by them without a join.
@@ -389,9 +462,7 @@ async function handleSearch(payload: unknown, userId: string): Promise<Response>
     }
     await recordEmbedUsage(userId, 200);
 
-    const admin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const admin = adminClient();
 
     // Over-fetch so the entity boost below has headroom to re-rank.
     const { data, error } = await admin.rpc("match_session_chunks", {
@@ -492,9 +563,7 @@ async function recordUsage(row: UsageRow): Promise<void> {
     // Service role bypasses RLS — required, since the table forbids client
     // inserts. We construct a dedicated client per request rather than reusing
     // the JWT-scoped one above.
-    const admin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const admin = adminClient();
     const { error } = await admin.from("usage_events").insert(row);
     if (error) {
         console.warn(`usage_events insert failed: ${error.message}`);
@@ -531,6 +600,17 @@ function audioSecondsFromPayload(payload: unknown): number | null {
     }
 }
 
+// Which plan feature a search requires, by scope: a single-meeting question is
+// Starter-tier (`ask_single_meeting`); a label-scoped question and a
+// cross-session question are Pro (`label_scoping` / `ask_across_meetings`).
+function requiredSearchFeature(payload: unknown): string {
+    if (isObject(payload)) {
+        if (Array.isArray(payload.meeting_ids) && payload.meeting_ids.length > 0) return "label_scoping";
+        if (typeof payload.meeting_id === "string" && payload.meeting_id.length > 0) return "ask_single_meeting";
+    }
+    return "ask_across_meetings";
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -545,11 +625,4 @@ function decodeDeviceName(raw: string | null): string | null {
     } catch {
         return raw;
     }
-}
-
-function json(body: unknown, status: number): Response {
-    return new Response(JSON.stringify(body), {
-        status,
-        headers: { "Content-Type": "application/json" },
-    });
 }

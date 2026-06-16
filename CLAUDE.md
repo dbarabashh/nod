@@ -63,7 +63,7 @@ violations in staged files (force-unwrap/cast/try). Configs: `.swiftlint.yml`,
 
 ## Configuration
 
-- **Supabase**: project ref `lptqvnizjwglilgeukwx` (eu-west-1), linked via `supabase/config.toml`. URL + anon key in `Nod/Backend/SupabaseConfig.swift`. Server-side secrets (incl. `OPENROUTER_API_KEY`) are set via `supabase secrets set` — never in the bundle.
+- **Supabase**: production project ref `lptqvnizjwglilgeukwx` (eu-west-1), linked via `supabase/config.toml`. The client URL + key live in `Nod/Backend/SupabaseConfig.swift`, **switched by build config** — Debug points at the `develop` sandbox branch, Release at production (see "Branches" below). Server-side secrets (incl. `OPENROUTER_API_KEY`) are set via `supabase secrets set` — never in the bundle.
 - **LLM / Whisper config**: server-side, in the `llm-proxy` Edge Function (`supabase/functions/llm-proxy/`). The client only knows the proxy URL + the user's Supabase JWT; provider routing and the OpenRouter API key live server-side. Chat and Whisper *model* overrides can still be set per-device via `openrouter.model` / `whisper.model` UserDefaults keys — they're forwarded through the proxy in the request payload.
 - **User preferences** (persisted in `UserDefaults` under `com.example.nod`):
   - `app.language` — current UI / transcription language (e.g. `"uk"`). Set via the in-app picker; the `defaults write` route is for testing only.
@@ -95,6 +95,27 @@ supabase stop
 ```
 
 The project is already linked (`supabase/config.toml`) to ref `lptqvnizjwglilgeukwx`, so CLI commands target the right project automatically.
+
+### Branches — sandbox (`develop`) vs production (`main`)
+
+We use [Supabase Branching](https://supabase.com/docs/guides/deployment/branching) (Pro plan) to keep development off live data. Two long-lived branches, each a **fully isolated instance** — its own database, Edge Functions, API keys, secrets, and auth config:
+
+| | git branch | Supabase ref | URL | Paddle |
+|---|---|---|---|---|
+| **Production** | `main` | `lptqvnizjwglilgeukwx` | `api.hellonod.app` (custom domain) | live |
+| **Sandbox (dev)** | `develop` (persistent) | `zdpvmwqauczsfwlgflas` | `https://zdpvmwqauczsfwlgflas.supabase.co` | sandbox |
+
+- **The client picks the environment by build config.** `SupabaseConfig` is `#if DEBUG` → the `develop` branch (sandbox), `#else` → production. A Debug build exercises the whole stack — auth, billing, LLM proxy — against sandbox data without ever touching live.
+- **Deploys are git-driven.** Pushing to a branch's git branch (for `develop`, via its open PR) makes Supabase apply new **migrations** and deploy **changed Edge Functions** to that branch's instance. Caveat seen in practice: it only redeploys functions whose files changed and has missed one — the deterministic fallback is `SUPABASE_ACCESS_TOKEN=sbp_… supabase functions deploy <name> --project-ref zdpvmwqauczsfwlgflas`.
+- **Nothing is inherited from prod automatically.** Secrets (`PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`, `OPENROUTER_API_KEY`, …) and **OAuth providers** (Google) must be set **per branch**. `SUPABASE_URL`/`ANON_KEY`/`SERVICE_ROLE_KEY` are auto-injected. For Google sign-in on a branch you must also add the branch's `…supabase.co/auth/v1/callback` to the Google Cloud OAuth client and allowlist `nod://auth-callback` in the branch's auth URL config.
+- **Environment-specific DATA is seeded per branch, not via migrations.** Values that differ between sandbox and live — notably `plan_prices.paddle_price_id` — are set with a one-off `UPDATE` against each branch (migrations only seed `pri_REPLACE_*` placeholders), so sandbox price ids never ship to prod.
+
+**CLI gotcha:** management commands (`secrets set`, `branches …`) read a **Personal Access Token** (`sbp_…`), not the `supabase login` keychain session — pass it inline and target a branch with `--project-ref`:
+
+```sh
+SUPABASE_ACCESS_TOKEN=sbp_… supabase secrets set --project-ref zdpvmwqauczsfwlgflas KEY=value
+SUPABASE_ACCESS_TOKEN=sbp_… supabase branches update develop --git-branch develop --experimental
+```
 
 ## Logs
 

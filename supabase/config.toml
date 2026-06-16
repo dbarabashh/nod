@@ -344,6 +344,12 @@ deno_version = 2
 [functions.share-ask]
 verify_jwt = false
 
+# Paddle billing webhook. Paddle isn't a Supabase-authenticated caller, so the
+# gateway JWT check is disabled — the function verifies the `Paddle-Signature`
+# HMAC itself before trusting (or writing) anything.
+[functions.paddle-webhook]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

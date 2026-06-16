@@ -1,10 +1,11 @@
-import Foundation
-import AVFoundation
-import ScreenCaptureKit
-import CoreMedia
-import CoreAudio
 import AudioToolbox
+import AVFoundation
 import Combine
+import CoreAudio
+import CoreMedia
+import Foundation
+import os
+import ScreenCaptureKit
 
 enum CaptureState: Equatable {
     case idle
@@ -37,6 +38,11 @@ final class AudioCaptureService: NSObject, ObservableObject {
     var onSystemBuffer: ((AVAudioPCMBuffer) -> Void)?
 
     private static let preferredInputKey = "audio.input.deviceUID"
+    /// Lock-protected mirror of `micEnabled` for the audio-tap thread — the
+    /// `@MainActor` property can't be read off-actor without a data race.
+    /// Same one-frame tolerance on toggle as before; only the unsynchronized
+    /// access is gone.
+    private let micGate = OSAllocatedUnfairLock(initialState: true)
     private var audioEngine: AVAudioEngine?
     private var scStream: SCStream?
     /// Which streams the active session uses — set on `start`, reused by
@@ -48,7 +54,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
     private let outputQueue = DispatchQueue(label: "nod.system-audio", qos: .userInteractive)
 
     override init() {
-        self.preferredInputUID = UserDefaults.standard.string(forKey: Self.preferredInputKey)
+        preferredInputUID = UserDefaults.standard.string(forKey: Self.preferredInputKey)
         super.init()
         outputHandler.onSampleCount = { [weak self] count in
             Task { @MainActor [weak self] in
@@ -113,6 +119,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
 
     func setMicMuted(_ muted: Bool) {
         micEnabled = !muted
+        micGate.withLock { $0 = !muted }
     }
 
     // MARK: - Microphone (AVAudioEngine)
@@ -164,7 +171,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
             // Compute peak amplitude for diagnostics — confirms mic is hearing sound.
             var peak: Float = 0
             if let channelData = buffer.floatChannelData?[0] {
-                for i in 0..<count {
+                for i in 0 ..< count {
                     let s = abs(channelData[i])
                     if s > peak { peak = s }
                 }
@@ -181,13 +188,13 @@ final class AudioCaptureService: NSObject, ObservableObject {
             // Mute gates the buffer at the source — previously `micEnabled`
             // only gated the UI level meter, so a muted mic still
             // forwarded frames into Whisper and showed up as ME entries.
-            // Read the @MainActor flag without hopping: a one-frame race
-            // (~5ms) is acceptable for a mute toggle, and an actual
-            // MainActor hop would defer the gate past this buffer.
-            let enabledNow = self.micEnabled
+            // `micGate` mirrors the @MainActor flag behind a lock: no
+            // MainActor hop (which would defer the gate past this buffer)
+            // and no unsynchronized cross-thread read.
+            let enabledNow = micGate.withLock { $0 }
             if enabledNow {
                 // Forward synchronously while the buffer is still valid.
-                self.onMicBuffer?(buffer)
+                onMicBuffer?(buffer)
             } else if tapCallCounter % 50 == 0 {
                 // Periodic confirmation the mute gate is active (sampled
                 // 1-in-50 because every-buffer logging would flood at
@@ -199,23 +206,23 @@ final class AudioCaptureService: NSObject, ObservableObject {
             }
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if self.micEnabled {
-                    self.micSamples += count
+                if micEnabled {
+                    micSamples += count
                     // Decaying peak hold — rises instantly to a loud frame,
                     // eases back down so the meter doesn't strobe between buffers.
-                    self.inputLevel = max(peak, self.inputLevel * 0.8)
+                    inputLevel = max(peak, inputLevel * 0.8)
                 } else {
-                    self.inputLevel = 0
+                    inputLevel = 0
                 }
             }
         }
 
         do {
             try engine.start()
-            self.audioEngine = engine
+            audioEngine = engine
             Log.audio.info("microphone engine.start() OK")
         } catch {
-            self.lastError = "Microphone capture failed: \(error.localizedDescription)"
+            lastError = "Microphone capture failed: \(error.localizedDescription)"
             Log.audio.error("microphone failed: \(error.localizedDescription)")
         }
     }
@@ -232,7 +239,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             guard let display = content.displays.first else {
-                self.lastError = "No display available for system audio capture"
+                lastError = "No display available for system audio capture"
                 return
             }
 
@@ -254,10 +261,10 @@ final class AudioCaptureService: NSObject, ObservableObject {
             // and the system logs "stream output NOT found. Dropping frame".
             try stream.addStreamOutput(outputHandler, type: .screen, sampleHandlerQueue: outputQueue)
             try await stream.startCapture()
-            self.scStream = stream
+            scStream = stream
             Log.audio.info("system audio started (SCStream)")
         } catch {
-            self.lastError = "System audio capture failed: \(error.localizedDescription)"
+            lastError = "System audio capture failed: \(error.localizedDescription)"
             Log.audio.error("system audio failed: \(error.localizedDescription)")
         }
     }
@@ -290,7 +297,7 @@ private final class SystemAudioOutputHandler: NSObject, SCStreamOutput, SCStream
         if deliveryCounter % 50 == 0 {
             var peak: Float = 0
             if let channel = mono.floatChannelData?[0] {
-                for i in 0..<Int(mono.frameLength) {
+                for i in 0 ..< Int(mono.frameLength) {
                     let s = abs(channel[i])
                     if s > peak { peak = s }
                 }

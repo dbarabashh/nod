@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @ObservedObject private var hotkey = HotkeyManager.shared
+    @ObservedObject private var hotkey: HotkeyManager
     @AppStorage(ReplyContext.defaultsKey) private var replyContext: ReplyContext = .auto
     @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting: Bool = MeetingLanguagePromptDefaults.defaultValue
 
@@ -9,15 +9,28 @@ struct SettingsView: View {
     /// live Supabase-backed store. nil → the profile section is omitted.
     private let profileStore: ProfileStore?
     private let panelSharing: PanelSharingPreference?
+    private let billing: BillingService?
+    private let entitlements: EntitlementService?
 
-    init(profileStore: ProfileStore? = nil, panelSharing: PanelSharingPreference? = nil) {
+    init(
+        hotkey: HotkeyManager,
+        profileStore: ProfileStore? = nil,
+        panelSharing: PanelSharingPreference? = nil,
+        billing: BillingService? = nil,
+        entitlements: EntitlementService? = nil,
+        focusSubscription: Bool = false
+    ) {
+        _hotkey = ObservedObject(wrappedValue: hotkey)
         self.profileStore = profileStore
         self.panelSharing = panelSharing
+        self.billing = billing
+        self.entitlements = entitlements
+        _tab = State(initialValue: focusSubscription ? .subscription : .profile)
     }
 
     /// Left-rail categories. Each maps to one detail pane.
     private enum Tab: String, CaseIterable, Identifiable {
-        case profile, general, suggestReply, shortcuts
+        case profile, subscription, general, suggestReply, shortcuts
         var id: String {
             rawValue
         }
@@ -25,6 +38,7 @@ struct SettingsView: View {
         var title: String {
             switch self {
             case .profile: "Profile"
+            case .subscription: "Subscription"
             case .general: "General"
             case .suggestReply: "Suggest reply"
             case .shortcuts: "Shortcuts"
@@ -34,6 +48,7 @@ struct SettingsView: View {
         var icon: String {
             switch self {
             case .profile: "person.crop.circle"
+            case .subscription: "creditcard"
             case .general: "gearshape"
             case .suggestReply: "sparkles"
             case .shortcuts: "keyboard"
@@ -41,7 +56,7 @@ struct SettingsView: View {
         }
     }
 
-    @State private var tab: Tab = .profile
+    @State private var tab: Tab
 
     var body: some View {
         HStack(spacing: 0) {
@@ -51,6 +66,9 @@ struct SettingsView: View {
         }
         .frame(width: 740, height: 560)
         .background(WindowBackdrop().ignoresSafeArea())
+        .onReceive(NotificationCenter.default.publisher(for: .nodOpenSubscription)) { _ in
+            tab = .subscription
+        }
     }
 
     // MARK: - Sidebar
@@ -69,12 +87,25 @@ struct SettingsView: View {
             Spacer(minLength: 0)
 
             // Selectable so a user can copy it verbatim into a bug report.
-            Text(Self.versionString)
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.Palette.muted)
-                .textSelection(.enabled)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 4)
+            // The DEBUG badge only compiles into Debug builds — a visible cue
+            // that this build talks to the sandbox branch, never shipped to prod.
+            HStack(spacing: 6) {
+                Text(Self.versionString)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .textSelection(.enabled)
+                #if DEBUG
+                    Text("DEBUG")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .tracking(0.5)
+                        .foregroundStyle(Theme.Palette.warning)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule(style: .continuous).fill(Theme.Palette.warning.opacity(0.15)))
+                #endif
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 4)
         }
         .padding(12)
         // Clear the traffic-light buttons that float over the transparent titlebar.
@@ -127,6 +158,7 @@ struct SettingsView: View {
 
                 switch tab {
                 case .profile: profilePane
+                case .subscription: subscriptionPane
                 case .general: generalPane
                 case .suggestReply: suggestReplyPane
                 case .shortcuts: shortcutsPane
@@ -168,6 +200,17 @@ struct SettingsView: View {
             ProfileSettingsSection(store: profileStore)
         } else {
             Text("Sign in to edit your profile.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.muted)
+        }
+    }
+
+    @ViewBuilder
+    private var subscriptionPane: some View {
+        if let billing, let entitlements {
+            PaywallView(billing: billing, entitlements: entitlements)
+        } else {
+            Text("Sign in to manage your subscription.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.Palette.muted)
         }
@@ -445,5 +488,5 @@ private struct ProfileSettingsSection: View {
 }
 
 #Preview {
-    SettingsView()
+    SettingsView(hotkey: HotkeyManager())
 }
