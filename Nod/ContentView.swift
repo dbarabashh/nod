@@ -21,6 +21,7 @@ struct ContentView: View {
     @EnvironmentObject private var updateGate: UpdateGate
     @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var hotkey: HotkeyManager
+    @EnvironmentObject private var transcriptStore: TranscriptStore
 
     /// Reports the panel's desired width as the layout switches between the
     /// compact single-column state and the wide two-column state. The
@@ -210,6 +211,8 @@ struct ContentView: View {
                 }
 
             case .recording, .paused:
+                transcriptBubble
+
                 // One primary action (Catch me up — absorbs the old "Recap
                 // so far"; they answered the same "summarise what happened"
                 // need). The rest are a quieter secondary tier with glyphs
@@ -290,6 +293,27 @@ struct ContentView: View {
 
     private var elapsedString: String {
         String(format: "%02d:%02d", session.elapsed / 60, session.elapsed % 60)
+    }
+
+    @ViewBuilder
+    private var transcriptBubble: some View {
+        if let error = transcriptStore.lastError {
+            TranscriptBubble(
+                title: "Transcription",
+                transcript: error,
+                systemName: "exclamationmark.triangle.fill",
+                tint: Theme.Palette.warning,
+                isPaused: true
+            )
+        } else if let snapshot = transcriptStore.bubbleSnapshot {
+            TranscriptBubble(
+                title: snapshot.source.displayLabel(speaker: nil, numbered: false),
+                transcript: snapshot.text,
+                systemName: snapshot.source == .me ? "mic.fill" : "speaker.wave.2.fill",
+                tint: snapshot.source == .me ? Theme.Palette.success : Theme.Palette.cyan,
+                isPaused: session.meeting == .paused
+            )
+        }
     }
 
     // MARK: - Actions
@@ -843,73 +867,52 @@ private struct SessionKindPicker: View {
 // MARK: - Transcript
 
 private struct TranscriptBubble: View {
+    let title: String
     let transcript: String
-    let paused: Bool
-    let onClose: () -> Void
+    let systemName: String
+    let tint: Color
+    let isPaused: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            RecordingIcon(paused: paused)
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 7) {
+                Image(systemName: systemName)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(tint)
+                    .frame(width: 13)
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.72))
+                Spacer(minLength: 0)
+                if isPaused {
+                    Image(systemName: "pause.fill")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(Theme.Palette.warning)
+                }
+            }
 
             Text(transcript)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(Color(red: 0.18, green: 0.22, blue: 0.36))
+                .font(.system(size: 12.5, weight: .regular))
+                .foregroundColor(.white.opacity(0.90))
+                .lineLimit(5)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            CloseButton(action: onClose)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(lightFrostedBubble(cornerRadius: 18))
-        .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 4)
-    }
-}
-
-private struct RecordingIcon: View {
-    let paused: Bool
-    @State private var pulsing = false
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(Color(red: 0.12, green: 0.13, blue: 0.16))
-            .frame(width: 28, height: 28)
-            .overlay(content)
-            .onAppear { pulsing = true }
-    }
-
-    @ViewBuilder private var content: some View {
-        if paused {
-            Image(systemName: "pause.fill")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(.white.opacity(0.7))
-        } else {
-            Circle()
-                .fill(Color(red: 0.95, green: 0.25, blue: 0.30))
-                .frame(width: 8, height: 8)
-                .opacity(pulsing ? 0.4 : 1.0)
-                .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: pulsing)
-        }
-    }
-}
-
-private struct CloseButton: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: {
-            print("→ Close bubble")
-            action()
-        }) {
+        .frame(width: 246, alignment: .leading)
+        .background(
             ZStack {
-                Circle().fill(Color.black.opacity(0.08))
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(Color.black.opacity(0.55))
+                PanelMaterial()
+                Color.white.opacity(0.04)
             }
-            .frame(width: 18, height: 18)
-        }
-        .buttonStyle(.plain)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+        )
+        .animation(.easeOut(duration: 0.18), value: transcript)
     }
 }
 
@@ -1106,21 +1109,6 @@ private struct StatusIcon<Content: View>: View {
     }
 }
 
-// MARK: - Shared
-
-private func lightFrostedBubble(cornerRadius: CGFloat) -> some View {
-    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        .fill(.ultraThinMaterial)
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.55))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(0.4), lineWidth: 0.5)
-        )
-}
-
 /// Blocking screen shown when the running build is below the server
 /// `minimum_build` — a backend change has made this version unusable, so the
 /// only path forward is to update. Covers the whole panel and eats input.
@@ -1303,5 +1291,6 @@ private struct SaveErrorToast: View {
         .environmentObject(UpdateGate(supabase: supabase))
         .environmentObject(EntitlementService(supabase: supabase))
         .environmentObject(HotkeyManager())
+        .environmentObject(transcriptStore)
         .background(Color.gray.opacity(0.3))
 }
