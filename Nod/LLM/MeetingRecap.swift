@@ -36,6 +36,14 @@ struct MeetingRecap: Codable, Equatable {
     let actions: [Action]
     let openQuestions: [OpenQuestion]
 
+    var isPlaceholderFallback: Bool {
+        topics.count == 1 &&
+            decisions.isEmpty &&
+            actions.isEmpty &&
+            openQuestions.isEmpty &&
+            topics[0].text.localizedCaseInsensitiveContains("too short or unclear")
+    }
+
     enum CodingKeys: String, CodingKey {
         case topics
         case decisions

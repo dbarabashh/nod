@@ -62,13 +62,6 @@ final class WhisperTranscriber: @unchecked Sendable {
     // sees all completed segments, in order, before it reads the context.
     private var inFlightFlushes: [UUID: Task<Void, Never>] = [:]
 
-    /// Tail of the most recent transcription, fed back to Whisper only after a
-    /// `maxSpeechDuration` cut. Passing it across normal pauses can poison
-    /// auto language detection when the next utterance switches languages.
-    private var promptTail: String = ""
-    private var shouldPromptNextSegment = false
-    private static let promptTailMaxChars = 200
-
     private struct AudioClockSpan {
         let startSample: Int
         let count: Int
@@ -155,8 +148,6 @@ final class WhisperTranscriber: @unchecked Sendable {
         Log.stt.info("[\(source.label)] Whisper start() — Silero VAD (sherpa)")
         queue.async {
             self.keepRecognizing = true
-            self.promptTail = ""
-            self.shouldPromptNextSegment = false
             // Reset Silero state for a fresh stream (also drops any queued segments).
             self.vad?.reset()
             // Drop the previous meeting's diarization spool.
@@ -265,21 +256,13 @@ final class WhisperTranscriber: @unchecked Sendable {
             guard let segment,
                   let wav = WhisperTranscriber.encodeWAV(segment.samples)
             else { continue }
-            let wasCapped = Self.isCappedSegment(sampleCount: segment.samples.count)
             sendToWhisper(
                 wav: wav,
                 reason: reason,
                 timestamp: timestamp(forSampleIndex: segment.start),
-                segmentIndex: spoolForDiarization(segment.samples),
-                usePromptTail: shouldPromptNextSegment
+                segmentIndex: spoolForDiarization(segment.samples)
             )
-            shouldPromptNextSegment = wasCapped
         }
-    }
-
-    private static func isCappedSegment(sampleCount: Int) -> Bool {
-        let duration = Float(sampleCount) / Float(speechFormat.sampleRate)
-        return duration >= maxSpeechDuration - 0.25
     }
 
     private func noteAcceptedAudio(frameCount: Int, receivedAt: Date) {
@@ -447,31 +430,26 @@ final class WhisperTranscriber: @unchecked Sendable {
         wav: Data,
         reason: String,
         timestamp: Date,
-        segmentIndex: Int?,
-        usePromptTail: Bool
+        segmentIndex: Int?
     ) {
         chunkCounter += 1
         let chunkID = chunkCounter
         Log.stt.info("[\(source.label)] chunk #\(chunkID) → Whisper (\(wav.count) bytes, \(reason))")
 
         let src = source
-        let prompt = usePromptTail && !promptTail.isEmpty ? promptTail : nil
         let taskID = UUID()
         let task = Task<Void, Never> {
             defer {
                 self.queue.async { self.inFlightFlushes.removeValue(forKey: taskID) }
             }
             do {
-                let text = try await self.client.transcribe(audio: wav, prompt: prompt)
+                let text = try await self.client.transcribe(audio: wav)
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty {
                     Log.stt.info("[\(src.label)] chunk #\(chunkID) ← empty")
                     return
                 }
                 Log.stt.info("[\(src.label)] chunk #\(chunkID) ← \(trimmed)")
-                // Feed this chunk's tail to the next one so a word split at a
-                // max-length cut is bridged rather than garbled.
-                self.queue.async { self.promptTail = String(trimmed.suffix(Self.promptTailMaxChars)) }
                 self.onFinal?(TranscribedChunk(text: trimmed, source: src, timestamp: timestamp, segmentIndex: segmentIndex))
             } catch {
                 Log.stt.error("[\(src.label)] chunk #\(chunkID) Whisper failed: \(error.localizedDescription)")

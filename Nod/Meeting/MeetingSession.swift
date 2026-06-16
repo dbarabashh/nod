@@ -253,7 +253,7 @@ final class MeetingSession: ObservableObject {
             // a short chance to land, but never let them block transcript save.
             let diarizationTask = Task { await store.diarizedEntriesSnapshot() }
             do {
-                let recap = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self)
+                let recap = try await generateRecap(system: system, user: user, transcript: context)
                 let text = recap.toMarkdown()
                 // Title is best-effort — failure here doesn't block
                 // persistence; Meeting.displayTitle falls back to a
@@ -400,7 +400,7 @@ final class MeetingSession: ObservableObject {
                 case .followUp:
                     try await llm.completeJSON(system: system, user: user, as: FollowUpQuestions.self).toMarkdown()
                 case .summary:
-                    try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self).toMarkdown()
+                    try await generateRecap(system: system, user: user, transcript: context).toMarkdown()
                 case .suggestReply:
                     try await llm.completeJSON(system: system, user: user, as: SuggestedReply.self).toMarkdown()
                 }
@@ -415,6 +415,29 @@ final class MeetingSession: ObservableObject {
                 }
             }
         }
+    }
+
+    private func generateRecap(system: String, user: String, transcript: String) async throws -> MeetingRecap {
+        let recap = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self)
+        guard recap.isPlaceholderFallback, transcriptHasSubstance(transcript) else {
+            return recap
+        }
+
+        Log.llm.info("summary placeholder on substantive transcript — retrying with fallback disabled")
+        let retrySystem = system + """
+
+        RETRY OVERRIDE:
+        Your previous response used the "Transcript too short or unclear" fallback, but this transcript has enough intelligible content to recap.
+        Do NOT use the fallback on this retry. Extract 2-4 grounded topics from the transcript, translating non-English content into the requested output language. Decisions/actions/open questions may still be empty.
+        """
+        return try await llm.completeJSON(system: retrySystem, user: user, as: MeetingRecap.self)
+    }
+
+    private func transcriptHasSubstance(_ transcript: String) -> Bool {
+        let words = transcript
+            .split { $0.isWhitespace || $0.isNewline }
+            .filter { $0.contains { $0.isLetter } }
+        return words.count >= 40
     }
 
     // MARK: - Meeting persistence (issue #14)

@@ -329,6 +329,9 @@ enum PromptLibrary {
         LANGUAGE: write all string values in the JSON in \(lang). Keep the JSON keys exactly as specified below (in English). Even if the transcript contains other languages, the content must be in \(
             lang
         ).
+        The transcript's spoken language is NOT a quality signal. If the transcript is in another language but understandable, translate the grounded content into \(
+            lang
+        ) and recap it normally; do not call it unclear just because it is not in \(lang).
 
         \(kindFraming(sessionKind))
 
@@ -424,6 +427,9 @@ enum PromptLibrary {
         [GROUNDING] — non-negotiable
         ===========================
         - Never include a name, number, project name, product name, tool name, organization, or acronym that did not appear in your Step-1 lists.
+        - Non-\(lang) transcript text is valid source material. Translate it in your head, extract grounded content, and write the JSON strings in \(
+            lang
+        ).
         - Do NOT silently "fix" Whisper transcription errors by guessing what was meant. If a passage looks garbled and you cannot confidently determine what was said, omit it.
         - The `quote` field MUST appear word-for-word in the transcript. If you can't quote it exactly, set `quote` to null and paraphrase in `text` instead.
         - Do NOT expand an acronym (e.g. "MR" → "merge request") unless the expansion appears literally in the transcript.
@@ -433,6 +439,7 @@ enum PromptLibrary {
         [THRESHOLD] — when to omit, when to fall back
         ===========================
         - When in doubt, OMIT. Two well-grounded items are far better than seven fabricated ones.
+        - Do NOT use the fallback because the user selected \(lang) while the meeting was spoken in another language. Language mismatch alone is never "too noisy" or "unclear".
         - If the transcript is too short, too noisy, or you cannot ground ANY content, return EXACTLY this JSON and nothing else:
 
           {"topics":[{"text":"Transcript too short or unclear to recap reliably.","quote":null}],"decisions":[],"actions":[],"open_questions":[]}
