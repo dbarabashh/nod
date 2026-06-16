@@ -86,24 +86,32 @@ struct MeetingDetailView: View {
     }
 
     /// True while ContentView's post-meeting Task is still waiting on the
-    /// LLM. Drives the loading placeholder in the Summary tab and gates
-    /// every affordance that needs a real row (edit, copy, transcript
-    /// load, server-side save, soft-delete).
+    /// LLM. Drives the loading placeholder in the Summary tab.
     private var isGenerating: Bool {
         meetingStore.generatingSummaryIDs.contains(meeting.id)
+    }
+
+    /// True until the generated meeting row and transcript have finished their
+    /// first persistence pass.
+    private var isFinalizing: Bool {
+        meetingStore.finalizingMeetingIDs.contains(meeting.id)
+    }
+
+    private var transcriptSpeakerRevision: Int {
+        meetingStore.transcriptSpeakerRevisions[meeting.id] ?? 0
     }
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 18) {
                 titleRow
-                if !isGenerating { labelsRow }
+                if !isFinalizing { labelsRow }
                 metadataTable
                 tabBar
                 subToolbar
                 Divider().overlay(Theme.Palette.border)
                 content
-                if selectedTab == .summary, !isGenerating {
+                if selectedTab == .summary, !isFinalizing {
                     RelatedSessionsView(meeting: meeting)
                 }
             }
@@ -118,7 +126,7 @@ struct MeetingDetailView: View {
             editableSummary = current.summary
         }
         .onChange(of: selectedTab) { tab in
-            if tab == .transcript, !isGenerating, case .idle = transcriptLoad {
+            if tab == .transcript, !isFinalizing, case .idle = transcriptLoad {
                 Task { await loadTranscript() }
             }
         }
@@ -138,7 +146,19 @@ struct MeetingDetailView: View {
             if editableTitle != liveTitle {
                 editableTitle = liveTitle
             }
-            if selectedTab == .transcript, case .idle = transcriptLoad {
+        }
+        .onChange(of: isFinalizing) { finalizing in
+            if finalizing {
+                if selectedTab == .transcript { transcriptLoad = .idle }
+                return
+            }
+            if selectedTab == .transcript, shouldLoadTranscriptAfterFinalizing {
+                Task { await loadTranscript() }
+            }
+        }
+        .onChange(of: transcriptSpeakerRevision) { _ in
+            guard selectedTab == .transcript, !isFinalizing else { return }
+            if case .loaded = transcriptLoad {
                 Task { await loadTranscript() }
             }
         }
@@ -178,12 +198,12 @@ struct MeetingDetailView: View {
                 .iconButtonChrome()
         }
         .buttonStyle(.plain)
-        .help(isGenerating ? "Available once the summary is ready" : "Move to Trash")
+        .help(isFinalizing ? "Available once the meeting is saved" : "Move to Trash")
         // Soft-delete hits the server `soft_delete_meeting` RPC, which would
         // 404 for a meeting that hasn't been inserted yet. Re-enables the
         // moment the row lands.
-        .disabled(isDeleting || isGenerating)
-        .opacity(isGenerating ? 0.4 : 1)
+        .disabled(isDeleting || isFinalizing)
+        .opacity(isFinalizing ? 0.4 : 1)
         .linkCursor()
     }
 
@@ -203,6 +223,7 @@ struct MeetingDetailView: View {
                 .foregroundStyle(Theme.Palette.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .onChange(of: editableTitle) { _ in scheduleSave() }
+                .disabled(isFinalizing)
         }
     }
 
@@ -362,8 +383,8 @@ struct MeetingDetailView: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .disabled(isGenerating)
-                .opacity(isGenerating ? 0.4 : 1)
+                .disabled(isFinalizing)
+                .opacity(isFinalizing ? 0.4 : 1)
                 .linkCursor()
                 subToolbarDivider
                 copyButton("Copy summary", isActive: !isGenerating, action: copyAll)
@@ -375,11 +396,11 @@ struct MeetingDetailView: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .disabled(isGenerating || shareState == .sharing)
-                .opacity(isGenerating ? 0.4 : 1)
+                .disabled(isFinalizing || shareState == .sharing)
+                .opacity(isFinalizing ? 0.4 : 1)
                 .linkCursor()
                 Spacer(minLength: 0)
-                if !isGenerating {
+                if !isFinalizing {
                     saveIndicator
                 }
             }
@@ -397,6 +418,17 @@ struct MeetingDetailView: View {
     private var transcriptIsCopyable: Bool {
         if case let .loaded(records) = transcriptLoad { return !records.isEmpty }
         return false
+    }
+
+    private var shouldLoadTranscriptAfterFinalizing: Bool {
+        switch transcriptLoad {
+        case .idle:
+            true
+        case let .loaded(records):
+            records.isEmpty
+        case .loading, .failed:
+            false
+        }
     }
 
     private func subToolbarItem(systemImage: String, label: String) -> some View {
@@ -496,10 +528,10 @@ struct MeetingDetailView: View {
 
     @ViewBuilder
     private var transcriptContent: some View {
-        if isGenerating {
-            // Same animated indicator as the summary tab. The transcript is
-            // persisted only after the diarization pass labels speakers, so the
-            // wait reads as separating speakers, not just transcribing.
+        if isFinalizing {
+            // The first transcript fetch waits until the meeting row and
+            // transcript insert have completed, so it cannot cache an early
+            // empty result for the just-finished meeting.
             ThinkingIndicator(script: [
                 "Preparing transcript…",
                 "Separating speakers…",
@@ -614,6 +646,7 @@ struct MeetingDetailView: View {
     }()
 
     private func loadTranscript() async {
+        guard !isFinalizing else { return }
         transcriptLoad = .loading
         do {
             let records = try await meetingStore.fetchTranscript(meetingID: meeting.id)
@@ -687,7 +720,7 @@ struct MeetingDetailView: View {
         // path that could trigger this, so reaching here while
         // generating means SwiftUI fired .onChange for an internal sync
         // we don't want persisted.
-        guard !isGenerating else { return }
+        guard !isFinalizing else { return }
         saveTask?.cancel()
         isDirty = true
         saveTask = Task {
@@ -699,6 +732,7 @@ struct MeetingDetailView: View {
     }
 
     private func performSave() async {
+        guard !isFinalizing else { return }
         let titleTrimmed = editableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let updated = meeting.updating(
             title: titleTrimmed.isEmpty ? nil : titleTrimmed,
@@ -716,13 +750,14 @@ struct MeetingDetailView: View {
 
     private func flushPendingSaveOnDisappear() {
         saveTask?.cancel()
-        guard isDirty, !isDeleting else { return }
+        guard isDirty, !isDeleting, !isFinalizing else { return }
         Task { await performSave() }
     }
 
     // MARK: - Delete
 
     private func deleteMeeting() {
+        guard !isFinalizing else { return }
         isDeleting = true
         saveTask?.cancel()
         let snapshot = meeting
@@ -795,6 +830,7 @@ struct MeetingDetailView: View {
     /// explicit action, never automatic. Errors flip the button to a transient
     /// "Try again" state rather than throwing a modal.
     private func shareLink() {
+        guard !isFinalizing else { return }
         guard shareState != .sharing else { return }
         shareState = .sharing
         Task {

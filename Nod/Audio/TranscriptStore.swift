@@ -48,6 +48,7 @@ struct TranscriptEntry: Identifiable, Equatable {
 struct TranscribedChunk {
     let text: String
     let source: TranscriptSource
+    let timestamp: Date
     let segmentIndex: Int?
 }
 
@@ -192,7 +193,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
 
     private func handleFinal(_ chunk: TranscribedChunk) {
         DispatchQueue.main.async {
-            self.appendDeduped(chunk: chunk, timestamp: Date())
+            self.appendDeduped(chunk: chunk, timestamp: chunk.timestamp)
             self.lastError = nil
         }
     }
@@ -203,24 +204,37 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         entry.source.displayLabel(speaker: entry.speaker, numbered: numbered)
     }
 
+    /// Returns a transcript snapshot with speaker labels when diarization
+    /// succeeds. The store itself is not mutated so persistence can fall back
+    /// to the plain transcript if diarization is slow or unavailable.
+    func diarizedEntriesSnapshot() async -> [TranscriptEntry]? {
+        let snapshot = await MainActor.run { (entries, segmentIndexByEntry) }
+        guard let labels = await system.diarizeSpeakers() else { return nil }
+        var updated = snapshot.0
+        for idx in updated.indices where updated[idx].source == .them {
+            guard let segmentIndex = snapshot.1[updated[idx].id],
+                  segmentIndex < labels.count else { continue }
+            updated[idx].speaker = labels[segmentIndex]
+        }
+        logSpeakerDistribution(in: updated)
+        return updated
+    }
+
     /// Diarize the meeting's system audio and join the resulting speaker labels
-    /// onto the `.them` entries. Call after `flushPending()` and before reading
-    /// `fullContext` for the summary, so the LLM sees stable "Them N"
-    /// attribution. The pyannote pass runs off the main actor inside
-    /// `system.diarizeSpeakers()`.
+    /// onto the live `.them` entries. Kept for local debugging paths; the normal
+    /// end-of-meeting flow uses `diarizedEntriesSnapshot()` so persistence can
+    /// proceed even when diarization is slow.
     func refineSpeakers() async {
-        guard let labels = await system.diarizeSpeakers() else { return }
+        guard let diarized = await diarizedEntriesSnapshot() else { return }
         await MainActor.run {
-            for idx in entries.indices where entries[idx].source == .them {
-                guard let segmentIndex = segmentIndexByEntry[entries[idx].id],
-                      segmentIndex < labels.count else { continue }
-                entries[idx].speaker = labels[segmentIndex]
+            var byID = Dictionary(uniqueKeysWithValues: diarized.map { ($0.id, $0.speaker) })
+            for idx in entries.indices {
+                entries[idx].speaker = byID.removeValue(forKey: entries[idx].id) ?? entries[idx].speaker
             }
-            logSpeakerDistribution()
         }
     }
 
-    private func logSpeakerDistribution() {
+    private func logSpeakerDistribution(in entries: [TranscriptEntry]) {
         var bySpeaker: [Int: [TranscriptEntry]] = [:]
         for entry in entries where entry.source == .them {
             guard let speaker = entry.speaker else { continue }

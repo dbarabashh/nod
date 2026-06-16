@@ -59,6 +59,8 @@ final class WhisperTranscriber: @unchecked Sendable {
     /// 16 kHz × 40 min of speech ≈ 38.4M floats (~150 MB). Beyond this, later
     /// segments are left unlabelled (carry-forward fills them).
     private static let maxSpoolSamples = 16_000 * 60 * 40
+    private static let diarizationWindowSeconds: Double = 5 * 60
+    private static let diarizationWindowOverlapSeconds: Double = 20
 
     // In-flight transcription Tasks; flushPending awaits these so a Suggest-reply
     // sees all completed segments, in order, before it reads the context.
@@ -69,6 +71,19 @@ final class WhisperTranscriber: @unchecked Sendable {
     /// cut and keeps terminology consistent across chunks.
     private var promptTail: String = ""
     private static let promptTailMaxChars = 200
+
+    private struct AudioClockSpan {
+        let startSample: Int
+        let count: Int
+        let startDate: Date
+
+        var endSample: Int {
+            startSample + count
+        }
+    }
+
+    private var acceptedSampleCount = 0
+    private var audioClockSpans: [AudioClockSpan] = []
 
     // Silero segmentation tuning (see sherpaOnnxSileroVadModelConfig):
     /// Cut a segment only after this much trailing silence. Set high enough to
@@ -149,6 +164,8 @@ final class WhisperTranscriber: @unchecked Sendable {
             // Drop the previous meeting's diarization spool.
             self.spool.removeAll(keepingCapacity: false)
             self.segmentRanges.removeAll(keepingCapacity: false)
+            self.acceptedSampleCount = 0
+            self.audioClockSpans.removeAll(keepingCapacity: false)
         }
     }
 
@@ -170,6 +187,7 @@ final class WhisperTranscriber: @unchecked Sendable {
     /// once the callback returns, so it can't cross into the async block.
     func append(_ buffer: AVAudioPCMBuffer, copying: Bool = true) {
         guard buffer.frameLength > 0 else { return }
+        let receivedAt = Date()
         let admitted = pendingBuffers.withLock { count -> Bool in
             guard count < Self.maxPendingBuffers else { return false }
             count += 1
@@ -202,7 +220,10 @@ final class WhisperTranscriber: @unchecked Sendable {
             defer { self.pendingBuffers.withLock { $0 -= 1 } }
             guard self.keepRecognizing, let vad = self.vad, let normalized = self.normalize(owned) else { return }
             guard let channel = normalized.floatChannelData?[0] else { return }
-            vad.acceptWaveform(channel, count: Int(normalized.frameLength))
+            let frameCount = Int(normalized.frameLength)
+            guard frameCount > 0 else { return }
+            self.noteAcceptedAudio(frameCount: frameCount, receivedAt: receivedAt)
+            vad.acceptWaveform(channel, count: frameCount)
             self.drainSegments(reason: "vad")
         }
     }
@@ -243,9 +264,41 @@ final class WhisperTranscriber: @unchecked Sendable {
         while !vad.isEmpty() {
             let segment = vad.front()
             vad.pop()
-            guard let samples = segment?.samples, let wav = WhisperTranscriber.encodeWAV(samples) else { continue }
-            sendToWhisper(wav: wav, reason: reason, segmentIndex: spoolForDiarization(samples))
+            guard let segment,
+                  let wav = WhisperTranscriber.encodeWAV(segment.samples)
+            else { continue }
+            sendToWhisper(
+                wav: wav,
+                reason: reason,
+                timestamp: timestamp(forSampleIndex: segment.start),
+                segmentIndex: spoolForDiarization(segment.samples)
+            )
         }
+    }
+
+    private func noteAcceptedAudio(frameCount: Int, receivedAt: Date) {
+        let startSample = acceptedSampleCount
+        let duration = Double(frameCount) / Self.speechFormat.sampleRate
+        audioClockSpans.append(AudioClockSpan(
+            startSample: startSample,
+            count: frameCount,
+            startDate: receivedAt.addingTimeInterval(-duration)
+        ))
+        acceptedSampleCount += frameCount
+    }
+
+    private func timestamp(forSampleIndex sampleIndex: Int) -> Date {
+        for span in audioClockSpans.reversed() {
+            if sampleIndex >= span.startSample, sampleIndex < span.endSample {
+                let offset = Double(sampleIndex - span.startSample) / Self.speechFormat.sampleRate
+                return span.startDate.addingTimeInterval(offset)
+            }
+        }
+        if let first = audioClockSpans.first {
+            let offset = Double(sampleIndex - first.startSample) / Self.speechFormat.sampleRate
+            return first.startDate.addingTimeInterval(offset)
+        }
+        return Date()
     }
 
     /// Append a `.them` utterance to the diarization spool and return its index,
@@ -274,15 +327,117 @@ final class WhisperTranscriber: @unchecked Sendable {
         let audioSeconds = Double(audio.count) / 16_000
         let started = Date()
         Log.stt.info("diarization: processing \(ranges.count) segments (\(String(format: "%.0f", audioSeconds))s audio)…")
-        let diarized = diarizer.process(audio)
+        let diarized = await diarize(audio, with: diarizer)
         Log.stt.info("diarization: done in \(String(format: "%.1f", Date().timeIntervalSince(started)))s, \(diarized.count) ranges")
         return SpeakerMapping.assign(segmentRanges: ranges, diarization: diarized, sampleRate: diarizer.sampleRate)
+    }
+
+    private func diarize(
+        _ audio: [Float],
+        with diarizer: SherpaSpeakerDiarization
+    ) async -> [DiarizedRange] {
+        let sampleRate = diarizer.sampleRate
+        let windowSamples = Int(Self.diarizationWindowSeconds * Double(sampleRate))
+        guard audio.count > windowSamples else {
+            return await processDiarizationWindow(audio, with: diarizer)
+        }
+
+        let overlapSamples = Int(Self.diarizationWindowOverlapSeconds * Double(sampleRate))
+        Log.stt.info("diarization: windowed mode (\(String(format: "%.0f", Self.diarizationWindowSeconds))s windows)")
+        var stitched: [DiarizedRange] = []
+        var nextGlobalSpeaker = 0
+        var startSample = 0
+        var acceptedUntil: Float = 0
+
+        while startSample < audio.count {
+            let endSample = min(audio.count, startSample + windowSamples)
+            let window = Array(audio[startSample ..< endSample])
+            let localRanges = await processDiarizationWindow(window, with: diarizer)
+            let shifted = localRanges.map {
+                DiarizedRange(
+                    start: $0.start + Float(startSample) / Float(sampleRate),
+                    end: $0.end + Float(startSample) / Float(sampleRate),
+                    speaker: $0.speaker
+                )
+            }
+            let mapping = speakerMapping(
+                for: shifted,
+                existing: stitched,
+                nextGlobalSpeaker: &nextGlobalSpeaker,
+                overlapStart: Float(startSample) / Float(sampleRate),
+                overlapEnd: acceptedUntil
+            )
+            for range in shifted {
+                guard let speaker = mapping[range.speaker], range.end > acceptedUntil else { continue }
+                stitched.append(DiarizedRange(
+                    start: max(range.start, acceptedUntil),
+                    end: range.end,
+                    speaker: speaker
+                ))
+            }
+            acceptedUntil = Float(endSample) / Float(sampleRate)
+            guard endSample < audio.count else { break }
+            startSample = max(0, endSample - overlapSamples)
+        }
+        return stitched.sorted { $0.start < $1.start }
+    }
+
+    private func processDiarizationWindow(
+        _ audio: [Float],
+        with diarizer: SherpaSpeakerDiarization
+    ) async -> [DiarizedRange] {
+        await Task.detached(priority: .utility) {
+            diarizer.process(audio)
+        }.value
+    }
+
+    private func speakerMapping(
+        for current: [DiarizedRange],
+        existing: [DiarizedRange],
+        nextGlobalSpeaker: inout Int,
+        overlapStart: Float,
+        overlapEnd: Float
+    ) -> [Int: Int] {
+        var scores: [Int: [Int: Float]] = [:]
+        if overlapEnd > overlapStart {
+            for currentRange in current {
+                let currentStart = max(currentRange.start, overlapStart)
+                let currentEnd = min(currentRange.end, overlapEnd)
+                guard currentEnd > currentStart else { continue }
+                for existingRange in existing {
+                    let overlap = Self.overlap(
+                        currentStart,
+                        currentEnd,
+                        existingRange.start,
+                        existingRange.end
+                    )
+                    guard overlap > 0 else { continue }
+                    scores[currentRange.speaker, default: [:]][existingRange.speaker, default: 0] += overlap
+                }
+            }
+        }
+
+        var mapping: [Int: Int] = [:]
+        for (local, byGlobal) in scores {
+            if let best = byGlobal.max(by: { $0.value < $1.value })?.key {
+                mapping[local] = best
+            }
+        }
+        for range in current where mapping[range.speaker] == nil {
+            mapping[range.speaker] = nextGlobalSpeaker
+            nextGlobalSpeaker += 1
+        }
+        return mapping
+    }
+
+    private static func overlap(_ aStart: Float, _ aEnd: Float, _ bStart: Float, _ bEnd: Float) -> Float {
+        max(0, min(aEnd, bEnd) - max(aStart, bStart))
     }
 
     // MARK: - Whisper
 
     /// Must be called on `queue`.
-    private func sendToWhisper(wav: Data, reason: String, segmentIndex: Int?) {
+    private func sendToWhisper(wav: Data, reason: String, timestamp: Date, segmentIndex: Int?) {
         chunkCounter += 1
         let chunkID = chunkCounter
         Log.stt.info("[\(source.label)] chunk #\(chunkID) → Whisper (\(wav.count) bytes, \(reason))")
@@ -306,7 +461,7 @@ final class WhisperTranscriber: @unchecked Sendable {
                 // Feed this chunk's tail to the next one so a word split at a
                 // max-length cut is bridged rather than garbled.
                 self.queue.async { self.promptTail = String(trimmed.suffix(Self.promptTailMaxChars)) }
-                self.onFinal?(TranscribedChunk(text: trimmed, source: src, segmentIndex: segmentIndex))
+                self.onFinal?(TranscribedChunk(text: trimmed, source: src, timestamp: timestamp, segmentIndex: segmentIndex))
             } catch {
                 Log.stt.error("[\(src.label)] chunk #\(chunkID) Whisper failed: \(error.localizedDescription)")
                 self.onFailure?(error.localizedDescription, src)

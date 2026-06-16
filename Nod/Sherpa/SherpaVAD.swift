@@ -82,6 +82,10 @@ final class SherpaOnnxSpeechSegmentWrapper {
         Int(p.pointee.n)
     }
 
+    var start: Int {
+        Int(p.pointee.start)
+    }
+
     lazy var samples: [Float] = Array(UnsafeBufferPointer(start: p.pointee.samples, count: n))
 }
 

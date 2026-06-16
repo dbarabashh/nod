@@ -52,18 +52,27 @@ final class AudioCaptureService: NSObject, ObservableObject {
     private var captureSystem = true
     private let outputHandler = SystemAudioOutputHandler()
     private let outputQueue = DispatchQueue(label: "nod.system-audio", qos: .userInteractive)
+    private var lastSystemFrameAt: Date?
+    private var systemWatchdogTask: Task<Void, Never>?
+    private var systemRestartInFlight = false
+    private static let systemWatchdogIntervalNanoseconds: UInt64 = 5_000_000_000
+    private static let systemAudioStallSeconds: TimeInterval = 8
 
     override init() {
         preferredInputUID = UserDefaults.standard.string(forKey: Self.preferredInputKey)
         super.init()
         outputHandler.onSampleCount = { [weak self] count in
             Task { @MainActor [weak self] in
-                self?.systemSamples += count
+                guard let self else { return }
+                systemSamples += count
+                lastSystemFrameAt = Date()
             }
         }
         outputHandler.onError = { [weak self] message in
             Task { @MainActor [weak self] in
-                self?.lastError = message
+                guard let self else { return }
+                lastError = message
+                Log.audio.error("\(message)")
             }
         }
         // Forward every PCM buffer SCStream produces out to onSystemBuffer.
@@ -85,13 +94,20 @@ final class AudioCaptureService: NSObject, ObservableObject {
 
         Log.audio.info("starting capture (mic=\(captureMic) system=\(captureSystem))")
         if captureMic { await startMicrophone() }
-        if captureSystem { await startSystemAudio() }
+        if captureSystem {
+            lastSystemFrameAt = Date()
+            await startSystemAudio()
+            startSystemWatchdog()
+        }
     }
 
     func pause() {
         guard state == .capturing else { return }
         audioEngine?.pause()
-        Task { try? await scStream?.stopCapture() }
+        stopSystemWatchdog()
+        let stream = scStream
+        scStream = nil
+        Task { try? await stream?.stopCapture() }
         inputLevel = 0
         state = .paused
     }
@@ -105,12 +121,17 @@ final class AudioCaptureService: NSObject, ObservableObject {
                 lastError = "Resume mic failed: \(error.localizedDescription)"
             }
         }
-        if captureSystem { await startSystemAudio() }
+        if captureSystem {
+            lastSystemFrameAt = Date()
+            await startSystemAudio()
+            startSystemWatchdog()
+        }
         state = .capturing
     }
 
     func stop() async {
         guard state != .idle else { return }
+        stopSystemWatchdog()
         stopMicrophone()
         await stopSystemAudio()
         inputLevel = 0
@@ -262,6 +283,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
             try stream.addStreamOutput(outputHandler, type: .screen, sampleHandlerQueue: outputQueue)
             try await stream.startCapture()
             scStream = stream
+            lastSystemFrameAt = Date()
             Log.audio.info("system audio started (SCStream)")
         } catch {
             lastError = "System audio capture failed: \(error.localizedDescription)"
@@ -274,6 +296,47 @@ final class AudioCaptureService: NSObject, ObservableObject {
             try? await stream.stopCapture()
         }
         scStream = nil
+    }
+
+    private func startSystemWatchdog() {
+        systemWatchdogTask?.cancel()
+        systemWatchdogTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.systemWatchdogIntervalNanoseconds)
+                await self?.restartSystemAudioIfStalled()
+            }
+        }
+    }
+
+    private func stopSystemWatchdog() {
+        systemWatchdogTask?.cancel()
+        systemWatchdogTask = nil
+    }
+
+    private func restartSystemAudioIfStalled() async {
+        guard state == .capturing, captureSystem, scStream != nil, !systemRestartInFlight else { return }
+        let elapsed = Date().timeIntervalSince(lastSystemFrameAt ?? .distantPast)
+        guard elapsed >= Self.systemAudioStallSeconds else { return }
+
+        systemRestartInFlight = true
+        Log.audio.error("system audio stalled — no buffers for \(String(format: "%.1f", elapsed))s; restarting SCStream")
+        lastError = "System audio capture stalled; restarting…"
+
+        let stream = scStream
+        scStream = nil
+        try? await stream?.stopCapture()
+
+        guard state == .capturing, captureSystem else {
+            systemRestartInFlight = false
+            return
+        }
+        lastSystemFrameAt = Date()
+        await startSystemAudio()
+        if scStream != nil {
+            lastError = nil
+            Log.audio.info("system audio restarted after stall")
+        }
+        systemRestartInFlight = false
     }
 }
 
