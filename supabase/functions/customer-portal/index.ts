@@ -13,11 +13,11 @@
 //
 // Deployed per-branch via git: develop (sandbox) and main (live) each from theirs.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
+import { adminClient, authenticate } from "../_shared/supabase.ts";
+import { json } from "../_shared/http.ts";
+import { PADDLE_API_BASE, PADDLE_HEADERS } from "../_shared/paddle.ts";
 
 const PADDLE_API_KEY  = Deno.env.get("PADDLE_API_KEY");
-const PADDLE_API_BASE = Deno.env.get("PADDLE_API_BASE")
-    ?? (PADDLE_API_KEY?.startsWith("pdl_live_") ? "https://api.paddle.com" : "https://sandbox-api.paddle.com");
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_ANON_KEY         = Deno.env.get("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -30,20 +30,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "Server misconfigured" }, 500);
     }
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return json({ error: "Unauthenticated" }, 401);
-    const token = authHeader.replace(/^Bearer\s+/i, "");
+    const auth = await authenticate(req);
+    if (auth instanceof Response) return auth;
+    const { user } = auth;
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-    if (userError || !user) {
-        console.warn(`JWT rejected: ${userError?.message ?? "no user"}`);
-        return json({ error: "Unauthenticated" }, 401);
-    }
-
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const admin = adminClient();
     const { data: sub } = await admin
         .from("subscriptions")
         .select("paddle_customer_id, paddle_subscription_id")
@@ -62,11 +53,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const res = await fetch(`${PADDLE_API_BASE}/customers/${customerId}/portal-sessions`, {
         method: "POST",
-        headers: {
-            "Authorization": `Bearer ${PADDLE_API_KEY}`,
-            "Content-Type": "application/json",
-            "Paddle-Version": "1",
-        },
+        headers: PADDLE_HEADERS,
         body: JSON.stringify(body),
     });
     const text = await res.text();
@@ -89,10 +76,3 @@ Deno.serve(async (req: Request): Promise<Response> => {
     console.log(`portal user=${user.id} customer=${customerId}`);
     return json({ url }, 200);
 });
-
-function json(body: unknown, status: number): Response {
-    return new Response(JSON.stringify(body), {
-        status,
-        headers: { "Content-Type": "application/json" },
-    });
-}

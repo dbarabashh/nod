@@ -17,17 +17,18 @@
 // Deployed per-branch via git: the `develop` branch (sandbox secret) and
 // `main` (live secret) each get their own copy from their git branch.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
+import { adminClient } from "../_shared/supabase.ts";
+import { json } from "../_shared/http.ts";
+
+// Reject a validly-signed delivery whose `ts` is older than this — a captured
+// event (e.g. an old `subscription.activated`) can't be replayed later to
+// re-grant access. Generous enough to tolerate clock skew + Paddle's own
+// retries, which each carry a fresh signature.
+const SIGNATURE_MAX_AGE_SECONDS = 300;
 
 const PADDLE_WEBHOOK_SECRET     = Deno.env.get("PADDLE_WEBHOOK_SECRET");
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-function adminClient() {
-    return createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
-}
 
 Deno.serve(async (req: Request): Promise<Response> => {
     if (req.method !== "POST") return json({ error: "Method Not Allowed" }, 405);
@@ -76,12 +77,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
 async function handleSubscription(admin: ReturnType<typeof adminClient>, data: Record<string, unknown>): Promise<void> {
     const subscriptionId = str(data.id);
-    const customerId     = str(data.customer_id);
+    const customerId     = nullableStr(data.customer_id);
     const status         = str(data.status);
     const priceId        = firstPriceId(data.items);
     const period         = isObject(data.current_billing_period) ? data.current_billing_period : {};
-    const periodStart    = str(period.starts_at);
-    const periodEnd      = str(period.ends_at);
+    // Pass null (not "") when a period is absent — the RPC params are timestamptz,
+    // and PostgREST rejects "" with 'invalid input syntax', 500ing the webhook into
+    // an infinite retry. null lets the RPC's coalesce keep the stored period.
+    const periodStart    = nullableStr(period.starts_at);
+    const periodEnd      = nullableStr(period.ends_at);
 
     const userId = await resolveUserId(admin, data, subscriptionId, customerId);
     if (!userId) {
@@ -113,7 +117,7 @@ async function resolveUserId(
     admin: ReturnType<typeof adminClient>,
     data: Record<string, unknown>,
     subscriptionId: string,
-    customerId: string,
+    customerId: string | null,
 ): Promise<string | null> {
     const custom = isObject(data.custom_data) ? data.custom_data : {};
     const fromCustom = str(custom.user_id);
@@ -147,6 +151,14 @@ async function verifySignature(header: string, body: string, secret: string): Pr
     }
     if (!ts || h1s.length === 0) return false;
 
+    // Replay guard: the signed `ts` (unix seconds) must be recent. Out-of-window
+    // deliveries are rejected even with a valid HMAC.
+    const tsSeconds = parseInt(ts, 10);
+    if (!Number.isFinite(tsSeconds) || Math.abs(Date.now() / 1000 - tsSeconds) > SIGNATURE_MAX_AGE_SECONDS) {
+        console.warn("paddle webhook signature timestamp outside replay window");
+        return false;
+    }
+
     const key = await crypto.subtle.importKey(
         "raw",
         new TextEncoder().encode(secret),
@@ -171,25 +183,22 @@ interface PaddleEvent {
     data?: unknown;
 }
 
-function firstPriceId(items: unknown): string {
-    if (!Array.isArray(items)) return "";
+function firstPriceId(items: unknown): string | null {
+    if (!Array.isArray(items)) return null;
     const first = items[0];
-    if (!isObject(first)) return "";
-    if (isObject(first.price)) return str(first.price.id);
-    return str(first.price_id);
+    if (!isObject(first)) return null;
+    if (isObject(first.price)) return nullableStr(first.price.id);
+    return nullableStr(first.price_id);
 }
 
 function str(value: unknown): string {
     return typeof value === "string" ? value : "";
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
+function nullableStr(value: unknown): string | null {
+    return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function json(body: unknown, status: number): Response {
-    return new Response(JSON.stringify(body), {
-        status,
-        headers: { "Content-Type": "application/json" },
-    });
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

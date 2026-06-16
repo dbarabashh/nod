@@ -19,14 +19,11 @@
 // Deployed per-branch via git: the `develop` branch (sandbox secrets) and
 // `main` (live secrets) each get their own copy from their git branch.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
+import { adminClient, authenticate } from "../_shared/supabase.ts";
+import { json } from "../_shared/http.ts";
+import { PADDLE_API_BASE, PADDLE_HEADERS } from "../_shared/paddle.ts";
 
 const PADDLE_API_KEY  = Deno.env.get("PADDLE_API_KEY");
-// The environment is baked into the key (`pdl_live_…` vs `pdl_sdbx_…`), so the
-// API host follows it automatically — flipping sandbox↔live is a single secret
-// swap (PADDLE_API_KEY), nothing else. PADDLE_API_BASE stays as an override.
-const PADDLE_API_BASE = Deno.env.get("PADDLE_API_BASE")
-    ?? (PADDLE_API_KEY?.startsWith("pdl_live_") ? "https://api.paddle.com" : "https://sandbox-api.paddle.com");
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_ANON_KEY         = Deno.env.get("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -34,12 +31,6 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 interface CheckoutRequest {
     price_id: string;
 }
-
-const PADDLE_HEADERS = {
-    "Authorization": `Bearer ${PADDLE_API_KEY}`,
-    "Content-Type": "application/json",
-    "Paddle-Version": "1",
-};
 
 Deno.serve(async (req: Request): Promise<Response> => {
     if (req.method !== "POST") return json({ error: "Method Not Allowed" }, 405);
@@ -49,16 +40,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "Server misconfigured" }, 500);
     }
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return json({ error: "Unauthenticated" }, 401);
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-    if (userError || !user) {
-        console.warn(`JWT rejected: ${userError?.message ?? "no user"}`);
-        return json({ error: "Unauthenticated" }, 401);
-    }
+    const auth = await authenticate(req);
+    if (auth instanceof Response) return auth;
+    const { user } = auth;
 
     let body: CheckoutRequest;
     try {
@@ -74,9 +58,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // a plan/cycle switch must UPDATE it in place — never spin up a second one
     // (which would double-bill). A new checkout is only for users with no active
     // subscription (trial, expired, or canceled).
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const admin = adminClient();
     const { data: sub } = await admin
         .from("subscriptions")
         .select("paddle_subscription_id, paddle_customer_id, status")
@@ -183,11 +165,4 @@ async function findOrCreateCustomer(email: string): Promise<string | undefined> 
         return undefined;
     }
     return (await createRes.json())?.data?.id;
-}
-
-function json(body: unknown, status: number): Response {
-    return new Response(JSON.stringify(body), {
-        status,
-        headers: { "Content-Type": "application/json" },
-    });
 }

@@ -18,7 +18,8 @@
 // chat, we inject `usage: { include: true }` so the response carries cost in
 // dollars — the client never sees this field, it just lands in the DB.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
+import { adminClient, authenticate } from "../_shared/supabase.ts";
+import { json } from "../_shared/http.ts";
 
 // `Supabase.ai` is an ambient global provided by the Edge Function runtime —
 // declare it so TypeScript doesn't choke on the gte-small embedding session.
@@ -75,12 +76,6 @@ interface ProxyRequest {
     payload: unknown;
 }
 
-function adminClient() {
-    return createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
-}
-
 // `app_config.minimum_build`, cached per warm instance so the gate doesn't add
 // a DB round-trip to every proxy call. 0 (fail-open) when the row can't be read.
 let cachedMinBuild: { value: number; at: number } | null = null;
@@ -114,6 +109,10 @@ interface Entitlement {
 }
 
 const ENTITLEMENT_TTL_MS = 60_000;
+// Sweep expired entries once the map crosses this size, so a warm instance
+// serving many one-shot users doesn't accumulate entries unbounded (each is
+// only TTL-checked on read, never otherwise removed).
+const ENTITLEMENT_CACHE_MAX = 1_000;
 const entitlementCache = new Map<string, { ent: Entitlement; at: number }>();
 
 // Kinds exempt from the entitlement gate. Everything else is gated by default
@@ -123,7 +122,15 @@ const UNGATED_KINDS = new Set(["device_claim", "device_release"]);
 async function entitlementFor(admin: ReturnType<typeof adminClient>, userId: string): Promise<Entitlement | null> {
     const cached = entitlementCache.get(userId);
     const now = Date.now();
-    if (cached && now - cached.at < ENTITLEMENT_TTL_MS) return cached.ent;
+    if (cached) {
+        if (now - cached.at < ENTITLEMENT_TTL_MS) return cached.ent;
+        entitlementCache.delete(userId);
+    }
+    if (entitlementCache.size > ENTITLEMENT_CACHE_MAX) {
+        for (const [k, v] of entitlementCache) {
+            if (now - v.at >= ENTITLEMENT_TTL_MS) entitlementCache.delete(k);
+        }
+    }
     const { data, error } = await admin.rpc("resolve_entitlement", { p_user_id: userId });
     if (error || !isObject(data)) {
         console.warn(`entitlement lookup failed (fail-open): ${error?.message ?? "unexpected shape"}`);
@@ -164,16 +171,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "Server misconfigured" }, 500);
     }
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return json({ error: "Unauthenticated" }, 401);
-
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-    if (userError || !user) {
-        console.warn(`JWT rejected: ${userError?.message ?? "no user"}`);
-        return json({ error: "Unauthenticated" }, 401);
-    }
+    const auth = await authenticate(req);
+    if (auth instanceof Response) return auth;
+    const { user } = auth;
 
     // Version gate + stamp. The gate (426) is the backstop for a stale client
     // that slipped past the launch check; the stamp records the build for
@@ -374,9 +374,7 @@ async function handleIndex(payload: unknown, userId: string): Promise<Response> 
     const baseIdx = typeof payload.base_idx === "number" ? Math.max(0, Math.floor(payload.base_idx)) : 0;
     const total = typeof payload.total === "number" ? Math.floor(payload.total) : baseIdx + chunks.length;
 
-    const admin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const admin = adminClient();
 
     // Denormalize the session's start time + kind onto each chunk so search
     // can scope by them without a join.
@@ -464,9 +462,7 @@ async function handleSearch(payload: unknown, userId: string): Promise<Response>
     }
     await recordEmbedUsage(userId, 200);
 
-    const admin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const admin = adminClient();
 
     // Over-fetch so the entity boost below has headroom to re-rank.
     const { data, error } = await admin.rpc("match_session_chunks", {
@@ -567,9 +563,7 @@ async function recordUsage(row: UsageRow): Promise<void> {
     // Service role bypasses RLS — required, since the table forbids client
     // inserts. We construct a dedicated client per request rather than reusing
     // the JWT-scoped one above.
-    const admin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const admin = adminClient();
     const { error } = await admin.from("usage_events").insert(row);
     if (error) {
         console.warn(`usage_events insert failed: ${error.message}`);
@@ -631,11 +625,4 @@ function decodeDeviceName(raw: string | null): string | null {
     } catch {
         return raw;
     }
-}
-
-function json(body: unknown, status: number): Response {
-    return new Response(JSON.stringify(body), {
-        status,
-        headers: { "Content-Type": "application/json" },
-    });
 }

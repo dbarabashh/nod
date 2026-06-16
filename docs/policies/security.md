@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-06-10_
+_Last updated: 2026-06-16_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company. We've made the
@@ -104,6 +104,10 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
 - **Usage metadata.** Per-API-call: model used, token count or audio seconds,
   upstream cost, and HTTP status. We use this to enforce per-account quotas
   and inform pricing. No content.
+- **Subscription state.** One row per account in `subscriptions` — your plan,
+  its status, billing-period and trial dates, and the Paddle customer and
+  subscription identifiers we use to reconcile billing events. **No card data**
+  — payment details stay with Paddle, our Merchant of Record.
 
 All of this is stored in Supabase Postgres in `eu-west-1`, encrypted at rest,
 scoped per-user with Row-Level Security so one user cannot read another

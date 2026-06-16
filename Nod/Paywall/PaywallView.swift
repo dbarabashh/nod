@@ -278,11 +278,14 @@ struct PaywallView: View {
 
     private func priceLabel(_ price: PlanPrice?) -> String {
         guard let price else { return "—" }
-        let symbol = price.currency == "USD" ? "$" : "\(price.currency) "
-        let amount = price.displayAmount.truncatingRemainder(dividingBy: 1) == 0
-            ? String(Int(price.displayAmount))
-            : String(price.displayAmount)
-        return "\(symbol)\(amount)"
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = price.currency
+        if price.displayAmount.truncatingRemainder(dividingBy: 1) == 0 {
+            formatter.maximumFractionDigits = 0
+        }
+        return formatter.string(from: NSNumber(value: price.displayAmount))
+            ?? "\(price.currency) \(price.displayAmount)"
     }
 }
 

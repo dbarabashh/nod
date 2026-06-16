@@ -18,7 +18,8 @@
 //   { "token": "<uuid>", "question": "...", "history": [{role, content}, ...] }
 // Response: { "answer": "..." }
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
+import { adminClient } from "../_shared/supabase.ts";
+import { json as jsonBase } from "../_shared/http.ts";
 
 const OPENROUTER_API_KEY        = Deno.env.get("OPENROUTER_API_KEY");
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
@@ -77,16 +78,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
     const history = sanitizeHistory(body.history);
 
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const admin = adminClient();
 
     // 1. Validate the token → resolve the meeting in one call. The
     //    `get_shared_meeting` RPC joins share + meeting and already filters out
     //    revoked shares and soft-deleted meetings, so a miss IS a dead link.
     const { data: meeting, error: shareError } = await admin
         .rpc("get_shared_meeting", { p_token: token })
-        .maybeSingle();
+        .maybeSingle<{ id: string; title: string | null; summary: string | null }>();
     if (shareError) {
         console.error(`share lookup failed: ${shareError.message}`);
         return json({ error: "lookup failed" }, 500);
@@ -211,9 +210,8 @@ async function callOpenRouter(payload: unknown): Promise<string | null> {
     }
 }
 
+// Every response carries the permissive CORS headers — the viewer is a separate
+// web origin. Delegates to the shared helper for the body/Content-Type.
 function json(body: unknown, status: number): Response {
-    return new Response(JSON.stringify(body), {
-        status,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-    });
+    return jsonBase(body, status, CORS_HEADERS);
 }

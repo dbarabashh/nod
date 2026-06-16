@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-06-11_
+_Last updated: 2026-06-16_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -123,7 +123,27 @@ web.
 Legal basis: legitimate interest in securing accounts and preventing
 unauthorised credential sharing (Art. 6(1)(f)).
 
-### 3.6 What we do **not** collect
+### 3.6 Subscription and billing state
+
+When you start a trial or buy a plan, we store one row per account in
+`subscriptions` describing the state of your subscription — never your card
+details (those stay with Paddle). The row holds your plan tier, its status
+(trialing / active / past_due / canceled), the current billing period
+start/end, your trial end date, and the Paddle **customer** and
+**subscription** identifiers we use to reconcile webhooks and open the Paddle
+customer portal for you.
+
+| Data | Why we need it | Legal basis |
+|------|----------------|-------------|
+| Plan, status, billing-period dates, trial end date (`subscriptions`) | To grant the features and limits you paid for and know when access lapses | Contract (Art. 6(1)(b)) |
+| Paddle customer ID and subscription ID (`subscriptions`) | To match Paddle's billing events to your account and open your billing portal | Contract (Art. 6(1)(b)) |
+
+The plan catalogue itself (`plans`, `plan_prices`) holds no personal data —
+it lists the tiers and prices everyone sees. Every `subscriptions` row is
+protected by the same per-user Row-Level Security as the rest of your data,
+in the same `eu-west-1` region.
+
+### 3.7 What we do **not** collect
 
 - We do **not** embed analytics SDKs (PostHog, Mixpanel, Amplitude,
   Segment, Google Analytics, Sentry, etc.).
