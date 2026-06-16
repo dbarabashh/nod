@@ -297,8 +297,12 @@ final class MeetingSession: ObservableObject {
                 // Let the concurrent diarization settle before clearing the
                 // store, then drop the transcript — the summary (the artifact
                 // worth persisting) failed, so there's nothing to attribute.
-                _ = await diarized
-                store.clear()
+                await diarized
+                if sessionGeneration == generation {
+                    store.clear()
+                } else {
+                    Log.ui.info("End Meeting transcript clear skipped — newer session started")
+                }
                 Log.ui.error("Meeting summary generation failed: \(error.localizedDescription)")
                 meetingStore.markGenerationFailed(
                     id: draftID,
