@@ -481,20 +481,17 @@ struct MeetingDetailView: View {
     }
 
     private var generatingSummaryPlaceholder: some View {
-        VStack(spacing: 14) {
-            ProgressView()
-                .progressViewStyle(.circular)
-                .controlSize(.regular)
-                .tint(Theme.Palette.ink)
-            Text("Generating summary…")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Theme.Palette.ink)
-            Text("This usually takes a few seconds.")
-                .font(.system(size: 11.5, weight: .regular))
-                .foregroundStyle(Theme.Palette.muted)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 60)
+        // Same bouncing-dots indicator as the in-call chat — the label walks a
+        // few stages and holds on the last, so the wait reads as live activity
+        // instead of a spinner that promises a fixed "few seconds".
+        ThinkingIndicator(script: [
+            "Generating summary…",
+            "Pulling out key points…",
+            "Capturing decisions & action items…",
+            "Almost there…"
+        ])
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 40)
     }
 
     @ViewBuilder
