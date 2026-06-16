@@ -463,11 +463,9 @@ private struct StatusHeader: View {
                 }
             }
             Spacer(minLength: 0)
-            // Selectable mid-meeting: the pipeline resolves the language per
-            // chunk at flush time (TranscriptStore wires `currentWhisperCode()`
-            // into both transcribers), so a change takes effect on the next
-            // ~5s chunk. Locking it forced a full End-meeting just to fix a
-            // wrong pick, with no other recovery path.
+            // Selectable mid-meeting: it controls generated output language,
+            // while transcription stays auto/multilingual and preserves the
+            // spoken language of each chunk.
             PanelIconButton(
                 systemName: "rectangle.stack",
                 help: "Library",
@@ -699,7 +697,7 @@ private struct LanguagePicker: View {
         // floating panel where a hand-rolled menu sometimes ate the
         // first click waiting for key-window status.
         Menu {
-            Picker("Language", selection: Binding(
+            Picker("Nod language", selection: Binding(
                 get: { current },
                 set: { onSelect($0) }
             )) {
@@ -732,7 +730,7 @@ private struct LanguagePicker: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Switch language — applies to everything transcribed and generated from here on")
+        .help("Switch Nod language — applies to summaries, titles, cards, and answers")
     }
 }
 
@@ -1193,7 +1191,7 @@ private struct SaveErrorToast: View {
     )
     let auth = AuthService(client: supabase)
     let audioCapture = AudioCaptureService()
-    let transcriptStore = TranscriptStore(client: llm, language: language)
+    let transcriptStore = TranscriptStore(client: llm)
     let meetingStore = MeetingStore(supabase: supabase)
     let profileStore = ProfileStore(supabase: supabase, auth: auth)
     let session = MeetingSession(

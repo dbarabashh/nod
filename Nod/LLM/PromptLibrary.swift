@@ -634,6 +634,7 @@ enum PromptLibrary {
         ).
         - If something isn't in the transcript, say so plainly instead of inventing it.
         - The labels [Me] (the user) and [Them] (other voices) are routing hints — refer to people naturally, never echo the literal tags.
+        - If the user asks you to assess a participant's ability in a language, base the assessment only on transcript passages originally spoken in that language. Do not assess translated, summarized, or paraphrased content as evidence of language ability.
 
         [STYLE]
         - Concise and concrete. Short paragraphs or tight bullet lists. No preamble like "Great question".
@@ -755,6 +756,7 @@ enum PromptLibrary {
         - Reference where something came from naturally, by the session label shown above each excerpt (e.g. "In your meeting on Tuesday about pricing…"). Don't quote the raw labels verbatim.
         - If the excerpts don't contain the answer, say you don't have anything on that in their sessions yet — do NOT invent or fill gaps with outside facts.
         - [Me] / [Them] are routing tags from transcription; refer to people naturally, never echo the tags.
+        - If the user asks you to assess a participant's ability in a language, base the assessment only on excerpt passages originally spoken in that language. Do not assess translated, summarized, or paraphrased content as evidence of language ability.
 
         [STYLE]
         - Concise and concrete. Synthesize across excerpts when they connect.

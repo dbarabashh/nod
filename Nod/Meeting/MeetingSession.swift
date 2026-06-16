@@ -191,7 +191,7 @@ final class MeetingSession: ObservableObject {
         let startedAt = recordingStartedAt ?? Date()
         let endedAt = Date()
         let lang = language.current
-        let langCode = lang.whisperCode
+        let langCode = lang.rawValue
         let kind = selectedKind
         let profile = profileContext
         let generation = sessionGeneration

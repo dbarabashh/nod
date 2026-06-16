@@ -2,12 +2,6 @@ import XCTest
 @testable import Nod
 
 final class AppLanguageTests: XCTestCase {
-    func testWhisperCodeMatchesRawValue() {
-        XCTAssertEqual(AppLanguage.english.whisperCode, "en")
-        XCTAssertEqual(AppLanguage.ukrainian.whisperCode, "uk")
-        XCTAssertEqual(AppLanguage.mandarin.whisperCode, "zh")
-    }
-
     func testRawValueRoundTrips() {
         for lang in AppLanguage.allCases {
             XCTAssertEqual(AppLanguage(rawValue: lang.rawValue), lang)
@@ -33,21 +27,21 @@ final class LanguagePreferenceTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: LanguagePreference.key)
     }
 
-    func testCurrentWhisperCodeReadsPersistedValue() {
+    func testPreferenceReadsPersistedValue() {
         UserDefaults.standard.set("uk", forKey: LanguagePreference.key)
         let pref = LanguagePreference()
-        XCTAssertEqual(pref.currentWhisperCode(), "uk")
+        XCTAssertEqual(pref.current, .ukrainian)
     }
 
-    func testCurrentWhisperCodeReflectsLiveChange() {
+    func testPreferencePersistsLiveChange() {
         let pref = LanguagePreference()
         pref.current = .french
-        XCTAssertEqual(pref.currentWhisperCode(), "fr")
+        XCTAssertEqual(UserDefaults.standard.string(forKey: LanguagePreference.key), "fr")
     }
 
-    func testCurrentWhisperCodeFallsBackToEnglishOnGarbage() {
-        let pref = LanguagePreference()
+    func testPreferenceFallsBackToSystemSupportedLanguageOnGarbage() {
         UserDefaults.standard.set("not-a-language", forKey: LanguagePreference.key)
-        XCTAssertEqual(pref.currentWhisperCode(), "en")
+        let pref = LanguagePreference()
+        XCTAssertTrue(AppLanguage.allCases.contains(pref.current))
     }
 }

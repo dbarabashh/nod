@@ -18,7 +18,7 @@ struct WelcomeStep: View {
         self.strings = strings
         self.currentLanguage = currentLanguage
         self.onContinue = onContinue
-        self._selection = State(initialValue: currentLanguage)
+        _selection = State(initialValue: currentLanguage)
     }
 
     var body: some View {
@@ -134,7 +134,7 @@ private struct LanguageRow: View {
             // correctly — including the Return-key conflict with the
             // Continue button's `.keyboardShortcut(.defaultAction)`. The
             // raw `Menu` previously here had to fake all of that.
-            Picker("Language", selection: $selection) {
+            Picker("Nod language", selection: $selection) {
                 ForEach(AppLanguage.allCases, id: \.self) { lang in
                     Text(lang.nativeName).tag(lang)
                 }

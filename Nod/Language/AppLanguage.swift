@@ -2,11 +2,11 @@ import Combine
 import Foundation
 import NaturalLanguage
 
-/// The set of languages Nod accepts as transcription input + LLM output.
+/// The set of languages Nod accepts for generated output.
 /// The app UI (onboarding, consent, buttons) is intentionally English-only —
 /// translating the chrome for every supported language is a maintenance
-/// burden Otter/Granola/Cleary also don't pay. Only transcription and LLM
-/// output respond to the user's pick.
+/// burden Otter/Granola/Cleary also don't pay. Transcription stays
+/// auto/multilingual; this pick controls summaries, titles, cards, and answers.
 enum AppLanguage: String, CaseIterable {
     // Ordered by global speaker count (Ethnologue 2024) so the picker presents
     // the most common choices first. Ukrainian is kept off the top-10 list as
@@ -69,11 +69,6 @@ enum AppLanguage: String, CaseIterable {
         }
     }
 
-    /// BCP-47 / Whisper ISO-639-1 code.
-    var whisperCode: String {
-        rawValue
-    }
-
     /// Best supported match for the user's system locale, or English if none
     /// of the user's preferred languages are in our supported set. Used as the
     /// onboarding default so the picker arrives pre-filled.
@@ -114,8 +109,7 @@ enum AppLanguage: String, CaseIterable {
     }
 }
 
-/// Persisted in UserDefaults so the user's language choice survives a restart.
-/// Read from any thread; writes hop to main.
+/// Persisted in UserDefaults so the user's Nod language survives a restart.
 @MainActor
 final class LanguagePreference: ObservableObject {
     @Published var current: AppLanguage {
@@ -132,21 +126,9 @@ final class LanguagePreference: ObservableObject {
            let lang = AppLanguage(rawValue: raw) {
             current = lang
         } else {
-            // didSet does not fire during init, so persist the detected
-            // default here — otherwise `currentWhisperCode()` (which reads
-            // UserDefaults directly from the audio thread) falls back to
-            // "en" and Whisper transcribes in the wrong language until the
-            // user manually re-selects.
             let detected = AppLanguage.detectFromSystemLocale()
             UserDefaults.standard.set(detected.rawValue, forKey: Self.key)
             current = detected
         }
-    }
-
-    /// Thread-safe snapshot of the current Whisper language code. Safe to call
-    /// from audio threads.
-    nonisolated func currentWhisperCode() -> String {
-        let raw = UserDefaults.standard.string(forKey: Self.key) ?? AppLanguage.english.rawValue
-        return AppLanguage(rawValue: raw)?.whisperCode ?? "en"
     }
 }

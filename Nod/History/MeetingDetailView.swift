@@ -301,7 +301,7 @@ struct MeetingDetailView: View {
                 )
             )
             metadataRow(
-                label: "Language",
+                label: "Nod language",
                 value: AnyView(languageChip)
             )
         }

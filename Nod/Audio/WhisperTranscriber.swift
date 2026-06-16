@@ -18,10 +18,6 @@ final class WhisperTranscriber: @unchecked Sendable {
     let source: TranscriptSource
     var onFinal: ((TranscribedChunk) -> Void)?
     var onFailure: ((String, TranscriptSource) -> Void)?
-    /// Called per-segment to determine which language code to send to Whisper.
-    /// Default is English; TranscriptStore overrides this to read from the
-    /// LanguagePreference so the user's toggle takes effect on the next segment.
-    var languageProvider: () -> String = { "en" }
 
     private let client: OpenRouterClient
     private let queue: DispatchQueue
@@ -66,10 +62,11 @@ final class WhisperTranscriber: @unchecked Sendable {
     // sees all completed segments, in order, before it reads the context.
     private var inFlightFlushes: [UUID: Task<Void, Never>] = [:]
 
-    /// Tail of the most recent transcription, fed back to Whisper as the
-    /// `prompt` for the next chunk — bridges a word split at a `maxSpeechDuration`
-    /// cut and keeps terminology consistent across chunks.
+    /// Tail of the most recent transcription, fed back to Whisper only after a
+    /// `maxSpeechDuration` cut. Passing it across normal pauses can poison
+    /// auto language detection when the next utterance switches languages.
     private var promptTail: String = ""
+    private var shouldPromptNextSegment = false
     private static let promptTailMaxChars = 200
 
     private struct AudioClockSpan {
@@ -159,6 +156,7 @@ final class WhisperTranscriber: @unchecked Sendable {
         queue.async {
             self.keepRecognizing = true
             self.promptTail = ""
+            self.shouldPromptNextSegment = false
             // Reset Silero state for a fresh stream (also drops any queued segments).
             self.vad?.reset()
             // Drop the previous meeting's diarization spool.
@@ -267,13 +265,21 @@ final class WhisperTranscriber: @unchecked Sendable {
             guard let segment,
                   let wav = WhisperTranscriber.encodeWAV(segment.samples)
             else { continue }
+            let wasCapped = Self.isCappedSegment(sampleCount: segment.samples.count)
             sendToWhisper(
                 wav: wav,
                 reason: reason,
                 timestamp: timestamp(forSampleIndex: segment.start),
-                segmentIndex: spoolForDiarization(segment.samples)
+                segmentIndex: spoolForDiarization(segment.samples),
+                usePromptTail: shouldPromptNextSegment
             )
+            shouldPromptNextSegment = wasCapped
         }
+    }
+
+    private static func isCappedSegment(sampleCount: Int) -> Bool {
+        let duration = Float(sampleCount) / Float(speechFormat.sampleRate)
+        return duration >= maxSpeechDuration - 0.25
     }
 
     private func noteAcceptedAudio(frameCount: Int, receivedAt: Date) {
@@ -437,21 +443,26 @@ final class WhisperTranscriber: @unchecked Sendable {
     // MARK: - Whisper
 
     /// Must be called on `queue`.
-    private func sendToWhisper(wav: Data, reason: String, timestamp: Date, segmentIndex: Int?) {
+    private func sendToWhisper(
+        wav: Data,
+        reason: String,
+        timestamp: Date,
+        segmentIndex: Int?,
+        usePromptTail: Bool
+    ) {
         chunkCounter += 1
         let chunkID = chunkCounter
         Log.stt.info("[\(source.label)] chunk #\(chunkID) → Whisper (\(wav.count) bytes, \(reason))")
 
         let src = source
-        let language = languageProvider()
-        let prompt = promptTail.isEmpty ? nil : promptTail
+        let prompt = usePromptTail && !promptTail.isEmpty ? promptTail : nil
         let taskID = UUID()
         let task = Task<Void, Never> {
             defer {
                 self.queue.async { self.inFlightFlushes.removeValue(forKey: taskID) }
             }
             do {
-                let text = try await self.client.transcribe(audio: wav, language: language, prompt: prompt)
+                let text = try await self.client.transcribe(audio: wav, prompt: prompt)
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty {
                     Log.stt.info("[\(src.label)] chunk #\(chunkID) ← empty")

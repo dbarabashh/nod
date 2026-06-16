@@ -68,17 +68,9 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     /// queue (alongside `entries`), so no locking.
     private var segmentIndexByEntry: [UUID: Int] = [:]
 
-    init(client: OpenRouterClient, language: LanguagePreference) {
+    init(client: OpenRouterClient) {
         mic = WhisperTranscriber(source: .me, client: client)
         system = WhisperTranscriber(source: .them, client: client)
-
-        // Each chunk reads the current language at flush time, so toggling the
-        // language during a meeting takes effect on the very next chunk.
-        let provider: () -> String = { [weak language] in
-            language?.currentWhisperCode() ?? "en"
-        }
-        mic.languageProvider = provider
-        system.languageProvider = provider
 
         mic.onFinal = { [weak self] chunk in
             self?.handleFinal(chunk)

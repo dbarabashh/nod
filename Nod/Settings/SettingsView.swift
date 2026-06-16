@@ -178,8 +178,8 @@ struct SettingsView: View {
             SettingsCard {
                 SettingsRow(
                     icon: "globe",
-                    title: "Confirm language before each meeting",
-                    subtitle: "Show a quick language check when you start a meeting, so you don't record in the wrong language. Turn off to start straight away."
+                    title: "Confirm Nod language before each meeting",
+                    subtitle: "Show a quick check for the language Nod uses in summaries and answers. Turn off to start straight away."
                 ) {
                     Toggle("", isOn: $confirmLanguageBeforeMeeting)
                         .labelsHidden()

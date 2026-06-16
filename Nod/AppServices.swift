@@ -60,7 +60,7 @@ struct AppServices {
         // Free the single-device slot on every sign-out path (menu, forced
         // device-conflict), while the token is still valid.
         auth.onSignOut = { [weak llmClient] in await llmClient?.releaseDevice() }
-        let transcriptStore = TranscriptStore(client: llmClient, language: languagePreference)
+        let transcriptStore = TranscriptStore(client: llmClient)
         let consent = ConsentPreference(
             supabase: supabase,
             auth: auth

@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 import Supabase
 
 /// Persists the user's acknowledgement of the recording-consent disclaimer.
@@ -20,8 +20,8 @@ final class ConsentPreference: ObservableObject {
     /// Stored alongside each Supabase row so we can prove exactly which
     /// wording a given user agreed to. v2 (2026-05-24): dropped the
     /// Ukrainian translation; the disclaimer is now English-only and the
-    /// audit row's `language_code` is always "en" to match the rendered
-    /// text (not the user's transcription-language pick).
+    /// audit row's `language_code` is always "en" to match the rendered text,
+    /// independent of the user's Nod language.
     static let disclaimerVersion = "2026-05-24-v2"
 
     @Published private(set) var isAccepted: Bool
@@ -40,7 +40,7 @@ final class ConsentPreference: ObservableObject {
         self.supabase = supabase
         self.auth = auth
         self.defaults = defaults
-        self.isAccepted = defaults.bool(forKey: Self.storageKey)
+        isAccepted = defaults.bool(forKey: Self.storageKey)
     }
 
     /// Records a legal acknowledgement. ALWAYS writes the Supabase audit row
@@ -57,8 +57,8 @@ final class ConsentPreference: ObservableObject {
     private func writeAuditRow() {
         // Snapshot values that need MainActor isolation before crossing
         // into a detached Task. The disclaimer body is English-only, so
-        // `language_code` is hard-coded to match what the user actually
-        // saw — independent of their transcription-language pick.
+        // `language_code` is hard-coded to match what the user actually saw,
+        // independent of their Nod language.
         let languageCode = "en"
         let appVersion = Self.appVersion()
         guard let supabase, let auth, let userID = auth.session?.user.id else {
@@ -89,10 +89,10 @@ final class ConsentPreference: ObservableObject {
             let appVersion: String
 
             enum CodingKeys: String, CodingKey {
-                case userID            = "user_id"
+                case userID = "user_id"
                 case disclaimerVersion = "disclaimer_version"
-                case languageCode      = "language_code"
-                case appVersion        = "app_version"
+                case languageCode = "language_code"
+                case appVersion = "app_version"
             }
         }
 

@@ -63,7 +63,7 @@ extension OnboardingStrings {
             .init(icon: "sparkles", text: "Ask for key points, follow-ups, or a recap mid-meeting."),
             .init(icon: "lock.fill", text: "Audio leaves your Mac only during transcription — never stored.")
         ],
-        welcomeLanguageLabel: "Meeting language",
+        welcomeLanguageLabel: "Nod language",
         welcomeContinue: "Continue",
 
         permissionsTitle: "Grant Permissions",
@@ -111,7 +111,7 @@ extension OnboardingStrings {
                 body: "Hit End and Nod generates a meeting summary you can copy. Nothing is recorded or kept — audio only leaves your Mac for transcription."
             )
         ],
-        tutorialPrivacy: "Mic, language, and sign-out live in the floating panel — change them any time.",
+        tutorialPrivacy: "Mic, Nod language, and sign-out live in the floating panel — change them any time.",
         tutorialGotIt: "Got it"
     )
 }

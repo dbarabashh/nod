@@ -40,8 +40,8 @@ Swift 5.9, structured concurrency only. No `DispatchQueue.main.async` from `@Mai
 
 - **UI + service objects: `@MainActor`** by default. The actor isolation gives you a free guarantee that `@Published` mutations are safe.
 - **Background work: `Task { ... }`** with `await`. Long-running work should be cancellable — capture the task handle if the caller needs to stop it.
-- **Audio thread is special.** Buffers arrive on real-time priority threads (`AVAudioEngine` tap, `SCStream` output queue). Forward synchronously, do NOT `await` in the callback. See `AudioCaptureService` and `WhisperTranscriber` for the pattern: `nonisolated` reads + a dedicated `DispatchQueue` for chunk accumulation.
-- **`nonisolated`** is the escape hatch for thread-safe reads from non-actor contexts. Used today by `LanguagePreference.currentWhisperCode()` so audio threads can read the user's language without hopping to main.
+- **Audio thread is special.** Buffers arrive on real-time priority threads (`AVAudioEngine` tap, `SCStream` output queue). Forward synchronously, do NOT `await` in the callback. See `AudioCaptureService` and `WhisperTranscriber` for the pattern: a dedicated `DispatchQueue` for chunk accumulation.
+- **`nonisolated`** is the escape hatch for thread-safe reads from non-actor contexts. Use it only when a callback genuinely cannot hop to an actor.
 - **`weak self` in escaping closures** crossing an actor boundary or a long-lived service. Don't sprinkle it everywhere — only where the closure outlives the captured object's expected lifetime.
 
 ---

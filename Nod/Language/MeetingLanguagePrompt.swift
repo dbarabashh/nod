@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Shared home for the "confirm language before each meeting" preference so the
+/// Shared home for the "confirm Nod language before each meeting" preference so the
 /// section's "ask before each meeting" checkbox, ContentView's start gate, and
 /// the Settings toggle all read/write the same UserDefaults key (default on).
 enum MeetingLanguagePromptDefaults {
@@ -8,9 +8,9 @@ enum MeetingLanguagePromptDefaults {
     static let defaultValue = true
 }
 
-/// Inline language confirm shown in place of the Start button when the user
-/// taps Start. Catches the "forgot to switch the language" case by surfacing
-/// the current pin one last time before recording begins. Read-only on purpose
+/// Inline output-language confirm shown in place of the Start button when the user
+/// taps Start. Catches the "forgot to switch Nod's language" case by surfacing
+/// the current output pin one last time before recording begins. Read-only on purpose
 /// — the only place to change the language is the header chip, so we don't stack
 /// two pickers in the same cramped panel. Full-width dark section matching the
 /// session-kind bar above it.
@@ -26,7 +26,7 @@ struct MeetingLanguagePrompt: View {
                 Image(systemName: "globe")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.white.opacity(0.85))
-                Text("Meeting language")
+                Text("Nod language")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white.opacity(0.72))
                 Spacer(minLength: 0)
