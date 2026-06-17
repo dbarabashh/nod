@@ -373,9 +373,16 @@ enum PromptLibrary {
             (a) IDIOM TRAP — do NOT parse idiomatic phrases as literal tasks. Examples of idioms that are NOT actions: "burying the lead" (means under-emphasising the main news), "drinking from a firehose" (means overwhelmed), "kick the can down the road" (means defer), "moving the goalposts" (means changing criteria). When you see one, summarise the speaker's actual point in Topics covered — never invent an action like "X will bury the lead".
             (b) PAST-TENSE TRAP — actions describe FUTURE work. If the transcript shows the task ALREADY DONE in past tense ("I linked the issue", "I added Tim as reviewer"), it's a FACT for Topics covered, not an action. Future-tense commitments ("I'll link the issue", "I'll add Tim") are real actions.
             (c) VERBATIM CHECK — before writing each Action item, locate the EXACT sentence in the transcript that establishes the commitment + owner. If you can't point to a single sentence, drop the item.
+            (d) WITHIN-MEETING COMPLETION TRAP — an intention stated as FUTURE early in the call but reported as DONE later in the SAME transcript is NOT an outstanding action. Before listing any action, scan the REST of the transcript for its completion ("I'll refactor the parser" … later … "okay, the parser's done / that's fixed now"). If you find it, the task was completed during the meeting: record it ONCE as a finished result in Topics covered, and do NOT also list it under actions. Actions are only work STILL OUTSTANDING when the call ended.
           • OPEN_THREADS — every unresolved question, blocker, deferred item, thing someone said they'd think about / get back to, OR a speculative idea that was raised but not accepted (see DECISIONS exclusion list).
 
         An empty list is fine — it just means that category won't surface in the recap.
+
+        [TIMELINE RECONCILIATION] — the transcript is chronological; later statements OVERRIDE earlier ones about the same thread. Before emitting, collapse each thread to its FINAL state in the call. Never surface both the intention and its outcome as two separate items:
+        - A plan or intention stated early ("I'll work on X") that is reported DONE later in the same call ("X is fixed now") is COMPLETED work — surface it ONCE as a finished result in Topics covered, NOT as an outstanding action and NOT as a separate "planning to do X" item.
+        - A question raised early and answered later is resolved — it belongs in Topics covered with its answer, not in OPEN_THREADS.
+        - A decision later changed or reversed reflects ONLY the final decision.
+        Report the outcome, not the journey to it.
 
         STEP 2 — EMIT JSON using ONLY items from the six lists above. If an item is not on any list, it MUST NOT appear in the JSON. No exceptions.
 
@@ -427,6 +434,7 @@ enum PromptLibrary {
         [GROUNDING] — non-negotiable
         ===========================
         - Never include a name, number, project name, product name, tool name, organization, or acronym that did not appear in your Step-1 lists.
+        - PRESERVE CONDITIONS. Conditional and constraint clauses ("only if…", "except when…", "pending…", "once X lands…", "assuming Y") are LOAD-BEARING and are exactly the kind of qualifier that gets silently dropped in summarization. If a decision, action, or topic resolution depends on a condition, keep that clause inside its `text`/`task` — never trim it to make the item read cleaner. A decision reported without its condition is WRONG, not merely shorter.
         - Non-\(lang) transcript text is valid source material. Translate it in your head, extract grounded content, and write the JSON strings in \(
             lang
         ).
