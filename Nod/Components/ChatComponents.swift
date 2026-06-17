@@ -23,17 +23,23 @@ extension View {
     /// Messaging-convention submit for a multiline composer: plain Return
     /// sends, Shift+Return inserts a newline. Both Return events are consumed —
     /// letting Shift+Return fall through made AppKit treat Shift as a selection
-    /// modifier and select-all instead of inserting a line break — so the
-    /// newline is appended to the bound text ourselves. On macOS 13, where
-    /// `onKeyPress` is unavailable, falls back to `onSubmit` (Return sends; the
-    /// field inserts the newline natively on Shift+Return).
+    /// modifier and select-all instead of inserting a line break — so we insert
+    /// the newline ourselves, at the caret in the focused field editor (a plain
+    /// append landed at the end of the text, which is wrong once the field
+    /// scrolls and the caret can sit mid-text). On macOS 13, where `onKeyPress`
+    /// is unavailable, falls back to `onSubmit` (Return sends; the field inserts
+    /// the newline natively on Shift+Return).
     @ViewBuilder
     func chatSubmit(text: Binding<String>, onSend: @escaping () -> Void) -> some View {
         if #available(macOS 14.0, *) {
             onKeyPress(phases: .down) { keyPress in
                 guard keyPress.key == .return else { return .ignored }
                 if keyPress.modifiers.contains(.shift) {
-                    text.wrappedValue += "\n"
+                    if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+                        editor.insertText("\n", replacementRange: editor.selectedRange())
+                    } else {
+                        text.wrappedValue += "\n"
+                    }
                 } else {
                     onSend()
                 }
@@ -42,6 +48,67 @@ extension View {
         } else {
             onSubmit(onSend)
         }
+    }
+}
+
+/// The chat composer input shared by both threads. Grows with its content up
+/// to roughly five lines, then scrolls internally instead of clipping.
+///
+/// A bare `TextField(axis: .vertical)` with `.lineLimit(1 ... 5)` caps the
+/// height but gives no scroll on macOS, so a long paste left everything below
+/// the fifth line clipped and unreachable. Wrapping the field in a height-
+/// bounded `ScrollView` keeps the native editing (paste, undo, IME, mentions)
+/// while making the overflow scrollable.
+struct ChatComposerField: View {
+    let prompt: String
+    @Binding var text: String
+    var isEnabled: Bool = true
+    var focus: FocusState<Bool>.Binding
+    let onSend: () -> Void
+
+    @State private var contentHeight: CGFloat = ChatComposerField.minHeight
+
+    private static let fontSize: CGFloat = 13.5
+    private static let lineHeight: CGFloat = 19 // one line at `fontSize`
+    private static let maxLines: CGFloat = 5
+    private static let minHeight = lineHeight
+    private static let maxHeight = lineHeight * maxLines // grow to five lines, then scroll
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            TextField(prompt, text: $text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: Self.fontSize))
+                .foregroundStyle(Theme.Palette.ink)
+                .focused(focus)
+                .disabled(!isEnabled)
+                .chatSubmit(text: $text, onSend: onSend)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: ComposerHeightKey.self, value: geo.size.height)
+                    }
+                )
+        }
+        .frame(height: min(max(contentHeight, Self.minHeight), Self.maxHeight))
+        .scrollDisabled(contentHeight <= Self.maxHeight)
+        .onPreferenceChange(ComposerHeightKey.self) { contentHeight = $0 }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
+                .fill(Theme.Palette.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
+                        .stroke(Theme.Palette.border, lineWidth: 0.5)
+                )
+        )
+    }
+}
+
+private struct ComposerHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

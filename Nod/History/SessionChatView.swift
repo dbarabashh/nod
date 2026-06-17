@@ -165,25 +165,14 @@ struct SessionChatView: View {
     // MARK: - Composer
 
     private var composer: some View {
-        HStack(spacing: 8) {
-            TextField(isReady ? "Message" : loadingPlaceholder, text: $draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13.5))
-                .foregroundStyle(Theme.Palette.ink)
-                .lineLimit(1 ... 5)
-                .focused($inputFocused)
-                .disabled(!isReady)
-                .chatSubmit(text: $draft) { send() }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Theme.Palette.surface)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Theme.Palette.border, lineWidth: 0.5)
-                        )
-                )
+        HStack(alignment: .bottom, spacing: 8) {
+            ChatComposerField(
+                prompt: isReady ? "Message" : loadingPlaceholder,
+                text: $draft,
+                isEnabled: isReady,
+                focus: $inputFocused,
+                onSend: { send() }
+            )
 
             Button(action: { send() }, label: {
                 Image(systemName: "arrow.up")

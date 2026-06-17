@@ -254,39 +254,28 @@ struct KnowledgeChatView: View {
     }
 
     private var composerInput: some View {
-        HStack(spacing: 8) {
-            TextField(composerPrompt, text: $draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13.5))
-                .foregroundStyle(Theme.Palette.ink)
-                .lineLimit(1 ... 5)
-                .focused($inputFocused)
-                .chatSubmit(text: $draft) { send() }
-                // A word-boundary "@" opens the session picker (and is consumed
-                // — the chosen mention is re-inserted as "@Title" inline). A
-                // mid-word "@" (e.g. an email or handle) stays literal.
-                .onChange(of: draft) { value in
-                    guard value.hasSuffix("@") else { return }
-                    let beforeAt = value.dropLast().last
-                    let atWordBoundary = beforeAt == nil || beforeAt == " " || beforeAt == "\n"
-                    guard atWordBoundary else { return }
-                    draft.removeLast()
-                    mentionSearch = ""
-                    showMentionPicker = true
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Theme.Palette.surface)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Theme.Palette.border, lineWidth: 0.5)
-                        )
-                )
-                // Floats above the field, auto-sized, so opening it never
-                // reflows the composer; dismisses on outside-click or Escape.
-                .popover(isPresented: $showMentionPicker, arrowEdge: .top) { mentionPicker }
+        HStack(alignment: .bottom, spacing: 8) {
+            ChatComposerField(
+                prompt: composerPrompt,
+                text: $draft,
+                focus: $inputFocused,
+                onSend: { send() }
+            )
+            // A word-boundary "@" opens the session picker (and is consumed
+            // — the chosen mention is re-inserted as "@Title" inline). A
+            // mid-word "@" (e.g. an email or handle) stays literal.
+            .onChange(of: draft) { value in
+                guard value.hasSuffix("@") else { return }
+                let beforeAt = value.dropLast().last
+                let atWordBoundary = beforeAt == nil || beforeAt == " " || beforeAt == "\n"
+                guard atWordBoundary else { return }
+                draft.removeLast()
+                mentionSearch = ""
+                showMentionPicker = true
+            }
+            // Floats above the field, auto-sized, so opening it never
+            // reflows the composer; dismisses on outside-click or Escape.
+            .popover(isPresented: $showMentionPicker, arrowEdge: .top) { mentionPicker }
 
             Button(action: send) {
                 Image(systemName: "arrow.up")
