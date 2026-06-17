@@ -74,6 +74,13 @@ final class SherpaSpeakerDiarization: @unchecked Sendable {
 
     /// Diarize 16 kHz mono Float32 audio into speaker-labelled ranges, sorted by
     /// start time. Empty if the model produced nothing.
+    ///
+    /// Pass the WHOLE meeting in one call. Clustering happens only within a single
+    /// `process` invocation, so the emitted speaker ids are meaningful only within
+    /// this call's result. Do not window a long meeting into separate `process`
+    /// calls and re-link them by time-overlap at the seams: that discards the
+    /// embedding clustering and re-counts the same person as a new speaker in every
+    /// window. Callers bound memory via the spool cap, not by splitting the audio.
     func process(_ samples: [Float]) -> [DiarizedRange] {
         guard !samples.isEmpty else { return [] }
         processLock.lock()

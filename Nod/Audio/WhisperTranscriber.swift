@@ -55,8 +55,6 @@ final class WhisperTranscriber: @unchecked Sendable {
     /// 16 kHz × 40 min of speech ≈ 38.4M floats (~150 MB). Beyond this, later
     /// segments are left unlabelled (carry-forward fills them).
     private static let maxSpoolSamples = 16_000 * 60 * 40
-    private static let diarizationWindowSeconds: Double = 5 * 60
-    private static let diarizationWindowOverlapSeconds: Double = 20
 
     // In-flight transcription Tasks; flushPending awaits these so a Suggest-reply
     // sees all completed segments, in order, before it reads the context.
@@ -316,111 +314,11 @@ final class WhisperTranscriber: @unchecked Sendable {
         let audioSeconds = Double(audio.count) / 16_000
         let started = Date()
         Log.stt.info("diarization: processing \(ranges.count) segments (\(String(format: "%.0f", audioSeconds))s audio)…")
-        let diarized = await diarize(audio, with: diarizer)
+        // One full-spool pass off the main actor — see SherpaSpeakerDiarization.process
+        // for why the whole meeting must go through a single call (no windowing).
+        let diarized = await Task.detached(priority: .utility) { diarizer.process(audio) }.value
         Log.stt.info("diarization: done in \(String(format: "%.1f", Date().timeIntervalSince(started)))s, \(diarized.count) ranges")
         return SpeakerMapping.assign(segmentRanges: ranges, diarization: diarized, sampleRate: diarizer.sampleRate)
-    }
-
-    private func diarize(
-        _ audio: [Float],
-        with diarizer: SherpaSpeakerDiarization
-    ) async -> [DiarizedRange] {
-        let sampleRate = diarizer.sampleRate
-        let windowSamples = Int(Self.diarizationWindowSeconds * Double(sampleRate))
-        guard audio.count > windowSamples else {
-            return await processDiarizationWindow(audio, with: diarizer)
-        }
-
-        let overlapSamples = Int(Self.diarizationWindowOverlapSeconds * Double(sampleRate))
-        Log.stt.info("diarization: windowed mode (\(String(format: "%.0f", Self.diarizationWindowSeconds))s windows)")
-        var stitched: [DiarizedRange] = []
-        var nextGlobalSpeaker = 0
-        var startSample = 0
-        var acceptedUntil: Float = 0
-
-        while startSample < audio.count {
-            let endSample = min(audio.count, startSample + windowSamples)
-            let window = Array(audio[startSample ..< endSample])
-            let localRanges = await processDiarizationWindow(window, with: diarizer)
-            let shifted = localRanges.map {
-                DiarizedRange(
-                    start: $0.start + Float(startSample) / Float(sampleRate),
-                    end: $0.end + Float(startSample) / Float(sampleRate),
-                    speaker: $0.speaker
-                )
-            }
-            let mapping = speakerMapping(
-                for: shifted,
-                existing: stitched,
-                nextGlobalSpeaker: &nextGlobalSpeaker,
-                overlapStart: Float(startSample) / Float(sampleRate),
-                overlapEnd: acceptedUntil
-            )
-            for range in shifted {
-                guard let speaker = mapping[range.speaker], range.end > acceptedUntil else { continue }
-                stitched.append(DiarizedRange(
-                    start: max(range.start, acceptedUntil),
-                    end: range.end,
-                    speaker: speaker
-                ))
-            }
-            acceptedUntil = Float(endSample) / Float(sampleRate)
-            guard endSample < audio.count else { break }
-            startSample = max(0, endSample - overlapSamples)
-        }
-        return stitched.sorted { $0.start < $1.start }
-    }
-
-    private func processDiarizationWindow(
-        _ audio: [Float],
-        with diarizer: SherpaSpeakerDiarization
-    ) async -> [DiarizedRange] {
-        await Task.detached(priority: .utility) {
-            diarizer.process(audio)
-        }.value
-    }
-
-    private func speakerMapping(
-        for current: [DiarizedRange],
-        existing: [DiarizedRange],
-        nextGlobalSpeaker: inout Int,
-        overlapStart: Float,
-        overlapEnd: Float
-    ) -> [Int: Int] {
-        var scores: [Int: [Int: Float]] = [:]
-        if overlapEnd > overlapStart {
-            for currentRange in current {
-                let currentStart = max(currentRange.start, overlapStart)
-                let currentEnd = min(currentRange.end, overlapEnd)
-                guard currentEnd > currentStart else { continue }
-                for existingRange in existing {
-                    let overlap = Self.overlap(
-                        currentStart,
-                        currentEnd,
-                        existingRange.start,
-                        existingRange.end
-                    )
-                    guard overlap > 0 else { continue }
-                    scores[currentRange.speaker, default: [:]][existingRange.speaker, default: 0] += overlap
-                }
-            }
-        }
-
-        var mapping: [Int: Int] = [:]
-        for (local, byGlobal) in scores {
-            if let best = byGlobal.max(by: { $0.value < $1.value })?.key {
-                mapping[local] = best
-            }
-        }
-        for range in current where mapping[range.speaker] == nil {
-            mapping[range.speaker] = nextGlobalSpeaker
-            nextGlobalSpeaker += 1
-        }
-        return mapping
-    }
-
-    private static func overlap(_ aStart: Float, _ aEnd: Float, _ bStart: Float, _ bEnd: Float) -> Float {
-        max(0, min(aEnd, bEnd) - max(aStart, bStart))
     }
 
     // MARK: - Whisper
