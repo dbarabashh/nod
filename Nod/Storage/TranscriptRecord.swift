@@ -13,8 +13,10 @@ struct TranscriptRecord: Codable, Identifiable {
     let text: String
     let ts: Date
     let idx: Int
-    /// Diarized speaker index within the `them` stream (0-based); nil for `me`
-    /// and meetings recorded before diarization.
+    /// Legacy diarization column, retained for wire/DB compatibility. Always nil
+    /// now that speaker labels are source-based (`me`/`them`) only; meetings
+    /// recorded during the diarization era may still carry a value on the server,
+    /// which the UI ignores.
     let speaker: Int?
 
     enum CodingKeys: String, CodingKey {
@@ -44,16 +46,9 @@ struct TranscriptRecord: Codable, Identifiable {
 }
 
 extension TranscriptRecord {
-    /// "Them" rows read cleaner as plain "Them" when only one remote speaker
-    /// was detected; number them only once diarization separated more than one.
-    static func speakersAreNumbered(_ records: [TranscriptRecord]) -> Bool {
-        Set(records.compactMap { $0.source == TranscriptSource.them.rawValue ? $0.speaker : nil }).count > 1
-    }
-
-    /// `Me` / `Them`, or `Them N` when `numbered` and a speaker index is set.
-    func displayLabel(numbered: Bool) -> String {
-        guard let src = TranscriptSource(rawValue: source) else { return source }
-        return src.displayLabel(speaker: speaker, numbered: numbered)
+    /// `Me` / `Them` — speaker labels are source-based only.
+    func displayLabel() -> String {
+        TranscriptSource(rawValue: source)?.label ?? source
     }
 
     /// A copy with the diarized speaker stripped — used to retry an insert

@@ -19,16 +19,6 @@ enum TranscriptSource: String {
         case .them: "🔊"
         }
     }
-
-    /// `Me` / `Them`, or `Them N` when diarization separated more than one
-    /// remote speaker. Single source of truth for both the live transcript and
-    /// persisted-record rendering.
-    func displayLabel(speaker: Int?, numbered: Bool) -> String {
-        if self == .them, numbered, let speaker {
-            return "Them \(speaker + 1)"
-        }
-        return label
-    }
 }
 
 struct TranscriptEntry: Identifiable, Equatable {
@@ -36,20 +26,13 @@ struct TranscriptEntry: Identifiable, Equatable {
     let source: TranscriptSource
     let text: String
     let timestamp: Date
-    /// Diarized speaker index within the `.them` stream (0-based); nil for `.me`
-    /// and while diarization is unavailable. Set live, then overwritten by the
-    /// global re-clustering at meeting end.
-    var speaker: Int?
 }
 
-/// One Whisper-finalised chunk handed up from a `WhisperTranscriber`. For
-/// `.them` it carries the index of the spooled utterance, which the
-/// end-of-meeting diarization pass maps to a speaker.
+/// One Whisper-finalised chunk handed up from a `WhisperTranscriber`.
 struct TranscribedChunk {
     let text: String
     let source: TranscriptSource
     let timestamp: Date
-    let segmentIndex: Int?
 }
 
 final class TranscriptStore: ObservableObject, @unchecked Sendable {
@@ -61,12 +44,6 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
 
     private let mic: WhisperTranscriber
     private let system: WhisperTranscriber
-
-    /// Spool index of each `.them` entry's utterance, keyed by entry id. The
-    /// end-of-meeting diarization pass returns one speaker per index;
-    /// `refineSpeakers()` joins them back onto entries. Touched only on the main
-    /// queue (alongside `entries`), so no locking.
-    private var segmentIndexByEntry: [UUID: Int] = [:]
 
     init(client: OpenRouterClient) {
         mic = WhisperTranscriber(source: .me, client: client)
@@ -107,7 +84,6 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     func clear() {
         DispatchQueue.main.async {
             self.entries = []
-            self.segmentIndexByEntry = [:]
             self.liveMe = ""
             self.liveThem = ""
             self.lastSource = nil
@@ -151,13 +127,9 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     /// history (`fullContext`).
     func recentContext(maxEntries: Int) -> String {
         let included = Array(entries.suffix(maxEntries))
-        // Only number "Them" speakers once diarization has actually separated
-        // more than one — a single remote voice reads cleaner as plain "Them".
-        let themSpeakers = Set(included.compactMap { $0.source == .them ? $0.speaker : nil })
-        let numbered = themSpeakers.count > 1
         var lines: [String] = []
         for entry in included {
-            lines.append("[\(label(for: entry, numbered: numbered))]: \(entry.text)")
+            lines.append("[\(entry.source.label)]: \(entry.text)")
         }
         // No live partials with Whisper (it's batch), but kept for forward-compat
         // in case we ever wire a streaming STT alongside.
@@ -187,56 +159,6 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         DispatchQueue.main.async {
             self.appendDeduped(chunk: chunk, timestamp: chunk.timestamp)
             self.lastError = nil
-        }
-    }
-
-    /// `Me` / `Them` for the live bubble + persistence, or `Them N` once more
-    /// than one remote speaker is present (see `recentContext`).
-    private func label(for entry: TranscriptEntry, numbered: Bool) -> String {
-        entry.source.displayLabel(speaker: entry.speaker, numbered: numbered)
-    }
-
-    /// Returns a transcript snapshot with speaker labels when diarization
-    /// succeeds. The store itself is not mutated so persistence can fall back
-    /// to the plain transcript if diarization is slow or unavailable.
-    func diarizedEntriesSnapshot() async -> [TranscriptEntry]? {
-        let snapshot = await MainActor.run { (entries, segmentIndexByEntry) }
-        guard let labels = await system.diarizeSpeakers() else { return nil }
-        var updated = snapshot.0
-        for idx in updated.indices where updated[idx].source == .them {
-            guard let segmentIndex = snapshot.1[updated[idx].id],
-                  segmentIndex < labels.count else { continue }
-            updated[idx].speaker = labels[segmentIndex]
-        }
-        logSpeakerDistribution(in: updated)
-        return updated
-    }
-
-    /// Diarize the meeting's system audio and join the resulting speaker labels
-    /// onto the live `.them` entries. Kept for local debugging paths; the normal
-    /// end-of-meeting flow uses `diarizedEntriesSnapshot()` so persistence can
-    /// proceed even when diarization is slow.
-    func refineSpeakers() async {
-        guard let diarized = await diarizedEntriesSnapshot() else { return }
-        await MainActor.run {
-            var byID = Dictionary(uniqueKeysWithValues: diarized.map { ($0.id, $0.speaker) })
-            for idx in entries.indices {
-                entries[idx].speaker = byID.removeValue(forKey: entries[idx].id) ?? entries[idx].speaker
-            }
-        }
-    }
-
-    private func logSpeakerDistribution(in entries: [TranscriptEntry]) {
-        var bySpeaker: [Int: [TranscriptEntry]] = [:]
-        for entry in entries where entry.source == .them {
-            guard let speaker = entry.speaker else { continue }
-            bySpeaker[speaker, default: []].append(entry)
-        }
-        let themCount = entries.lazy.filter { $0.source == .them }.count
-        Log.stt.info("diarization refine: \(bySpeaker.count) speaker(s) across \(themCount) segments")
-        for speaker in bySpeaker.keys.sorted() {
-            let group = bySpeaker[speaker] ?? []
-            Log.stt.info("  speaker \(speaker + 1): \(group.count) segments")
         }
     }
 
@@ -277,12 +199,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             switch (source, existing.source) {
             case (.them, .me):
                 Log.stt.info("dedup: replaced ME bleed with cleaner THEM ('\(text.prefix(48))…')")
-                let replacement = TranscriptEntry(source: .them, text: text, timestamp: timestamp, speaker: nil)
-                segmentIndexByEntry.removeValue(forKey: existing.id)
-                if let segmentIndex = chunk.segmentIndex {
-                    segmentIndexByEntry[replacement.id] = segmentIndex
-                }
-                entries[idx] = replacement
+                entries[idx] = TranscriptEntry(source: .them, text: text, timestamp: timestamp)
                 lastSource = .them
             case (.me, .them):
                 Log.stt.info("dedup: dropped ME bleed of existing THEM ('\(text.prefix(48))…')")
@@ -292,11 +209,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             return
         }
 
-        let entry = TranscriptEntry(source: source, text: text, timestamp: timestamp, speaker: nil)
-        if let segmentIndex = chunk.segmentIndex {
-            segmentIndexByEntry[entry.id] = segmentIndex
-        }
-        entries.append(entry)
+        entries.append(TranscriptEntry(source: source, text: text, timestamp: timestamp))
         lastSource = source
     }
 

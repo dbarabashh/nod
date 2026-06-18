@@ -37,25 +37,6 @@ final class WhisperTranscriber: @unchecked Sendable {
     private let vad: SherpaOnnxVoiceActivityDetectorWrapper?
     private var chunkCounter: Int = 0
 
-    /// Speaker diarization runs on the system-audio (`.them`) stream only — the
-    /// mic is always the local user, one speaker. We spool every VAD utterance
-    /// and, at meeting end, run pyannote offline diarization over the whole
-    /// spool (see SherpaSpeakerDiarization) — far more robust on many-speaker
-    /// calls than per-utterance embedding clustering. nil for `.me` and if the
-    /// models fail to load.
-    private let diarizer: SherpaSpeakerDiarization?
-    /// Concatenated 16 kHz mono speech (VAD utterances only, no silence) for the
-    /// end-of-meeting diarization pass. `segmentRanges[i]` is the span of the
-    /// i-th emitted `.them` segment within `spool`; `TranscribedChunk.segmentIndex`
-    /// carries `i` so TranscriptStore can map the diarizer's speakers back.
-    /// Touched only on `queue`.
-    private var spool: [Float] = []
-    private var segmentRanges: [SegmentRange] = []
-    /// Cap the spool so a marathon meeting can't grow memory without bound:
-    /// 16 kHz × 40 min of speech ≈ 38.4M floats (~150 MB). Beyond this, later
-    /// segments are left unlabelled (carry-forward fills them).
-    private static let maxSpoolSamples = 16_000 * 60 * 40
-
     // In-flight transcription Tasks; flushPending awaits these so a Suggest-reply
     // sees all completed segments, in order, before it reads the context.
     private var inFlightFlushes: [UUID: Task<Void, Never>] = [:]
@@ -105,21 +86,6 @@ final class WhisperTranscriber: @unchecked Sendable {
         if vad == nil {
             Log.stt.error("[\(source.label)] Silero VAD unavailable — model missing or failed to load")
         }
-        if source == .them {
-            diarizer = WhisperTranscriber.makeDiarizer()
-            if diarizer == nil {
-                Log.stt.error("[\(source.label)] diarization models unavailable — speaker labels disabled")
-            }
-        } else {
-            diarizer = nil
-        }
-    }
-
-    private static func makeDiarizer() -> SherpaSpeakerDiarization? {
-        guard let segmentation = Bundle.main.url(forResource: "speaker_segmentation", withExtension: "onnx")?.path,
-              let embedding = Bundle.main.url(forResource: "speaker_embedding", withExtension: "onnx")?.path
-        else { return nil }
-        return SherpaSpeakerDiarization(segmentationModel: segmentation, embeddingModel: embedding)
     }
 
     private static func makeVAD() -> SherpaOnnxVoiceActivityDetectorWrapper? {
@@ -148,9 +114,6 @@ final class WhisperTranscriber: @unchecked Sendable {
             self.keepRecognizing = true
             // Reset Silero state for a fresh stream (also drops any queued segments).
             self.vad?.reset()
-            // Drop the previous meeting's diarization spool.
-            self.spool.removeAll(keepingCapacity: false)
-            self.segmentRanges.removeAll(keepingCapacity: false)
             self.acceptedSampleCount = 0
             self.audioClockSpans.removeAll(keepingCapacity: false)
         }
@@ -257,8 +220,7 @@ final class WhisperTranscriber: @unchecked Sendable {
             sendToWhisper(
                 wav: wav,
                 reason: reason,
-                timestamp: timestamp(forSampleIndex: segment.start),
-                segmentIndex: spoolForDiarization(segment.samples)
+                timestamp: timestamp(forSampleIndex: segment.start)
             )
         }
     }
@@ -288,47 +250,13 @@ final class WhisperTranscriber: @unchecked Sendable {
         return Date()
     }
 
-    /// Append a `.them` utterance to the diarization spool and return its index,
-    /// or nil for `.me`, when diarization is unavailable, or once the spool cap
-    /// is hit (those utterances inherit a neighbour's speaker at mapping time).
-    /// Must be on `queue`.
-    private func spoolForDiarization(_ samples: [Float]) -> Int? {
-        guard diarizer != nil, spool.count + samples.count <= Self.maxSpoolSamples else { return nil }
-        let start = spool.count
-        spool.append(contentsOf: samples)
-        segmentRanges.append(SegmentRange(start: start, count: samples.count))
-        return segmentRanges.count - 1
-    }
-
-    /// Run pyannote offline diarization over the whole spool and map each
-    /// emitted segment to a speaker. Returns labels indexed by `segmentIndex`
-    /// (renumbered by first appearance), or nil if diarization is unavailable.
-    /// Snapshots the spool on `queue`, then diarizes off the main actor.
-    func diarizeSpeakers() async -> [Int]? {
-        guard let diarizer else { return nil }
-        let snapshot: ([Float], [SegmentRange]) = await withCheckedContinuation { cont in
-            queue.async { cont.resume(returning: (self.spool, self.segmentRanges)) }
-        }
-        let (audio, ranges) = snapshot
-        guard !audio.isEmpty, !ranges.isEmpty else { return nil }
-        let audioSeconds = Double(audio.count) / 16_000
-        let started = Date()
-        Log.stt.info("diarization: processing \(ranges.count) segments (\(String(format: "%.0f", audioSeconds))s audio)…")
-        // One full-spool pass off the main actor — see SherpaSpeakerDiarization.process
-        // for why the whole meeting must go through a single call (no windowing).
-        let diarized = await Task.detached(priority: .utility) { diarizer.process(audio) }.value
-        Log.stt.info("diarization: done in \(String(format: "%.1f", Date().timeIntervalSince(started)))s, \(diarized.count) ranges")
-        return SpeakerMapping.assign(segmentRanges: ranges, diarization: diarized, sampleRate: diarizer.sampleRate)
-    }
-
     // MARK: - Whisper
 
     /// Must be called on `queue`.
     private func sendToWhisper(
         wav: Data,
         reason: String,
-        timestamp: Date,
-        segmentIndex: Int?
+        timestamp: Date
     ) {
         chunkCounter += 1
         let chunkID = chunkCounter
@@ -348,7 +276,7 @@ final class WhisperTranscriber: @unchecked Sendable {
                     return
                 }
                 Log.stt.info("[\(src.label)] chunk #\(chunkID) ← \(trimmed)")
-                self.onFinal?(TranscribedChunk(text: trimmed, source: src, timestamp: timestamp, segmentIndex: segmentIndex))
+                self.onFinal?(TranscribedChunk(text: trimmed, source: src, timestamp: timestamp))
             } catch {
                 Log.stt.error("[\(src.label)] chunk #\(chunkID) Whisper failed: \(error.localizedDescription)")
                 self.onFailure?(error.localizedDescription, src)

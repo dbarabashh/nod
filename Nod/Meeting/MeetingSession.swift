@@ -112,16 +112,6 @@ final class MeetingSession: ObservableObject {
     private let profileStore: ProfileStore
     private let outbox: MeetingOutbox
 
-    private enum DiarizationWaitResult {
-        case completed([TranscriptEntry]?)
-        case timedOut
-    }
-
-    private struct TranscriptSnapshot {
-        let entries: [TranscriptEntry]
-        let pendingDiarization: Task<[TranscriptEntry]?, Never>?
-    }
-
     init(
         audioCapture: AudioCaptureService,
         store: TranscriptStore,
@@ -292,11 +282,11 @@ final class MeetingSession: ObservableObject {
         let profile = profileContext
         let generation = sessionGeneration
 
-        // Open the detail view and reset the panel IMMEDIATELY — the diarization
-        // pass runs once over the whole meeting and can take many seconds on a
-        // long call, so it (and the summary) must not block the user. The detail
-        // view shows its "Generating…" state meanwhile. The transcript stays in
-        // the store until the background task snapshots it below.
+        // Open the detail view and reset the panel IMMEDIATELY — the summary
+        // pass can take many seconds on a long call, so it must not block the
+        // user. The detail view shows its "Generating…" state meanwhile. The
+        // transcript stays in the store until the background task snapshots it
+        // below.
         //
         // Reuse the streaming draft's id so the rows already streamed under it
         // are updated, not duplicated. Built fresh so the bookends are accurate
@@ -339,10 +329,7 @@ final class MeetingSession: ObservableObject {
                 return
             }
 
-            // Snapshot the (un-diarized) transcript for the summary up front.
-            // Diarization only adds "Them 1/2/…" labels, which the summary
-            // infers from content anyway — so the recap doesn't need to wait
-            // out the pyannote pass, which is many seconds on a long meeting.
+            // Snapshot the transcript for the summary up front.
             let context = store.fullContext
             guard !context.isEmpty else {
                 store.clear()
@@ -359,9 +346,6 @@ final class MeetingSession: ObservableObject {
                 sessionKind: draft.kind
             )
 
-            // Diarization and the summary are independent. Give speaker labels
-            // a short chance to land, but never let them block transcript save.
-            let diarizationTask = Task { await store.diarizedEntriesSnapshot() }
             do {
                 let recap = try await generateRecap(system: system, user: user, transcript: context)
                 let text = recap.toMarkdown()
@@ -372,11 +356,7 @@ final class MeetingSession: ObservableObject {
                 let updated = draft.updating(title: title, summary: text, recap: recap)
                 meetingStore.applyGenerated(updated)
 
-                let plainEntries = store.entries
-                let transcriptSnapshot = await transcriptSnapshot(
-                    from: diarizationTask,
-                    fallback: plainEntries
-                )
+                let entries = store.entries
                 guard sessionGeneration == generation else {
                     Log.ui.info("End Meeting finalize abandoned — newer session started")
                     meetingStore.finishFinalizing(id: updated.id)
@@ -388,7 +368,7 @@ final class MeetingSession: ObservableObject {
                 // WAL, THEN push. The recap is on disk before the network write,
                 // so a quit / crash / app update can't lose it — launch replay
                 // resends whatever didn't drain here.
-                let records = transcriptRecords(from: transcriptSnapshot.entries, meeting: updated)
+                let records = transcriptRecords(from: entries, meeting: updated)
                 await outbox.complete(updated, transcripts: records, for: updated.id)
                 await drainOutbox()
                 meetingStore.finishFinalizing(id: updated.id)
@@ -406,14 +386,6 @@ final class MeetingSession: ObservableObject {
                 // the contention that pushed it over the CPU budget. It's all
                 // background, so the extra latency is invisible to the user.
                 let landed = await outbox.isPending(updated.id) == false
-                if landed, let pendingDiarization = transcriptSnapshot.pendingDiarization {
-                    Task {
-                        await self.backfillTranscriptSpeakers(
-                            from: pendingDiarization,
-                            meeting: updated
-                        )
-                    }
-                }
                 if landed {
                     await extractEntities(
                         meetingID: updated.id,
@@ -427,7 +399,6 @@ final class MeetingSession: ObservableObject {
                     )
                 }
             } catch {
-                diarizationTask.cancel()
                 if sessionGeneration == generation {
                     // Summary failed, but the transcript is real work. Complete
                     // the WAL entry with a fallback recap so it's a TERMINAL,
@@ -452,7 +423,7 @@ final class MeetingSession: ObservableObject {
     }
 
     /// Reset the panel to its ready state without touching the transcript —
-    /// used when the post-meeting finalize still needs `store` for diarization.
+    /// used when the post-meeting finalize still needs `store` to snapshot it.
     private func resetPanelForIdle() {
         meeting = .idle
         response = .none
@@ -569,50 +540,6 @@ final class MeetingSession: ObservableObject {
 
     // MARK: - Meeting persistence (issue #14)
 
-    private func transcriptSnapshot(
-        from task: Task<[TranscriptEntry]?, Never>,
-        fallback: [TranscriptEntry]
-    ) async -> TranscriptSnapshot {
-        switch await waitForDiarization(task, timeout: 8) {
-        case let .completed(entries):
-            return TranscriptSnapshot(entries: entries ?? fallback, pendingDiarization: nil)
-        case .timedOut:
-            Log.stt.info("diarization: timed out — saving transcript now, speaker labels will backfill")
-            return TranscriptSnapshot(entries: fallback, pendingDiarization: task)
-        }
-    }
-
-    private func waitForDiarization(
-        _ task: Task<[TranscriptEntry]?, Never>,
-        timeout: TimeInterval
-    ) async -> DiarizationWaitResult {
-        await withTaskGroup(of: DiarizationWaitResult.self) { group in
-            group.addTask {
-                await .completed(task.value)
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                return .timedOut
-            }
-            let result = await group.next() ?? .timedOut
-            group.cancelAll()
-            return result
-        }
-    }
-
-    private func backfillTranscriptSpeakers(
-        from task: Task<[TranscriptEntry]?, Never>,
-        meeting: Meeting
-    ) async {
-        guard let entries = await task.value else { return }
-        let records = transcriptRecords(from: entries, meeting: meeting)
-        do {
-            try await meetingStore.updateTranscriptSpeakers(records)
-        } catch {
-            Log.ui.error("MeetingStore.updateTranscriptSpeakers failed (non-fatal) — \(error.localizedDescription)")
-        }
-    }
-
     /// Fallback recap stamped when summary generation fails outright — keeps the
     /// transcript a terminal, drainable `.completed` entry instead of a phantom
     /// `.recording` one that re-pushes forever.
@@ -653,7 +580,7 @@ final class MeetingSession: ObservableObject {
                 text: entry.text,
                 ts: entry.timestamp,
                 idx: baseIdx + offset,
-                speaker: entry.speaker
+                speaker: nil
             )
         }
     }

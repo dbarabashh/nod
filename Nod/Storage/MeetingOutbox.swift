@@ -131,8 +131,9 @@ actor MeetingOutbox {
     }
 
     /// Stamp the final, summarised meeting. The transcript snapshot replaces the
-    /// streamed rows; any row whose speaker label changed is un-synced so the
-    /// completion push updates it on the server.
+    /// streamed rows; already-synced ids stay synced (their text is unchanged
+    /// from streaming), so the completion push only sends the meeting recap and
+    /// any tail rows not yet streamed.
     func complete(_ meeting: Meeting, transcripts: [TranscriptRecord], for id: UUID) {
         var entry = entries[id] ?? OutboxEntry(
             meeting: meeting,
@@ -142,23 +143,16 @@ actor MeetingOutbox {
             syncedTranscriptIDs: [],
             persistedTranscriptIDs: []
         )
-        let prior = Dictionary(entry.transcripts.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
-        var synced = entry.syncedTranscriptIDs
-        for record in transcripts where prior[record.id]?.speaker != record.speaker {
-            synced.remove(record.id)
-        }
         entry.meeting = meeting
         entry.transcripts = transcripts
-        entry.syncedTranscriptIDs = synced
         entry.state = .completed
         // Force a re-push of the row: during recording it may already have
         // landed with an empty summary, and skipping the upsert here (on a stale
         // `meetingSynced`) would leave that empty row on the server instead of
         // the real recap.
         entry.meetingSynced = false
-        // Append the tail records not yet on disk (speaker-only updates to
-        // already-persisted ids aren't re-written — the disk copy is a crash
-        // backstop; the server gets speakers via the normal push / backfill).
+        // Append the tail records not yet on disk — the disk copy is a crash
+        // backstop; already-persisted ids aren't re-written.
         let tail = transcripts.filter { !entry.persistedTranscriptIDs.contains($0.id) }
         for record in tail {
             entry.persistedTranscriptIDs.insert(record.id)

@@ -97,10 +97,6 @@ struct MeetingDetailView: View {
         meetingStore.finalizingMeetingIDs.contains(meeting.id)
     }
 
-    private var transcriptSpeakerRevision: Int {
-        meetingStore.transcriptSpeakerRevisions[meeting.id] ?? 0
-    }
-
     /// Finished generating but still waiting on the server (durable outbox).
     /// Gated on `!isFinalizing` so the first-pass persistence shows its own
     /// "Finishing…" state, not a sync warning.
@@ -160,12 +156,6 @@ struct MeetingDetailView: View {
                 return
             }
             if selectedTab == .transcript, shouldLoadTranscriptAfterFinalizing {
-                Task { await loadTranscript() }
-            }
-        }
-        .onChange(of: transcriptSpeakerRevision) { _ in
-            guard selectedTab == .transcript, !isFinalizing else { return }
-            if case .loaded = transcriptLoad {
                 Task { await loadTranscript() }
             }
         }
@@ -567,8 +557,7 @@ struct MeetingDetailView: View {
             // empty result for the just-finished meeting.
             ThinkingIndicator(script: [
                 "Preparing transcript…",
-                "Separating speakers…",
-                "Labelling who said what…",
+                "Saving what was said…",
                 "Almost there…"
             ])
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -603,10 +592,9 @@ struct MeetingDetailView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
             } else {
-                let numbered = TranscriptRecord.speakersAreNumbered(records)
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(records) { record in
-                        transcriptRow(record, numbered: numbered)
+                        transcriptRow(record)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -632,10 +620,10 @@ struct MeetingDetailView: View {
         }
     }
 
-    private func transcriptRow(_ record: TranscriptRecord, numbered: Bool) -> some View {
+    private func transcriptRow(_ record: TranscriptRecord) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(record.displayLabel(numbered: numbered).uppercased())
+                Text(record.displayLabel().uppercased())
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .tracking(0.4)
                     .foregroundStyle(Theme.Palette.ink.opacity(0.85))
@@ -658,17 +646,13 @@ struct MeetingDetailView: View {
         }
     }
 
-    /// Mic is always violet; each diarized remote speaker gets a distinct hue
-    /// rotating around the wheel so "Them 1/2/3" are visually separable.
+    /// Mic (`me`) is violet; the remote party (`them`) is cyan.
     private func speakerBackground(_ record: TranscriptRecord) -> Color {
-        guard TranscriptSource(rawValue: record.source) == .them else {
-            return TranscriptSource(rawValue: record.source) == .me
-                ? Theme.Palette.violet.opacity(0.18)
-                : Theme.Palette.surface
+        switch TranscriptSource(rawValue: record.source) {
+        case .me: Theme.Palette.violet.opacity(0.18)
+        case .them: Theme.Palette.cyan.opacity(0.18)
+        case nil: Theme.Palette.surface
         }
-        guard let speaker = record.speaker else { return Theme.Palette.cyan.opacity(0.18) }
-        let hue = Double(speaker).truncatingRemainder(dividingBy: 8) / 8.0
-        return Color(hue: hue, saturation: 0.5, brightness: 0.9).opacity(0.22)
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -832,10 +816,9 @@ struct MeetingDetailView: View {
     /// is disabled in that state).
     private func copyTranscript() {
         guard case let .loaded(records) = transcriptLoad, !records.isEmpty else { return }
-        let numbered = TranscriptRecord.speakersAreNumbered(records)
         let payload = records
             .map { record in
-                "[\(Self.timeFormatter.string(from: record.ts))] \(record.displayLabel(numbered: numbered)): \(record.text)"
+                "[\(Self.timeFormatter.string(from: record.ts))] \(record.displayLabel()): \(record.text)"
             }
             .joined(separator: "\n")
         copyAndFlash(payload)

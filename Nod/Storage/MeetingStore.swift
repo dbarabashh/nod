@@ -65,10 +65,6 @@ final class MeetingStore: ObservableObject {
     /// affordances still need the meeting row and transcript records to exist.
     @Published private(set) var finalizingMeetingIDs: Set<UUID> = []
 
-    /// Bumped when transcript speaker labels are patched after the first
-    /// transcript insert, so open detail/chat views can refetch the transcript.
-    @Published private(set) var transcriptSpeakerRevisions: [UUID: Int] = [:]
-
     /// Meeting IDs that finished generating but haven't fully reached the server
     /// — they still sit in the durable `MeetingOutbox`. Mirrored from the
     /// session's drain (`setUnsyncedMeetings`). Two jobs:
@@ -335,33 +331,6 @@ final class MeetingStore: ObservableObject {
         }
     }
 
-    /// Best-effort backfill for diarization labels that finish after the plain
-    /// transcript has already been saved. The matching migration grants
-    /// authenticated clients update access only to the `speaker` column.
-    func updateTranscriptSpeakers(_ records: [TranscriptRecord]) async throws {
-        let labelled = records.filter { $0.source == TranscriptSource.them.rawValue && $0.speaker != nil }
-        guard let meetingID = labelled.first?.meetingID else { return }
-        Log.ui.info("MeetingStore.updateTranscriptSpeakers meeting=\(meetingID.uuidString) count=\(labelled.count)")
-
-        struct SpeakerPatch: Encodable {
-            let speaker: Int?
-        }
-
-        do {
-            for record in labelled {
-                try await supabase
-                    .from(Self.transcriptsTableName)
-                    .update(SpeakerPatch(speaker: record.speaker))
-                    .eq("id", value: record.id.uuidString)
-                    .execute()
-            }
-            transcriptSpeakerRevisions[meetingID, default: 0] += 1
-        } catch {
-            guard Self.isMissingSpeakerColumn(error) else { throw error }
-            Log.ui.error("updateTranscriptSpeakers skipped — 'speaker' column absent")
-        }
-    }
-
     /// PostgREST reports an unknown column as PGRST204 with a message naming it
     /// ("Could not find the 'speaker' column … in the schema cache"). Match on
     /// the column name so an unrelated failure still propagates.
@@ -575,7 +544,6 @@ final class MeetingStore: ObservableObject {
         lastSuccessfulFetchAt = nil
         generatingSummaryIDs = []
         finalizingMeetingIDs = []
-        transcriptSpeakerRevisions = [:]
         unsyncedMeetingIDs = []
     }
 
