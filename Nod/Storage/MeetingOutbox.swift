@@ -119,7 +119,9 @@ actor MeetingOutbox {
     func record(_ records: [TranscriptRecord], for id: UUID) {
         guard var entry = entries[id], !records.isEmpty else { return }
         var byID = Dictionary(entry.transcripts.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
-        for record in records { byID[record.id] = record }
+        for record in records {
+            byID[record.id] = record
+        }
         entry.transcripts = byID.values.sorted { $0.idx < $1.idx }
         for record in records where !entry.persistedTranscriptIDs.contains(record.id) {
             appendTranscriptLine(record, for: id)
@@ -158,9 +160,13 @@ actor MeetingOutbox {
         // already-persisted ids aren't re-written — the disk copy is a crash
         // backstop; the server gets speakers via the normal push / backfill).
         let tail = transcripts.filter { !entry.persistedTranscriptIDs.contains($0.id) }
-        for record in tail { entry.persistedTranscriptIDs.insert(record.id) }
+        for record in tail {
+            entry.persistedTranscriptIDs.insert(record.id)
+        }
         entries[id] = entry
-        for record in tail { appendTranscriptLine(record, for: id) }
+        for record in tail {
+            appendTranscriptLine(record, for: id)
+        }
         Log.ui.info("MeetingOutbox.complete id=\(id.uuidString) transcripts=\(transcripts.count)")
         writeMeta(id)
     }
@@ -183,7 +189,9 @@ actor MeetingOutbox {
             .map(\.meeting)
     }
 
-    func isPending(_ id: UUID) -> Bool { entries[id] != nil }
+    func isPending(_ id: UUID) -> Bool {
+        entries[id] != nil
+    }
 
     /// Promote any meeting still marked `.recording` on disk to a terminal,
     /// placeholder-summarised `.completed` entry (or drop it if nothing was

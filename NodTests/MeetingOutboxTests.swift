@@ -24,7 +24,9 @@ final class FakeRemoteWriter: MeetingRemoteWriter, @unchecked Sendable {
         upsertedTranscripts.append(contentsOf: records)
     }
 
-    var uniqueTranscriptIDs: Set<UUID> { Set(upsertedTranscripts.map(\.id)) }
+    var uniqueTranscriptIDs: Set<UUID> {
+        Set(upsertedTranscripts.map(\.id))
+    }
 }
 
 final class MeetingOutboxTests: XCTestCase {
@@ -78,8 +80,10 @@ final class MeetingOutboxTests: XCTestCase {
         let outbox = MeetingOutbox(directory: tempDir)
         let writer = FakeRemoteWriter()
         let meeting = makeMeeting(userID: user, summary: "recap")
-        let records = [makeRecord(0, meetingID: meeting.id, userID: user),
-                       makeRecord(1, meetingID: meeting.id, userID: user)]
+        let records = [
+            makeRecord(0, meetingID: meeting.id, userID: user),
+            makeRecord(1, meetingID: meeting.id, userID: user)
+        ]
 
         await outbox.begin(makeMeeting(id: meeting.id, userID: user))
         await outbox.record(records, for: meeting.id)
@@ -176,8 +180,10 @@ final class MeetingOutboxTests: XCTestCase {
     func testCompletedEntrySurvivesReload() async {
         let user = UUID()
         let meeting = makeMeeting(userID: user, summary: "recap")
-        let records = [makeRecord(0, meetingID: meeting.id, userID: user),
-                       makeRecord(1, meetingID: meeting.id, userID: user)]
+        let records = [
+            makeRecord(0, meetingID: meeting.id, userID: user),
+            makeRecord(1, meetingID: meeting.id, userID: user)
+        ]
 
         // First "process": stamp it, never flush (simulate quit before sync).
         let first = MeetingOutbox(directory: tempDir)

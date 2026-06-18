@@ -586,22 +586,22 @@ struct HistoryView: View {
                 mode: .all,
                 isUnsynced: meetingStore.unsyncedMeetingIDs.contains(meeting.id)
             )
-                .onTapGesture { path.append(meeting) }
-                .accessibilityAddTraits(.isButton)
-                .listRowBackground(Color.clear)
-                .listRowSeparatorTint(Theme.Palette.border)
-                .contextMenu {
-                    Button {
-                        Task { await performSoftDelete(meeting) }
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                    Button(role: .destructive) {
-                        pendingHardDelete = meeting
-                    } label: {
-                        Label("Delete Forever", systemImage: "trash.fill")
-                    }
+            .onTapGesture { path.append(meeting) }
+            .accessibilityAddTraits(.isButton)
+            .listRowBackground(Color.clear)
+            .listRowSeparatorTint(Theme.Palette.border)
+            .contextMenu {
+                Button {
+                    Task { await performSoftDelete(meeting) }
+                } label: {
+                    Label("Delete", systemImage: "trash")
                 }
+                Button(role: .destructive) {
+                    pendingHardDelete = meeting
+                } label: {
+                    Label("Delete Forever", systemImage: "trash.fill")
+                }
+            }
         }
         .listStyle(.inset)
         .scrollContentBackground(.hidden)

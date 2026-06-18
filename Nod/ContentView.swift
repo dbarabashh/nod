@@ -139,7 +139,6 @@ struct ContentView: View {
 
     /// Default state during a meeting is collapsed: shows only the REC capsule.
     /// Idle (pre-meeting) state always shows the full pre-meeting card layout.
-    @ViewBuilder
     private var leftColumn: some View {
         VStack(alignment: .leading, spacing: 10) {
             leftColumnContent
