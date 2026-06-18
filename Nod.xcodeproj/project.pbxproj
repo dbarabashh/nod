@@ -50,6 +50,7 @@
 		83F9D087C396F52F3B80D84E /* SupabaseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A19A6B64B15C834D9882F79 /* SupabaseConfig.swift */; };
 		85A8EFA2E6AA2AF8CCC1174B /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFEA0D933A8789DB4DDAF3BD /* Theme.swift */; };
 		89A3CB33F89E9F813E1926B7 /* Meeting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A52BC6C5F921E981E5C1B7E /* Meeting.swift */; };
+		89D0C1EB25C13A32BD1197DB /* HallucinationFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACD2C2B0C46EE5CA16509869 /* HallucinationFilter.swift */; };
 		8CBEF0D8EC0184896172EA7E /* BillingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25018362FB712D6E36B2E8C3 /* BillingService.swift */; };
 		8DF62177F21E18339CCD7E22 /* AppLanguageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D382D1AD1CB8C95AB62A8E2F /* AppLanguageTests.swift */; };
 		91B2DF926E4E4C8DB3021C82 /* InlineConfirmButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B7971EBC45701611ECDA50 /* InlineConfirmButtons.swift */; };
@@ -79,6 +80,7 @@
 		CE781AD1C4EDEFE33346572C /* UpdateGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F82B97BBA049197928C3D5D1 /* UpdateGate.swift */; };
 		CFAD0ACF9B70A94F7454E38C /* AudioDeviceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9212ABCD375EB1D216DCA0D /* AudioDeviceCatalog.swift */; };
 		D0EFE445F5346D841211CACD /* MeetingDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C1E0C024C287B38F0821F09 /* MeetingDetailView.swift */; };
+		D479DBE3050AEA62E59C7FA7 /* HallucinationFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F704C7A39EDEA75CC33ED560 /* HallucinationFilterTests.swift */; };
 		D564F6133741983DA7E39CED /* SherpaVAD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77DCFB171A49270432EF9BC5 /* SherpaVAD.swift */; };
 		DF0AB3D1913288F0888409CF /* MeetingOutboxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0609389426B622B59DFA01 /* MeetingOutboxTests.swift */; };
 		E061F49FCEB8000FC6F7C7ED /* KnowledgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F87B4B9B59126F1C2C3F03D /* KnowledgeStore.swift */; };
@@ -169,6 +171,7 @@
 		9E50AD4B4443C2AFC55281CD /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
 		A223C9F4F471729CC9C4052E /* PermissionsStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsStep.swift; sourceTree = "<group>"; };
 		A9212ABCD375EB1D216DCA0D /* AudioDeviceCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDeviceCatalog.swift; sourceTree = "<group>"; };
+		ACD2C2B0C46EE5CA16509869 /* HallucinationFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HallucinationFilter.swift; sourceTree = "<group>"; };
 		AE1282C515482809586F2327 /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
 		B2C3EB01B3DDAC8BCA57F360 /* LabelComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelComponents.swift; sourceTree = "<group>"; };
 		C15CB8A8AEF1BCA90EB0DEF4 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -189,6 +192,7 @@
 		E78FD6F93B40A3B13049CAE3 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
 		E7ED9A9F762D6AB3FD1E770F /* OpenRouterClientHelperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenRouterClientHelperTests.swift; sourceTree = "<group>"; };
 		F262446346BF9FFC15D5AF67 /* WhisperTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperTranscriber.swift; sourceTree = "<group>"; };
+		F704C7A39EDEA75CC33ED560 /* HallucinationFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HallucinationFilterTests.swift; sourceTree = "<group>"; };
 		F82B97BBA049197928C3D5D1 /* UpdateGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateGate.swift; sourceTree = "<group>"; };
 		FB0516E22D5937F9048CF245 /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
 		FDE407B014D9F046F46ABE56 /* TranscriptDedupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptDedupTests.swift; sourceTree = "<group>"; };
@@ -373,6 +377,7 @@
 			isa = PBXGroup;
 			children = (
 				D382D1AD1CB8C95AB62A8E2F /* AppLanguageTests.swift */,
+				F704C7A39EDEA75CC33ED560 /* HallucinationFilterTests.swift */,
 				1A0609389426B622B59DFA01 /* MeetingOutboxTests.swift */,
 				C71D490D0577937862FE6A22 /* MeetingStoreMergeTests.swift */,
 				E7ED9A9F762D6AB3FD1E770F /* OpenRouterClientHelperTests.swift */,
@@ -436,6 +441,7 @@
 			children = (
 				6513755E613BC16F66D6583B /* AudioCaptureService.swift */,
 				A9212ABCD375EB1D216DCA0D /* AudioDeviceCatalog.swift */,
+				ACD2C2B0C46EE5CA16509869 /* HallucinationFilter.swift */,
 				7F365DD35A0D5B3EA0620B5E /* SampleBufferConverter.swift */,
 				14B022AA739EDC98C9F8C0E8 /* TranscriptStore.swift */,
 				05FBEC5365982FF423F3A87E /* WAVEncoder.swift */,
@@ -650,6 +656,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8DF62177F21E18339CCD7E22 /* AppLanguageTests.swift in Sources */,
+				D479DBE3050AEA62E59C7FA7 /* HallucinationFilterTests.swift in Sources */,
 				DF0AB3D1913288F0888409CF /* MeetingOutboxTests.swift in Sources */,
 				9A41E20961D847438D97AB67 /* MeetingStoreMergeTests.swift in Sources */,
 				F26804CE9ABEB76C4AF003D7 /* OpenRouterClientHelperTests.swift in Sources */,
@@ -681,6 +688,7 @@
 				5DB4AFFD8952636A15A731BB /* Entity.swift in Sources */,
 				3D8F057412F9AE997680800C /* EntityStore.swift in Sources */,
 				7DF9FA26FC32B7DBE73267B0 /* FloatingPanel.swift in Sources */,
+				89D0C1EB25C13A32BD1197DB /* HallucinationFilter.swift in Sources */,
 				552D7AE1CAFC3A02C97BEB37 /* HistoryView.swift in Sources */,
 				7C44C3A7A932154674C0FAFF /* HotkeyManager.swift in Sources */,
 				26318A2F40F971937434FED9 /* HotkeyRecorder.swift in Sources */,

@@ -256,24 +256,45 @@ final class OpenRouterClient: ObservableObject {
     /// to OpenRouter's `/api/v1/audio/transcriptions`, which expects a JSON
     /// body with base64-encoded audio (NOT multipart — sending multipart to
     /// OpenRouter's handler returns a generic 500).
-    func transcribe(audio: Data, language: String? = nil) async throws -> String {
+    /// `prompt` is the rolling context tail (last confirmed words for this
+    /// source) — Whisper conditions decoding on it, which restores the context
+    /// that per-chunk isolation otherwise destroys (proper nouns, spelling,
+    /// phrase endings) and biases language toward what's already been said.
+    /// `temperature: 0` + `verbose_json` are always requested: zero temperature
+    /// cuts decode variance/hallucination, and the verbose response carries the
+    /// per-segment metrics the caller filters on. The decoder tolerates a plain
+    /// `{ text }` response too, so a provider that ignores `verbose_json` still
+    /// works (just with empty `segments`).
+    func transcribe(audio: Data, language: String? = nil, prompt: String? = nil) async throws -> Transcription {
+        let promptText = (prompt?.isEmpty == false) ? prompt : nil
         let inner = TranscriptionRequest(
             model: whisperModel,
             input_audio: .init(data: audio.base64EncodedString(), format: "wav"),
-            language: language
+            language: language,
+            prompt: promptText,
+            temperature: 0,
+            response_format: "verbose_json"
         )
         let bodyData = try JSONEncoder().encode(ProxyEnvelope(kind: "transcribe", payload: inner))
 
         Log.llm.info(
-            "→ transcribe via proxy model=\(whisperModel) audio_bytes=\(audio.count) body_bytes=\(bodyData.count) lang=\(language ?? "auto")"
+            "→ transcribe via proxy model=\(whisperModel) audio_bytes=\(audio.count) body_bytes=\(bodyData.count) lang=\(language ?? "auto") prompt=\(promptText != nil)"
         )
 
         let data = try await postToProxyWithRetry(body: bodyData)
         do {
             let decoded = try JSONDecoder().decode(WhisperResponse.self, from: data)
             let text = decoded.text ?? ""
-            Log.llm.info("← Whisper OK len=\(text.count)")
-            return text
+            let segments = (decoded.segments ?? []).map {
+                TranscriptionSegment(
+                    text: $0.text ?? "",
+                    avgLogprob: $0.avg_logprob,
+                    noSpeechProb: $0.no_speech_prob,
+                    compressionRatio: $0.compression_ratio
+                )
+            }
+            Log.llm.info("← Whisper OK len=\(text.count) segs=\(segments.count) lang=\(decoded.language ?? "?")")
+            return Transcription(text: text, segments: segments, language: decoded.language)
         } catch {
             let body = String(data: data, encoding: .utf8) ?? "<binary>"
             let sanitized = Self.sanitizeErrorBody(body)
@@ -506,6 +527,12 @@ final class OpenRouterClient: ObservableObject {
         guard let http = response as? HTTPURLResponse else {
             throw ClientError.decodingFailed("Non-HTTP response")
         }
+        // Operational visibility: the proxy stamps the serving STT provider on
+        // transcribe responses. Logging it here (one line per chunk) makes it
+        // obvious in Console.app / Xcode whether Groq is actually handling audio.
+        if let sttProvider = http.value(forHTTPHeaderField: "x-nod-stt-provider") {
+            Log.llm.info("STT served by provider=\(sttProvider) status=\(http.statusCode)")
+        }
         if http.statusCode == 401 {
             throw ClientError.unauthenticated
         }
@@ -605,10 +632,77 @@ private struct TranscriptionRequest: Encodable {
     let model: String
     let input_audio: InputAudio
     let language: String?
+    // Tier-1 knobs. All optional: a `nil` is omitted by the synthesized encoder
+    // (`encodeIfPresent`), so the current call site — which sets none of them —
+    // produces the exact same wire body as before. The proxy forwards whichever
+    // are present to the provider's multipart form.
+    let prompt: String?
+    let temperature: Double?
+    let response_format: String?
+    let timestamp_granularities: [String]?
+
+    init(
+        model: String,
+        input_audio: InputAudio,
+        language: String? = nil,
+        prompt: String? = nil,
+        temperature: Double? = nil,
+        response_format: String? = nil,
+        timestamp_granularities: [String]? = nil
+    ) {
+        self.model = model
+        self.input_audio = input_audio
+        self.language = language
+        self.prompt = prompt
+        self.temperature = temperature
+        self.response_format = response_format
+        self.timestamp_granularities = timestamp_granularities
+    }
 }
 
+/// Decodes either the plain (`{ text }`) or `verbose_json` transcription
+/// response. `segments` carries the per-segment quality metrics the Tier-1
+/// hallucination filter keys off (`avg_logprob`, `no_speech_prob`,
+/// `compression_ratio`); `words` carries word-level timestamps for click-to-seek.
+/// Both are nil on the plain response, so existing callers that read only `text`
+/// keep working unchanged.
 private struct WhisperResponse: Decodable {
+    struct Segment: Decodable {
+        let text: String?
+        let start: Double?
+        let end: Double?
+        let avg_logprob: Double?
+        let no_speech_prob: Double?
+        let compression_ratio: Double?
+    }
+
+    struct Word: Decodable {
+        let word: String?
+        let start: Double?
+        let end: Double?
+    }
+
     let text: String?
+    let language: String?
+    let segments: [Segment]?
+    let words: [Word]?
+}
+
+/// Provider-agnostic transcription result handed to the transcriber. `segments`
+/// is non-empty only when the provider honored `verbose_json`; the transcriber's
+/// hallucination filter uses the per-segment metrics when present and falls back
+/// to text-only heuristics when absent.
+struct Transcription {
+    let text: String
+    let segments: [TranscriptionSegment]
+    let language: String?
+}
+
+struct TranscriptionSegment {
+    let text: String
+    let avgLogprob: Double?
+    let noSpeechProb: Double?
+    let compressionRatio: Double?
 }
 
 private struct ChatRequest: Encodable {

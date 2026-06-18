@@ -347,7 +347,7 @@ final class MeetingSession: ObservableObject {
             )
 
             do {
-                let recap = try await generateRecap(system: system, user: user, transcript: context)
+                let recap = try await generateRecap(system: system, user: user, transcript: context, language: lang)
                 let text = recap.toMarkdown()
                 // Title is best-effort — failure here doesn't block
                 // persistence; Meeting.displayTitle falls back to a
@@ -498,7 +498,7 @@ final class MeetingSession: ObservableObject {
                 case .followUp:
                     try await llm.completeJSON(system: system, user: user, as: FollowUpQuestions.self).toMarkdown()
                 case .summary:
-                    try await generateRecap(system: system, user: user, transcript: context).toMarkdown()
+                    try await generateRecap(system: system, user: user, transcript: context, language: language.current).toMarkdown()
                 case .suggestReply:
                     try await llm.completeJSON(system: system, user: user, as: SuggestedReply.self).toMarkdown()
                 }
@@ -515,20 +515,65 @@ final class MeetingSession: ObservableObject {
         }
     }
 
-    private func generateRecap(system: String, user: String, transcript: String) async throws -> MeetingRecap {
+    private func generateRecap(system: String, user: String, transcript: String, language: AppLanguage) async throws -> MeetingRecap {
         let recap = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self)
-        guard recap.isPlaceholderFallback, transcriptHasSubstance(transcript) else {
-            return recap
+
+        // One bounded retry that addresses whatever the first pass got wrong.
+        // Two independent failure modes share it: (1) the model used the
+        // "too short / unclear" fallback on a substantive transcript; (2) the
+        // model ignored the language directive and wrote the recap in the wrong
+        // language (Gemini in JSON mode has been seen emitting Chinese for a
+        // Russian-selected, Russian-spoken meeting). Both are deterministic to
+        // detect, so we don't rely on the prompt alone — we check the output.
+        var overrides: [String] = []
+
+        if recap.isPlaceholderFallback, transcriptHasSubstance(transcript) {
+            Log.llm.info("summary placeholder on substantive transcript — will retry")
+            overrides.append("""
+            RETRY OVERRIDE — FALLBACK:
+            Your previous response used the "Transcript too short or unclear" fallback, but this transcript has enough intelligible content to recap.
+            Do NOT use the fallback on this retry. Extract 2-4 grounded topics from the transcript, translating non-English content into the requested output language. Decisions/actions/open questions may still be empty.
+            """)
         }
 
-        Log.llm.info("summary placeholder on substantive transcript — retrying with fallback disabled")
-        let retrySystem = system + """
+        if let got = Self.recapLanguageMismatch(recap, expected: language) {
+            Log.llm.info("recap language mismatch got=\(got) expected=\(language.rawValue) — will retry")
+            overrides.append("""
+            RETRY OVERRIDE — LANGUAGE:
+            Your previous response was written in the WRONG language (it came out in \(got)). Write EVERY string value — topics, decisions, actions, open questions — in \(
+                language.promptName
+            ), and nothing else. Leave verbatim `quote` values exactly as spoken; JSON keys stay in English.
+            """)
+        }
 
-        RETRY OVERRIDE:
-        Your previous response used the "Transcript too short or unclear" fallback, but this transcript has enough intelligible content to recap.
-        Do NOT use the fallback on this retry. Extract 2-4 grounded topics from the transcript, translating non-English content into the requested output language. Decisions/actions/open questions may still be empty.
-        """
+        guard !overrides.isEmpty else { return recap }
+        let retrySystem = system + "\n\n" + overrides.joined(separator: "\n\n")
         return try await llm.completeJSON(system: retrySystem, user: user, as: MeetingRecap.self)
+    }
+
+    /// Detects whether the recap's PROSE (not the verbatim `quote` values, which
+    /// stay in the spoken language) was written in a language other than the one
+    /// the user selected. Returns the offending language code, or nil when it
+    /// matches / is too short to call confidently. The quotes are excluded so a
+    /// recap correctly written in the target language isn't flagged just because
+    /// it embeds an original-language quote.
+    private static func recapLanguageMismatch(_ recap: MeetingRecap, expected: AppLanguage) -> String? {
+        var prose: [String] = recap.topics.map(\.text)
+        prose += recap.decisions.flatMap { [$0.text, $0.why].compactMap { $0 } }
+        prose += recap.actions.flatMap { [$0.owner, $0.task, $0.when].compactMap { $0 } }
+        prose += recap.openQuestions.map(\.text)
+        let joined = prose.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard joined.count >= 12, let detected = AppLanguage.detect(from: joined) else { return nil }
+        if detected == expected { return nil }
+        // NLLanguageRecognizer routinely confuses Ukrainian and Russian (both
+        // Cyrillic, closely related) — the founder's home-market pair. A uk↔ru
+        // "mismatch" is almost always a misdetection of a correct recap, so
+        // don't burn a full re-generation on it (and re-prompting wouldn't
+        // reliably flip uk↔ru anyway). Real wrong-language cases here are
+        // cross-script (e.g. Chinese), which this still catches.
+        let cyrillicPair: Set<AppLanguage> = [.russian, .ukrainian]
+        if cyrillicPair.contains(expected), cyrillicPair.contains(detected) { return nil }
+        return detected.rawValue
     }
 
     private func transcriptHasSubstance(_ transcript: String) -> Bool {

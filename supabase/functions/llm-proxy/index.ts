@@ -28,6 +28,14 @@ declare const Supabase: {
 };
 
 const OPENROUTER_API_KEY        = Deno.env.get("OPENROUTER_API_KEY");
+// STT providers (issue: direct-provider STT route). Both are OpenAI-compatible
+// multipart endpoints. The cutover is env-gated: with no GROQ_API_KEY set, the
+// transcribe path stays on the legacy OpenRouter base64-JSON route, so deploying
+// this function is a no-op until the secret lands. Once GROQ_API_KEY is set,
+// Groq serves primary with OpenAI as the transient-failure fallback (Groq has a
+// real rate-limit/availability ceiling at peak), and OpenRouter as last resort.
+const GROQ_API_KEY              = Deno.env.get("GROQ_API_KEY");
+const OPENAI_API_KEY            = Deno.env.get("OPENAI_API_KEY");
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_ANON_KEY         = Deno.env.get("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -43,6 +51,14 @@ const DEVICE_ACTIVE_TTL_SECONDS = 900;
 
 const OPENROUTER_CHAT_URL       = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_TRANSCRIBE_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
+const GROQ_TRANSCRIBE_URL       = "https://api.groq.com/openai/v1/audio/transcriptions";
+const OPENAI_TRANSCRIBE_URL     = "https://api.openai.com/v1/audio/transcriptions";
+
+// Startup diagnostic: prints once per cold start which STT provider keys the
+// function can actually see. `set`/`MISSING` only — never the value. If this
+// logs `groq=MISSING` while the dashboard shows a GROQ_API_KEY secret, the name
+// doesn't match what the code reads (Deno.env.get("GROQ_API_KEY")).
+console.log(`[stt] provider keys: groq=${GROQ_API_KEY ? "set" : "MISSING"} openai=${OPENAI_API_KEY ? "set" : "MISSING"} openrouter=${OPENROUTER_API_KEY ? "set" : "MISSING"}`);
 
 // gte-small produces 384-dim normalised embeddings — matches the
 // `vector(384)` column in `session_embeddings`.
@@ -329,16 +345,24 @@ async function forwardTranscribe(payload: unknown, userId: string, entitlement: 
     const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";
     const audioSeconds = audioSecondsFromPayload(payload);
 
-    const { status, text } = await callOpenRouter(OPENROUTER_TRANSCRIBE_URL, payload, TRANSCRIBE_TIMEOUT_MS, userId, "transcribe");
+    const { status, text, provider } = await callTranscribe(payload, userId);
+
+    // One unmissable line per transcription so the serving provider is visible
+    // in the function logs (the per-provider call logs are noisier).
+    console.log(`transcribe served user=${userId} provider=${provider} status=${status} model=${model}`);
 
     try {
         await recordUsage({
             user_id: userId,
             kind: "transcribe",
-            model,
+            // Tag the serving provider into the model field so cost reconciliation
+            // + the eval harness can attribute WER/$ per provider, not just per
+            // model id (Groq large-v3 and an OpenAI whisper-1 fallback are very
+            // different rows). `unknown` model still records as e.g. `groq:unknown`.
+            model: `${provider}:${model}`,
             status,
             audio_seconds: audioSeconds,
-            cost_usd: null, // OpenRouter doesn't return usage for audio; reconcile via /generation later.
+            cost_usd: null, // No usage returned for audio; reconcile via provider billing later.
         });
     } catch (err) {
         console.warn(`transcribe usage record skipped: ${err}`);
@@ -348,6 +372,9 @@ async function forwardTranscribe(payload: unknown, userId: string, entitlement: 
     // the user's hours-used/limit so the client can show how much of the plan's
     // monthly allowance is left.
     const headers: Record<string, string> = { "Content-Type": "application/json" };
+    // Surface the serving provider to the client so the app can log which STT
+    // path ran (groq / openai / openrouter) without digging in dashboard logs.
+    headers["x-nod-stt-provider"] = provider;
     if (entitlement && entitlement.hours_limit > 0) {
         headers["x-nod-hours-used"] = String(entitlement.hours_used);
         headers["x-nod-hours-limit"] = String(entitlement.hours_limit);
@@ -504,6 +531,148 @@ async function handleSearch(payload: unknown, userId: string): Promise<Response>
 }
 
 interface CallResult { status: number; text: string }
+interface STTResult extends CallResult { provider: string }
+
+// An OpenAI-compatible multipart STT endpoint. Groq and OpenAI both speak this
+// shape; only the model-id mapping and host differ. OpenRouter is NOT one of
+// these — it takes base64-JSON and is handled by the legacy `callOpenRouter`
+// path as the terminal fallback.
+interface STTProvider {
+    name: string;
+    url: string;
+    apiKey: string;
+    mapModel: (clientModel: string) => string;
+}
+
+// Multipart provider chain in priority order, filtered to those whose key is
+// configured. Empty until GROQ_API_KEY / OPENAI_API_KEY land — that's the
+// env-gated cutover: with neither set, `callTranscribe` uses OpenRouter alone,
+// so this deploy changes nothing until the secret is added.
+function sttMultipartChain(): STTProvider[] {
+    const chain: STTProvider[] = [];
+    if (GROQ_API_KEY) {
+        chain.push({
+            name: "groq",
+            url: GROQ_TRANSCRIBE_URL,
+            apiKey: GROQ_API_KEY,
+            // The client sends OpenRouter-style vendor-prefixed ids
+            // ("openai/whisper-large-v3-turbo"); Groq hosts the same weights
+            // under the bare id.
+            mapModel: (m) => m.replace(/^openai\//, ""),
+        });
+    }
+    if (OPENAI_API_KEY) {
+        chain.push({
+            name: "openai",
+            url: OPENAI_TRANSCRIBE_URL,
+            apiKey: OPENAI_API_KEY,
+            // OpenAI's transcription API only exposes whisper-1 (large-v2). Used
+            // purely as a reliability fallback when Groq rate-limits/stalls — not
+            // for output parity with Groq's large-v3.
+            mapModel: () => "whisper-1",
+        });
+    }
+    return chain;
+}
+
+// Statuses worth failing over to the next provider. Beyond 429/5xx we also fail
+// over on 401/403 (a rotated/over-quota key on ONE provider must not take down
+// transcription when another is configured) and 408 (request timeout). We do
+// NOT fail over on a genuine bad request (400/404/422) — that fails the same way
+// everywhere, so surfacing it is correct.
+function shouldFailover(status: number): boolean {
+    return status === 401 || status === 403 || status === 408 ||
+        status === 409 || status === 429 || status >= 500;
+}
+
+// base64 → bytes. `atob` is a Deno global; `Uint8Array.from(str, map)` avoids an
+// explicit per-char JS loop over the (up to ~2 MB) WAV on the CPU-budgeted edge
+// worker. The client always posts a complete standard-base64 WAV.
+function decodeBase64(b64: string): Uint8Array<ArrayBuffer> {
+    return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+
+// Transcribe via the provider chain: each multipart provider in turn (failing
+// over on transient errors), then OpenRouter as the legacy/terminal fallback.
+// Returns which provider actually served, for usage attribution.
+async function callTranscribe(payload: unknown, userId: string): Promise<STTResult> {
+    let last: STTResult | null = null;
+    for (const p of sttMultipartChain()) {
+        const r = await callMultipartSTT(p, payload, userId);
+        if (!shouldFailover(r.status)) return { ...r, provider: p.name };
+        console.warn(`transcribe provider=${p.name} status=${r.status} — failing over`);
+        last = { ...r, provider: p.name };
+    }
+    if (OPENROUTER_API_KEY) {
+        const r = await callOpenRouter(OPENROUTER_TRANSCRIBE_URL, payload, TRANSCRIBE_TIMEOUT_MS, userId, "transcribe");
+        return { ...r, provider: "openrouter" };
+    }
+    return last ?? { status: 502, text: JSON.stringify({ error: "no STT provider configured" }), provider: "none" };
+}
+
+// POST the audio to an OpenAI-compatible multipart endpoint. The client→proxy
+// contract stays base64-JSON (provider-agnostic); the translation to a file
+// upload happens here so swapping providers never touches the client.
+async function callMultipartSTT(p: STTProvider, payload: unknown, userId: string): Promise<CallResult> {
+    if (!isObject(payload)) {
+        return { status: 400, text: JSON.stringify({ error: "transcribe payload must be an object" }) };
+    }
+    const inputAudio = isObject(payload.input_audio) ? payload.input_audio : null;
+    if (!inputAudio || typeof inputAudio.data !== "string") {
+        return { status: 400, text: JSON.stringify({ error: "transcribe payload missing input_audio.data" }) };
+    }
+
+    let bytes: Uint8Array<ArrayBuffer>;
+    try {
+        bytes = decodeBase64(inputAudio.data);
+    } catch {
+        return { status: 400, text: JSON.stringify({ error: "input_audio.data is not valid base64" }) };
+    }
+
+    const format = typeof inputAudio.format === "string" ? inputAudio.format : "wav";
+    const model = typeof payload.model === "string" ? p.mapModel(payload.model) : "whisper-large-v3";
+
+    const form = new FormData();
+    form.append("file", new Blob([bytes], { type: `audio/${format}` }), `audio.${format}`);
+    form.append("model", model);
+    if (typeof payload.language === "string" && payload.language.length > 0) form.append("language", payload.language);
+    if (typeof payload.prompt === "string" && payload.prompt.length > 0) form.append("prompt", payload.prompt);
+    if (typeof payload.temperature === "number") form.append("temperature", String(payload.temperature));
+    if (typeof payload.response_format === "string") form.append("response_format", payload.response_format);
+    if (Array.isArray(payload.timestamp_granularities)) {
+        for (const g of payload.timestamp_granularities) {
+            if (typeof g === "string") form.append("timestamp_granularities[]", g);
+        }
+    }
+
+    const started = Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TRANSCRIBE_TIMEOUT_MS);
+    try {
+        // Note: no Content-Type header — fetch derives the multipart boundary
+        // from the FormData body. Setting it manually breaks the upload.
+        const upstream = await fetch(p.url, {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${p.apiKey}` },
+            body: form,
+            signal: controller.signal,
+        });
+        const text = await upstream.text();
+        const dt = Date.now() - started;
+        console.log(`transcribe user=${userId} provider=${p.name} model=${model} status=${upstream.status} dt=${dt}ms bytes=${text.length}`);
+        return { status: upstream.status, text };
+    } catch (error) {
+        const dt = Date.now() - started;
+        if (error instanceof DOMException && error.name === "AbortError") {
+            console.error(`transcribe provider=${p.name} user=${userId} timeout after ${dt}ms`);
+            return { status: 504, text: JSON.stringify({ error: `Upstream timeout (${TRANSCRIBE_TIMEOUT_MS}ms)` }) };
+        }
+        console.error(`transcribe provider=${p.name} user=${userId} upstream error: ${error}`);
+        return { status: 502, text: JSON.stringify({ error: "Upstream request failed" }) };
+    } finally {
+        clearTimeout(timer);
+    }
+}
 
 async function callOpenRouter(
     url: string,

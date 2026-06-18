@@ -37,6 +37,13 @@ final class WhisperTranscriber: @unchecked Sendable {
     private let vad: SherpaOnnxVoiceActivityDetectorWrapper?
     private var chunkCounter: Int = 0
 
+    /// Rolling tail of this source's recently confirmed text, fed to Whisper as
+    /// the decode prompt so each isolated chunk regains context (proper nouns,
+    /// spelling, language bias). Touched only on `queue`. Capped well under
+    /// Whisper's ~224-token prompt window so it can't crowd out the audio.
+    private var promptTail: String = ""
+    private static let maxPromptTailChars = 200
+
     // In-flight transcription Tasks; flushPending awaits these so a Suggest-reply
     // sees all completed segments, in order, before it reads the context.
     private var inFlightFlushes: [UUID: Task<Void, Never>] = [:]
@@ -116,6 +123,7 @@ final class WhisperTranscriber: @unchecked Sendable {
             self.vad?.reset()
             self.acceptedSampleCount = 0
             self.audioClockSpans.removeAll(keepingCapacity: false)
+            self.promptTail = ""
         }
     }
 
@@ -264,18 +272,34 @@ final class WhisperTranscriber: @unchecked Sendable {
 
         let src = source
         let taskID = UUID()
+        // Snapshot the rolling prompt on `queue` so the async task sees a stable
+        // value (the tail keeps mutating as later chunks confirm).
+        let prompt = promptTail
         let task = Task<Void, Never> {
             defer {
                 self.queue.async { self.inFlightFlushes.removeValue(forKey: taskID) }
             }
             do {
-                let text = try await self.client.transcribe(audio: wav)
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let result = try await self.client.transcribe(audio: wav, prompt: prompt)
+                let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty {
                     Log.stt.info("[\(src.label)] chunk #\(chunkID) ← empty")
                     return
                 }
+                if HallucinationFilter.isHallucination(
+                    text: trimmed,
+                    segments: result.segments,
+                    promptContext: prompt
+                ) {
+                    // Don't log the dropped text itself — user transcript content
+                    // must not land in `info` logs (CONVENTIONS.md § Logging).
+                    Log.stt.info("[\(src.label)] chunk #\(chunkID) ← dropped (hallucination) chars=\(trimmed.count)")
+                    return
+                }
                 Log.stt.info("[\(src.label)] chunk #\(chunkID) ← \(trimmed)")
+                // Advance the rolling prompt only with text we kept — never with
+                // dropped junk, or the prompt would propagate the hallucination.
+                self.queue.async { self.appendPromptTail(trimmed) }
                 self.onFinal?(TranscribedChunk(text: trimmed, source: src, timestamp: timestamp))
             } catch {
                 Log.stt.error("[\(src.label)] chunk #\(chunkID) Whisper failed: \(error.localizedDescription)")
@@ -283,6 +307,13 @@ final class WhisperTranscriber: @unchecked Sendable {
             }
         }
         inFlightFlushes[taskID] = task
+    }
+
+    /// Append kept text to the rolling prompt and trim to the tail window.
+    /// Must be on `queue`.
+    private func appendPromptTail(_ text: String) {
+        let combined = promptTail.isEmpty ? text : promptTail + " " + text
+        promptTail = String(combined.suffix(Self.maxPromptTailChars))
     }
 
     /// Wrap raw 16 kHz mono float PCM (a VAD segment) into a 16-bit WAV.
