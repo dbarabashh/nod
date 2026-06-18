@@ -83,6 +83,7 @@
 		CFAD0ACF9B70A94F7454E38C /* AudioDeviceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9212ABCD375EB1D216DCA0D /* AudioDeviceCatalog.swift */; };
 		D0EFE445F5346D841211CACD /* MeetingDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C1E0C024C287B38F0821F09 /* MeetingDetailView.swift */; };
 		D564F6133741983DA7E39CED /* SherpaVAD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77DCFB171A49270432EF9BC5 /* SherpaVAD.swift */; };
+		DF0AB3D1913288F0888409CF /* MeetingOutboxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0609389426B622B59DFA01 /* MeetingOutboxTests.swift */; };
 		E061F49FCEB8000FC6F7C7ED /* KnowledgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F87B4B9B59126F1C2C3F03D /* KnowledgeStore.swift */; };
 		E29D53676C4176156086ED77 /* HoverReveal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F51B90413645F47FEFA7F5 /* HoverReveal.swift */; };
 		E921B8D16149DA9377465008 /* OpenRouterClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C387BE5834160BB925911FD /* OpenRouterClient.swift */; };
@@ -93,6 +94,7 @@
 		F2A27CDC2D9CAB6A2AA1C84C /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0516E22D5937F9048CF245 /* AuthService.swift */; };
 		F3D9DB12890DBD5DDE131C29 /* StatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89B08D2EC9D5413096A7A33A /* StatusItemController.swift */; };
 		FB9079A3E23E04F40C09DA41 /* TranscriptDedupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDE407B014D9F046F46ABE56 /* TranscriptDedupTests.swift */; };
+		FBD75FB372733BC3C723B80D /* MeetingOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A30B33EBB2230097A6D7223 /* MeetingOutbox.swift */; };
 		FE676DBA9D1CDFDB99F884F9 /* ConsentDisclaimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04215CD4FC63669F17748D86 /* ConsentDisclaimerView.swift */; };
 /* End PBXBuildFile section */
 
@@ -114,6 +116,7 @@
 		149F6DD44CAFD6F4663D3C73 /* RelatedSessionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelatedSessionsView.swift; sourceTree = "<group>"; };
 		14B022AA739EDC98C9F8C0E8 /* TranscriptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptStore.swift; sourceTree = "<group>"; };
 		18BFE0644CCCDE016279E79A /* FloatingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingPanel.swift; sourceTree = "<group>"; };
+		1A0609389426B622B59DFA01 /* MeetingOutboxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingOutboxTests.swift; sourceTree = "<group>"; };
 		1A6F4141A334B9AFB3C05FBD /* EntityStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityStore.swift; sourceTree = "<group>"; };
 		1FA7DD8520349E9529B32347 /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
 		1FF996169C9AE042293244C8 /* KnowledgeChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeChatView.swift; sourceTree = "<group>"; };
@@ -155,6 +158,7 @@
 		77DCFB171A49270432EF9BC5 /* SherpaVAD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SherpaVAD.swift; sourceTree = "<group>"; };
 		7859378422F001B532727F35 /* Label.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Label.swift; sourceTree = "<group>"; };
 		788ED7BF85064ED472B8C746 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
+		7A30B33EBB2230097A6D7223 /* MeetingOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingOutbox.swift; sourceTree = "<group>"; };
 		7F365DD35A0D5B3EA0620B5E /* SampleBufferConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleBufferConverter.swift; sourceTree = "<group>"; };
 		81D03EEAD614C04C403B637C /* ProfileStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStep.swift; sourceTree = "<group>"; };
 		82E2F53E4ED8663AD1E80FA8 /* PanelSharingPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelSharingPreference.swift; sourceTree = "<group>"; };
@@ -377,6 +381,7 @@
 			isa = PBXGroup;
 			children = (
 				D382D1AD1CB8C95AB62A8E2F /* AppLanguageTests.swift */,
+				1A0609389426B622B59DFA01 /* MeetingOutboxTests.swift */,
 				C71D490D0577937862FE6A22 /* MeetingStoreMergeTests.swift */,
 				E7ED9A9F762D6AB3FD1E770F /* OpenRouterClientHelperTests.swift */,
 				DD7CC406500E5105CE400A84 /* SpeakerMappingTests.swift */,
@@ -481,6 +486,7 @@
 				7859378422F001B532727F35 /* Label.swift */,
 				27A6F6654E257B52AAC663BD /* LabelStore.swift */,
 				3A52BC6C5F921E981E5C1B7E /* Meeting.swift */,
+				7A30B33EBB2230097A6D7223 /* MeetingOutbox.swift */,
 				C4DAC4B7482C9DF0E4CA1C98 /* MeetingStore.swift */,
 				4AB3402D8B19F3F9CFA69FF5 /* SessionKind.swift */,
 				9DAACB239AA21201B9FB0276 /* TranscriptRecord.swift */,
@@ -658,6 +664,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8DF62177F21E18339CCD7E22 /* AppLanguageTests.swift in Sources */,
+				DF0AB3D1913288F0888409CF /* MeetingOutboxTests.swift in Sources */,
 				9A41E20961D847438D97AB67 /* MeetingStoreMergeTests.swift in Sources */,
 				F26804CE9ABEB76C4AF003D7 /* OpenRouterClientHelperTests.swift in Sources */,
 				2E7F47AB74C30BC89185A1ED /* SpeakerMappingTests.swift in Sources */,
@@ -703,6 +710,7 @@
 				89A3CB33F89E9F813E1926B7 /* Meeting.swift in Sources */,
 				D0EFE445F5346D841211CACD /* MeetingDetailView.swift in Sources */,
 				BBBEBBD282D67F1204A47827 /* MeetingLanguagePrompt.swift in Sources */,
+				FBD75FB372733BC3C723B80D /* MeetingOutbox.swift in Sources */,
 				C4F11B1765BA5E4CE641A405 /* MeetingRecap.swift in Sources */,
 				B82396A0518C482569E07CBF /* MeetingSession.swift in Sources */,
 				7B4FF1C0702C0565A47F86AA /* MeetingStore.swift in Sources */,

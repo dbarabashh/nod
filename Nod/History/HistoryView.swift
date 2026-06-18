@@ -581,7 +581,11 @@ struct HistoryView: View {
 
     private func allList(_ rows: [Meeting]) -> some View {
         List(rows) { meeting in
-            MeetingRow(meeting: meeting, mode: .all)
+            MeetingRow(
+                meeting: meeting,
+                mode: .all,
+                isUnsynced: meetingStore.unsyncedMeetingIDs.contains(meeting.id)
+            )
                 .onTapGesture { path.append(meeting) }
                 .accessibilityAddTraits(.isButton)
                 .listRowBackground(Color.clear)
@@ -712,6 +716,7 @@ private struct MeetingRow: View {
 
     let meeting: Meeting
     let mode: Mode
+    var isUnsynced: Bool = false
     var onRestore: (() -> Void)?
 
     @State private var isHovering = false
@@ -773,6 +778,22 @@ private struct MeetingRow: View {
     /// Trailing badges, grouped so they fade as a unit under the Restore overlay.
     private var trailingMeta: some View {
         HStack(spacing: 8) {
+            if isUnsynced, mode == .all {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text("Not synced")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundStyle(Theme.Palette.warning)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Theme.Palette.warning.opacity(0.12))
+                )
+                .help("Saved on this device — will finish syncing automatically.")
+            }
             if mode == .trash, let trashedAt = meeting.deletedAt {
                 Text(Self.relativeTrashedLabel(for: trashedAt))
                     .font(.system(size: 10, weight: .semibold))

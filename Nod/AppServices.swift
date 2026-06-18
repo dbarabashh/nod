@@ -17,6 +17,9 @@ struct AppServices {
     let auth: AuthService
     let consent: ConsentPreference
     let meetingStore: MeetingStore
+    /// Durable on-disk WAL + retry queue for meeting persistence — replayed on
+    /// launch so an interrupted or failed save isn't lost with the process.
+    let meetingOutbox: MeetingOutbox
     let profileStore: ProfileStore
     let chatStore: ChatStore
     let entityStore: EntityStore
@@ -84,6 +87,7 @@ struct AppServices {
             auth: auth,
             consent: consent,
             meetingStore: MeetingStore(supabase: supabase),
+            meetingOutbox: MeetingOutbox(),
             profileStore: ProfileStore(supabase: supabase, auth: auth),
             chatStore: ChatStore(supabase: supabase, llm: llmClient),
             entityStore: EntityStore(supabase: supabase),

@@ -116,6 +116,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 guard services.auth.session != nil else { return }
                 await services.entitlements.refresh()
+                // Retry any meeting still stuck in the outbox now that the app
+                // (and likely the network) is active again — scoped to the
+                // signed-in user so a previous account's rows aren't re-pushed.
+                if let userID = services.auth.currentSupabaseSession?.user.id {
+                    await services.meetingOutbox.flush(using: services.meetingStore, userID: userID)
+                    let pending = await services.meetingOutbox.pendingCompletedMeetings(for: userID)
+                    services.meetingStore.setUnsyncedMeetings(pending)
+                }
             }
         }
 
@@ -166,6 +174,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         do { try await services.llmClient.claimDevice() } catch { Log.auth.error(
                             "device claim failed: \(error.localizedDescription)"
                         ) }
+                    }
+                    // Replay the durable meeting outbox: push anything that
+                    // didn't reach the server before the last quit / crash /
+                    // app update. `recoverInterruptedMeetings` first promotes any
+                    // meeting left mid-recording to a terminal placeholder recap
+                    // (safe here — a fresh sign-in has no live recording). Scoped
+                    // to THIS user so another account's rows aren't pushed under
+                    // this session (they'd RLS-reject and loop forever).
+                    if let userID = services.auth.currentSupabaseSession?.user.id {
+                        Task {
+                            await services.meetingOutbox.recoverInterruptedMeetings()
+                            await services.meetingOutbox.flush(using: services.meetingStore, userID: userID)
+                            let pending = await services.meetingOutbox.pendingCompletedMeetings(for: userID)
+                            await MainActor.run { services.meetingStore.setUnsyncedMeetings(pending) }
+                        }
                     }
                     // Warm the profile so its prompt context is ready before
                     // the first meeting ends. `load` no-ops once cached.

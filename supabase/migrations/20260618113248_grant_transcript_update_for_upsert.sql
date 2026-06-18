@@ -1,0 +1,21 @@
+-- The durable `MeetingOutbox` writes transcript rows with an idempotent upsert
+-- (`INSERT ... ON CONFLICT DO UPDATE`) so a streamed/retried prefix re-sends
+-- cleanly instead of PK-conflicting on `(meeting_id, idx)`. Postgres checks
+-- UPDATE privilege on every column the `DO UPDATE` arm touches
+-- (`text`, `ts`, `idx`, `source`, `speaker`, ...).
+--
+-- `20260616201817_update_transcript_speakers.sql` had narrowed authenticated's
+-- UPDATE to just the `speaker` column (least-privilege for the diarization
+-- backfill). Once the outbox started upserting full rows, every push failed
+-- with `permission denied for table meeting_transcripts` — the outbox never
+-- drained, finished meetings stuck unsynced, and the transcript never reached
+-- the server (only the in-memory copy survived).
+--
+-- Restore table-level UPDATE for `authenticated`. Row scope is unchanged: the
+-- existing "users update own transcript speakers" policy still gates every
+-- UPDATE to the caller's own rows on the caller's own meeting (RLS can't
+-- restrict columns anyway). This mirrors `meetings`, which is granted
+-- table-level UPDATE and scoped purely by RLS. The narrower `(speaker)` column
+-- grant is superseded by this table grant.
+
+grant update on public.meeting_transcripts to authenticated;

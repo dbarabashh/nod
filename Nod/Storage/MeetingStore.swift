@@ -69,6 +69,17 @@ final class MeetingStore: ObservableObject {
     /// transcript insert, so open detail/chat views can refetch the transcript.
     @Published private(set) var transcriptSpeakerRevisions: [UUID: Int] = [:]
 
+    /// Meeting IDs that finished generating but haven't fully reached the server
+    /// — they still sit in the durable `MeetingOutbox`. Mirrored from the
+    /// session's drain (`setUnsyncedMeetings`). Two jobs:
+    ///   1. `refresh` treats the local copy as authoritative for these, so a
+    ///      stale/empty-summary server row (written mid-recording) can't clobber
+    ///      the finished recap before the completion push lands.
+    ///   2. the list row + detail surface a "Not synced" indicator, so the
+    ///      failure is visible on the meeting itself — not only via the
+    ///      detached main-window retry toast.
+    @Published private(set) var unsyncedMeetingIDs: Set<UUID> = []
+
     private let supabase: SupabaseClient
     private static let tableName = "meetings"
     private static let transcriptsTableName = "meeting_transcripts"
@@ -116,6 +127,25 @@ final class MeetingStore: ObservableObject {
         // Promote loadState so HistoryView's content switch shows the list
         // even if `refresh()` has never run (first meeting on a fresh
         // install, HistoryView opened later).
+        loadState = .loaded
+    }
+
+    /// Insert-or-update on the primary key. Used by the durable `MeetingOutbox`
+    /// path: a meeting may already exist server-side from an earlier streamed
+    /// insert (live transcript), so a plain `insert` would PK-conflict. Mirrors
+    /// `insert`'s optimistic local-cache update.
+    func upsert(_ meeting: Meeting) async throws {
+        Log.ui.info("MeetingStore.upsert id=\(meeting.id.uuidString)")
+        try await supabase
+            .from(Self.tableName)
+            .upsert(meeting)
+            .execute()
+        if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
+            meetings[idx] = meeting
+        } else {
+            meetings.insert(meeting, at: 0)
+            meetings.sort { $0.startedAt > $1.startedAt }
+        }
         loadState = .loaded
     }
 
@@ -180,6 +210,28 @@ final class MeetingStore: ObservableObject {
         }
         generatingSummaryIDs.remove(id)
         finalizingMeetingIDs.remove(id)
+    }
+
+    /// Mirror of the durable outbox's not-yet-synced completed meetings, pushed
+    /// by the session after every drain. Records the ids (for the "Not synced"
+    /// UI + the refresh-merge override) and folds the outbox's authoritative
+    /// copies into the cache — on a cold launch the cache is hydrated from the
+    /// server, where these rows may still carry an empty mid-recording summary,
+    /// so the on-disk recap has to win until the completion push lands.
+    func setUnsyncedMeetings(_ unsynced: [Meeting]) {
+        unsyncedMeetingIDs = Set(unsynced.map(\.id))
+        guard !unsynced.isEmpty else { return }
+        var inserted = false
+        for meeting in unsynced {
+            if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
+                meetings[idx] = meeting
+            } else {
+                meetings.append(meeting)
+                inserted = true
+            }
+        }
+        if inserted { meetings.sort { $0.startedAt > $1.startedAt } }
+        loadState = .loaded
     }
 
     /// Patches `title` + `summary` for an existing meeting. Only those two
@@ -257,6 +309,28 @@ final class MeetingStore: ObservableObject {
             try await supabase
                 .from(Self.transcriptsTableName)
                 .insert(records.map { $0.droppingSpeaker() })
+                .execute()
+        }
+    }
+
+    /// Insert-or-update transcript rows on the primary key — the streaming /
+    /// outbox path may re-send a row (e.g. to add a diarized speaker label after
+    /// the plain row already landed), so a plain `insert` would PK-conflict.
+    /// Same not-yet-migrated `speaker` column fallback as `insertTranscript`.
+    func upsertTranscript(_ records: [TranscriptRecord]) async throws {
+        guard !records.isEmpty else { return }
+        Log.ui.info("MeetingStore.upsertTranscript meeting=\(records[0].meetingID.uuidString) count=\(records.count)")
+        do {
+            try await supabase
+                .from(Self.transcriptsTableName)
+                .upsert(records)
+                .execute()
+        } catch {
+            guard Self.isMissingSpeakerColumn(error) else { throw error }
+            Log.ui.error("upsertTranscript: 'speaker' column absent — retrying without diarization labels")
+            try await supabase
+                .from(Self.transcriptsTableName)
+                .upsert(records.map { $0.droppingSpeaker() })
                 .execute()
         }
     }
@@ -456,10 +530,32 @@ final class MeetingStore: ObservableObject {
     /// Server rows plus any local drafts still mid-generation — they aren't
     /// on the server yet, so a naive `meetings = rows` would yank the row out
     /// from under MeetingDetailView while it renders the loading placeholder.
-    static func merging(rows: [Meeting], drafts: [Meeting]) -> [Meeting] {
+    ///
+    /// `localAuthoritative` is the override for meetings still pending in the
+    /// outbox: unlike `drafts` (where a present server row wins, since it's the
+    /// confirmed version), these local copies REPLACE the matching server row
+    /// and are appended if the server doesn't have them — the on-disk recap is
+    /// truth until the completion push confirms otherwise.
+    static func merging(
+        rows: [Meeting],
+        drafts: [Meeting],
+        localAuthoritative: [UUID: Meeting] = [:]
+    ) -> [Meeting] {
         var merged = rows
         for draft in drafts where !merged.contains(where: { $0.id == draft.id }) {
             merged.append(draft)
+        }
+        if !localAuthoritative.isEmpty {
+            var present: Set<UUID> = []
+            for i in merged.indices {
+                if let local = localAuthoritative[merged[i].id] {
+                    merged[i] = local
+                    present.insert(local.id)
+                }
+            }
+            for (id, local) in localAuthoritative where !present.contains(id) {
+                merged.append(local)
+            }
         }
         merged.sort { $0.startedAt > $1.startedAt }
         return merged
@@ -480,6 +576,7 @@ final class MeetingStore: ObservableObject {
         generatingSummaryIDs = []
         finalizingMeetingIDs = []
         transcriptSpeakerRevisions = [:]
+        unsyncedMeetingIDs = []
     }
 
     // MARK: - Read
@@ -550,7 +647,11 @@ final class MeetingStore: ObservableObject {
                 .value
             let localOnlyIDs = generatingSummaryIDs.union(finalizingMeetingIDs)
             let drafts = meetings.filter { localOnlyIDs.contains($0.id) }
-            meetings = Self.merging(rows: rows, drafts: drafts)
+            let authoritative = Dictionary(
+                meetings.filter { unsyncedMeetingIDs.contains($0.id) }.map { ($0.id, $0) },
+                uniquingKeysWith: { current, _ in current }
+            )
+            meetings = Self.merging(rows: rows, drafts: drafts, localAuthoritative: authoritative)
             loadState = .loaded
             lastSuccessfulFetchAt = Date()
             lastRefreshFailed = false

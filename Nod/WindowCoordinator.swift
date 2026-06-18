@@ -156,7 +156,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             knowledgeStore: services.knowledgeStore,
             language: services.languagePreference,
             auth: services.auth,
-            profileStore: services.profileStore
+            profileStore: services.profileStore,
+            outbox: services.meetingOutbox
         )
 
         let content = ContentView(

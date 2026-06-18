@@ -46,12 +46,12 @@ struct ContentView: View {
     @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting: Bool = MeetingLanguagePromptDefaults.defaultValue
 
     /// The panel widens to two columns only when there's something to show
-    /// on the right — a ready response, the consent modal, or the save-error
-    /// toast (both centred in the full width). Recording with no open
-    /// response stays compact.
+    /// on the right — a ready response or the consent modal (centred in the
+    /// full width). Recording with no open response stays compact. The
+    /// save-error toast renders inline under the left column, so it doesn't
+    /// trigger the wide layout.
     private var isWide: Bool {
         if showConsentDisclaimer { return true }
-        if session.saveErrorToast != nil, !session.pendingMeetingSaves.isEmpty { return true }
         if case .ready = session.response { return true }
         return false
     }
@@ -86,22 +86,6 @@ struct ContentView: View {
             // backdrop — disable the columns underneath so a click in the
             // gap around the card can't accidentally hit a control.
             .allowsHitTesting(!showConsentDisclaimer)
-
-            if let saveErrorToast = session.saveErrorToast, !session.pendingMeetingSaves.isEmpty {
-                VStack {
-                    Spacer()
-                    SaveErrorToast(
-                        message: saveErrorToast,
-                        canRetry: true,
-                        onRetry: session.retryPendingSaves,
-                        onDismiss: session.dismissSaveError
-                    )
-                    .padding(.bottom, 18)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .allowsHitTesting(true)
-                .zIndex(2)
-            }
 
             if showConsentDisclaimer {
                 ConsentDisclaimerView(
@@ -157,6 +141,25 @@ struct ContentView: View {
     /// Idle (pre-meeting) state always shows the full pre-meeting card layout.
     @ViewBuilder
     private var leftColumn: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            leftColumnContent
+
+            // Sits directly under the command card (Start meeting / the last
+            // pill) instead of pinned to the window bottom, so there's no gap
+            // between the controls and the sync warning.
+            if let saveErrorToast = session.saveErrorToast, !session.pendingMeetingSaves.isEmpty {
+                SaveErrorToast(
+                    message: saveErrorToast,
+                    canRetry: true,
+                    onRetry: session.retryPendingSaves,
+                    onDismiss: session.dismissSaveError
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var leftColumnContent: some View {
         if session.meeting != .idle, !expanded {
             CollapsedCapsule(
                 meeting: session.meeting,
@@ -1203,7 +1206,8 @@ private struct SaveErrorToast: View {
         knowledgeStore: KnowledgeStore(llm: llm),
         language: language,
         auth: auth,
-        profileStore: profileStore
+        profileStore: profileStore,
+        outbox: MeetingOutbox()
     )
     return ContentView()
         .environmentObject(session)

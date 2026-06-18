@@ -101,6 +101,13 @@ struct MeetingDetailView: View {
         meetingStore.transcriptSpeakerRevisions[meeting.id] ?? 0
     }
 
+    /// Finished generating but still waiting on the server (durable outbox).
+    /// Gated on `!isFinalizing` so the first-pass persistence shows its own
+    /// "Finishing…" state, not a sync warning.
+    private var isUnsynced: Bool {
+        !isFinalizing && meetingStore.unsyncedMeetingIDs.contains(meeting.id)
+    }
+
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 18) {
@@ -304,7 +311,33 @@ struct MeetingDetailView: View {
                 label: "Nod language",
                 value: AnyView(languageChip)
             )
+            if isUnsynced {
+                metadataRow(
+                    label: "Sync",
+                    value: AnyView(syncStatusChip)
+                )
+            }
         }
+    }
+
+    /// Shown only while the meeting is still queued in the durable outbox. The
+    /// recap is safe on this device; the chip just explains why it isn't on the
+    /// server yet (e.g. offline). Retry is driven by the main-window toast.
+    private var syncStatusChip: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 10, weight: .semibold))
+            Text("Saved on this device — syncing…")
+                .font(.system(size: 11, weight: .medium))
+        }
+        .foregroundStyle(Theme.Palette.warning)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2.5)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Theme.Palette.warning.opacity(0.12))
+                .overlay(Capsule().stroke(Theme.Palette.warning.opacity(0.35), lineWidth: 0.5))
+        )
     }
 
     private func metadataRow(label: String, value: AnyView) -> some View {
