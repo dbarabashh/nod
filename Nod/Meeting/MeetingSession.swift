@@ -155,8 +155,8 @@ final class MeetingSession: ObservableObject {
 
     func isGenerating(for kind: GenerationKind) -> Bool {
         switch response {
-        case let .generating(k), let .streaming(k, _): return k == kind
-        default: return false
+        case let .generating(k), let .streaming(k, _): k == kind
+        default: false
         }
     }
 
@@ -575,7 +575,9 @@ final class MeetingSession: ObservableObject {
             Log.ui.info("suggest reply ready (streamed)")
         } catch {
             guard isActiveRequest(requestedKind) else { return }
-            Log.ui.error("suggest reply stream failed (\(accumulated.isEmpty ? "before first token" : "mid-stream after \(accumulated.count) chars")) — retrying one-shot: \(error.localizedDescription)")
+            Log.ui.error(
+                "suggest reply stream failed (\(accumulated.isEmpty ? "before first token" : "mid-stream after \(accumulated.count) chars")) — retrying one-shot: \(error.localizedDescription)"
+            )
             await oneShotSuggestReply(system: system, user: user, requestedKind: requestedKind)
         }
     }

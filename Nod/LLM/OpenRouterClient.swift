@@ -235,7 +235,9 @@ final class OpenRouterClient: ObservableObject {
                         // preserving newlines so a multi-line JSON / HTML error
                         // isn't mangled before `sanitizeErrorBody` parses it.
                         var lines: [String] = []
-                        for try await line in bytes.lines { lines.append(line) }
+                        for try await line in bytes.lines {
+                            lines.append(line)
+                        }
                         throw ClientError.requestFailed(status: http.statusCode, body: Self.sanitizeErrorBody(lines.joined(separator: "\n")))
                     }
 

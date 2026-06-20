@@ -298,13 +298,15 @@ struct ContentView: View {
     /// a streaming one in flight.
     private var responseCard: (kind: GenerationKind, text: String, streaming: Bool)? {
         switch session.response {
-        case let .ready(kind, text): return (kind, text, false)
-        case let .streaming(kind, text): return (kind, text, true)
-        default: return nil
+        case let .ready(kind, text): (kind, text, false)
+        case let .streaming(kind, text): (kind, text, true)
+        default: nil
         }
     }
 
-    private var responseCardVisible: Bool { responseCard != nil }
+    private var responseCardVisible: Bool {
+        responseCard != nil
+    }
 
     // MARK: - Derived
 
