@@ -49,12 +49,19 @@ enum PromptLibrary {
         language: AppLanguage = .english,
         personalContext: String = "",
         sessionKind: SessionKind = .meeting,
-        replyContext: ReplyContext = .auto
+        replyContext: ReplyContext = .auto,
+        summaryTemplate: SummaryTemplate = .auto
     ) -> (system: String, user: String) {
         let context = transcript.isEmpty
             ? "(No transcript captured yet.)"
             : transcript
-        let base = system(for: kind, language: language, sessionKind: sessionKind, replyContext: replyContext)
+        let base = system(
+            for: kind,
+            language: language,
+            sessionKind: sessionKind,
+            replyContext: replyContext,
+            summaryTemplate: summaryTemplate
+        )
         let system = personalContext.isEmpty ? base : personalContext + "\n\n" + base
         return (system, userMessage(for: kind, context: context))
     }
@@ -89,7 +96,8 @@ enum PromptLibrary {
         for kind: PromptKind,
         language: AppLanguage,
         sessionKind: SessionKind = .meeting,
-        replyContext: ReplyContext = .auto
+        replyContext: ReplyContext = .auto,
+        summaryTemplate: SummaryTemplate = .auto
     ) -> String {
         let lang = language.promptName
         switch kind {
@@ -123,7 +131,7 @@ enum PromptLibrary {
             """
 
         case .summary:
-            return summaryPrompt(language: lang, sessionKind: sessionKind)
+            return summaryPrompt(language: lang, sessionKind: sessionKind, template: summaryTemplate)
 
         case .suggestReply:
             return """
@@ -172,10 +180,9 @@ enum PromptLibrary {
             - Any line that asks the asker to clarify, unless the question is genuinely ambiguous (most aren't).
 
             [OUTPUT FORMAT]
-            Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
-            {"reply": "<the spoken words>"}
-            - "reply" is what [Me] should say, in natural spoken \(lang) — one flowing turn, sized to the question type above.
-            - No "You could say:" prefix, no surrounding quotation marks, no markdown or bullet characters inside the value.
+            Respond with ONLY the spoken words — no JSON, no markdown, no preamble, no code fence, no surrounding quotation marks.
+            - Output exactly what [Me] should say, in natural spoken \(lang) — one flowing turn, sized to the question type above.
+            - No "You could say:" prefix, no labels, no bullet characters.
 
             [GROUNDING]
             - For factual / technical answers, use real knowledge — accuracy matters, the user may say this out loud.
@@ -183,7 +190,7 @@ enum PromptLibrary {
 
             [FALLBACK — strict, very narrow]
             - Use the fallback ONLY if the transcript section is the literal placeholder "(No transcript captured yet.)" or contains zero spoken words.
-            - Fallback (output exactly, ONLY when the transcript is truly empty): {"reply": "Not enough context yet — keep talking and try again."}
+            - Fallback (output exactly, ONLY when the transcript is truly empty): Not enough context yet — keep talking and try again.
 
             LANGUAGE (repeat): the reply must be in \(lang).
             """
@@ -324,8 +331,9 @@ enum PromptLibrary {
         """
     }
 
-    private static func summaryPrompt(language lang: String, sessionKind: SessionKind = .meeting) -> String {
-        """
+    private static func summaryPrompt(language lang: String, sessionKind: SessionKind = .meeting, template: SummaryTemplate = .auto) -> String {
+        let sectionPlan = summarySectionPlan(template: template, language: lang)
+        return """
         LANGUAGE: write all string values in the JSON in \(lang). Keep the JSON keys exactly as specified below (in English). Even if the transcript contains other languages, the content must be in \(
             lang
         ).
@@ -384,57 +392,42 @@ enum PromptLibrary {
         - A decision later changed or reversed reflects ONLY the final decision.
         Report the outcome, not the journey to it.
 
-        STEP 2 — EMIT JSON using ONLY items from the six lists above. If an item is not on any list, it MUST NOT appear in the JSON. No exceptions.
+        STEP 2 — ORGANIZE the grounded items from your six lists into recap sections, then EMIT JSON. Every bullet must trace back to an item on a Step-1 list; if it's not on a list, it MUST NOT appear. No exceptions.
+
+        \(sectionPlan)
 
         ===========================
         OUTPUT FORMAT — single JSON object, no other text
         ===========================
 
-        Return a JSON object with EXACTLY these keys, all required, in this shape:
+        Return a JSON object with EXACTLY this shape:
 
         {
-          "topics": [
-            { "text": "<topic + its resolution, 1-2 sentences>", "quote": "<3-10 word verbatim quote or null>" }
-          ],
-          "decisions": [
-            { "text": "<what was decided>", "why": "<reason if stated, else null>" }
-          ],
-          "actions": [
-            { "owner": "<resolved label — see SPEAKER LABELS above>", "task": "<what they will do>", "when": "<deadline if stated, else null>" }
-          ],
-          "open_questions": [
-            { "text": "<unresolved question or speculative idea>" }
+          "sections": [
+            {
+              "title": "<section heading, in \(lang)>",
+              "bullets": [
+                { "text": "<1-2 sentences>", "quote": "<3-10 word verbatim quote, or null>" }
+              ]
+            }
           ]
         }
 
-        Rules per field:
+        Rules:
 
-        topics — HARD CAP: 6 items. NOT a suggestion. After drafting, COUNT — if more than 6, merge the nearest pair until you hit 6 or fewer.
-          - Group related exchanges into ONE item per topic — items are organized by topic, NOT by chronological position. Merge back-to-back discussions of the same area. Give announcements about people (new joiners, family additions, departures) their OWN item; they don't merge with substantive discussions and don't compete for the cap because they're short.
-          - Personal milestones (births, anniversaries, promotions, returns, departures) MUST appear here if mentioned, even briefly.
-          - Each `text` MUST capture the RESOLUTION or CONCLUSION if one was reached. Not "X was discussed" but "X was discussed and the team concluded Y" or "X was raised but the team disagreed on Z".
-          - If a topic was discussed but reached no conclusion, say so explicitly ("…remained unresolved" / "…was deferred") AND put the unresolved part in `open_questions`.
-          - At least 1-2 items MUST have a non-null `quote` field (3-10 words, verbatim from transcript — no quotation marks inside the string, just the raw words). Quotes are required grounding evidence — they are a tripwire: you cannot quote what isn't there.
-          - Attribute opinions/quotes only if the speaker's name is on PEOPLE.
-
-        decisions — one item per entry in your DECISIONS list. State WHAT in `text`, WHY in `why` (null if reason wasn't stated).
-          - REREAD each `text` before emitting: if it contains "maybe", "might", "could", "perhaps", "may", or any speculative phrasing — DELETE this decision and move it to `open_questions` instead.
-          - `why` must be a reason someone actually stated out loud. If no reason was said, use null — never infer or reconstruct one, however obvious it seems.
-          - Empty `decisions` array is allowed; do not invent.
-
-        actions — one item per entry in your ACTIONS list.
-          - `owner` MUST be a resolved label per [SPEAKER LABELS] (a person name, a role, or a natural noun phrase) — never the literal `[Me]` / `[Them]`. If you can't identify an owner, DROP the action — never invent one.
-          - `when` only if a deadline was stated in the transcript ("by Friday", "next week", "before the demo"). If none was said, use null — never infer urgency or invent a date.
-          - REREAD each item: (1) is the task FUTURE work, not something already done in past tense? (2) can you point to the exact transcript sentence where the owner committed? (3) is the action literal and not your reading of an idiom? If any answer is "no", DELETE the item.
-          - Empty `actions` array is allowed.
-
-        open_questions — one item per entry in your OPEN_THREADS list. Include both unanswered questions AND speculative ideas that came up but weren't decided. Empty array allowed.
+        - Drop any section that has no grounded bullets — never emit a section with an empty `bullets` array, and never pad one with filler. A meeting that reached no decisions simply has no decisions section.
+        - Each bullet's `text` is 1-2 sentences, readable in two seconds. Capture the RESOLUTION or CONCLUSION, not just that a topic "was discussed" — "X was raised and the team concluded Y", not "X was discussed".
+        - Group related exchanges into ONE bullet — bullets are organized by substance, NOT chronological position. Merge back-to-back discussion of the same area.
+        - Across the WHOLE recap, at least 1-2 bullets MUST carry a non-null `quote` (3-10 words, verbatim from the transcript, no quotation marks inside the string). Quotes are a grounding tripwire — you cannot quote what isn't there. Use null when you can't quote exactly; attribute a quote only if the speaker's name is on PEOPLE.
+        - A decision/commitment bullet must NOT contain speculative phrasing ("maybe", "might", "could", "perhaps", "may"). If it can't be stated firmly, it's an open question, not a decision — route it to the open-questions section instead.
+        - An action/task bullet names the OWNER (a resolved label per [SPEAKER LABELS]) and a deadline only if one was stated. No identifiable owner → drop it. Re-check each against the idiom / past-tense / within-meeting-completion traps from Step 1 before keeping it.
+        - Personal milestones (births, anniversaries, promotions, joins, departures) MUST surface if mentioned, even briefly — give them their own bullet.
 
         ===========================
         [GROUNDING] — non-negotiable
         ===========================
         - Never include a name, number, project name, product name, tool name, organization, or acronym that did not appear in your Step-1 lists.
-        - PRESERVE CONDITIONS. Conditional and constraint clauses ("only if…", "except when…", "pending…", "once X lands…", "assuming Y") are LOAD-BEARING and are exactly the kind of qualifier that gets silently dropped in summarization. If a decision, action, or topic resolution depends on a condition, keep that clause inside its `text`/`task` — never trim it to make the item read cleaner. A decision reported without its condition is WRONG, not merely shorter.
+        - PRESERVE CONDITIONS. Conditional and constraint clauses ("only if…", "except when…", "pending…", "once X lands…", "assuming Y") are LOAD-BEARING and are exactly the kind of qualifier that gets silently dropped in summarization. If a bullet depends on a condition, keep that clause inside its `text` — never trim it to make the item read cleaner. A decision reported without its condition is WRONG, not merely shorter.
         - Non-\(lang) transcript text is valid source material. Translate it in your head, extract grounded content, and write the JSON strings in \(
             lang
         ).
@@ -446,31 +439,50 @@ enum PromptLibrary {
         ===========================
         [THRESHOLD] — when to omit, when to fall back
         ===========================
-        - When in doubt, OMIT. Two well-grounded items are far better than seven fabricated ones.
+        - When in doubt, OMIT. Two well-grounded bullets are far better than seven fabricated ones.
         - Do NOT use the fallback because the user selected \(lang) while the meeting was spoken in another language. Language mismatch alone is never "too noisy" or "unclear".
         - If the transcript is too short, too noisy, or you cannot ground ANY content, return EXACTLY this JSON and nothing else:
 
-          {"topics":[{"text":"Transcript too short or unclear to recap reliably.","quote":null}],"decisions":[],"actions":[],"open_questions":[]}
+          {"sections":[{"title":"Summary","bullets":[{"text":"Transcript too short or unclear to recap reliably.","quote":null}]}]}
 
         ===========================
         [STYLE]
         ===========================
-        - Each `text` readable in two seconds — 1-2 sentences max.
         - No preamble, no closing remark, no meta-commentary about the recap.
         - Output ONLY the JSON object. No markdown fences, no leading "Here is…", nothing.
 
         \(fewShotExample(sessionKind))
 
         BAD examples (do NOT produce):
-        - `"owner": "[Me]"` — speaker labels must be resolved per [SPEAKER LABELS], never literal.
-        - `"text": "The team will maybe start a weekly bug bash."` — speculative phrasing forbidden in decisions; belongs in open_questions.
-        - `"owner": "Someone"` — missing owner; drop the action instead.
-        - `"quote": "the team agreed on this"` — paraphrase in quotes; quote must be verbatim from transcript or null.
-        - `"text": "Alex will bury the lead..."` — idiom trap; figurative phrases are not actions.
-        - `"why": "to keep the team aligned"` when no one said that reason out loud — `why` is a stated reason or null, never your inference.
-        - `"when": "soon"` — vague or inferred deadline; `when` is a deadline stated in the transcript or null.
+        - a bullet echoing the literal `[Me]` / `[Them]` — speaker labels must be resolved per [SPEAKER LABELS].
+        - a decision bullet "The team will maybe start a weekly bug bash." — speculative phrasing belongs under open questions, not decisions.
+        - an action bullet with owner "Someone" — missing owner; drop it instead.
+        - `"quote": "the team agreed on this"` — paraphrase in a quote; a quote is verbatim from the transcript or null.
+        - "Alex will bury the lead..." — idiom trap; figurative phrases are not actions.
+        - a section with an empty `bullets` array, or an "Overview"/"Introduction" section padded with generic filler.
 
-        LANGUAGE (repeat): all string values in \(lang). JSON keys remain in English.
+        LANGUAGE (repeat): all string values (section titles + bullet text) in \(lang). JSON keys (`sections`, `title`, `bullets`, `text`, `quote`) remain in English.
+        """
+    }
+
+    /// The Step-2 section directive: either the user's chosen template (a fixed,
+    /// ordered section list) or — for `.auto` — an instruction to let the model
+    /// derive the sections from what was actually discussed.
+    private static func summarySectionPlan(template: SummaryTemplate, language lang: String) -> String {
+        guard let titles = template.sections else {
+            return """
+            [SECTIONS — you choose the layout]
+            Choose 3-6 section headings that fit what was actually discussed, each written in \(lang). Prefer concrete, specific headings over generic ones. Do NOT create an "Overview", "Introduction", or "Participants" section unless the meeting was explicitly about that.
+            """
+        }
+        let numbered = titles.enumerated()
+            .map { "\($0.offset + 1). \($0.element)" }
+            .joined(separator: "\n")
+        return """
+        [SECTIONS — use this template]
+        Organize the recap into these sections, in this order (translate each title into \(lang)):
+        \(numbered)
+        Drop any section with no grounded content rather than padding it. You may add ONE extra section at the end only if substantial grounded content fits none of the above.
         """
     }
 
@@ -499,7 +511,7 @@ enum PromptLibrary {
 
             GOOD JSON (this is the quality bar):
 
-            {"topics":[{"text":"Two users were still being logged out after yesterday's auth fix; Priya traced one case to Safari and the team agreed to pair on it.","quote":"the refresh token isn't rotating on Safari"},{"text":"Timing of the 0.4 release was settled — pushed back a week so the auth fix can land first.","quote":null},{"text":"A weekly bug bash was floated but left unresolved (see open questions).","quote":null}],"decisions":[{"text":"Release 0.4 will ship next week instead of this week.","why":"so the auth fix can land first"}],"actions":[{"owner":"Alex and Priya","task":"pair on the Safari refresh-token bug after standup","when":null},{"owner":"Priya","task":"move the release ticket","when":null}],"open_questions":[{"text":"Whether to start a weekly bug bash — Priya wants to think about it."}]}
+            {"sections":[{"title":"Topics covered","bullets":[{"text":"Two users were still being logged out after yesterday's auth fix; Priya traced one case to Safari and the team agreed to pair on it.","quote":"the refresh token isn't rotating on Safari"},{"text":"Timing of the 0.4 release was settled — pushed back a week so the auth fix can land first.","quote":null}]},{"title":"Decisions made","bullets":[{"text":"Release 0.4 will ship next week instead of this week, so the auth fix can land first.","quote":null}]},{"title":"Action items","bullets":[{"text":"Alex and Priya will pair on the Safari refresh-token bug after standup.","quote":null},{"text":"Priya will move the release ticket.","quote":null}]},{"title":"Open questions","bullets":[{"text":"Whether to start a weekly bug bash — Priya wants to think about it.","quote":null}]}]}
 
             REMINDER: Alex, Priya, Safari, "0.4 release" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
             """
@@ -518,7 +530,7 @@ enum PromptLibrary {
 
             GOOD JSON (this is the quality bar):
 
-            {"topics":[{"text":"You worked through the pricing page rewrite and settled on two tiers instead of three.","quote":"two is cleaner"},{"text":"Annual discounts came up but stayed unresolved (see open questions).","quote":null}],"decisions":[{"text":"The pricing page will have two tiers — free, and pro at twelve euros.","why":"two is cleaner"}],"actions":[{"owner":"You","task":"mock up the two-tier pricing page in Figma and send it to Olena","when":"before Friday"}],"open_questions":[{"text":"Whether to offer an annual discount — twenty percent was floated, pending a look at competitors."}]}
+            {"sections":[{"title":"Topics covered","bullets":[{"text":"You worked through the pricing page rewrite and settled on two tiers instead of three.","quote":"two is cleaner"}]},{"title":"Decisions made","bullets":[{"text":"The pricing page will have two tiers — free, and pro at twelve euros.","quote":null}]},{"title":"Action items","bullets":[{"text":"Mock up the two-tier pricing page in Figma and send it to Olena before Friday.","quote":null}]},{"title":"Open questions","bullets":[{"text":"Whether to offer an annual discount — twenty percent was floated, pending a look at competitors.","quote":null}]}]}
 
             REMINDER: the pricing page, Figma, Olena, "twelve euros" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
             """
@@ -536,9 +548,9 @@ enum PromptLibrary {
 
             GOOD JSON (this is the quality bar):
 
-            {"topics":[{"text":"The speaker argued that retrieval quality matters more than model size, citing a thirty percent gain from better chunking.","quote":"retrieval quality matters more than model size"}],"decisions":[],"actions":[],"open_questions":[{"text":"Evaluation of multi-hop retrieval — the speaker said there is still no good benchmark."}]}
+            {"sections":[{"title":"Topics covered","bullets":[{"text":"The speaker argued that retrieval quality matters more than model size, citing a thirty percent gain from better chunking.","quote":"retrieval quality matters more than model size"}]},{"title":"Open questions","bullets":[{"text":"Evaluation of multi-hop retrieval — the speaker said there is still no good benchmark.","quote":null}]}]}
 
-            Note the empty `decisions` and `actions` — that is the EXPECTED shape for media; the user stated no personal takeaway action out loud.
+            Note there is NO decisions or action-items section — that is the EXPECTED shape for media; the user stated no personal takeaway action out loud, so those sections are simply omitted.
 
             REMINDER: retrieval quality, chunking, "thirty percent" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
             """
@@ -799,7 +811,7 @@ enum PromptLibrary {
         You are editing the user's meeting recap. They will give you the current recap and a single edit instruction. Apply the instruction precisely.
 
         [PRESERVE]
-        - Keep the four bold section headers EXACTLY as written: **Topics covered**, **Decisions made**, **Action items**, **Open questions** — each on its own line, with bulleted items below. (A legacy recap may have only three headers, missing **Action items**; in that case keep the three it has and do NOT invent an empty Action items section unless the edit instruction explicitly asks for it.)
+        - The recap is organized into sections — each a bold header on its own line (e.g. **Topics covered**) with bulleted items below. Keep the existing section headers, their wording, and their order exactly as written; do not rename, add, reorder, or drop a section unless the edit instruction explicitly asks for it.
         - Keep all content the user did not ask you to change.
 
         [GROUND]

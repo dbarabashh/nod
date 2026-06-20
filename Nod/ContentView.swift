@@ -52,8 +52,10 @@ struct ContentView: View {
     /// trigger the wide layout.
     private var isWide: Bool {
         if showConsentDisclaimer { return true }
-        if case .ready = session.response { return true }
-        return false
+        switch session.response {
+        case .ready, .streaming: return true
+        default: return false
+        }
     }
 
     private var contentWidth: CGFloat {
@@ -270,10 +272,11 @@ struct ContentView: View {
 
     private var responseColumn: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if case let .ready(kind, text) = session.response {
+            if let card = responseCard {
                 ResponseCard(
-                    kind: kind.rawValue,
-                    text: text,
+                    kind: card.kind.rawValue,
+                    text: card.text,
+                    streaming: card.streaming,
                     onCopy: { latest in copy(latest) },
                     onDismiss: { session.dismissResponse() },
                     onAIEdit: nil
@@ -285,7 +288,24 @@ struct ContentView: View {
             }
             Spacer(minLength: 0)
         }
-        .animation(.easeOut(duration: 0.18), value: session.response)
+        // Animate the card's appearance/disappearance, not every streamed delta —
+        // keying the animation on `response` would re-run it on each token and
+        // jitter the growing text.
+        .animation(.easeOut(duration: 0.18), value: responseCardVisible)
+    }
+
+    /// The card to show for the current response, if any — a finished answer or
+    /// a streaming one in flight.
+    private var responseCard: (kind: GenerationKind, text: String, streaming: Bool)? {
+        switch session.response {
+        case let .ready(kind, text): (kind, text, false)
+        case let .streaming(kind, text): (kind, text, true)
+        default: nil
+        }
+    }
+
+    private var responseCardVisible: Bool {
+        responseCard != nil
     }
 
     // MARK: - Derived

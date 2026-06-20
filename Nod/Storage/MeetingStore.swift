@@ -76,6 +76,13 @@ final class MeetingStore: ObservableObject {
     ///      detached main-window retry toast.
     @Published private(set) var unsyncedMeetingIDs: Set<UUID> = []
 
+    /// Partial recap markdown streamed in while a meeting's summary generates,
+    /// keyed by meeting id. The end-of-meeting flow updates this section-by-
+    /// section as the LLM produces them; MeetingDetailView renders it live so
+    /// the recap fills in instead of popping in at the end. Cleared when
+    /// generation finishes (`applyGenerated`) or fails (`markGenerationFailed`).
+    @Published private(set) var streamingSummaries: [UUID: String] = [:]
+
     private let supabase: SupabaseClient
     private static let tableName = "meetings"
     private static let transcriptsTableName = "meeting_transcripts"
@@ -166,6 +173,14 @@ final class MeetingStore: ObservableObject {
         loadState = .loaded
     }
 
+    /// Publishes the latest partial recap markdown for a still-generating
+    /// meeting so MeetingDetailView can render it live. No-op once the meeting
+    /// has left the generating set (a late stream delta after finalize).
+    func updateStreamingSummary(id: UUID, markdown: String) {
+        guard generatingSummaryIDs.contains(id) else { return }
+        streamingSummaries[id] = markdown
+    }
+
     /// Replaces the local draft with the LLM-finalised meeting (summary
     /// + title now populated) and clears the generating flag so
     /// MeetingDetailView swaps from the loading placeholder to the
@@ -184,6 +199,7 @@ final class MeetingStore: ObservableObject {
             Log.ui.info("MeetingStore.applyGenerated dropped — meeting not in cache: \(meeting.id.uuidString)")
         }
         generatingSummaryIDs.remove(meeting.id)
+        streamingSummaries[meeting.id] = nil
     }
 
     /// Marks the end-of-meeting persistence path complete for a local draft.
@@ -206,6 +222,7 @@ final class MeetingStore: ObservableObject {
         }
         generatingSummaryIDs.remove(id)
         finalizingMeetingIDs.remove(id)
+        streamingSummaries[id] = nil
     }
 
     /// Mirror of the durable outbox's not-yet-synced completed meetings, pushed
@@ -545,6 +562,7 @@ final class MeetingStore: ObservableObject {
         generatingSummaryIDs = []
         finalizingMeetingIDs = []
         unsyncedMeetingIDs = []
+        streamingSummaries = [:]
     }
 
     // MARK: - Read

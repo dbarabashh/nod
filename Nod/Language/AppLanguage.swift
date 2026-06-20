@@ -21,6 +21,7 @@ enum AppLanguage: String, CaseIterable {
     case portuguese = "pt"
     case russian = "ru"
     case urdu = "ur"
+    case italian = "it"
     case ukrainian = "uk"
     case serbian = "sr"
 
@@ -44,6 +45,7 @@ enum AppLanguage: String, CaseIterable {
         case .portuguese: "Português"
         case .russian: "Русский"
         case .urdu: "اردو"
+        case .italian: "Italiano"
         case .ukrainian: "Українська"
         case .serbian: "Српски"
         }
@@ -64,6 +66,7 @@ enum AppLanguage: String, CaseIterable {
         case .portuguese: "Portuguese"
         case .russian: "Russian"
         case .urdu: "Urdu"
+        case .italian: "Italian"
         case .ukrainian: "Ukrainian"
         case .serbian: "Serbian"
         }

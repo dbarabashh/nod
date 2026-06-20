@@ -2,130 +2,253 @@ import Foundation
 
 /// Structured meeting recap returned by the summary LLM call. The LLM emits
 /// this as a JSON object (via `response_format = json_object`); we render it
-/// to the same markdown contract the UI already consumes, so downstream code
-/// (`MeetingDetailView`, `buildTitle`) keeps treating `meeting.summary` as a
-/// markdown string.
+/// to the `**Section**` + `- bullet` markdown contract the UI already consumes,
+/// so downstream code (`MeetingDetailView`, `buildTitle`) keeps treating
+/// `meeting.summary` as a markdown string.
 ///
-/// Speaker attribution lives in a typed field (`Action.owner`) rather than as
-/// inline `[Me]`/`[Them]` markers in the text, so the old class of "LLM
-/// leaked the raw transcript label into the recap" bugs is impossible by
-/// construction.
+/// The recap is a flat list of named `sections`, each with bullets — the model
+/// (or the chosen `SummaryTemplate`) decides what the sections are, so an
+/// interview recap reads differently from a standup. Speaker attribution lives
+/// inside the bullet text (resolved to a name/role by the prompt), never as raw
+/// `[Me]`/`[Them]` markers.
 struct MeetingRecap: Codable, Equatable {
-    struct Topic: Codable, Equatable {
+    struct Bullet: Codable, Equatable {
         let text: String
+        /// Optional 3-10 word verbatim quote from the transcript — the grounding
+        /// tripwire carried over from the typed recap. Rendered in quotes.
         let quote: String?
+
+        init(text: String, quote: String? = nil) {
+            self.text = text
+            self.quote = quote
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            text = (try? c.decode(String.self, forKey: .text)) ?? ""
+            quote = try? c.decodeIfPresent(String.self, forKey: .quote)
+        }
     }
 
-    struct Decision: Codable, Equatable {
-        let text: String
-        let why: String?
+    struct Section: Codable, Equatable {
+        let title: String
+        let bullets: [Bullet]
+
+        init(title: String, bullets: [Bullet]) {
+            self.title = title
+            self.bullets = bullets
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            title = (try? c.decode(String.self, forKey: .title)) ?? ""
+            bullets = (try? c.decode([Bullet].self, forKey: .bullets)) ?? []
+        }
     }
 
-    struct Action: Codable, Equatable {
-        let owner: String
-        let task: String
-        let when: String?
+    let sections: [Section]
+
+    init(sections: [Section]) {
+        self.sections = sections
     }
 
-    struct OpenQuestion: Codable, Equatable {
-        let text: String
+    /// Lenient decode. New rows carry `{"sections":[…]}`. Rows generated before
+    /// the dynamic-section recap shipped carry the legacy
+    /// `{topics,decisions,actions,open_questions}` shape — map those onto
+    /// sections so an old recap still renders if it's ever re-serialized.
+    /// Display never depends on this (the rendered markdown lives in
+    /// `meeting.summary`), so a fully unrecognised payload decodes to empty
+    /// rather than throwing and breaking the parent `Meeting` decode.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let sections = try? c.decode([Section].self, forKey: .sections) {
+            self.sections = sections
+            return
+        }
+        sections = Self.legacySections(from: c)
     }
 
-    let topics: [Topic]
-    let decisions: [Decision]
-    let actions: [Action]
-    let openQuestions: [OpenQuestion]
-
-    var isPlaceholderFallback: Bool {
-        topics.count == 1 &&
-            decisions.isEmpty &&
-            actions.isEmpty &&
-            openQuestions.isEmpty &&
-            topics[0].text.localizedCaseInsensitiveContains("too short or unclear")
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(sections, forKey: .sections)
     }
 
     enum CodingKeys: String, CodingKey {
+        case sections
+        // Legacy keys, decode-only.
         case topics
         case decisions
         case actions
         case openQuestions = "open_questions"
     }
 
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        topics = (try? c.decode([Topic].self, forKey: .topics)) ?? []
-        decisions = (try? c.decode([Decision].self, forKey: .decisions)) ?? []
-        actions = (try? c.decode([Action].self, forKey: .actions)) ?? []
-        openQuestions = (try? c.decode([OpenQuestion].self, forKey: .openQuestions)) ?? []
+    private struct LegacyTopic: Decodable { let text: String?; let quote: String? }
+    private struct LegacyDecision: Decodable { let text: String?; let why: String? }
+    private struct LegacyAction: Decodable { let owner: String?; let task: String?; let when: String? }
+    private struct LegacyOpen: Decodable { let text: String? }
+
+    private static func legacySections(from c: KeyedDecodingContainer<CodingKeys>) -> [Section] {
+        var out: [Section] = []
+        if let topics = try? c.decode([LegacyTopic].self, forKey: .topics), !topics.isEmpty {
+            out.append(Section(
+                title: "Topics covered",
+                bullets: topics.map { Bullet(text: $0.text ?? "", quote: $0.quote) }
+            ))
+        }
+        if let decisions = try? c.decode([LegacyDecision].self, forKey: .decisions), !decisions.isEmpty {
+            out.append(Section(
+                title: "Decisions made",
+                bullets: decisions.map { d in
+                    Bullet(text: [d.text, d.why].compactMap { $0 }.joined(separator: " — "))
+                }
+            ))
+        }
+        if let actions = try? c.decode([LegacyAction].self, forKey: .actions), !actions.isEmpty {
+            out.append(Section(
+                title: "Action items",
+                bullets: actions.map { a in
+                    let owner = a.owner ?? ""
+                    let task = a.task ?? ""
+                    let base = owner.isEmpty ? task : "\(owner) — \(task)"
+                    return Bullet(text: a.when.map { "\(base) (by \($0))" } ?? base)
+                }
+            ))
+        }
+        if let open = try? c.decode([LegacyOpen].self, forKey: .openQuestions), !open.isEmpty {
+            out.append(Section(title: "Open questions", bullets: open.map { Bullet(text: $0.text ?? "") }))
+        }
+        return out
     }
-}
 
-extension MeetingRecap {
-    /// Render to the existing `**Section**` markdown contract. Section headers
-    /// stay in English (matches the previous prompt's behaviour and the UI's
-    /// hardcoded expectations); bullet content is whatever language the LLM
-    /// produced.
+    /// True when no section carries any bullet — the model returned nothing
+    /// grounded. Distinct from the explicit "too short" placeholder.
+    var isEmpty: Bool {
+        sections.allSatisfy(\.bullets.isEmpty)
+    }
+
+    /// True for the model's explicit "couldn't recap" fallback — one section,
+    /// one bullet, naming the too-short/unclear reason. Kept so the retry path
+    /// can tell a real fallback from a sparse-but-valid recap.
+    var isPlaceholderFallback: Bool {
+        guard sections.count == 1, sections[0].bullets.count == 1 else { return false }
+        return sections[0].bullets[0].text.localizedCaseInsensitiveContains("too short or unclear")
+    }
+
     func toMarkdown() -> String {
-        let everythingEmpty = topics.isEmpty && decisions.isEmpty && actions.isEmpty && openQuestions.isEmpty
-        var out: [String] = []
+        Self.markdown(for: sections)
+    }
 
-        out.append("**Topics covered**")
-        if topics.isEmpty {
-            // Only claim "transcript too short" when there's literally nothing
-            // to say — otherwise a recap with only decisions/actions would
-            // mislead the user into thinking the meeting failed to transcribe.
-            out.append(everythingEmpty
-                ? "- Transcript too short or unclear to recap reliably."
-                : "- None.")
-        } else {
-            for t in topics {
-                if let q = t.quote, !q.isEmpty {
-                    out.append("- \(t.text) \"\(q)\"")
+    /// Render a (possibly partial, mid-stream) section list to the
+    /// `**Section**` + `- bullet` markdown the inline renderer consumes. Shared
+    /// by the final recap and the live streaming preview.
+    static func markdown(for sections: [Section]) -> String {
+        let nonEmpty = sections.filter { !$0.bullets.isEmpty }
+        guard !nonEmpty.isEmpty else {
+            return "- Transcript too short or unclear to recap reliably."
+        }
+        var blocks: [String] = []
+        for section in nonEmpty {
+            var lines = ["**\(section.title)**"]
+            for bullet in section.bullets {
+                if let q = bullet.quote, !q.isEmpty {
+                    lines.append("- \(bullet.text) \"\(q)\"")
                 } else {
-                    out.append("- \(t.text)")
+                    lines.append("- \(bullet.text)")
                 }
             }
+            blocks.append(lines.joined(separator: "\n"))
         }
+        return blocks.joined(separator: "\n\n")
+    }
 
-        out.append("")
-        out.append("**Decisions made**")
-        if decisions.isEmpty {
-            out.append("- None.")
-        } else {
-            for d in decisions {
-                if let why = d.why, !why.isEmpty {
-                    out.append("- \(d.text) — \(why)")
-                } else {
-                    out.append("- \(d.text)")
+    // MARK: - Streaming
+
+    /// Extracts the fully-closed `Section` objects from a partially-streamed
+    /// `{"sections":[ … ]}` payload, ignoring the trailing element still being
+    /// produced. Returns `[]` until the first section closes. Lets the recap
+    /// fill in section-by-section live instead of popping in at the end.
+    static func partialSections(fromStreamingJSON raw: String) -> [Section] {
+        let chars = Array(raw)
+        guard let arrayStart = sectionsArrayStart(in: chars) else { return [] }
+        let decoder = JSONDecoder()
+        var sections: [Section] = []
+        var i = arrayStart
+        while i < chars.count {
+            // Skip whitespace and separators between elements.
+            while i < chars.count, chars[i] == " " || chars[i] == "\n" || chars[i] == "\r" || chars[i] == "\t" || chars[i] == "," {
+                i += 1
+            }
+            guard i < chars.count else { break }
+            if chars[i] == "]" { break }
+            guard chars[i] == "{" else { i += 1; continue }
+            guard let close = matchingBrace(in: chars, from: i) else { break }
+            let objectString = String(chars[i ... close])
+            if let data = objectString.data(using: .utf8),
+               let section = try? decoder.decode(Section.self, from: data) {
+                sections.append(section)
+            }
+            i = close + 1
+        }
+        return sections
+    }
+
+    /// Index of the character immediately after the `[` that opens the
+    /// `"sections"` array.
+    private static func sectionsArrayStart(in chars: [Character]) -> Int? {
+        let key = Array("\"sections\"")
+        guard let keyStart = firstRange(of: key, in: chars) else { return nil }
+        var i = keyStart + key.count
+        while i < chars.count, chars[i] != "[" {
+            // Bail if we hit the value start that isn't an array (malformed).
+            if chars[i] == "{" { return nil }
+            i += 1
+        }
+        return i < chars.count ? i + 1 : nil
+    }
+
+    /// Index of the `}` matching the `{` at `start`, honoring string literals
+    /// and escapes. nil when the object hasn't finished streaming.
+    private static func matchingBrace(in chars: [Character], from start: Int) -> Int? {
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var i = start
+        while i < chars.count {
+            let ch = chars[i]
+            if inString {
+                if escaped {
+                    escaped = false
+                } else if ch == "\\" {
+                    escaped = true
+                } else if ch == "\"" {
+                    inString = false
+                }
+            } else {
+                switch ch {
+                case "\"": inString = true
+                case "{": depth += 1
+                case "}":
+                    depth -= 1
+                    if depth == 0 { return i }
+                default: break
                 }
             }
+            i += 1
         }
+        return nil
+    }
 
-        out.append("")
-        out.append("**Action items**")
-        if actions.isEmpty {
-            out.append("- None.")
-        } else {
-            for a in actions {
-                if let when = a.when, !when.isEmpty {
-                    out.append("- \(a.owner) — \(a.task) (by \(when))")
-                } else {
-                    out.append("- \(a.owner) — \(a.task)")
-                }
+    private static func firstRange(of needle: [Character], in haystack: [Character]) -> Int? {
+        guard !needle.isEmpty, haystack.count >= needle.count else { return nil }
+        for start in 0 ... (haystack.count - needle.count) {
+            var matched = true
+            for j in 0 ..< needle.count where haystack[start + j] != needle[j] {
+                matched = false
+                break
             }
+            if matched { return start }
         }
-
-        out.append("")
-        out.append("**Open questions**")
-        if openQuestions.isEmpty {
-            out.append("- None.")
-        } else {
-            for q in openQuestions {
-                out.append("- \(q.text)")
-            }
-        }
-
-        return out.joined(separator: "\n")
+        return nil
     }
 }
 
@@ -204,26 +327,5 @@ struct FollowUpQuestions: Codable {
         let qs = cleaned(questions)
         guard !qs.isEmpty else { return "No grounded follow-up questions yet." }
         return qs.map { "- \($0)" }.joined(separator: "\n")
-    }
-}
-
-/// "Suggest reply" (`.suggestReply`) structured output — a single spoken line.
-/// JSON-wrapping makes the preamble leakage ("You could say:") the plain-text
-/// prompt fought with a long FORBIDDEN list structurally impossible.
-struct SuggestedReply: Codable {
-    let reply: String
-
-    enum CodingKeys: String, CodingKey { case reply }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        reply = (try? c.decode(String.self, forKey: .reply)) ?? ""
-    }
-
-    func toMarkdown() -> String {
-        let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty
-            ? "Not enough context yet — keep talking and try again."
-            : trimmed
     }
 }

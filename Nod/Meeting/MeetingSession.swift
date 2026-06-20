@@ -44,6 +44,10 @@ enum GenerationKind: String {
 enum AIResponse: Equatable {
     case none
     case generating(kind: GenerationKind)
+    /// A streamed answer still in flight — `text` grows as deltas arrive. Only
+    /// `.suggestReply` uses this; the other pills decode a JSON object in one
+    /// shot and jump straight to `.ready`.
+    case streaming(kind: GenerationKind, text: String)
     case ready(kind: GenerationKind, text: String)
 }
 
@@ -150,8 +154,18 @@ final class MeetingSession: ObservableObject {
     }
 
     func isGenerating(for kind: GenerationKind) -> Bool {
-        if case let .generating(k) = response, k == kind { return true }
-        return false
+        switch response {
+        case let .generating(k), let .streaming(k, _): k == kind
+        default: false
+        }
+    }
+
+    /// Whether `response` is still the in-flight request for `kind` (generating
+    /// or mid-stream). Used to drop late stream deltas after the user dismissed
+    /// the card or fired a different pill. Same predicate as `isGenerating`; the
+    /// name documents intent at the stream call sites.
+    private func isActiveRequest(_ kind: GenerationKind) -> Bool {
+        isGenerating(for: kind)
     }
 
     func dismissResponse() {
@@ -281,6 +295,7 @@ final class MeetingSession: ObservableObject {
         let kind = selectedKind
         let profile = profileContext
         let generation = sessionGeneration
+        let summaryTemplate = SummaryTemplate.current
 
         // Open the detail view and reset the panel IMMEDIATELY — the summary
         // pass can take many seconds on a long call, so it must not block the
@@ -343,11 +358,18 @@ final class MeetingSession: ObservableObject {
                 transcript: context,
                 language: lang,
                 personalContext: profile,
-                sessionKind: draft.kind
+                sessionKind: draft.kind,
+                summaryTemplate: summaryTemplate
             )
 
             do {
-                let recap = try await generateRecap(system: system, user: user, transcript: context, language: lang)
+                let recap = try await streamRecap(
+                    system: system,
+                    user: user,
+                    transcript: context,
+                    language: lang,
+                    meetingID: draftID
+                )
                 let text = recap.toMarkdown()
                 // Title is best-effort — failure here doesn't block
                 // persistence; Meeting.displayTitle falls back to a
@@ -486,10 +508,19 @@ final class MeetingSession: ObservableObject {
                 sessionKind: selectedKind,
                 replyContext: ReplyContext.current
             )
+
+            // Suggest reply streams its plain-text answer so the first words land
+            // in ~1s instead of after the whole completion. The other pills emit a
+            // structured JSON object that can't be rendered until it's complete.
+            if promptKind == .suggestReply {
+                await streamSuggestReply(system: system, user: user, requestedKind: requestedKind)
+                return
+            }
+
             do {
-                // Every pill's prompt emits a structured JSON object; decode the
-                // matching type and render it to markdown the card already knows
-                // how to show (`renderRecapMarkdown`).
+                // Every other pill's prompt emits a structured JSON object; decode
+                // the matching type and render it to markdown the card already
+                // knows how to show (`renderRecapMarkdown`).
                 let text: String = switch promptKind {
                 case .hero:
                     try await llm.completeJSON(system: system, user: user, as: CatchUp.self).toMarkdown()
@@ -500,7 +531,10 @@ final class MeetingSession: ObservableObject {
                 case .summary:
                     try await generateRecap(system: system, user: user, transcript: context, language: language.current).toMarkdown()
                 case .suggestReply:
-                    try await llm.completeJSON(system: system, user: user, as: SuggestedReply.self).toMarkdown()
+                    // Unreachable: the early return above routes suggestReply to
+                    // streamSuggestReply. Fail loudly if that guard is ever removed
+                    // rather than silently rendering a blank card.
+                    preconditionFailure("suggestReply must stream via streamSuggestReply, not the buffered switch")
                 }
                 if case let .generating(k) = response, k == requestedKind {
                     response = .ready(kind: requestedKind, text: text)
@@ -515,24 +549,141 @@ final class MeetingSession: ObservableObject {
         }
     }
 
+    private static let suggestReplyEmptyFallback = "Not enough context yet — keep talking and try again."
+
+    /// Streams the suggest-reply answer into `response`, updating `.streaming`
+    /// per delta and finalizing `.ready`. Late deltas are dropped once the user
+    /// dismisses the card or fires another pill (`isActiveRequest`). Any stream
+    /// failure — whether before the first token or mid-stream — retries once via
+    /// the one-shot path, which yields a guaranteed-complete answer: a truncated
+    /// half-sentence must never be presented as a finished line the user reads
+    /// aloud.
+    private func streamSuggestReply(system: String, user: String, requestedKind: GenerationKind) async {
+        var accumulated = ""
+        var lastPublish = Date.distantPast
+        do {
+            for try await delta in llm.streamComplete(system: system, user: user) {
+                guard isActiveRequest(requestedKind) else { return }
+                accumulated += delta
+                // Coalesce to ~20 updates/s. Publishing .streaming on every token
+                // republished @Published response (and the card's onChange) several
+                // times per frame — SwiftUI warns ("update multiple times per
+                // frame") and it needlessly churns the main thread. The trailing
+                // .ready below always carries the complete text, so throttling the
+                // intermediate frames never drops the final words.
+                let now = Date()
+                if now.timeIntervalSince(lastPublish) >= 0.05 {
+                    response = .streaming(kind: requestedKind, text: accumulated)
+                    lastPublish = now
+                }
+            }
+            guard isActiveRequest(requestedKind) else { return }
+            let final = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
+            response = .ready(kind: requestedKind, text: final.isEmpty ? Self.suggestReplyEmptyFallback : final)
+            Log.ui.info("suggest reply ready (streamed)")
+        } catch {
+            guard isActiveRequest(requestedKind) else { return }
+            Log.ui.error(
+                "suggest reply stream failed (\(accumulated.isEmpty ? "before first token" : "mid-stream after \(accumulated.count) chars")) — retrying one-shot: \(error.localizedDescription)"
+            )
+            await oneShotSuggestReply(system: system, user: user, requestedKind: requestedKind)
+        }
+    }
+
+    /// One-shot fallback for suggest reply (plain text, no JSON). Used whenever
+    /// the stream fails, to recover a complete answer in a single request.
+    private func oneShotSuggestReply(system: String, user: String, requestedKind: GenerationKind) async {
+        do {
+            let text = try await llm.complete(system: system, user: user).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard isActiveRequest(requestedKind) else { return }
+            response = .ready(kind: requestedKind, text: text.isEmpty ? Self.suggestReplyEmptyFallback : text)
+        } catch {
+            guard isActiveRequest(requestedKind) else { return }
+            response = .ready(kind: requestedKind, text: "⚠️ \(error.localizedDescription)")
+        }
+    }
+
+    /// Streams the end-of-meeting recap, publishing partial markdown to the
+    /// store section-by-section so MeetingDetailView fills it in live instead of
+    /// popping the whole recap in at the end. On a clean finish it parses the
+    /// full JSON and runs the same bounded retry as the one-shot path. Any
+    /// stream failure — or unparseable JSON — falls back to the buffered
+    /// `generateRecap`, which yields a guaranteed-complete recap (a half-streamed
+    /// recap must never be persisted as final).
+    private func streamRecap(
+        system: String,
+        user: String,
+        transcript: String,
+        language: AppLanguage,
+        meetingID: UUID
+    ) async throws -> MeetingRecap {
+        var accumulated = ""
+        var lastPublish = Date.distantPast
+        do {
+            for try await delta in llm.streamComplete(system: system, user: user, jsonMode: true) {
+                accumulated += delta
+                // Re-parse + publish at ~6 fps. Each pass renders whatever
+                // sections have fully closed so far; the trailing, still-
+                // streaming section is ignored until it closes.
+                let now = Date()
+                if now.timeIntervalSince(lastPublish) >= 0.15 {
+                    let sections = MeetingRecap.partialSections(fromStreamingJSON: accumulated)
+                    if !sections.isEmpty {
+                        meetingStore.updateStreamingSummary(id: meetingID, markdown: MeetingRecap.markdown(for: sections))
+                    }
+                    lastPublish = now
+                }
+            }
+        } catch {
+            Log.llm.error("recap stream failed after \(accumulated.count) chars — falling back to one-shot: \(error.localizedDescription)")
+            return try await generateRecap(system: system, user: user, transcript: transcript, language: language)
+        }
+
+        let cleaned = OpenRouterClient.extractJSON(accumulated)
+        guard let data = cleaned.data(using: .utf8),
+              let recap = try? JSONDecoder().decode(MeetingRecap.self, from: data)
+        else {
+            Log.llm.error("recap stream produced unparseable JSON — falling back to one-shot")
+            return try await generateRecap(system: system, user: user, transcript: transcript, language: language)
+        }
+        Log.llm.info("recap stream done — \(recap.sections.count) sections")
+        // Settle the live view on the finished recap before any retry runs.
+        meetingStore.updateStreamingSummary(id: meetingID, markdown: recap.toMarkdown())
+        return try await refineRecapIfNeeded(recap, system: system, user: user, transcript: transcript, language: language)
+    }
+
+    /// Buffered one-shot recap — used for the rare mid-call `.summary` path and
+    /// as `streamRecap`'s fallback. Shares the bounded retry below.
     private func generateRecap(system: String, user: String, transcript: String, language: AppLanguage) async throws -> MeetingRecap {
         let recap = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self)
+        return try await refineRecapIfNeeded(recap, system: system, user: user, transcript: transcript, language: language)
+    }
 
-        // One bounded retry that addresses whatever the first pass got wrong.
-        // Two independent failure modes share it: (1) the model used the
-        // "too short / unclear" fallback on a substantive transcript; (2) the
-        // model ignored the language directive and wrote the recap in the wrong
-        // language (Gemini in JSON mode has been seen emitting Chinese for a
-        // Russian-selected, Russian-spoken meeting). Both are deterministic to
-        // detect, so we don't rely on the prompt alone — we check the output.
+    /// One bounded retry that addresses whatever the first pass got wrong, shared
+    /// by the streamed and one-shot recap paths. Two deterministic failure modes
+    /// trigger it: (1) the model returned the "too short / unclear" fallback — or
+    /// nothing grounded at all — on a substantive transcript; (2) the model
+    /// ignored the language directive and wrote the recap in the wrong language
+    /// (Gemini in JSON mode has been seen emitting Chinese for a Russian-selected,
+    /// Russian-spoken meeting). Both are checked against the output, not trusted
+    /// to the prompt. Returns the original recap when nothing needs fixing.
+    private func refineRecapIfNeeded(
+        _ recap: MeetingRecap,
+        system: String,
+        user: String,
+        transcript: String,
+        language: AppLanguage
+    ) async throws -> MeetingRecap {
         var overrides: [String] = []
 
-        if recap.isPlaceholderFallback, transcriptHasSubstance(transcript) {
-            Log.llm.info("summary placeholder on substantive transcript — will retry")
+        if recap.isPlaceholderFallback || recap.isEmpty, transcriptHasSubstance(transcript) {
+            Log.llm.info("summary empty/placeholder on substantive transcript — will retry")
             overrides.append("""
-            RETRY OVERRIDE — FALLBACK:
-            Your previous response used the "Transcript too short or unclear" fallback, but this transcript has enough intelligible content to recap.
-            Do NOT use the fallback on this retry. Extract 2-4 grounded topics from the transcript, translating non-English content into the requested output language. Decisions/actions/open questions may still be empty.
+            RETRY OVERRIDE — EMPTY/FALLBACK:
+            Your previous response \(
+                recap.isEmpty ? "contained no grounded content" : "used the \"Transcript too short or unclear\" fallback"
+            ), but this transcript has enough intelligible content to recap.
+            Do NOT return an empty or fallback recap. Produce at least one section with 2-4 grounded bullets, translating non-English content into the requested output language.
             """)
         }
 
@@ -540,7 +691,7 @@ final class MeetingSession: ObservableObject {
             Log.llm.info("recap language mismatch got=\(got) expected=\(language.rawValue) — will retry")
             overrides.append("""
             RETRY OVERRIDE — LANGUAGE:
-            Your previous response was written in the WRONG language (it came out in \(got)). Write EVERY string value — topics, decisions, actions, open questions — in \(
+            Your previous response was written in the WRONG language (it came out in \(got)). Write EVERY string value — section titles and bullet text — in \(
                 language.promptName
             ), and nothing else. Leave verbatim `quote` values exactly as spoken; JSON keys stay in English.
             """)
@@ -551,17 +702,14 @@ final class MeetingSession: ObservableObject {
         return try await llm.completeJSON(system: retrySystem, user: user, as: MeetingRecap.self)
     }
 
-    /// Detects whether the recap's PROSE (not the verbatim `quote` values, which
-    /// stay in the spoken language) was written in a language other than the one
-    /// the user selected. Returns the offending language code, or nil when it
-    /// matches / is too short to call confidently. The quotes are excluded so a
-    /// recap correctly written in the target language isn't flagged just because
-    /// it embeds an original-language quote.
+    /// Detects whether the recap's PROSE (section titles + bullet text, NOT the
+    /// verbatim `quote` values, which stay in the spoken language) was written in
+    /// a language other than the one the user selected. Returns the offending
+    /// language code, or nil when it matches / is too short to call confidently.
     private static func recapLanguageMismatch(_ recap: MeetingRecap, expected: AppLanguage) -> String? {
-        var prose: [String] = recap.topics.map(\.text)
-        prose += recap.decisions.flatMap { [$0.text, $0.why].compactMap { $0 } }
-        prose += recap.actions.flatMap { [$0.owner, $0.task, $0.when].compactMap { $0 } }
-        prose += recap.openQuestions.map(\.text)
+        let prose = recap.sections.flatMap { section in
+            [section.title] + section.bullets.map(\.text)
+        }
         let joined = prose.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         guard joined.count >= 12, let detected = AppLanguage.detect(from: joined) else { return nil }
         if detected == expected { return nil }
