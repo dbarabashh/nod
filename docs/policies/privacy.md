@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-06-16_
+_Last updated: 2026-06-20_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -151,6 +151,26 @@ in the same `eu-west-1` region.
 - We do **not** read your calendar, email, or other Google services.
 - We do **not** collect your contacts or address book.
 - We do **not** sell your personal data to anyone, ever.
+
+### 3.8 Importing from other apps (Granola)
+
+If you previously used **Granola**, Nod can import your past meetings'
+**transcripts** from Granola's own offline cache file on your Mac
+(`~/Library/Application Support/Granola/cache-v3.json`). This runs **only**
+when you explicitly tap **Import from Granola** in Settings.
+
+- It reads a **local file only** — no Granola account, password, or API call
+  is involved, and Nod never sends anything **to** Granola. The import works
+  fully offline.
+- Only transcript text, the speaker side (`me` / `them`, derived from
+  Granola's microphone-vs-system channel), and per-line timestamps are
+  imported. Granola's AI notes and summaries are **not** imported.
+- Imported meetings are stored exactly like meetings you record yourself
+  (`meetings` / `meeting_transcripts`, same `eu-west-1` region, same per-user
+  Row-Level Security) and you can delete them the same way.
+
+Legal basis: Contract (Art. 6(1)(b)) — you asked us to bring your own data
+into Nod.
 
 ---
 

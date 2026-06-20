@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-06-16_
+_Last updated: 2026-06-20_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company. We've made the
@@ -82,6 +82,8 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
 
 - **Transcripts.** One row per finalised Whisper chunk in
   `meeting_transcripts`, with the speaker side (`me` / `them`) and timestamp.
+  This also covers any transcripts you choose to import from Granola (see
+  "Importing from other apps" below).
 - **Meeting summaries.** The AI-generated summary text in `meetings`, plus the
   session type (`kind`: meeting / voice note / media).
 - **Transcript embeddings.** To let you ask questions across your sessions, we
@@ -123,6 +125,17 @@ user's data.
 - You can request a full account deletion at **dbarabashdev@gmail.com**. We act on
   it within 30 days.
 - You can export all of your data on request (GDPR right to portability).
+
+### Importing from other apps
+
+If you previously used **Granola**, Nod can import your past meetings'
+transcripts from Granola's offline cache on your Mac
+(`~/Library/Application Support/Granola/cache-v3.json`), triggered manually
+from Settings. The import reads a **local file only** — no Granola account and
+no network call to Granola — and is fully offline. Only transcript text,
+speaker side, and timestamps are imported (not Granola's notes). Imported
+meetings land in the same `meetings` / `meeting_transcripts` tables, under the
+same per-user Row-Level Security, and are deletable like any other meeting.
 
 ### Participant consent
 
