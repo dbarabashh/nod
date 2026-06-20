@@ -7,9 +7,10 @@ _Last updated: 2026-06-20_
 > security and privacy decisions documented below to be defensible for a
 > production product — but we want you to know exactly where we stand.
 
-Nod records your meetings, transcribes them, and writes notes — locally on your
-Mac, with as little data leaving your machine as possible. This page documents
-exactly how that works.
+Nod records your meetings on your Mac and turns them into notes. Capture and
+voice detection run on-device; transcription and summarization run in the EU
+cloud under Zero Data Retention, with as little data leaving your machine as
+possible and no audio ever stored. This page documents exactly how that works.
 
 ---
 
@@ -43,8 +44,11 @@ record. While a meeting is running, Nod captures two audio streams locally:
 1. Your microphone (via macOS `AVAudioEngine`).
 2. The other side of the conversation, via system audio (`ScreenCaptureKit`).
 
-Both streams are chunked every ~5 seconds, transcribed by Whisper, and the
-audio bytes are discarded immediately after the transcript comes back. The
+An on-device voice-activity model (Silero VAD) decides where each utterance
+starts and ends, so the streams are cut into complete chunks on real pauses.
+Each chunk is sent to Whisper in the cloud — routed through our EU proxy under
+Zero Data Retention — and the audio bytes are discarded immediately after the
+transcript comes back. Transcription and summarization are not on-device. The
 transcript and the AI-generated summary are saved to your private Nod account.
 
 Nod doesn't join meetings as a bot. There is no calendar integration, no
