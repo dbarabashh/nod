@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-06-10_
+_Last updated: 2026-06-20_
 
 A subprocessor is a third party that processes personal data on our behalf
 when you use Nod. We use the minimum number of subprocessors required to
@@ -41,6 +41,9 @@ entirely by Paddle as Merchant of Record.
   ad-tech platforms.
 - **No meeting-platform bots.** We do not deploy a bot into Zoom, Meet, or
   Teams — Nod captures audio locally via macOS APIs only.
+- **Granola is not a subprocessor.** Nod's "Import from Granola" feature reads
+  Granola's local cache file on your Mac to bring your own transcripts in. No
+  data is sent **to** Granola, and Granola never processes data on our behalf.
 
 ---
 

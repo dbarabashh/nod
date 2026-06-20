@@ -30,6 +30,9 @@ struct AppServices {
     let panelSharing: PanelSharingPreference
     let updateGate: UpdateGate
     let hotkeys: HotkeyManager
+    /// Offline transcript import from Granola's local cache — a low-cost
+    /// migration path off a direct competitor.
+    let granolaImporter: GranolaImporter
 
     /// Construction ORDER is load-bearing — Supabase before the LLM client,
     /// auth before the stores that read it, callback wiring last.
@@ -76,6 +79,8 @@ struct AppServices {
             transcriptStore?.appendSystemBuffer(buffer)
         }
 
+        let meetingStore = MeetingStore(supabase: supabase)
+
         return AppServices(
             permissions: permissions,
             onboarding: onboarding,
@@ -86,7 +91,7 @@ struct AppServices {
             supabase: supabase,
             auth: auth,
             consent: consent,
-            meetingStore: MeetingStore(supabase: supabase),
+            meetingStore: meetingStore,
             meetingOutbox: MeetingOutbox(),
             profileStore: ProfileStore(supabase: supabase, auth: auth),
             chatStore: ChatStore(supabase: supabase, llm: llmClient),
@@ -97,7 +102,12 @@ struct AppServices {
             billing: BillingService(supabase: supabase),
             panelSharing: PanelSharingPreference(),
             updateGate: UpdateGate(supabase: supabase),
-            hotkeys: hotkeys
+            hotkeys: hotkeys,
+            granolaImporter: GranolaImporter(
+                meetingStore: meetingStore,
+                auth: auth,
+                language: languagePreference
+            )
         )
     }
 }

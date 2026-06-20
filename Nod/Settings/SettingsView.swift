@@ -12,6 +12,7 @@ struct SettingsView: View {
     private let panelSharing: PanelSharingPreference?
     private let billing: BillingService?
     private let entitlements: EntitlementService?
+    private let granolaImporter: GranolaImporter?
 
     init(
         hotkey: HotkeyManager,
@@ -19,6 +20,7 @@ struct SettingsView: View {
         panelSharing: PanelSharingPreference? = nil,
         billing: BillingService? = nil,
         entitlements: EntitlementService? = nil,
+        granolaImporter: GranolaImporter? = nil,
         focusSubscription: Bool = false
     ) {
         _hotkey = ObservedObject(wrappedValue: hotkey)
@@ -26,6 +28,7 @@ struct SettingsView: View {
         self.panelSharing = panelSharing
         self.billing = billing
         self.entitlements = entitlements
+        self.granolaImporter = granolaImporter
         _tab = State(initialValue: focusSubscription ? .subscription : .profile)
     }
 
@@ -210,6 +213,10 @@ struct SettingsView: View {
             if let panelSharing {
                 ScreenShareSettingsSection(pref: panelSharing)
             }
+
+            if let granolaImporter, granolaImporter.isGranolaInstalled {
+                GranolaImportSection(importer: granolaImporter)
+            }
         }
     }
 
@@ -272,6 +279,51 @@ struct SettingsView: View {
             ) {
                 HotkeyRecorderView(hotkey: hotkey, action: .togglePanel)
             }
+        }
+    }
+}
+
+/// One-tap migration off Granola — imports past meetings' transcripts from
+/// Granola's offline cache. Only mounted when the cache exists on disk.
+private struct GranolaImportSection: View {
+    @ObservedObject var importer: GranolaImporter
+
+    var body: some View {
+        SettingsCard {
+            SettingsRow(
+                icon: "square.and.arrow.down",
+                title: "Import from Granola",
+                subtitle: subtitle
+            ) {
+                Button(action: { Task { await importer.importFromCache() } }) {
+                    Text(isImporting ? "Importing…" : "Import")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 7)
+                        .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                        .opacity(isImporting ? 0.7 : 1)
+                }
+                .buttonStyle(.plain)
+                .disabled(isImporting)
+            }
+        }
+    }
+
+    private var isImporting: Bool {
+        importer.state == .importing
+    }
+
+    private var subtitle: String {
+        switch importer.state {
+        case .idle, .importing:
+            "Bring your past Granola meetings' transcripts into Nod. Reads Granola's local cache only — no Granola account or internet needed."
+        case let .done(imported):
+            imported == 0
+                ? "No meetings found in Granola's cache."
+                : "Imported \(imported) meeting\(imported == 1 ? "" : "s") from Granola."
+        case let .failed(message):
+            message
         }
     }
 }

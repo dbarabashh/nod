@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Editable view of a single meeting — title + summary (autosaved on a
 /// 1-second debounce) plus a read-only Transcript tab that lazy-loads
@@ -18,6 +19,8 @@ struct MeetingDetailView: View {
     /// Drives the Share button: idle → sharing → copied (transient) or failed
     /// (transient). Mirrors `SaveState`; a share is summary-only and revocable.
     @State private var shareState: ShareState = .idle
+    /// Drives the Export button: idle → exporting → saved / failed (transient).
+    @State private var exportState: ExportState = .idle
     /// True while there are pending edits the user has typed but the
     /// debounce hasn't fired yet (or a save is in flight). Used by
     /// `.onDisappear` so a close-mid-typing still flushes the latest
@@ -55,6 +58,13 @@ struct MeetingDetailView: View {
         case idle
         case sharing
         case copied
+        case failed
+    }
+
+    private enum ExportState: Equatable {
+        case idle
+        case exporting
+        case saved
         case failed
     }
 
@@ -410,7 +420,7 @@ struct MeetingDetailView: View {
                 .opacity(isFinalizing ? 0.4 : 1)
                 .linkCursor()
                 subToolbarDivider
-                copyButton("Copy summary", isActive: !isGenerating, action: copyAll)
+                copyButton("Copy", isActive: !isGenerating, action: copyAll)
                 subToolbarDivider
                 Button(action: shareLink) {
                     subToolbarLabel(
@@ -422,6 +432,8 @@ struct MeetingDetailView: View {
                 .disabled(isFinalizing || shareState == .sharing)
                 .opacity(isFinalizing ? 0.4 : 1)
                 .linkCursor()
+                subToolbarDivider
+                exportButton
                 Spacer(minLength: 0)
                 if !isFinalizing {
                     saveIndicator
@@ -432,9 +444,38 @@ struct MeetingDetailView: View {
             HStack(spacing: 12) {
                 subToolbarItem(systemImage: "character", label: meeting.language.uppercased())
                 subToolbarDivider
-                copyButton("Copy transcript", isActive: transcriptIsCopyable, action: copyTranscript)
+                copyButton("Copy", isActive: transcriptIsCopyable, action: copyTranscript)
+                subToolbarDivider
+                exportButton
                 Spacer(minLength: 0)
             }
+        }
+    }
+
+    private var exportButton: some View {
+        Button(action: exportMarkdown) {
+            subToolbarLabel(systemImage: exportIcon, text: exportLabel)
+        }
+        .buttonStyle(.plain)
+        .disabled(isFinalizing || isGenerating || exportState == .exporting)
+        .opacity(isFinalizing || isGenerating ? 0.4 : 1)
+        .linkCursor()
+    }
+
+    private var exportIcon: String {
+        switch exportState {
+        case .idle, .exporting: "square.and.arrow.down"
+        case .saved: "checkmark"
+        case .failed: "exclamationmark.triangle"
+        }
+    }
+
+    private var exportLabel: String {
+        switch exportState {
+        case .idle: "Export"
+        case .exporting: "Exporting…"
+        case .saved: "Saved"
+        case .failed: "Try again"
         }
     }
 
@@ -462,7 +503,9 @@ struct MeetingDetailView: View {
             Text(label)
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(Theme.Palette.ink.opacity(0.92))
+                .lineLimit(1)
         }
+        .fixedSize()
     }
 
     private func subToolbarLabel(systemImage: String, text: String) -> some View {
@@ -471,8 +514,10 @@ struct MeetingDetailView: View {
                 .font(.system(size: 11, weight: .regular))
             Text(text)
                 .font(.system(size: 12, weight: .regular))
+                .lineLimit(1)
         }
         .foregroundStyle(Theme.Palette.ink.opacity(0.92))
+        .fixedSize()
     }
 
     /// Shared copy button for the summary and transcript sub-toolbars. Both
@@ -865,9 +910,9 @@ struct MeetingDetailView: View {
 
     private var shareLabel: String {
         switch shareState {
-        case .idle: "Share link"
+        case .idle: "Share"
         case .sharing: "Creating…"
-        case .copied: "Link copied"
+        case .copied: "Copied"
         case .failed: "Try again"
         }
     }
@@ -889,6 +934,54 @@ struct MeetingDetailView: View {
             } catch {
                 Log.ui.error("share link failed: \(error.localizedDescription)")
                 await flashConfirmation(set: { shareState = .failed }, reset: { shareState = .idle }, for: 2.5)
+            }
+        }
+    }
+
+    /// Exports the meeting to a local Obsidian-friendly `.md` file (YAML
+    /// frontmatter + summary + transcript). Reuses the already-loaded
+    /// transcript when present, otherwise fetches it. A data-ownership feature:
+    /// the user picks where the file lands via the standard save panel.
+    private func exportMarkdown() {
+        guard !isFinalizing, !isGenerating, exportState != .exporting else { return }
+        exportState = .exporting
+        Task {
+            let trimmedTitle = editableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            let exportMeeting = current.updating(
+                title: trimmedTitle.isEmpty ? nil : trimmedTitle,
+                summary: editableSummary
+            )
+
+            let records: [TranscriptRecord] = if case let .loaded(loaded) = transcriptLoad {
+                loaded
+            } else {
+                await (try? meetingStore.fetchTranscript(meetingID: meeting.id)) ?? []
+            }
+
+            let tags = labelStore.labels(for: meeting.id).map(\.name)
+            let markdown = MeetingMarkdownExport.render(
+                meeting: exportMeeting,
+                transcript: records,
+                tags: tags
+            )
+
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = MeetingMarkdownExport.fileName(for: exportMeeting)
+            panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
+            panel.canCreateDirectories = true
+            panel.title = "Export meeting"
+
+            guard panel.runModal() == .OK, let url = panel.url else {
+                exportState = .idle
+                return
+            }
+
+            do {
+                try markdown.write(to: url, atomically: true, encoding: .utf8)
+                await flashConfirmation(set: { exportState = .saved }, reset: { exportState = .idle }, for: 1.8)
+            } catch {
+                Log.ui.error("markdown export failed: \(error.localizedDescription)")
+                await flashConfirmation(set: { exportState = .failed }, reset: { exportState = .idle }, for: 2.5)
             }
         }
     }
