@@ -309,11 +309,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
 });
 
 async function forwardChat(payload: unknown, userId: string): Promise<Response> {
+    const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";
+
+    // Streaming path (used by "Suggest reply"): pass the upstream SSE through
+    // verbatim so the client renders tokens as they arrive. Usage is captured
+    // off a teed copy of the stream — see forwardChatStream.
+    if (isObject(payload) && payload.stream === true) {
+        return forwardChatStream(payload, userId, model);
+    }
+
     // Inject `usage: { include: true }` so OpenRouter returns `usage.cost`
     // (USD) on every response. The Swift client decodes only `choices`, so
     // adding this field is transparent client-side.
     const enriched = isObject(payload) ? { ...payload, usage: { include: true } } : payload;
-    const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";
 
     const { status, text } = await callOpenRouter(OPENROUTER_CHAT_URL, enriched, CHAT_TIMEOUT_MS, userId, "chat");
 
@@ -339,6 +347,148 @@ async function forwardChat(payload: unknown, userId: string): Promise<Response> 
         status,
         headers: { "Content-Type": "application/json" },
     });
+}
+
+// Streaming chat: forward OpenRouter's SSE body straight to the client while
+// teeing a copy to capture usage from the terminal chunk. `stream_options.
+// include_usage` (OpenAI-compat) makes OpenRouter append a final `usage` chunk
+// before `[DONE]`; we parse it off the teed branch so accounting survives the
+// stream without buffering the bytes the user is waiting on.
+async function forwardChatStream(payload: Record<string, unknown>, userId: string, model: string): Promise<Response> {
+    const enriched = {
+        ...payload,
+        stream: true,
+        stream_options: { include_usage: true },
+        usage: { include: true },
+    };
+
+    const started = Date.now();
+    const controller = new AbortController();
+    // Idle watchdog, NOT a total-duration cap. A healthy stream can legitimately
+    // run longer than CHAT_TIMEOUT_MS while delivering tokens — a fixed total
+    // timer would abort mid-answer and truncate a long suggest-reply. Instead we
+    // abort only when the upstream goes quiet for CHAT_TIMEOUT_MS, which covers
+    // both a provider that hangs before the first byte and one that stalls
+    // mid-stream. `lastActivity` is bumped per chunk from the meter callback.
+    let lastActivity = Date.now();
+    const watchdog = setInterval(() => {
+        if (Date.now() - lastActivity > CHAT_TIMEOUT_MS) {
+            console.warn(`chat-stream user=${userId} idle >${CHAT_TIMEOUT_MS}ms — aborting`);
+            controller.abort();
+        }
+    }, 5_000);
+
+    let upstream: Response;
+    try {
+        upstream = await fetch(OPENROUTER_CHAT_URL, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/dbarabashh/Nod",
+                "X-Title": "Nod",
+            },
+            body: JSON.stringify(enriched),
+            signal: controller.signal,
+        });
+    } catch (error) {
+        clearInterval(watchdog);
+        const aborted = error instanceof DOMException && error.name === "AbortError";
+        console.error(`chat-stream user=${userId} upstream ${aborted ? "timeout" : "error"}: ${error}`);
+        return json({ error: "Upstream request failed" }, aborted ? 504 : 502);
+    }
+
+    if (!upstream.ok || !upstream.body) {
+        clearInterval(watchdog);
+        const text = await upstream.text().catch(() => "");
+        console.error(`chat-stream user=${userId} status=${upstream.status} (no stream body)`);
+        return new Response(text || JSON.stringify({ error: "upstream error" }), {
+            status: upstream.status || 502,
+            headers: { "Content-Type": "application/json" },
+        });
+    }
+
+    // One branch to the client, one to the usage meter. The meter runs in the
+    // background; a logging failure must never disturb the streamed bytes.
+    const [toClient, toMeter] = upstream.body.tee();
+    const meter = (async () => {
+        try {
+            const usage = await readStreamUsage(toMeter, () => { lastActivity = Date.now(); });
+            const dt = Date.now() - started;
+            console.log(`chat-stream user=${userId} model=${model} status=${upstream.status} dt=${dt}ms tokens=${usage?.completion_tokens ?? "?"}`);
+            await recordUsage({
+                user_id: userId,
+                kind: "chat",
+                model,
+                status: upstream.status,
+                prompt_tokens:     usage?.prompt_tokens     ?? null,
+                completion_tokens: usage?.completion_tokens ?? null,
+                generation_id:     usage?.id                ?? null,
+                cost_usd:          usage?.cost              ?? null,
+            });
+        } catch (err) {
+            console.warn(`chat-stream usage record skipped: ${err}`);
+        } finally {
+            clearInterval(watchdog);
+        }
+    })();
+    const runtime = (globalThis as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+    if (runtime?.waitUntil) runtime.waitUntil(meter);
+
+    return new Response(toClient, {
+        status: upstream.status,
+        headers: {
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    });
+}
+
+interface StreamUsage {
+    prompt_tokens?: number | null;
+    completion_tokens?: number | null;
+    cost?: number | null;
+    id?: string | null;
+}
+
+// Drain a teed SSE stream and pull out the generation id + final usage chunk.
+// Tolerant of partial lines across reads, keepalive comments, and malformed
+// JSON — anything it can't parse is skipped rather than thrown.
+async function readStreamUsage(
+    stream: ReadableStream<Uint8Array>,
+    onActivity?: () => void,
+): Promise<StreamUsage | null> {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let usage: StreamUsage | null = null;
+    let id: string | null = null;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            onActivity?.();
+            buf += decoder.decode(value, { stream: true });
+            let nl: number;
+            while ((nl = buf.indexOf("\n")) >= 0) {
+                const line = buf.slice(0, nl).trim();
+                buf = buf.slice(nl + 1);
+                if (!line.startsWith("data:")) continue;
+                const data = line.slice(5).trim();
+                if (data === "[DONE]") continue;
+                try {
+                    const obj = JSON.parse(data);
+                    if (typeof obj?.id === "string") id = obj.id;
+                    if (obj?.usage) usage = obj.usage as StreamUsage;
+                } catch { /* keepalive / split chunk — ignore */ }
+            }
+        }
+    } finally {
+        reader.releaseLock();
+    }
+    if (usage) return { ...usage, id };
+    return id ? { id } : null;
 }
 
 async function forwardTranscribe(payload: unknown, userId: string, entitlement: Entitlement | null): Promise<Response> {

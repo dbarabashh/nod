@@ -206,24 +206,3 @@ struct FollowUpQuestions: Codable {
         return qs.map { "- \($0)" }.joined(separator: "\n")
     }
 }
-
-/// "Suggest reply" (`.suggestReply`) structured output — a single spoken line.
-/// JSON-wrapping makes the preamble leakage ("You could say:") the plain-text
-/// prompt fought with a long FORBIDDEN list structurally impossible.
-struct SuggestedReply: Codable {
-    let reply: String
-
-    enum CodingKeys: String, CodingKey { case reply }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        reply = (try? c.decode(String.self, forKey: .reply)) ?? ""
-    }
-
-    func toMarkdown() -> String {
-        let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty
-            ? "Not enough context yet — keep talking and try again."
-            : trimmed
-    }
-}

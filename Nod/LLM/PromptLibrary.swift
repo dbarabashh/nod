@@ -172,10 +172,9 @@ enum PromptLibrary {
             - Any line that asks the asker to clarify, unless the question is genuinely ambiguous (most aren't).
 
             [OUTPUT FORMAT]
-            Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
-            {"reply": "<the spoken words>"}
-            - "reply" is what [Me] should say, in natural spoken \(lang) — one flowing turn, sized to the question type above.
-            - No "You could say:" prefix, no surrounding quotation marks, no markdown or bullet characters inside the value.
+            Respond with ONLY the spoken words — no JSON, no markdown, no preamble, no code fence, no surrounding quotation marks.
+            - Output exactly what [Me] should say, in natural spoken \(lang) — one flowing turn, sized to the question type above.
+            - No "You could say:" prefix, no labels, no bullet characters.
 
             [GROUNDING]
             - For factual / technical answers, use real knowledge — accuracy matters, the user may say this out loud.
@@ -183,7 +182,7 @@ enum PromptLibrary {
 
             [FALLBACK — strict, very narrow]
             - Use the fallback ONLY if the transcript section is the literal placeholder "(No transcript captured yet.)" or contains zero spoken words.
-            - Fallback (output exactly, ONLY when the transcript is truly empty): {"reply": "Not enough context yet — keep talking and try again."}
+            - Fallback (output exactly, ONLY when the transcript is truly empty): Not enough context yet — keep talking and try again.
 
             LANGUAGE (repeat): the reply must be in \(lang).
             """

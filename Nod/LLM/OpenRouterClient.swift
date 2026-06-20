@@ -148,7 +148,8 @@ final class OpenRouterClient: ObservableObject {
                 allow_fallbacks: true
             ),
             response_format: jsonMode ? ResponseFormat(type: "json_object") : nil,
-            temperature: temperature
+            temperature: temperature,
+            stream: nil
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
 
@@ -188,6 +189,78 @@ final class OpenRouterClient: ObservableObject {
         } catch {
             Log.llm.error("JSON decode failed: \(error.localizedDescription) — body[0..200]=\(String(cleaned.prefix(200)))")
             throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+
+    /// Streaming chat completion. Yields plain-text deltas as the model produces
+    /// them so the UI can render a live answer instead of waiting for the whole
+    /// completion (the "Suggest reply" latency win). The proxy streams the
+    /// upstream SSE through verbatim; we parse OpenRouter's
+    /// `{choices:[{delta:{content}}]}` chunks and yield `content`.
+    ///
+    /// No client-side retry: streamed bytes can't be replayed mid-flight, so the
+    /// resilience here is the server-side `models = [primary, fallback]` chain.
+    /// The caller falls back to the one-shot `complete()` path if the stream
+    /// fails before producing any token.
+    func streamComplete(system: String, user: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let payload = ChatRequest(
+                        model: model,
+                        models: [model, fallbackModel],
+                        messages: [
+                            .init(role: "system", content: system),
+                            .init(role: "user", content: user)
+                        ],
+                        provider: ProviderPreference(
+                            order: ["google-vertex"],
+                            ignore: ["google-ai-studio"],
+                            allow_fallbacks: true
+                        ),
+                        response_format: nil,
+                        temperature: nil,
+                        stream: true
+                    )
+                    let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
+                    let request = try await makeProxyRequest(body: body)
+
+                    let (bytes, response) = try await session.bytes(for: request)
+                    guard let http = response as? HTTPURLResponse else {
+                        throw ClientError.decodingFailed("Non-HTTP response")
+                    }
+                    try throwIfGatedStatus(http)
+                    if http.statusCode >= 400 {
+                        // Error responses aren't SSE — reassemble the body,
+                        // preserving newlines so a multi-line JSON / HTML error
+                        // isn't mangled before `sanitizeErrorBody` parses it.
+                        var lines: [String] = []
+                        for try await line in bytes.lines { lines.append(line) }
+                        throw ClientError.requestFailed(status: http.statusCode, body: Self.sanitizeErrorBody(lines.joined(separator: "\n")))
+                    }
+
+                    var produced = 0
+                    for try await line in bytes.lines {
+                        try Task.checkCancellation()
+                        let trimmed = line.trimmingCharacters(in: .whitespaces)
+                        // Skip SSE comments (": OPENROUTER PROCESSING" keepalives) and blanks.
+                        guard trimmed.hasPrefix("data:") else { continue }
+                        let data = trimmed.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
+                        if data == "[DONE]" { break }
+                        guard let chunkData = data.data(using: .utf8),
+                              let chunk = try? JSONDecoder().decode(StreamChunk.self, from: chunkData),
+                              let delta = chunk.choices.first?.delta.content,
+                              !delta.isEmpty else { continue }
+                        produced += delta.count
+                        continuation.yield(delta)
+                    }
+                    Log.llm.info("← stream done chars=\(produced)")
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -462,20 +535,22 @@ final class OpenRouterClient: ObservableObject {
         throw lastError
     }
 
-    private func postToProxy(body: Data) async throws -> Data {
+    /// Builds an authenticated proxy `URLRequest`, transparently refreshing the
+    /// JWT when the cached token is expired. Shared by the buffered
+    /// (`postToProxy`) and streaming (`streamComplete`) transports.
+    ///
+    /// The async session accessor matters: the previous sync read of
+    /// `currentSession?.accessToken` would happily send a stale token while the
+    /// SDK's background refresh was in flight → proxy 401 → user sees "Session
+    /// expired" mid-meeting even though a valid refreshed token landed
+    /// milliseconds later. A long recording crossing the 1h JWT TTL would make
+    /// the summary or a chunk transcription fall off a cliff.
+    private func makeProxyRequest(body: Data) async throws -> URLRequest {
         guard let supabase else {
             Log.llm.error("no Supabase client — request blocked")
             throw ClientError.unauthenticated
         }
 
-        // Use the async session accessor — it transparently refreshes the
-        // JWT when the cached token is expired. The previous sync read of
-        // `currentSession?.accessToken` would happily send a stale token
-        // while the SDK's background refresh was in flight → proxy 401 →
-        // user sees "Session expired" mid-meeting even though a valid
-        // refreshed token landed milliseconds later. Real-world impact:
-        // a long recording crosses the 1h JWT TTL and the summary or a
-        // chunk transcription falls off a cliff.
         let jwt: String
         do {
             jwt = try await supabase.auth.session.accessToken
@@ -510,6 +585,38 @@ final class OpenRouterClient: ObservableObject {
             request.setValue(encodedName, forHTTPHeaderField: "x-device-name")
         }
         request.httpBody = body
+        return request
+    }
+
+    /// Maps the proxy's gated HTTP statuses (auth / update-required /
+    /// device-conflict) to the matching `ClientError`, broadcasting the
+    /// side-effect notifications the app observes. Shared by the buffered
+    /// (`postToProxy`) and streaming (`streamComplete`) transports so a new
+    /// gated status is added in one place. Does NOT handle the generic
+    /// `>= 400` body — callers surface that from their own (buffered `Data`
+    /// vs reassembled SSE) body source.
+    private func throwIfGatedStatus(_ http: HTTPURLResponse) throws {
+        switch http.statusCode {
+        case 401:
+            throw ClientError.unauthenticated
+        case 426:
+            // Proxy rejected a build below `minimum_build`. Flip the gate so the
+            // update screen shows even if the launch check was skipped.
+            NotificationCenter.default.post(name: .nodUpdateRequired, object: nil)
+            throw ClientError.updateRequired
+        case 409:
+            // Single-device lock: the account is bound to another device.
+            // Broadcast so the app signs out and explains why instead of
+            // surfacing a raw HTTP error.
+            NotificationCenter.default.post(name: .nodDeviceConflict, object: nil)
+            throw ClientError.deviceConflict
+        default:
+            break
+        }
+    }
+
+    private func postToProxy(body: Data) async throws -> Data {
+        let request = try await makeProxyRequest(body: body)
 
         let data: Data
         let response: URLResponse
@@ -533,24 +640,7 @@ final class OpenRouterClient: ObservableObject {
         if let sttProvider = http.value(forHTTPHeaderField: "x-nod-stt-provider") {
             Log.llm.info("STT served by provider=\(sttProvider) status=\(http.statusCode)")
         }
-        if http.statusCode == 401 {
-            throw ClientError.unauthenticated
-        }
-        if http.statusCode == 426 {
-            // Proxy rejected a build below `minimum_build`. Flip the gate so
-            // the update screen shows even if the launch check was skipped.
-            NotificationCenter.default.post(name: .nodUpdateRequired, object: nil)
-            throw ClientError.updateRequired
-        }
-        if http.statusCode == 409 {
-            // Single-device lock: the account is bound to another device.
-            // Detected by status (like the 426 update gate) so the client
-            // contract doesn't depend on the error body's exact shape.
-            // Broadcast so the app signs out and explains why, instead of
-            // surfacing a raw HTTP error.
-            NotificationCenter.default.post(name: .nodDeviceConflict, object: nil)
-            throw ClientError.deviceConflict
-        }
+        try throwIfGatedStatus(http)
         if http.statusCode >= 400 {
             let raw = String(data: data, encoding: .utf8) ?? "<binary>"
             let sanitized = Self.sanitizeErrorBody(raw)
@@ -717,6 +807,7 @@ private struct ChatRequest: Encodable {
     let provider: ProviderPreference?
     let response_format: ResponseFormat?
     let temperature: Double?
+    let stream: Bool?
 }
 
 private struct ResponseFormat: Encodable {
@@ -733,6 +824,18 @@ private struct ChatResponse: Decodable {
     struct Choice: Decodable {
         struct Message: Decodable { let content: String }
         let message: Message
+    }
+
+    let choices: [Choice]
+}
+
+/// One SSE chunk of a streamed chat completion. `choices` is empty on the
+/// terminal usage-only chunk and `delta.content` is nil on the role-priming
+/// first chunk — both decode cleanly and yield nothing.
+private struct StreamChunk: Decodable {
+    struct Choice: Decodable {
+        struct Delta: Decodable { let content: String? }
+        let delta: Delta
     }
 
     let choices: [Choice]

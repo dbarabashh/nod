@@ -44,6 +44,10 @@ enum GenerationKind: String {
 enum AIResponse: Equatable {
     case none
     case generating(kind: GenerationKind)
+    /// A streamed answer still in flight — `text` grows as deltas arrive. Only
+    /// `.suggestReply` uses this; the other pills decode a JSON object in one
+    /// shot and jump straight to `.ready`.
+    case streaming(kind: GenerationKind, text: String)
     case ready(kind: GenerationKind, text: String)
 }
 
@@ -150,8 +154,18 @@ final class MeetingSession: ObservableObject {
     }
 
     func isGenerating(for kind: GenerationKind) -> Bool {
-        if case let .generating(k) = response, k == kind { return true }
-        return false
+        switch response {
+        case let .generating(k), let .streaming(k, _): return k == kind
+        default: return false
+        }
+    }
+
+    /// Whether `response` is still the in-flight request for `kind` (generating
+    /// or mid-stream). Used to drop late stream deltas after the user dismissed
+    /// the card or fired a different pill. Same predicate as `isGenerating`; the
+    /// name documents intent at the stream call sites.
+    private func isActiveRequest(_ kind: GenerationKind) -> Bool {
+        isGenerating(for: kind)
     }
 
     func dismissResponse() {
@@ -486,10 +500,19 @@ final class MeetingSession: ObservableObject {
                 sessionKind: selectedKind,
                 replyContext: ReplyContext.current
             )
+
+            // Suggest reply streams its plain-text answer so the first words land
+            // in ~1s instead of after the whole completion. The other pills emit a
+            // structured JSON object that can't be rendered until it's complete.
+            if promptKind == .suggestReply {
+                await streamSuggestReply(system: system, user: user, requestedKind: requestedKind)
+                return
+            }
+
             do {
-                // Every pill's prompt emits a structured JSON object; decode the
-                // matching type and render it to markdown the card already knows
-                // how to show (`renderRecapMarkdown`).
+                // Every other pill's prompt emits a structured JSON object; decode
+                // the matching type and render it to markdown the card already
+                // knows how to show (`renderRecapMarkdown`).
                 let text: String = switch promptKind {
                 case .hero:
                     try await llm.completeJSON(system: system, user: user, as: CatchUp.self).toMarkdown()
@@ -500,7 +523,10 @@ final class MeetingSession: ObservableObject {
                 case .summary:
                     try await generateRecap(system: system, user: user, transcript: context, language: language.current).toMarkdown()
                 case .suggestReply:
-                    try await llm.completeJSON(system: system, user: user, as: SuggestedReply.self).toMarkdown()
+                    // Unreachable: the early return above routes suggestReply to
+                    // streamSuggestReply. Fail loudly if that guard is ever removed
+                    // rather than silently rendering a blank card.
+                    preconditionFailure("suggestReply must stream via streamSuggestReply, not the buffered switch")
                 }
                 if case let .generating(k) = response, k == requestedKind {
                     response = .ready(kind: requestedKind, text: text)
@@ -512,6 +538,58 @@ final class MeetingSession: ObservableObject {
                     print("→ \(requestedKind.rawValue) — failed: \(error.localizedDescription)")
                 }
             }
+        }
+    }
+
+    private static let suggestReplyEmptyFallback = "Not enough context yet — keep talking and try again."
+
+    /// Streams the suggest-reply answer into `response`, updating `.streaming`
+    /// per delta and finalizing `.ready`. Late deltas are dropped once the user
+    /// dismisses the card or fires another pill (`isActiveRequest`). Any stream
+    /// failure — whether before the first token or mid-stream — retries once via
+    /// the one-shot path, which yields a guaranteed-complete answer: a truncated
+    /// half-sentence must never be presented as a finished line the user reads
+    /// aloud.
+    private func streamSuggestReply(system: String, user: String, requestedKind: GenerationKind) async {
+        var accumulated = ""
+        var lastPublish = Date.distantPast
+        do {
+            for try await delta in llm.streamComplete(system: system, user: user) {
+                guard isActiveRequest(requestedKind) else { return }
+                accumulated += delta
+                // Coalesce to ~20 updates/s. Publishing .streaming on every token
+                // republished @Published response (and the card's onChange) several
+                // times per frame — SwiftUI warns ("update multiple times per
+                // frame") and it needlessly churns the main thread. The trailing
+                // .ready below always carries the complete text, so throttling the
+                // intermediate frames never drops the final words.
+                let now = Date()
+                if now.timeIntervalSince(lastPublish) >= 0.05 {
+                    response = .streaming(kind: requestedKind, text: accumulated)
+                    lastPublish = now
+                }
+            }
+            guard isActiveRequest(requestedKind) else { return }
+            let final = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
+            response = .ready(kind: requestedKind, text: final.isEmpty ? Self.suggestReplyEmptyFallback : final)
+            Log.ui.info("suggest reply ready (streamed)")
+        } catch {
+            guard isActiveRequest(requestedKind) else { return }
+            Log.ui.error("suggest reply stream failed (\(accumulated.isEmpty ? "before first token" : "mid-stream after \(accumulated.count) chars")) — retrying one-shot: \(error.localizedDescription)")
+            await oneShotSuggestReply(system: system, user: user, requestedKind: requestedKind)
+        }
+    }
+
+    /// One-shot fallback for suggest reply (plain text, no JSON). Used whenever
+    /// the stream fails, to recover a complete answer in a single request.
+    private func oneShotSuggestReply(system: String, user: String, requestedKind: GenerationKind) async {
+        do {
+            let text = try await llm.complete(system: system, user: user).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard isActiveRequest(requestedKind) else { return }
+            response = .ready(kind: requestedKind, text: text.isEmpty ? Self.suggestReplyEmptyFallback : text)
+        } catch {
+            guard isActiveRequest(requestedKind) else { return }
+            response = .ready(kind: requestedKind, text: "⚠️ \(error.localizedDescription)")
         }
     }
 

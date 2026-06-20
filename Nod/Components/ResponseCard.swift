@@ -3,6 +3,9 @@ import SwiftUI
 struct ResponseCard: View {
     let kind: String
     let text: String
+    /// True while the answer is still streaming in. Shows a live indicator and
+    /// suppresses the "empty" look before the first token lands.
+    var streaming: Bool = false
     let onCopy: (String) -> Void
     let onDismiss: () -> Void
     /// (currentText, instruction) → updated text. Wired in ContentView via
@@ -41,6 +44,13 @@ struct ResponseCard: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(.white.opacity(0.85))
                     .textCase(.uppercase)
+                if streaming {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .progressViewStyle(.circular)
+                        .tint(.white.opacity(0.6))
+                        .frame(width: 12, height: 12)
+                }
                 Spacer(minLength: 0)
                 if isEditable {
                     Button(action: { isPreviewingRecap.toggle() }) {
