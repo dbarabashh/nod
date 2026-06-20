@@ -39,9 +39,18 @@ final class WhisperTranscriber: @unchecked Sendable {
 
     /// Rolling tail of this source's recently confirmed text, fed to Whisper as
     /// the decode prompt so each isolated chunk regains context (proper nouns,
-    /// spelling, language bias). Touched only on `queue`. Capped well under
-    /// Whisper's ~224-token prompt window so it can't crowd out the audio.
+    /// spelling). Touched only on `queue`. Capped well under Whisper's ~224-token
+    /// prompt window so it can't crowd out the audio.
+    ///
+    /// The prompt also biases the *output language* — an English tail makes
+    /// Whisper keep emitting English even when the speaker switches to another
+    /// language (it effectively translates). That breaks the multilingual /
+    /// code-switching property we rely on, so the tail is language-scoped: it
+    /// carries `promptLanguage`, resets on a detected language switch, and a
+    /// chunk whose detected language differs from the tail is re-transcribed
+    /// with no prompt (see `transcribeChunk`).
     private var promptTail: String = ""
+    private var promptLanguage: String?
     private static let maxPromptTailChars = 200
 
     // In-flight transcription Tasks; flushPending awaits these so a Suggest-reply
@@ -124,6 +133,7 @@ final class WhisperTranscriber: @unchecked Sendable {
             self.acceptedSampleCount = 0
             self.audioClockSpans.removeAll(keepingCapacity: false)
             self.promptTail = ""
+            self.promptLanguage = nil
         }
     }
 
@@ -272,15 +282,32 @@ final class WhisperTranscriber: @unchecked Sendable {
 
         let src = source
         let taskID = UUID()
-        // Snapshot the rolling prompt on `queue` so the async task sees a stable
-        // value (the tail keeps mutating as later chunks confirm).
+        // Snapshot the rolling prompt + its language on `queue` so the async task
+        // sees stable values (the tail keeps mutating as later chunks confirm).
         let prompt = promptTail
+        let promptLang = promptLanguage
         let task = Task<Void, Never> {
             defer {
                 self.queue.async { self.inFlightFlushes.removeValue(forKey: taskID) }
             }
             do {
-                let result = try await self.client.transcribe(audio: wav, prompt: prompt)
+                var result = try await self.client.transcribe(audio: wav, prompt: prompt)
+                // If the speaker switched language, the (prior-language) prompt
+                // biases the output back toward it — Whisper detects the new
+                // language but emits the old one (translating). Re-transcribe the
+                // same audio with no prompt so the text comes back in the language
+                // actually spoken. One extra call, only at a language boundary.
+                if !prompt.isEmpty,
+                   let detected = result.language,
+                   let promptLang,
+                   detected.caseInsensitiveCompare(promptLang) != .orderedSame {
+                    Log.stt.info(
+                        "[\(src.label)] chunk #\(chunkID) language switch (tail=\(promptLang) chunk=\(detected)) — re-transcribing without prompt"
+                    )
+                    if let reprompted = try? await self.client.transcribe(audio: wav) {
+                        result = reprompted
+                    }
+                }
                 let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty {
                     Log.stt.info("[\(src.label)] chunk #\(chunkID) ← empty")
@@ -299,7 +326,8 @@ final class WhisperTranscriber: @unchecked Sendable {
                 Log.stt.info("[\(src.label)] chunk #\(chunkID) ← \(trimmed)")
                 // Advance the rolling prompt only with text we kept — never with
                 // dropped junk, or the prompt would propagate the hallucination.
-                self.queue.async { self.appendPromptTail(trimmed) }
+                let detectedLanguage = result.language
+                self.queue.async { self.appendPromptTail(trimmed, language: detectedLanguage) }
                 self.onFinal?(TranscribedChunk(text: trimmed, source: src, timestamp: timestamp))
             } catch {
                 Log.stt.error("[\(src.label)] chunk #\(chunkID) Whisper failed: \(error.localizedDescription)")
@@ -309,9 +337,16 @@ final class WhisperTranscriber: @unchecked Sendable {
         inFlightFlushes[taskID] = task
     }
 
-    /// Append kept text to the rolling prompt and trim to the tail window.
-    /// Must be on `queue`.
-    private func appendPromptTail(_ text: String) {
+    /// Append kept text to the rolling prompt and trim to the tail window. On a
+    /// detected language switch the tail is replaced (not appended), so the prior
+    /// language can't keep biasing the new one. Must be on `queue`.
+    private func appendPromptTail(_ text: String, language: String?) {
+        if let language, let promptLanguage, language.caseInsensitiveCompare(promptLanguage) != .orderedSame {
+            promptTail = String(text.suffix(Self.maxPromptTailChars))
+            self.promptLanguage = language
+            return
+        }
+        if promptLanguage == nil { promptLanguage = language }
         let combined = promptTail.isEmpty ? text : promptTail + " " + text
         promptTail = String(combined.suffix(Self.maxPromptTailChars))
     }
