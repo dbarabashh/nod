@@ -266,7 +266,9 @@ you have the following rights. To exercise any of them, email
 
 - **Access** — get a copy of all personal data we hold about you.
 - **Portability** — receive your transcripts, summaries, and account
-  data in a machine-readable format (JSON).
+  data in a machine-readable format (JSON). You can also export any
+  individual meeting yourself, at any time, as a local Markdown file
+  (with YAML frontmatter) straight from the app — no request needed.
 - **Rectification** — correct inaccurate data.
 - **Erasure** — delete your account and all associated personal data.
   You can also delete individual meetings yourself from the app.

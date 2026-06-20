@@ -125,6 +125,9 @@ user's data.
 - You can request a full account deletion at **dbarabashdev@gmail.com**. We act on
   it within 30 days.
 - You can export all of your data on request (GDPR right to portability).
+- You can export any single meeting yourself as a local **Markdown** file
+  (YAML frontmatter + summary + transcript) from the app — your notes are
+  yours to take out, in a plain-text format any editor (e.g. Obsidian) reads.
 
 ### Importing from other apps
 
