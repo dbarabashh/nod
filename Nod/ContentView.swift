@@ -30,6 +30,16 @@ struct ContentView: View {
     /// builds with a bare `ContentView()`.
     var onPreferredWidthChange: ((CGFloat) -> Void)?
 
+    /// Force the floating panel to repaint its full content. The panel is a
+    /// transparent, fixed-height, buffered `NSPanel`: when tall content (the
+    /// pre-meeting card) is replaced by shorter content (the recording pills),
+    /// the exposed region keeps the old pixels in the backing store until some
+    /// later redraw (a per-second `elapsed` tick) happens to repaint it — which
+    /// is the "the start card lingers behind for a couple seconds" glitch.
+    /// Invoked whenever the measured content height changes (see
+    /// `PanelContentHeightKey`) so the clear happens on any content reshape.
+    var onRedrawNeeded: (() -> Void)?
+
     /// When meeting is active, the left column shows the full controls by
     /// default. User can tap the chevron in StatusHeader to collapse to the
     /// tiny REC capsule, then tap that to re-expand.
@@ -80,6 +90,16 @@ struct ContentView: View {
                 }
             }
             .padding(16)
+            // Measure the natural content height so any reshape (recording
+            // pills replacing the taller pre-meeting card, a response card
+            // opening/closing, …) triggers a panel repaint — see
+            // `onRedrawNeeded`. Measured before the fill frame below so it's the
+            // content's own height, not the stretched window height.
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(key: PanelContentHeightKey.self, value: proxy.size.height)
+                }
+            )
             // Fill the window and anchor leading so content lines up at the
             // left edge regardless of the window's current width.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -129,6 +149,12 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear { onPreferredWidthChange?(contentWidth) }
         .onChange(of: isWide) { _ in onPreferredWidthChange?(contentWidth) }
+        // Repaint the panel whenever the content's natural height changes, so
+        // the shorter content can't leave stale pixels in the transparent
+        // panel's backing store. Driven by the measured height above rather than
+        // a specific state transition, so every present and future content swap
+        // is covered without a per-feature hook.
+        .onPreferenceChange(PanelContentHeightKey.self) { _ in onRedrawNeeded?() }
         .task { await session.runSecondsTimer() }
         .onReceive(NotificationCenter.default.publisher(for: .nodSuggestHotkey)) { _ in
             // Global hotkey fired. Only act if a meeting is recording and we
@@ -200,7 +226,7 @@ struct ContentView: View {
                     MeetingLanguagePrompt(
                         language: language.current,
                         askEachTime: $confirmLanguageBeforeMeeting,
-                        onStart: { setLanguagePrompt(false); startMeeting() },
+                        onStart: { startMeeting() },
                         onCancel: { setLanguagePrompt(false) }
                     )
                 } else {
@@ -343,6 +369,11 @@ struct ContentView: View {
     }
 
     private func beginRecording() {
+        // Clear the language prompt here (not in the button's own action) so it
+        // disappears in the same update that swaps to the recording layout —
+        // dismissing it separately first left it mid-removal when the idle
+        // branch was yanked, ghosting behind the new content.
+        showLanguagePrompt = false
         expanded = true
         session.beginRecording()
     }
@@ -351,6 +382,15 @@ struct ContentView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         print("→ Copied to clipboard")
+    }
+}
+
+/// Carries the floating content's natural height up to `ContentView`'s body so
+/// a change can trigger a panel repaint (see `onRedrawNeeded`).
+private struct PanelContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

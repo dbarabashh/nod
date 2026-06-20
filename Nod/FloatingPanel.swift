@@ -98,4 +98,18 @@ extension NSWindow {
             setFrame(newFrame, display: true)
         }
     }
+
+    /// Repaints the whole content view. The panel is transparent, buffered, and
+    /// fixed-height, so when SwiftUI swaps tall content for shorter content the
+    /// exposed region keeps stale pixels in the backing store until the next
+    /// incidental redraw. Marking the content dirty and forcing a display clears
+    /// it. Deferred to the next runloop so it runs AFTER SwiftUI has committed
+    /// the new layout (repainting before that would just redraw the old content).
+    func forceRedraw() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            contentView?.needsDisplay = true
+            displayIfNeeded()
+        }
+    }
 }

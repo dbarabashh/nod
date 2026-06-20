@@ -161,7 +161,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         )
 
         let content = ContentView(
-            onPreferredWidthChange: { [weak self] width in self?.panel?.setWidth(to: width) }
+            onPreferredWidthChange: { [weak self] width in self?.panel?.setWidth(to: width) },
+            onRedrawNeeded: { [weak self] in self?.panel?.forceRedraw() }
         )
         .environmentObject(meetingSession)
         .environmentObject(services.audioCapture)
