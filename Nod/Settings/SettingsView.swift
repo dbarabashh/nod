@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject private var hotkey: HotkeyManager
     @AppStorage(ReplyContext.defaultsKey) private var replyContext: ReplyContext = .auto
+    @AppStorage(SummaryTemplate.defaultsKey) private var summaryTemplate: SummaryTemplate = .auto
     @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting: Bool = MeetingLanguagePromptDefaults.defaultValue
 
     /// Optional so previews (and any future env-free mount) work without a
@@ -185,6 +186,24 @@ struct SettingsView: View {
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .tint(Theme.Palette.violet)
+                }
+            }
+
+            SettingsCard {
+                SettingsRow(
+                    icon: "list.bullet.rectangle",
+                    title: "Summary style",
+                    subtitle: summaryTemplate.settingsHint
+                ) {
+                    Picker("Summary style", selection: $summaryTemplate) {
+                        ForEach(SummaryTemplate.allCases) { template in
+                            Text(template.displayName).tag(template)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .tint(Theme.Palette.ink)
+                    .fixedSize()
                 }
             }
 

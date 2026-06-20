@@ -507,10 +507,21 @@ struct MeetingDetailView: View {
         }
     }
 
+    /// Partial recap markdown streamed in while the summary generates, or nil
+    /// before the first section closes. Drives the live fill-in below.
+    private var streamingSummary: String? {
+        let partial = meetingStore.streamingSummaries[meeting.id]
+        return (partial?.isEmpty == false) ? partial : nil
+    }
+
     @ViewBuilder
     private var summaryContent: some View {
         if isGenerating {
-            generatingSummaryPlaceholder
+            if let partial = streamingSummary {
+                streamingSummaryView(partial)
+            } else {
+                generatingSummaryPlaceholder
+            }
         } else if isEditingSummary {
             TextEditor(text: $editableSummary)
                 .font(.system(size: 14, weight: .regular))
@@ -533,6 +544,26 @@ struct MeetingDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// Live recap fill-in: the rendered partial markdown plus the same
+    /// thinking indicator, so the user watches sections appear while the model
+    /// is still writing the rest.
+    private func streamingSummaryView(_ markdown: String) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(renderRecapMarkdown(markdown))
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(Theme.Palette.ink.opacity(0.92))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            ThinkingIndicator(script: [
+                "Writing the recap…",
+                "Capturing decisions & action items…",
+                "Almost there…"
+            ])
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var generatingSummaryPlaceholder: some View {

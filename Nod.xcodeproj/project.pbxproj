@@ -93,6 +93,7 @@
 		F3D9DB12890DBD5DDE131C29 /* StatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89B08D2EC9D5413096A7A33A /* StatusItemController.swift */; };
 		FB9079A3E23E04F40C09DA41 /* TranscriptDedupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDE407B014D9F046F46ABE56 /* TranscriptDedupTests.swift */; };
 		FBD75FB372733BC3C723B80D /* MeetingOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A30B33EBB2230097A6D7223 /* MeetingOutbox.swift */; };
+		FC7BADFDF4779F461472C780 /* SummaryTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13DD050C111EC86DC6231A0 /* SummaryTemplate.swift */; };
 		FE676DBA9D1CDFDB99F884F9 /* ConsentDisclaimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04215CD4FC63669F17748D86 /* ConsentDisclaimerView.swift */; };
 /* End PBXBuildFile section */
 
@@ -169,6 +170,7 @@
 		8CCFE48FE987F890137DEA2E /* AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersion.swift; sourceTree = "<group>"; };
 		9DAACB239AA21201B9FB0276 /* TranscriptRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptRecord.swift; sourceTree = "<group>"; };
 		9E50AD4B4443C2AFC55281CD /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
+		A13DD050C111EC86DC6231A0 /* SummaryTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplate.swift; sourceTree = "<group>"; };
 		A223C9F4F471729CC9C4052E /* PermissionsStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsStep.swift; sourceTree = "<group>"; };
 		A9212ABCD375EB1D216DCA0D /* AudioDeviceCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDeviceCatalog.swift; sourceTree = "<group>"; };
 		ACD2C2B0C46EE5CA16509869 /* HallucinationFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HallucinationFilter.swift; sourceTree = "<group>"; };
@@ -306,6 +308,7 @@
 				6C387BE5834160BB925911FD /* OpenRouterClient.swift */,
 				E1D50CF8646AB9EB69F2F9C8 /* PromptLibrary.swift */,
 				C838A362BA66718EFD64DE98 /* ReplyContext.swift */,
+				A13DD050C111EC86DC6231A0 /* SummaryTemplate.swift */,
 			);
 			path = LLM;
 			sourceTree = "<group>";
@@ -732,6 +735,7 @@
 				D564F6133741983DA7E39CED /* SherpaVAD.swift in Sources */,
 				44A68DEB7CBFDC12B72E616C /* SignInView.swift in Sources */,
 				F3D9DB12890DBD5DDE131C29 /* StatusItemController.swift in Sources */,
+				FC7BADFDF4779F461472C780 /* SummaryTemplate.swift in Sources */,
 				83F9D087C396F52F3B80D84E /* SupabaseConfig.swift in Sources */,
 				85A8EFA2E6AA2AF8CCC1174B /* Theme.swift in Sources */,
 				24C3AAE446669BE4E1665CDB /* TranscriptRecord.swift in Sources */,

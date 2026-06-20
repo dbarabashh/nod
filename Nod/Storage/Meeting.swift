@@ -148,6 +148,12 @@ struct Meeting: Codable, Identifiable {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty { continue }
 
+            // A wholly-bold line is a section header (`**Topics covered**`,
+            // `**Customer needs**`, …). With dynamic section titles the label
+            // is unknown, so skip any line that is one full bold span rather
+            // than relying on the known-label list below.
+            if Self.isWhollyBold(trimmed) { continue }
+
             // Strip a leading bullet marker, then drop ALL inline `**` so we
             // don't ever leak literal asterisks into the preview text.
             var line = trimmed
@@ -168,6 +174,16 @@ struct Meeting: Codable, Identifiable {
     /// Heuristic: short line ending in `:`, or matching one of the known
     /// recap section labels (EN + UA). Skipped from the preview so the
     /// user sees the first actual bullet instead of the structural header.
+    /// True when the line is a single bold span end-to-end — i.e. a section
+    /// header like `**Decisions made**` with no other content. Inner `**` would
+    /// mean the bold is only part of the line (real content), so those don't
+    /// count.
+    private static func isWhollyBold(_ line: String) -> Bool {
+        guard line.hasPrefix("**"), line.hasSuffix("**"), line.count > 4 else { return false }
+        let inner = line.dropFirst(2).dropLast(2)
+        return !inner.contains("**") && !inner.isEmpty
+    }
+
     private static func looksLikeSectionHeader(_ line: String) -> Bool {
         if line.count <= 30 && line.hasSuffix(":") { return true }
         let dropped = line.hasSuffix(":") ? String(line.dropLast()) : line

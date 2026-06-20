@@ -202,7 +202,7 @@ final class OpenRouterClient: ObservableObject {
     /// resilience here is the server-side `models = [primary, fallback]` chain.
     /// The caller falls back to the one-shot `complete()` path if the stream
     /// fails before producing any token.
-    func streamComplete(system: String, user: String) -> AsyncThrowingStream<String, Error> {
+    func streamComplete(system: String, user: String, jsonMode: Bool = false) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -218,7 +218,7 @@ final class OpenRouterClient: ObservableObject {
                             ignore: ["google-ai-studio"],
                             allow_fallbacks: true
                         ),
-                        response_format: nil,
+                        response_format: jsonMode ? ResponseFormat(type: "json_object") : nil,
                         temperature: nil,
                         stream: true
                     )
