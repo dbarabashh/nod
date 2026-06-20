@@ -206,10 +206,11 @@ struct ContentView: View {
     private var mainColumn: some View {
         VStack(alignment: .leading, spacing: 12) {
             StatusHeader(
+                audioCapture: audioCapture,
+                showMicPicker: session.meeting == .idle && session.selectedKind.capturesMic,
                 meeting: session.meeting,
                 elapsed: elapsedString,
                 language: language.current,
-                level: audioCapture.inputLevel,
                 onLanguageSelect: { language.current = $0 },
                 onCollapse: session.meeting != .idle ? {
                     withAnimation(.easeOut(duration: 0.18)) { expanded = false }
@@ -219,9 +220,6 @@ struct ContentView: View {
             switch session.meeting {
             case .idle:
                 SessionKindPicker(selection: $session.selectedKind)
-                if session.selectedKind.capturesMic {
-                    InputDevicePickerRow(audioCapture: audioCapture)
-                }
                 if showLanguagePrompt {
                     MeetingLanguagePrompt(
                         language: language.current,
@@ -396,64 +394,45 @@ private struct PanelContentHeightKey: PreferenceKey {
 
 // MARK: - Input Device Picker
 
-private struct InputDevicePickerRow: View {
+/// Microphone chooser as a single icon in the panel header (next to Library).
+/// The menu lists available inputs and pins the active one — selection writes
+/// straight to `audioCapture.preferredInputUID`, same as before; only the
+/// trigger moved from a full-width row to this compact glyph.
+private struct MicInputPicker: View {
     @ObservedObject var audioCapture: AudioCaptureService
     @State private var devices: [AudioInputDevice] = []
 
-    private let rowHeight: CGFloat = 38
-
     var body: some View {
-        // The visual row is a plain view so its capsule background renders
-        // reliably; a transparent, full-width Menu is overlaid only for the
-        // click + popover. Putting the chrome inside the Menu's label is what
-        // broke across macOS versions — `.borderlessButton` hugs and re-renders
-        // the label, dropping its background and centring it.
-        GeometryReader { geo in
-            ZStack {
-                rowContent(width: geo.size.width)
+        // Chrome is drawn separately and matched to `PanelIconButton` (the
+        // Library glyph) so the two header icons are pixel-identical; a
+        // transparent `Menu` is overlaid only for the click. Putting the chrome
+        // inside the Menu's label drops its circle background — `.borderlessButton`
+        // re-renders and hugs the label across macOS versions.
+        ZStack {
+            // `waveform`, not `mic.fill` — a mic glyph collides with the
+            // mute toggle (`StatusRow` uses mic/mic.slash) and reads as
+            // "mute me" rather than "choose input device".
+            Image(systemName: "waveform")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.white.opacity(0.6))
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.white.opacity(0.10)))
 
-                Menu {
-                    menuItems
-                } label: {
-                    Color.clear
-                        .frame(width: geo.size.width, height: rowHeight)
-                        .contentShape(Rectangle())
-                }
-                .menuStyle(.button)
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
+            Menu {
+                menuItems
+            } label: {
+                Color.clear
+                    .frame(width: 22, height: 22)
+                    .contentShape(Circle())
             }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: rowHeight)
+        .frame(width: 22, height: 22)
+        .help("Microphone — choose input device")
         .onAppear(perform: refresh)
-    }
-
-    private func rowContent(width: CGFloat) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "mic.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.white.opacity(0.55))
-                .frame(width: 12)
-            Text(currentLabel)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.white.opacity(0.88))
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(.white.opacity(0.55))
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .frame(width: width, height: rowHeight, alignment: .leading)
-        .background(
-            ZStack {
-                PanelMaterial()
-                Color.white.opacity(0.04)
-            }
-            .clipShape(Capsule(style: .continuous))
-        )
     }
 
     @ViewBuilder private var menuItems: some View {
@@ -476,17 +455,6 @@ private struct InputDevicePickerRow: View {
         Button("Refresh", action: refresh)
     }
 
-    private var currentLabel: String {
-        if let uid = audioCapture.preferredInputUID,
-           let dev = devices.first(where: { $0.uid == uid }) {
-            return dev.name
-        }
-        if let def = devices.first(where: { $0.isDefault }) {
-            return "\(def.name) (default)"
-        }
-        return "Choose input…"
-    }
-
     private func refresh() {
         devices = AudioDeviceCatalog.inputDevices()
     }
@@ -495,12 +463,15 @@ private struct InputDevicePickerRow: View {
 // MARK: - Status Header
 
 private struct StatusHeader: View {
+    /// Drives the live level meter (`inputLevel`) and backs the header's mic
+    /// chooser, so it's observed directly rather than threaded through props.
+    @ObservedObject var audioCapture: AudioCaptureService
+    /// Whether the mic chooser icon shows — only when the session captures the
+    /// mic and we're pre-meeting, matching where the old picker row appeared.
+    let showMicPicker: Bool
     let meeting: MeetingState
     let elapsed: String
     let language: AppLanguage
-    /// Live mic peak (0…1) — drives the recording level meter so the user
-    /// has continuous proof audio is being heard, not just a pulsing dot.
-    var level: Float = 0
     let onLanguageSelect: (AppLanguage) -> Void
     var onCollapse: (() -> Void)?
     @State private var pulsing = false
@@ -521,10 +492,13 @@ private struct StatusHeader: View {
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.50))
                 if meeting == .recording {
-                    LevelMeter(level: level)
+                    LevelMeter(level: audioCapture.inputLevel)
                 }
             }
             Spacer(minLength: 0)
+            if showMicPicker {
+                MicInputPicker(audioCapture: audioCapture)
+            }
             // Selectable mid-meeting: it controls generated output language,
             // while transcription stays auto/multilingual and preserves the
             // spoken language of each chunk.
@@ -752,46 +726,44 @@ private struct LanguagePicker: View {
     let onSelect: (AppLanguage) -> Void
 
     var body: some View {
-        // Custom-styled `Menu` wrapping a real `Picker` so the chip keeps
-        // its visual treatment (2-letter chipLabel + chevron) but SwiftUI
-        // owns selection semantics — VoiceOver announces the selected
-        // language, and the menu plays nicely with the non-activating
-        // floating panel where a hand-rolled menu sometimes ate the
-        // first click waiting for key-window status.
-        Menu {
-            Picker("Nod language", selection: Binding(
-                get: { current },
-                set: { onSelect($0) }
-            )) {
-                ForEach(AppLanguage.allCases, id: \.self) { lang in
-                    Text(lang.nativeName).tag(lang)
+        // A round 22×22 icon that matches the mic / Library glyphs in the
+        // header, but its "glyph" is the active language's 2-letter code so the
+        // current language still reads at a glance. The chrome is drawn
+        // separately and a transparent `Menu` is overlaid only for the click —
+        // the Menu wraps a real `Picker` so SwiftUI keeps selection semantics
+        // (VoiceOver announces the choice) and the non-activating panel doesn't
+        // eat the first click. Putting the chrome inside the Menu label drops
+        // its circle background, same quirk handled in `MicInputPicker`.
+        ZStack {
+            Text(current.chipLabel)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(0.78))
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.white.opacity(0.10)))
+
+            Menu {
+                Picker("Nod language", selection: Binding(
+                    get: { current },
+                    set: { onSelect($0) }
+                )) {
+                    ForEach(AppLanguage.allCases, id: \.self) { lang in
+                        Text(lang.nativeName).tag(lang)
+                    }
                 }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                Color.clear
+                    .frame(width: 22, height: 22)
+                    .contentShape(Circle())
             }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            HStack(spacing: 3) {
-                Text(current.chipLabel)
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .tracking(0.5)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 7, weight: .bold))
-                    .opacity(0.65)
-            }
-            .foregroundColor(.white.opacity(0.78))
-            // Bumped padding so the chip is closer to Apple HIG's 44pt hit
-            // target — visually still compact thanks to the small font.
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .contentShape(Capsule())
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .frame(width: 22, height: 22)
         .help("Switch Nod language — applies to summaries, titles, cards, and answers")
     }
 }
