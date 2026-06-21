@@ -171,6 +171,27 @@ final class AuthService: NSObject, ObservableObject {
         await signOut()
         lastError = reason
     }
+
+    /// GDPR Right to Erasure (Art. 17). Permanently deletes the account and all
+    /// associated personal data server-side, then tears the local session down.
+    /// The `delete-account` Edge Function deletes the `auth.users` row, which
+    /// cascades to every personal-data table (the consent audit trail is the one
+    /// intentional exception — it's anonymised, not deleted). Throws if the
+    /// server call fails so the UI can keep the user signed in and show the
+    /// error; only signs out locally once erasure is confirmed.
+    func deleteAccount() async throws {
+        struct Response: Decodable { let deleted: Bool }
+        let response: Response = try await client.functions.invoke("delete-account")
+        guard response.deleted else {
+            throw NSError(
+                domain: "AuthService",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Account deletion did not complete."]
+            )
+        }
+        Log.auth.info("account deleted; clearing local session")
+        await signOut()
+    }
 }
 
 extension AuthService: ASWebAuthenticationPresentationContextProviding {

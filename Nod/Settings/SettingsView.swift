@@ -13,6 +13,8 @@ struct SettingsView: View {
     private let billing: BillingService?
     private let entitlements: EntitlementService?
     private let granolaImporter: GranolaImporter?
+    private let auth: AuthService?
+    private let accountExport: AccountExportService?
 
     init(
         hotkey: HotkeyManager,
@@ -21,6 +23,8 @@ struct SettingsView: View {
         billing: BillingService? = nil,
         entitlements: EntitlementService? = nil,
         granolaImporter: GranolaImporter? = nil,
+        auth: AuthService? = nil,
+        accountExport: AccountExportService? = nil,
         focusSubscription: Bool = false
     ) {
         _hotkey = ObservedObject(wrappedValue: hotkey)
@@ -29,12 +33,14 @@ struct SettingsView: View {
         self.billing = billing
         self.entitlements = entitlements
         self.granolaImporter = granolaImporter
+        self.auth = auth
+        self.accountExport = accountExport
         _tab = State(initialValue: focusSubscription ? .subscription : .profile)
     }
 
     /// Left-rail categories. Each maps to one detail pane.
     private enum Tab: String, CaseIterable, Identifiable {
-        case profile, subscription, general, suggestReply, shortcuts
+        case profile, subscription, general, suggestReply, shortcuts, privacy
         var id: String {
             rawValue
         }
@@ -46,6 +52,7 @@ struct SettingsView: View {
             case .general: "General"
             case .suggestReply: "Suggest reply"
             case .shortcuts: "Shortcuts"
+            case .privacy: "Privacy"
             }
         }
 
@@ -56,6 +63,7 @@ struct SettingsView: View {
             case .general: "gearshape"
             case .suggestReply: "sparkles"
             case .shortcuts: "keyboard"
+            case .privacy: "lock.shield"
             }
         }
     }
@@ -166,6 +174,7 @@ struct SettingsView: View {
                 case .general: generalPane
                 case .suggestReply: suggestReplyPane
                 case .shortcuts: shortcutsPane
+                case .privacy: privacyPane
                 }
                 Spacer(minLength: 0)
             }
@@ -279,6 +288,119 @@ struct SettingsView: View {
             ) {
                 HotkeyRecorderView(hotkey: hotkey, action: .togglePanel)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var privacyPane: some View {
+        if let auth, let accountExport {
+            AccountDataSection(auth: auth, export: accountExport)
+        } else {
+            Text("Sign in to manage your data.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.muted)
+        }
+    }
+}
+
+/// GDPR data-rights surface: export everything as JSON (Art. 15 / 20) and
+/// permanently delete the account (Art. 17). Both call Edge Functions that do
+/// the real work server-side; this view is just the affordance + confirmation.
+private struct AccountDataSection: View {
+    @ObservedObject var auth: AuthService
+    @ObservedObject var export: AccountExportService
+
+    @State private var confirmingDelete = false
+    @State private var isDeleting = false
+    @State private var deleteError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsCard {
+                SettingsRow(
+                    icon: "square.and.arrow.up",
+                    title: "Export my data",
+                    subtitle: exportSubtitle
+                ) {
+                    Button(action: { Task { await export.export() } }) {
+                        Text(isExporting ? "Exporting…" : "Export")
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 7)
+                            .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                            .opacity(isExporting ? 0.7 : 1)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isExporting)
+                }
+            }
+
+            SettingsCard {
+                SettingsRow(
+                    icon: "trash",
+                    title: "Delete account",
+                    subtitle: deleteSubtitle
+                ) {
+                    Button(action: { confirmingDelete = true }) {
+                        Text(isDeleting ? "Deleting…" : "Delete account…")
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundColor(Theme.Palette.danger)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 7)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .stroke(Theme.Palette.danger.opacity(0.5), lineWidth: 1)
+                            )
+                            .opacity(isDeleting ? 0.7 : 1)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isDeleting)
+                }
+            }
+        }
+        .alert("Delete your account?", isPresented: $confirmingDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete account", role: .destructive) { delete() }
+        } message: {
+            Text(
+                "This permanently deletes your account and all your meetings, transcripts, summaries, chats, and profile. This can't be undone. Export your data first if you want a copy."
+            )
+        }
+    }
+
+    private var isExporting: Bool {
+        export.state == .exporting
+    }
+
+    private var exportSubtitle: String {
+        switch export.state {
+        case .idle, .exporting:
+            "Download everything Nod holds about you — meetings, transcripts, summaries, chats, profile, and account data — as one JSON file."
+        case .done:
+            "Saved. Your data export is a complete, machine-readable copy of everything Nod holds about you."
+        case let .failed(message):
+            message
+        }
+    }
+
+    private var deleteSubtitle: String {
+        if let deleteError {
+            return deleteError
+        }
+        return "Permanently erase your account and all associated data. Audio is never stored; everything else is deleted within seconds. This can't be undone."
+    }
+
+    private func delete() {
+        isDeleting = true
+        deleteError = nil
+        Task {
+            do {
+                try await auth.deleteAccount()
+            } catch {
+                deleteError = "Couldn't delete your account. Please try again or email dbarabashdev@gmail.com."
+            }
+            isDeleting = false
         }
     }
 }

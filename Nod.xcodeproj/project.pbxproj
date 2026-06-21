@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		069D87CF5F5FD5350461D1EF /* PermissionsStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = A223C9F4F471729CC9C4052E /* PermissionsStep.swift */; };
+		0B1C394338D70A50BC46C74F /* AccountExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03FD836B12052802EB0AC5CF /* AccountExportService.swift */; };
 		16C928461607CF8AE073F98A /* RelatedSessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149F6DD44CAFD6F4663D3C73 /* RelatedSessionsView.swift */; };
 		17D1C2D120682B4A26CB4451 /* ConsentPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50B3845F31D082ECBEEBC80A /* ConsentPreference.swift */; };
 		1C52E692434176BB8E0CAF34 /* GranolaCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 555F4BE347A620635894CD12 /* GranolaCache.swift */; };
@@ -113,6 +114,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		03FD836B12052802EB0AC5CF /* AccountExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountExportService.swift; sourceTree = "<group>"; };
 		04215CD4FC63669F17748D86 /* ConsentDisclaimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsentDisclaimerView.swift; sourceTree = "<group>"; };
 		05FBEC5365982FF423F3A87E /* WAVEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVEncoder.swift; sourceTree = "<group>"; };
 		0A9BF4815F3C7A470FD18332 /* Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profile.swift; sourceTree = "<group>"; };
@@ -379,6 +381,7 @@
 		7DF7A8F0E2B657D45484BF34 /* Backend */ = {
 			isa = PBXGroup;
 			children = (
+				03FD836B12052802EB0AC5CF /* AccountExportService.swift */,
 				25018362FB712D6E36B2E8C3 /* BillingService.swift */,
 				5D51AB70F6A036D108ACDDC3 /* DeviceIdentity.swift */,
 				4122C7AB70126E5746E22AA5 /* EntitlementService.swift */,
@@ -704,6 +707,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0B1C394338D70A50BC46C74F /* AccountExportService.swift in Sources */,
 				3B230632D5E59BB6CA0A2571 /* AppLanguage.swift in Sources */,
 				4AFCAE857ED9E568DB5FF3CC /* AppServices.swift in Sources */,
 				561C40120B247E394753E3CB /* AppVersion.swift in Sources */,

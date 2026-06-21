@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-06-20_
+_Last updated: 2026-06-21_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company. We've made the
@@ -126,9 +126,17 @@ user's data.
 - You can delete any individual meeting from the app. Deletes are soft: the
   meeting moves to a trash that's automatically and permanently purged 30
   days later by a nightly Postgres job.
-- You can request a full account deletion at **dbarabashdev@gmail.com**. We act on
-  it within 30 days.
-- You can export all of your data on request (GDPR right to portability).
+- You can delete your **entire account** yourself, immediately, from
+  **Settings → Privacy → Delete account**. Confirming it deletes your
+  `auth.users` row, which cascades to every table holding your data
+  (meetings, transcripts, summaries, chats, entities, labels, embeddings,
+  devices, usage, subscription). The only thing kept is your anonymised
+  consent-acknowledgement audit rows (legal-defence record, `user_id`
+  nulled). Any live Paddle subscription is cancelled first so you're never
+  billed again.
+- You can export **all** of your data yourself, as a single machine-readable
+  JSON file, from **Settings → Privacy → Export my data** (GDPR right of
+  access / portability). No request needed.
 - You can export any single meeting yourself as a local **Markdown** file
   (YAML frontmatter + summary + transcript) from the app — your notes are
   yours to take out, in a plain-text format any editor (e.g. Obsidian) reads.
@@ -226,11 +234,13 @@ acknowledgement.
 
 **Can I delete my data?**
 Yes. Per-meeting from the app (30-day trash, then permanently purged), or
-full account deletion via **dbarabashdev@gmail.com** within 30 days.
+your **entire account** instantly from **Settings → Privacy → Delete
+account** — it cascades across every table holding your data.
 
 **Can I export my data?**
-Yes. Email **dbarabashdev@gmail.com** and we'll return all your transcripts and
-notes in a portable format (GDPR Article 20).
+Yes. From **Settings → Privacy → Export my data** you download everything
+Nod holds about you as one machine-readable JSON file (GDPR Articles 15 &
+20) — no request needed.
 
 **Do you have SSO / SAML?**
 Not yet. Sign-in is via Google OAuth. SAML SSO is planned for the team tier.

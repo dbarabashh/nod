@@ -209,6 +209,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             billing: services.billing,
             entitlements: services.entitlements,
             granolaImporter: services.granolaImporter,
+            auth: services.auth,
+            accountExport: services.accountExport,
             focusSubscription: focusSubscription
         ))
         window.makeKeyAndOrderFront(nil)

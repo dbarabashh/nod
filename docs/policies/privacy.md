@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-06-20_
+_Last updated: 2026-06-21_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -250,9 +250,11 @@ We can provide our SCCs and transfer impact assessments on request to
 | Encrypted database backups           | 7 days rolling.                                                      |
 | Server logs (OpenRouter calls, etc.) | 30 days.                                                             |
 
-When you delete your account, we erase your auth profile, meetings (active
-and trashed), transcripts, and usage rows within 30 days. We retain your
-consent acknowledgement rows for the legal-defence window above; these
+When you delete your account from **Settings → Privacy**, we erase your
+auth profile, meetings (active and trashed), transcripts, summaries, chats,
+entities, labels, device bindings, usage rows, and subscription row
+immediately — the deletion cascades the moment you confirm it. We retain
+your consent acknowledgement rows for the legal-defence window above; these
 become orphaned (`user_id` set to NULL) and are no longer linked to you in
 any externally-resolvable way.
 
@@ -264,14 +266,18 @@ Under the EU/UK GDPR (and equivalents in California, Brazil, Canada, etc.)
 you have the following rights. To exercise any of them, email
 **dbarabashdev@gmail.com**. We respond within 30 days.
 
-- **Access** — get a copy of all personal data we hold about you.
-- **Portability** — receive your transcripts, summaries, and account
-  data in a machine-readable format (JSON). You can also export any
-  individual meeting yourself, at any time, as a local Markdown file
-  (with YAML frontmatter) straight from the app — no request needed.
+- **Access & Portability** — export **all** the personal data we hold
+  about you as a single machine-readable JSON file, yourself, at any time,
+  from **Settings → Privacy → Export my data** — no request needed. You can
+  also export any individual meeting as a local Markdown file (with YAML
+  frontmatter) from the app.
 - **Rectification** — correct inaccurate data.
-- **Erasure** — delete your account and all associated personal data.
-  You can also delete individual meetings yourself from the app.
+- **Erasure** — delete your account and all associated personal data
+  yourself, immediately, from **Settings → Privacy → Delete account**. This
+  erases your auth profile, meetings, transcripts, summaries, chats,
+  entities, labels, devices, usage, and subscription rows server-side; your
+  consent-acknowledgement audit rows are retained but anonymised (see
+  Section 7). You can also delete individual meetings yourself from the app.
 - **Restriction** — ask us to pause processing while a dispute is
   resolved.
 - **Objection** — object to processing based on legitimate interest

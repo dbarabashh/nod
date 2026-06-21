@@ -27,6 +27,7 @@ struct AppServices {
     let labelStore: LabelStore
     let entitlements: EntitlementService
     let billing: BillingService
+    let accountExport: AccountExportService
     let panelSharing: PanelSharingPreference
     let updateGate: UpdateGate
     let hotkeys: HotkeyManager
@@ -100,6 +101,7 @@ struct AppServices {
             labelStore: LabelStore(supabase: supabase, auth: auth),
             entitlements: EntitlementService(supabase: supabase),
             billing: BillingService(supabase: supabase),
+            accountExport: AccountExportService(supabase: supabase),
             panelSharing: PanelSharingPreference(),
             updateGate: UpdateGate(supabase: supabase),
             hotkeys: hotkeys,
