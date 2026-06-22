@@ -183,6 +183,8 @@ struct PaywallView: View {
             Text(plan.tagline)
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(Theme.Palette.graphite)
+                .lineLimit(2, reservesSpace: true)
+                .fixedSize(horizontal: false, vertical: true)
 
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(priceLabel(price))

@@ -202,6 +202,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             styleMask: [.titled, .closable, .fullSizeContentView]
         )
         window.title = "Settings"
+        // Hide the native title so the top strip is uniform glass, not a heavier
+        // title-bar band over the translucent body (matches sign-in/onboarding).
+        window.titleVisibility = .hidden
         window.contentViewController = NSHostingController(rootView: SettingsView(
             hotkey: services.hotkeys,
             profileStore: services.profileStore,

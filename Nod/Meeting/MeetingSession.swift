@@ -329,6 +329,11 @@ final class MeetingSession: ObservableObject {
         resetPanelForIdle()
 
         let draftID = draft.id
+        // Pin this meeting's transcript on the main thread, before any await: the
+        // store + transcribers are shared and reused by the next recording, so a
+        // meeting started while this one summarises (the recap stream takes many
+        // seconds) would reset them out from under the finalize.
+        let pinnedEntries = store.entries
         Task {
             // Ensure a WAL entry exists even on the fallback path — idempotent,
             // so a streamed meeting keeps its progress.
@@ -336,18 +341,14 @@ final class MeetingSession: ObservableObject {
 
             await store.flushPending()
 
-            // A new recording started during the flush window — the store now
-            // belongs to it. Abandon this meeting's finalize rather than
-            // summarize/snapshot the new transcript or clear the live recording.
-            guard sessionGeneration == generation else {
-                Log.ui.info("End Meeting finalize abandoned — newer session started")
-                return
-            }
-
-            // Snapshot the transcript for the summary up front.
-            let context = store.fullContext
+            // Prefer the post-flush transcript (it includes the last in-flight
+            // chunk) while this is still the active session; if a newer recording
+            // took over the store during flush, fall back to the pinned snapshot
+            // so this meeting is still persisted instead of silently dropped.
+            let entriesSnapshot = sessionGeneration == generation ? store.entries : pinnedEntries
+            let context = Self.transcriptContext(from: entriesSnapshot)
             guard !context.isEmpty else {
-                store.clear()
+                if sessionGeneration == generation { store.clear() }
                 await outbox.discard(draftID)
                 meetingStore.markGenerationFailed(id: draftID, errorMessage: "⚠️ No transcript captured")
                 return
@@ -378,19 +379,19 @@ final class MeetingSession: ObservableObject {
                 let updated = draft.updating(title: title, summary: text, recap: recap)
                 meetingStore.applyGenerated(updated)
 
-                let entries = store.entries
-                guard sessionGeneration == generation else {
-                    Log.ui.info("End Meeting finalize abandoned — newer session started")
-                    meetingStore.finishFinalizing(id: updated.id)
-                    return
-                }
-                store.clear()
+                // Only clear the live store if it still belongs to THIS meeting —
+                // a recording started during summary generation now owns it. The
+                // transcript is already pinned in `entriesSnapshot`, so persist
+                // either way: bailing here used to leave the meeting applied
+                // locally but never written to the WAL/server, so it vanished on
+                // the next launch.
+                if sessionGeneration == generation { store.clear() }
 
                 // Stamp the finished meeting + full transcript into the durable
                 // WAL, THEN push. The recap is on disk before the network write,
                 // so a quit / crash / app update can't lose it — launch replay
                 // resends whatever didn't drain here.
-                let records = transcriptRecords(from: entries, meeting: updated)
+                let records = transcriptRecords(from: entriesSnapshot, meeting: updated)
                 await outbox.complete(updated, transcripts: records, for: updated.id)
                 await drainOutbox()
                 meetingStore.finishFinalizing(id: updated.id)
@@ -421,20 +422,18 @@ final class MeetingSession: ObservableObject {
                     )
                 }
             } catch {
-                if sessionGeneration == generation {
-                    // Summary failed, but the transcript is real work. Complete
-                    // the WAL entry with a fallback recap so it's a TERMINAL,
-                    // drainable `.completed` row (preserving the transcript) —
-                    // not a phantom `.recording` entry that would re-push forever
-                    // and never reach a terminal state.
-                    let fallback = draft.updating(title: nil, summary: Self.summaryFailedFallback)
-                    let records = transcriptRecords(from: store.entries, meeting: fallback)
-                    await outbox.complete(fallback, transcripts: records, for: draftID)
-                    await drainOutbox()
-                    store.clear()
-                } else {
-                    Log.ui.info("End Meeting transcript clear skipped — newer session started")
-                }
+                // Summary failed, but the transcript is real work. Complete the
+                // WAL entry with a fallback recap so it's a TERMINAL, drainable
+                // `.completed` row (preserving the transcript) — not a phantom
+                // `.recording` entry that would re-push forever and never reach a
+                // terminal state. Persist even if a newer recording started: the
+                // transcript is pinned in `entriesSnapshot`, and only the live
+                // store clear is gated so the new recording isn't wiped.
+                let fallback = draft.updating(title: nil, summary: Self.summaryFailedFallback)
+                let records = transcriptRecords(from: entriesSnapshot, meeting: fallback)
+                await outbox.complete(fallback, transcripts: records, for: draftID)
+                await drainOutbox()
+                if sessionGeneration == generation { store.clear() }
                 Log.ui.error("Meeting summary generation failed: \(error.localizedDescription)")
                 meetingStore.markGenerationFailed(
                     id: draftID,
@@ -753,6 +752,12 @@ final class MeetingSession: ObservableObject {
         // "Not synced" indicator until the push lands.
         meetingStore.setUnsyncedMeetings(stuck)
         saveErrorToast = stuck.isEmpty ? nil : "Couldn't sync meeting — tap to retry."
+    }
+
+    /// Array-based counterpart to `TranscriptStore.fullContext` so finalize can
+    /// read a pinned snapshot, not the shared live store the next recording resets.
+    private static func transcriptContext(from entries: [TranscriptEntry]) -> String {
+        entries.map { "[\($0.source.label)]: \($0.text)" }.joined(separator: "\n")
     }
 
     /// `baseIdx` offsets the row `idx` so a streamed tail (entries

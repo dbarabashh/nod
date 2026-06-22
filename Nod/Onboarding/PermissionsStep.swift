@@ -117,7 +117,7 @@ struct PermissionsStep: View {
 
     private var continueTint: AnyShapeStyle {
         if allGranted {
-            return AnyShapeStyle(Theme.Gradients.buttonSuccess)
+            return AnyShapeStyle(Theme.Gradients.buttonBrand)
         }
         return AnyShapeStyle(
             LinearGradient(
@@ -172,7 +172,7 @@ private struct ContinueButton: View {
                 .frame(width: 180)
                 .padding(.vertical, 11)
                 .background(Capsule(style: .continuous).fill(tint))
-                .shadow(color: isPrimary ? Theme.Palette.cyan.opacity(0.3) : .clear, radius: 14, x: 0, y: 8)
+                .shadow(color: isPrimary ? Theme.Palette.pink.opacity(0.3) : .clear, radius: 14, x: 0, y: 8)
         }
         .buttonStyle(.plain)
     }
@@ -187,7 +187,7 @@ private struct RelaunchCard: View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Theme.Palette.cyan)
+                .foregroundStyle(Theme.Palette.pink)
 
             Text(hint)
                 .font(.system(size: 12, weight: .regular))
@@ -202,7 +202,7 @@ private struct RelaunchCard: View {
                     .foregroundStyle(Theme.Palette.ink)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
-                    .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonSuccess))
+                    .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
             }
             .buttonStyle(.plain)
         }
@@ -210,10 +210,10 @@ private struct RelaunchCard: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
-                .fill(Theme.Palette.cyan.opacity(0.08))
+                .fill(Theme.Palette.pink.opacity(0.08))
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
-                        .stroke(Theme.Palette.cyan.opacity(0.4), lineWidth: 0.6)
+                        .stroke(Theme.Palette.pink.opacity(0.4), lineWidth: 0.6)
                 )
         )
     }

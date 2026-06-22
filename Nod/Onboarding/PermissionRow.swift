@@ -57,9 +57,9 @@ struct PermissionRow: View {
     private var actionView: some View {
         switch status {
         case .authorized:
-            StatusBadge(text: grantedLabel, color: Theme.Palette.cyan)
+            StatusBadge(text: grantedLabel, color: Theme.Palette.success)
         case .denied:
-            ActionButton(title: openSettingsLabel, tint: AnyShapeStyle(Theme.Palette.warning), action: onOpenSettings)
+            ActionButton(title: openSettingsLabel, tint: AnyShapeStyle(Theme.Gradients.buttonBrand), action: onOpenSettings)
         case .notDetermined:
             ActionButton(
                 title: enableLabel,
