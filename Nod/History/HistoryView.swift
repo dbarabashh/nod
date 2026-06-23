@@ -565,10 +565,10 @@ struct HistoryView: View {
             Button(action: refreshActive) {
                 Text("Retry")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.GlassButton.text)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 9)
-                    .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                    .glassButtonSurface(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
         }
@@ -888,10 +888,10 @@ private struct UndoToast: View {
             Button(action: onUndo) {
                 Text("Undo")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.GlassButton.text)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 5)
-                    .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                    .glassButtonSurface(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
             Button(action: onDismiss) {

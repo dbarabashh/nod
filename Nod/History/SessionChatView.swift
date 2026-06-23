@@ -169,10 +169,10 @@ struct SessionChatView: View {
             Button(action: { send() }, label: {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(canSend ? Theme.GlassButton.text : .white)
                     .frame(width: 32, height: 32)
                     .background(
-                        Circle().fill(canSend ? Theme.Palette.violet : Theme.Palette.muted.opacity(0.4))
+                        Circle().fill(canSend ? AnyShapeStyle(Theme.GlassButton.fill) : AnyShapeStyle(Theme.Palette.muted.opacity(0.4)))
                     )
             })
             .buttonStyle(.plain)

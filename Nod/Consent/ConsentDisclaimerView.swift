@@ -62,11 +62,10 @@ struct ConsentDisclaimerView: View {
                 Button(action: { onAcknowledge(dontShowAgain) }) {
                     Text(strings.acknowledge)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.ink)
+                        .foregroundStyle(Theme.GlassButton.text)
                         .padding(.horizontal, 18)
                         .padding(.vertical, 9)
-                        .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
-                        .shadow(color: Theme.Palette.pink.opacity(0.3), radius: 12, x: 0, y: 6)
+                        .glassButtonSurface(Capsule(style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.defaultAction)

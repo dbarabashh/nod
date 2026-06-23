@@ -148,10 +148,10 @@ struct SettingsView: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                    .fill(isSelected ? Theme.Palette.violet.opacity(0.22) : .clear)
+                    .fill(isSelected ? Color.white.opacity(0.10) : .clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                            .stroke(isSelected ? Theme.Palette.violet.opacity(0.45) : .clear, lineWidth: 0.5)
+                            .stroke(isSelected ? Color.white.opacity(0.18) : .clear, lineWidth: 0.5)
                     )
             )
             .contentShape(Rectangle())
@@ -325,10 +325,10 @@ private struct AccountDataSection: View {
                     Button(action: { Task { await export.export() } }) {
                         Text(isExporting ? "Exporting…" : "Export")
                             .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.GlassButton.text)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 7)
-                            .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                            .glassButtonSurface(Capsule(style: .continuous))
                             .opacity(isExporting ? 0.7 : 1)
                     }
                     .buttonStyle(.plain)
@@ -420,10 +420,10 @@ private struct GranolaImportSection: View {
                 Button(action: { Task { await importer.importFromCache() } }) {
                     Text(isImporting ? "Importing…" : "Import")
                         .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.GlassButton.text)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 7)
-                        .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                        .glassButtonSurface(Capsule(style: .continuous))
                         .opacity(isImporting ? 0.7 : 1)
                 }
                 .buttonStyle(.plain)
@@ -595,10 +595,10 @@ private struct ProfileSettingsSection: View {
             Button(action: save) {
                 Text(saveState == .saving ? "Saving…" : "Save")
                     .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.GlassButton.text)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 7)
-                    .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                    .glassButtonSurface(Capsule(style: .continuous))
                     .opacity(saveState == .saving ? 0.7 : 1)
             }
             .buttonStyle(.plain)

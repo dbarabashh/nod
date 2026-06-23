@@ -115,10 +115,10 @@ struct KnowledgeChatView: View {
             } label: {
                 Text("Upgrade to Pro")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.GlassButton.text)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 9)
-                    .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                    .glassButtonSurface(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
             .padding(.top, 2)
@@ -280,9 +280,11 @@ struct KnowledgeChatView: View {
             Button(action: send) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(canSend ? Theme.GlassButton.text : .white)
                     .frame(width: 32, height: 32)
-                    .background(Circle().fill(canSend ? Theme.Palette.violet : Theme.Palette.muted.opacity(0.4)))
+                    .background(
+                        Circle().fill(canSend ? AnyShapeStyle(Theme.GlassButton.fill) : AnyShapeStyle(Theme.Palette.muted.opacity(0.4)))
+                    )
             }
             .buttonStyle(.plain)
             .disabled(!canSend)

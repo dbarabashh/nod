@@ -12,7 +12,7 @@ extension View {
     func chatBubbleBackground(isUser: Bool) -> some View {
         background(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(isUser ? Theme.Palette.violet.opacity(0.85) : Theme.Palette.surface)
+                .fill(isUser ? Color.white.opacity(0.14) : Theme.Palette.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
                         .stroke(isUser ? Color.clear : Theme.Palette.border, lineWidth: 0.5)

@@ -23,19 +23,26 @@ struct PanelMaterial: View {
 }
 
 extension View {
-    /// Toned-down brand surface for the panel's primary buttons: the brand
-    /// gradient faded over `PanelMaterial` glass with a white hairline, rather
-    /// than the full-saturation `buttonBrand` fill used elsewhere. Pass the
-    /// button's own shape so the fill, clip, and border stay in sync.
-    func softBrandSurface(_ shape: some InsettableShape, opacity: Double) -> some View {
-        background(
-            ZStack {
-                PanelMaterial()
-                shape.fill(Theme.Gradients.buttonBrand).opacity(opacity)
-            }
-            .clipShape(shape)
-        )
-        .overlay(shape.strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
+    /// Glassy white pill matching the marketing site's primary CTA. Every
+    /// value — fill, text colour, border, shadow — comes from the single
+    /// `Theme.GlassButton` source, so the whole app's primary buttons restyle
+    /// from one place. Sets a default dark foreground for the label (an inner
+    /// view can still override, e.g. an accent icon). Pass the button's own
+    /// shape so fill, clip, and border stay in sync.
+    func glassButtonSurface(_ shape: some InsettableShape) -> some View {
+        foregroundColor(Theme.GlassButton.text)
+            .background(
+                shape
+                    .fill(Theme.GlassButton.fill)
+                    .clipShape(shape)
+            )
+            .overlay(shape.strokeBorder(Theme.GlassButton.border, lineWidth: Theme.GlassButton.borderWidth))
+            .shadow(
+                color: Theme.GlassButton.shadow.color,
+                radius: Theme.GlassButton.shadow.radius,
+                x: Theme.GlassButton.shadow.x,
+                y: Theme.GlassButton.shadow.y
+            )
     }
 }
 

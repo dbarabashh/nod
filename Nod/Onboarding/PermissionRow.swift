@@ -16,24 +16,24 @@ struct PermissionRow: View {
         HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.system(size: 17, weight: .regular))
-                .foregroundStyle(Theme.Palette.ink.opacity(0.9))
+                .foregroundStyle(Theme.GlassButton.text.opacity(0.9))
                 .frame(width: 38, height: 38)
                 .background(
                     RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                        .fill(Theme.Palette.surface)
+                        .fill(Color.white.opacity(0.6))
                         .overlay(
                             RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                                .stroke(Theme.Palette.border, lineWidth: 0.5)
+                                .stroke(Color.black.opacity(0.12), lineWidth: 0.5)
                         )
                 )
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.GlassButton.text)
                 Text(description)
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Theme.Palette.graphite)
+                    .foregroundStyle(Theme.Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -45,10 +45,10 @@ struct PermissionRow: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
-                .fill(Theme.Palette.surface)
+                .fill(Color.white.opacity(0.6))
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
-                        .stroke(Theme.Palette.border, lineWidth: 0.5)
+                        .stroke(Color.black.opacity(0.12), lineWidth: 0.5)
                 )
         )
     }
@@ -84,11 +84,11 @@ private struct ActionButton: View {
                     ProgressView()
                         .controlSize(.mini)
                         .progressViewStyle(.circular)
-                        .tint(.white)
+                        .tint(Theme.GlassButton.text)
                 }
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.GlassButton.text)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
@@ -110,7 +110,7 @@ private struct StatusBadge: View {
                 .foregroundStyle(color)
             Text(text)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.Palette.ink.opacity(0.9))
+                .foregroundStyle(Theme.GlassButton.text.opacity(0.9))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)

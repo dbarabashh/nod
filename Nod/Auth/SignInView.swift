@@ -5,22 +5,28 @@ struct SignInView: View {
 
     var body: some View {
         ZStack {
-            AuroraBackground()
+            Image("WelcomeSky")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFill()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .ignoresSafeArea()
 
             VStack(spacing: 24) {
                 Spacer(minLength: 0)
 
                 VStack(spacing: 14) {
-                    Image("NodLogo")
+                    Image("NodGlyphInk")
                         .resizable()
                         .interpolation(.high)
                         .scaledToFit()
-                        .frame(width: 88, height: 88)
-                        .shadow(color: Theme.Palette.violet.opacity(0.45), radius: 22, x: 0, y: 10)
+                        .frame(width: 76, height: 76)
+                        .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 6)
 
                     Text("Welcome to Nod")
                         .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(Theme.Gradients.textBrand)
+                        .foregroundStyle(Theme.GlassButton.text)
                 }
 
                 Button {
@@ -30,23 +36,19 @@ struct SignInView: View {
                         if auth.isSigningIn {
                             ProgressView()
                                 .controlSize(.small)
-                                .tint(Theme.Palette.ink)
+                                .tint(Theme.GlassButton.text)
                         } else {
                             Image(systemName: "g.circle.fill")
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(Theme.Palette.ink)
+                                .foregroundStyle(Theme.GlassButton.text)
                         }
                         Text(auth.isSigningIn ? "Opening browser…" : "Continue with Google")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Theme.Palette.ink)
+                            .foregroundStyle(Theme.GlassButton.text)
                     }
                     .frame(maxWidth: 260)
                     .padding(.vertical, 12)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Theme.Gradients.buttonBrand)
-                    )
-                    .shadow(color: Theme.Palette.pink.opacity(0.35), radius: 16, x: 0, y: 8)
+                    .glassButtonSurface(Capsule(style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(auth.isSigningIn)
@@ -63,7 +65,7 @@ struct SignInView: View {
                 if let error = auth.lastError {
                     Text(error)
                         .font(.system(size: 12))
-                        .foregroundStyle(Theme.Palette.pink)
+                        .foregroundStyle(Theme.Palette.danger)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: 320)

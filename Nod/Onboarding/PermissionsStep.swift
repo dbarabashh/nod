@@ -13,10 +13,10 @@ struct PermissionsStep: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(strings.permissionsTitle)
                     .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.GlassButton.text)
                 Text(strings.permissionsSubtitle)
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(Theme.Palette.graphite)
+                    .foregroundStyle(Theme.Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.bottom, 28)
@@ -82,8 +82,6 @@ struct PermissionsStep: View {
                 .padding(.top, 16)
             }
 
-            Spacer(minLength: 0)
-
             HStack {
                 Button(action: { onFinish(true) }) {
                     Text(strings.actionSkip)
@@ -105,6 +103,7 @@ struct PermissionsStep: View {
         }
         .padding(.horizontal, 32)
         .padding(.bottom, 28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var allGranted: Bool {
@@ -121,7 +120,7 @@ struct PermissionsStep: View {
         }
         return AnyShapeStyle(
             LinearGradient(
-                colors: [Color.white.opacity(0.16), Color.white.opacity(0.09)],
+                colors: [Color.white.opacity(0.5), Color.white.opacity(0.4)],
                 startPoint: .leading,
                 endPoint: .trailing
             )
@@ -168,11 +167,11 @@ private struct ContinueButton: View {
         Button(action: action) {
             Text(label)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.Palette.ink)
+                .foregroundStyle(Theme.GlassButton.text)
                 .frame(width: 180)
                 .padding(.vertical, 11)
                 .background(Capsule(style: .continuous).fill(tint))
-                .shadow(color: isPrimary ? Theme.Palette.pink.opacity(0.3) : .clear, radius: 14, x: 0, y: 8)
+                .shadow(color: isPrimary ? Color.black.opacity(0.22) : .clear, radius: 14, x: 0, y: 8)
         }
         .buttonStyle(.plain)
     }
@@ -187,11 +186,11 @@ private struct RelaunchCard: View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Theme.Palette.pink)
+                .foregroundStyle(Theme.Palette.cyan)
 
             Text(hint)
                 .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Theme.Palette.ink.opacity(0.9))
+                .foregroundStyle(Theme.GlassButton.text.opacity(0.9))
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 0)
@@ -199,10 +198,10 @@ private struct RelaunchCard: View {
             Button(action: onRelaunch) {
                 Text(actionLabel)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.GlassButton.text)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
-                    .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                    .glassButtonSurface(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
         }
@@ -210,10 +209,10 @@ private struct RelaunchCard: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
-                .fill(Theme.Palette.pink.opacity(0.08))
+                .fill(Theme.Palette.cyan.opacity(0.08))
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
-                        .stroke(Theme.Palette.pink.opacity(0.4), lineWidth: 0.6)
+                        .stroke(Theme.Palette.cyan.opacity(0.4), lineWidth: 0.6)
                 )
         )
     }

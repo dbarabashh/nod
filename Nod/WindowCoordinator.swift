@@ -109,11 +109,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
 
         // .resizable so users with large system text settings can grow the
-        // window when content overflows the 580x540 default.
+        // window. A content min size stops it shrinking below where the
+        // primary action (Continue) still fits.
         let window = makeWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 540),
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 600),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView]
         )
+        window.contentMinSize = NSSize(width: 580, height: 560)
         window.titleVisibility = .hidden
 
         let root = OnboardingView(onComplete: { [weak self] in

@@ -25,17 +25,9 @@ struct ProfileStep: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 0)
-
-            Image(systemName: "person.text.rectangle.fill")
-                .font(.system(size: 40, weight: .regular))
-                .foregroundStyle(Theme.Palette.cyan)
-                .shadow(color: Theme.Palette.cyan.opacity(0.35), radius: 24, x: 0, y: 10)
-                .padding(.bottom, 22)
-
             Text("A little about you")
                 .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(Theme.Palette.ink)
+                .foregroundStyle(Theme.GlassButton.text)
                 .padding(.bottom, 8)
 
             Text(
@@ -43,7 +35,7 @@ struct ProfileStep: View {
             )
             .multilineTextAlignment(.center)
             .font(.system(size: 13, weight: .regular))
-            .foregroundStyle(Theme.Palette.graphite)
+            .foregroundStyle(Theme.Palette.muted)
             .frame(maxWidth: 400)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.bottom, 26)
@@ -63,20 +55,15 @@ struct ProfileStep: View {
                 )
             }
             .frame(maxWidth: 400)
-
-            Spacer(minLength: 0)
+            .padding(.bottom, 28)
 
             Button(action: { onContinue(name, preferences) }) {
                 Text("Continue")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.GlassButton.text)
                     .frame(width: 220)
                     .padding(.vertical, 12)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Theme.Gradients.buttonBrand)
-                    )
-                    .shadow(color: Theme.Palette.pink.opacity(0.3), radius: 18, x: 0, y: 10)
+                    .glassButtonSurface(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
@@ -85,10 +72,10 @@ struct ProfileStep: View {
             Button("Skip for now", action: onSkip)
                 .buttonStyle(.plain)
                 .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(Theme.Palette.graphite)
-                .padding(.bottom, 28)
+                .foregroundStyle(Theme.Palette.muted)
         }
         .padding(.horizontal, 40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -111,25 +98,25 @@ private struct ProfileField: View {
             if let helper {
                 Text(helper)
                     .font(.system(size: 12))
-                    .foregroundStyle(Theme.Palette.graphite)
+                    .foregroundStyle(Theme.Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             TextField(placeholder, text: $text, axis: axis)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13.5))
-                .foregroundStyle(Theme.Palette.ink)
+                .foregroundStyle(Theme.GlassButton.text)
                 .focused($focused)
                 .lineLimit(axis == .vertical ? 2 ... 4 : 1 ... 1)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Theme.Palette.surface)
+                        .fill(Color.white.opacity(0.7))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .stroke(
-                                    focused ? Theme.Palette.cyan.opacity(0.55) : Theme.Palette.border,
+                                    focused ? Theme.Palette.cyan.opacity(0.55) : Color.black.opacity(0.12),
                                     lineWidth: focused ? 1 : 0.5
                                 )
                         )

@@ -65,11 +65,11 @@ struct MeetingLanguagePrompt: View {
         Button(action: action) {
             let label = Text(title)
                 .font(.system(size: 13, weight: primary ? .semibold : .medium))
-                .foregroundColor(primary ? .white : .white.opacity(0.72))
+                .foregroundColor(primary ? Theme.GlassButton.text : .white.opacity(0.72))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
             if primary {
-                label.softBrandSurface(RoundedRectangle(cornerRadius: 8, style: .continuous), opacity: 0.32)
+                label.glassButtonSurface(RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
                 label.background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)

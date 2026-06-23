@@ -788,17 +788,16 @@ private struct StartMeetingButton: View {
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.GlassButton.text)
 
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.GlassButton.text)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
             .frame(maxWidth: .infinity, minHeight: 42)
-            .softBrandSurface(Capsule(style: .continuous), opacity: hovered ? 0.42 : 0.32)
-            .shadow(color: Color.black.opacity(0.22), radius: 8, x: 0, y: 3)
+            .glassButtonSurface(Capsule(style: .continuous))
             .scaleEffect(pressed ? 0.985 : 1.0)
             .animation(.easeOut(duration: 0.10), value: pressed)
             .animation(.hoverReveal(reduceMotion: reduceMotion), value: hovered)
@@ -887,7 +886,7 @@ private struct HeroButton: View {
                     ProgressView()
                         .controlSize(.small)
                         .progressViewStyle(.circular)
-                        .tint(Theme.Palette.ink)
+                        .tint(Theme.GlassButton.text)
                         .frame(width: 14, height: 14)
                 } else {
                     Image(systemName: "sparkles")
@@ -899,7 +898,7 @@ private struct HeroButton: View {
 
                 Text(isGenerating ? "Recalling…" : "Catch me up")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Theme.Palette.ink)
+                    .foregroundColor(Theme.GlassButton.text)
 
                 Spacer(minLength: 0)
             }
@@ -907,16 +906,7 @@ private struct HeroButton: View {
             .padding(.vertical, 9)
             // Match SuggestionPill width for a tidy stacked-pill column.
             .frame(width: 246, alignment: .leading)
-            .background(
-                ZStack {
-                    PanelMaterial()
-                    Capsule(style: .continuous)
-                        .fill(Theme.Gradients.buttonBrand)
-                        .opacity(0.20)
-                }
-                .clipShape(Capsule(style: .continuous))
-            )
-            .shadow(color: DesignTokens.Palette.magentaBurst.opacity(0.35), radius: 10, x: 0, y: 4)
+            .glassButtonSurface(Capsule(style: .continuous))
             .opacity(enabled ? 1.0 : 0.55)
         }
         .buttonStyle(.plain)
@@ -1092,10 +1082,10 @@ private struct UpdateRequiredOverlay: View {
                 Button(action: onUpdate) {
                     Text("Update & Relaunch")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.GlassButton.text)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                        .glassButtonSurface(Capsule(style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -1179,10 +1169,10 @@ private struct SaveErrorToast: View {
                 Button(action: onRetry) {
                     Text("Retry")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.ink)
+                        .foregroundStyle(Theme.GlassButton.text)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                        .glassButtonSurface(Capsule(style: .continuous))
                 }
                 .buttonStyle(.plain)
             }

@@ -11,19 +11,31 @@ struct OnboardingView: View {
 
     /// Pad past the traffic-light strip so step titles never collide with the
     /// close button. macOS chrome occupies ~28pt of the window's top.
-    private static let chromeInset: CGFloat = 36
+    private static let chromeInset: CGFloat = 48
 
     var body: some View {
         ZStack {
-            OnboardingBackdrop()
+            Image("WelcomeSky")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFill()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .ignoresSafeArea()
 
-            content
-                .padding(.top, Self.chromeInset)
+            VStack(spacing: 0) {
+                // Reserve the traffic-light strip as a sibling so it subtracts
+                // from the content height instead of overflowing a full-height
+                // step (which clipped the bottom buttons).
+                Color.clear.frame(height: Self.chromeInset)
+                content
+            }
+            .environment(\.colorScheme, .light)
         }
         // minWidth/minHeight (not fixed) so when users with large system
         // text scaling grow the window, the SwiftUI content actually
         // expands to use the new space.
-        .frame(minWidth: 580, minHeight: 540)
+        .frame(minWidth: 580, minHeight: 560)
         .onAppear { permissions.refresh() }
     }
 
@@ -82,32 +94,5 @@ struct OnboardingView: View {
                 onComplete()
             })
         }
-    }
-}
-
-/// Calmer than `AuroraBackground` — a near-black base with a single soft
-/// bloom in the corner. Premium Mac apps go quiet; the aurora reads as
-/// "marketing splash."
-private struct OnboardingBackdrop: View {
-    var body: some View {
-        ZStack {
-            Theme.Palette.bg.ignoresSafeArea()
-
-            Circle()
-                .fill(Theme.Palette.violet)
-                .frame(width: 480, height: 480)
-                .blur(radius: 160)
-                .opacity(0.18)
-                .offset(x: -140, y: -200)
-
-            Circle()
-                .fill(Theme.Palette.cyan)
-                .frame(width: 360, height: 360)
-                .blur(radius: 160)
-                .opacity(0.10)
-                .offset(x: 180, y: 220)
-        }
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
     }
 }

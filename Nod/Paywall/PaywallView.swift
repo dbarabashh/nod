@@ -174,10 +174,10 @@ struct PaywallView: View {
                     Text(badge.uppercased())
                         .font(.system(size: 9.5, weight: .bold, design: .rounded))
                         .tracking(0.5)
-                        .foregroundStyle(Theme.Palette.ink)
+                        .foregroundStyle(Theme.GlassButton.text)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(Capsule(style: .continuous).fill(Theme.Gradients.buttonBrand))
+                        .background(Capsule(style: .continuous).fill(Theme.GlassButton.fill))
                 }
             }
             Text(plan.tagline)
@@ -216,7 +216,7 @@ struct PaywallView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
-                .stroke(plan.highlighted ? Theme.Palette.violet.opacity(0.55) : Theme.Palette.border, lineWidth: plan.highlighted ? 1 : 0.5)
+                .stroke(plan.highlighted ? Theme.GlassButton.border : Theme.Palette.border, lineWidth: plan.highlighted ? 1 : 0.5)
         )
     }
 
@@ -233,12 +233,12 @@ struct PaywallView: View {
         } label: {
             HStack(spacing: 7) {
                 if billing.isStartingCheckout {
-                    ProgressView().controlSize(.small).tint(Theme.Palette.ink)
+                    ProgressView().controlSize(.small).tint(plan.highlighted ? Theme.GlassButton.text : Theme.Palette.ink)
                 }
                 Text(label)
                     .font(.system(size: 13, weight: .semibold))
             }
-            .foregroundStyle(isCurrent ? Theme.Palette.muted : Theme.Palette.ink)
+            .foregroundStyle(isCurrent ? Theme.Palette.muted : (plan.highlighted ? Theme.GlassButton.text : Theme.Palette.ink))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 9)
             .background(ctaBackground(highlighted: plan.highlighted, isCurrent: isCurrent))
@@ -254,7 +254,8 @@ struct PaywallView: View {
             shape.fill(Theme.Palette.surface)
                 .overlay(shape.stroke(Theme.Palette.border, lineWidth: 0.5))
         } else if highlighted {
-            shape.fill(Theme.Gradients.buttonBrand)
+            shape.fill(Theme.GlassButton.fill)
+                .overlay(shape.stroke(Theme.GlassButton.border, lineWidth: Theme.GlassButton.borderWidth))
         } else {
             shape.fill(Theme.Palette.surfaceStrong)
                 .overlay(shape.stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
@@ -267,7 +268,7 @@ struct PaywallView: View {
             if !isHeader {
                 Image(systemName: "checkmark")
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Theme.Palette.violet)
+                    .foregroundStyle(Theme.Palette.ink)
                     .frame(width: 14)
             }
             Text(feature)

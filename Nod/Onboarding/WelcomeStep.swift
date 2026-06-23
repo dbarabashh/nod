@@ -23,61 +23,55 @@ struct WelcomeStep: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 0)
-
-            Image("NodLogo")
+            Image("NodGlyphInk")
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .frame(width: 76, height: 76)
-                .shadow(color: Theme.Palette.violet.opacity(0.35), radius: 28, x: 0, y: 12)
-                .padding(.bottom, 24)
+                .frame(width: 72, height: 72)
+                .shadow(color: Color.black.opacity(0.12), radius: 16, x: 0, y: 8)
+                .padding(.bottom, 18)
 
             Text(strings.welcomeTitle)
                 .font(.system(size: 30, weight: .semibold, design: .default))
-                .foregroundStyle(Theme.Palette.ink)
-                .padding(.bottom, 10)
+                .foregroundStyle(Theme.GlassButton.text)
+                .padding(.bottom, 8)
 
             Text(strings.welcomeTagline)
                 .multilineTextAlignment(.center)
                 .font(.system(size: 13.5, weight: .regular))
-                .foregroundStyle(Theme.Palette.graphite)
+                .foregroundStyle(Theme.Palette.muted)
                 .frame(maxWidth: 380)
-                .padding(.bottom, 28)
+                .padding(.bottom, 20)
 
-            VStack(spacing: 16) {
+            VStack(spacing: 14) {
                 ForEach(Array(strings.welcomeBullets.enumerated()), id: \.offset) { _, bullet in
                     FeatureRow(icon: bullet.icon, text: bullet.text)
                 }
             }
             .frame(maxWidth: 380)
-            .padding(.bottom, 24)
+            .padding(.bottom, 18)
 
             LanguageRow(
                 label: strings.welcomeLanguageLabel,
                 selection: $selection
             )
             .frame(maxWidth: 380)
-
-            Spacer(minLength: 0)
+            .padding(.bottom, 30)
 
             Button(action: { onContinue(selection) }) {
                 Text(strings.welcomeContinue)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                    .foregroundStyle(Theme.GlassButton.text)
                     .frame(width: 220)
                     .padding(.vertical, 12)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Theme.Gradients.buttonBrand)
-                    )
-                    .shadow(color: Theme.Palette.pink.opacity(0.3), radius: 18, x: 0, y: 10)
+                    .glassButtonSurface(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
-            .padding(.bottom, 32)
         }
         .padding(.horizontal, 40)
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -99,7 +93,7 @@ private struct FeatureRow: View {
 
             Text(text)
                 .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(Theme.Palette.ink.opacity(0.88))
+                .foregroundStyle(Theme.GlassButton.text.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 0)
@@ -115,17 +109,17 @@ private struct LanguageRow: View {
         HStack(spacing: 14) {
             Image(systemName: "globe")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Theme.Palette.violet)
+                .foregroundStyle(Theme.Palette.cyan)
                 .frame(width: 22, height: 22)
                 .background(
                     Circle()
-                        .fill(Theme.Palette.violet.opacity(0.10))
-                        .overlay(Circle().stroke(Theme.Palette.violet.opacity(0.25), lineWidth: 0.5))
+                        .fill(Theme.Palette.cyan.opacity(0.10))
+                        .overlay(Circle().stroke(Theme.Palette.cyan.opacity(0.25), lineWidth: 0.5))
                 )
 
             Text(label)
                 .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(Theme.Palette.ink.opacity(0.88))
+                .foregroundStyle(Theme.GlassButton.text.opacity(0.85))
 
             Spacer(minLength: 0)
 
@@ -144,7 +138,7 @@ private struct LanguageRow: View {
             // Stable trigger width so the row doesn't jitter as the
             // user steps through native names with wildly different
             // glyph widths (中文 vs Українська).
-            .frame(minWidth: 140, alignment: .trailing)
+            .frame(minWidth: 130, alignment: .trailing)
         }
     }
 }
