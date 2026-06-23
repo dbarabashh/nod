@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-06-20_
+_Last updated: 2026-06-23_
 
 A subprocessor is a third party that processes personal data on our behalf
 when you use Nod. We use the minimum number of subprocessors required to
@@ -22,6 +22,7 @@ subscribe to change notifications, email **dbarabashdev@gmail.com**.
 | **Google LLC** (OAuth)      | Authentication (sign-in with Google)     | Your Google email, OpenID profile claims                          | Global             | No                    | Google OAuth ToS     |
 | **Apple, Inc.**             | macOS app distribution & code signing    | Crash logs (if you opt-in via System Settings), receipt validation | Global             | No                    | Apple Developer Agreement |
 | **Paddle.com Market Limited** | Merchant of Record — subscription billing, payment processing, VAT/sales-tax remittance, invoicing, refunds | Name, email, billing address and country, and payment-method details you enter at checkout; subscription and transaction records | UK; global payment processing | No | Paddle DPA; Paddle acts as Merchant of Record |
+| **Vercel Inc.**             | Hosting for the marketing website (`hellonod.app`) + cookieless Web Analytics | Visitor IP (transient — used to derive aggregate page-view/event counts, never stored or exposed), user-agent, page path. No account or meeting data. | USA (global edge) | No | Vercel DPA; Web Analytics is cookieless and does not track across sites |
 
 Audio is never stored by any subprocessor — it exists only for the duration
 of a single Whisper request and is discarded by the upstream provider as
@@ -34,9 +35,14 @@ entirely by Paddle as Merchant of Record.
 
 ## What we do **not** use
 
-- **No analytics SDKs.** Nod does not embed PostHog, Mixpanel, Amplitude,
-  Segment, Google Analytics, or Sentry. We have no third-party telemetry in
-  the macOS app.
+- **No analytics SDKs in the app.** The macOS app embeds no telemetry —
+  no PostHog, Mixpanel, Amplitude, Segment, Google Analytics, or Sentry. The
+  marketing website uses **Vercel Web Analytics** (cookieless, aggregate
+  page-view and download-click counts, no cross-site tracking) — listed in the
+  table above; it never sees your account or meeting data.
+- **No third-party fonts or icon CDNs.** The website self-hosts its fonts and
+  app icons, so loading a page sends no request — and no visitor IP — to
+  Google Fonts, `gstatic`, or any other CDN.
 - **No advertising networks.** Nod shows no ads and shares no data with
   ad-tech platforms.
 - **No meeting-platform bots.** We do not deploy a bot into Zoom, Meet, or
@@ -71,6 +77,7 @@ storage anywhere in this chain.
 | 2026-06-02 | Added cross-session search; noted chat messages, embeddings, and extracted entities stored in Supabase. |
 | 2026-06-03 | Embeddings are generated in-region by Supabase's built-in `gte-small` model (inside the Edge Function), not sent to any external embedding provider. |
 | 2026-06-10 | Added Paddle.com Market Limited as an active subprocessor and Merchant of Record for subscription billing. |
+| 2026-06-23 | Added Vercel Inc. (marketing-site hosting + cookieless Web Analytics). Self-hosted website fonts and app icons to stop IP leakage to Google CDNs. |
 
 ---
 
