@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-06-21_
+_Last updated: 2026-06-23_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -145,8 +145,10 @@ in the same `eu-west-1` region.
 
 ### 3.7 What we do **not** collect
 
-- We do **not** embed analytics SDKs (PostHog, Mixpanel, Amplitude,
-  Segment, Google Analytics, Sentry, etc.).
+- The macOS app embeds **no** analytics SDKs (PostHog, Mixpanel, Amplitude,
+  Segment, Google Analytics, Sentry, etc.). The marketing website uses only
+  **Vercel Web Analytics** — cookieless, aggregate page-view and download-click
+  counts, no cross-site tracking (see the Subprocessors page).
 - We do **not** track you across the web or use advertising cookies.
 - We do **not** read your calendar, email, or other Google services.
 - We do **not** collect your contacts or address book.
@@ -324,10 +326,12 @@ up, contact us and we will delete the account.
 ## 11. Cookies
 
 The Nod macOS app does not use cookies (it's a native app, not a
-website). Our marketing site at `hellonod.app` uses only strictly necessary
-cookies (session, CSRF). We do not use advertising or third-party
-analytics cookies. If this changes we will publish a separate Cookie
-Policy.
+website). Our marketing site at `hellonod.app` is a static site that sets
+**no cookies** — it uses Vercel Web Analytics, which is cookieless and stores
+no cross-site identifier, and self-hosts its fonts and app icons so visiting a
+page sends no request (and no IP) to any third-party CDN. We use no advertising
+or third-party analytics cookies. If this changes we will publish a separate
+Cookie Policy.
 
 ---
 
