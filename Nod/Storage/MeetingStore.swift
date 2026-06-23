@@ -378,14 +378,23 @@ final class MeetingStore: ObservableObject {
     // MARK: - Sharing
 
     /// Base URL of the share web viewer (share-nod-ui-service), deployed at
-    /// `share.hellonod.app`. Override per-device — e.g. to the Vite dev server
-    /// `http://localhost:5173` while developing the viewer — via the
-    /// `share.viewerBaseURL` UserDefaults key (same pattern as the
-    /// `openrouter.model` / `whisper.model` overrides).
+    /// `share.hellonod.app`. Debug builds default to the local Vite dev server
+    /// (`http://localhost:5173`) so a share link opens the viewer you're
+    /// editing; Release always points at production. Either default can be
+    /// overridden per-device via the `share.viewerBaseURL` UserDefaults key
+    /// (same pattern as the `openrouter.model` / `whisper.model` overrides).
     private static let shareViewerBaseURLKey = "share.viewerBaseURL"
 
+    private static let defaultShareViewerBaseURL: String = {
+        #if DEBUG
+            return "http://localhost:5173"
+        #else
+            return "https://share.hellonod.app"
+        #endif
+    }()
+
     private static var shareViewerBaseURL: String {
-        UserDefaults.standard.string(forKey: shareViewerBaseURLKey) ?? "https://share.hellonod.app"
+        UserDefaults.standard.string(forKey: shareViewerBaseURLKey) ?? defaultShareViewerBaseURL
     }
 
     /// Creates (or reuses) a public share link for a meeting and returns the
