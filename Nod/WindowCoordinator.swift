@@ -173,6 +173,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         .environmentObject(services.entitlements)
         .environmentObject(services.updateGate)
         .environmentObject(services.hotkeys)
+        .environmentObject(services.panelSharing)
 
         // Start at the compact width — the panel launches idle. ContentView
         // reports the desired width as the layout changes and the panel
