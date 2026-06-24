@@ -350,6 +350,20 @@ verify_jwt = false
 [functions.paddle-webhook]
 verify_jwt = false
 
+# External agent connections API. The caller authenticates with a Nod personal
+# access token (not a Supabase JWT), so the gateway check is disabled — the
+# function hashes the bearer token and resolves it against an un-revoked
+# `connections` row before touching any data.
+[functions.connect]
+verify_jwt = false
+
+# Remote MCP server (Streamable HTTP) for browser/desktop AI clients (ChatGPT,
+# Claude, Gemini). Auth is a connection token in the URL path (`…/mcp/<token>`),
+# not a Supabase JWT, so the gateway check is disabled — the function resolves
+# the token to a single user before serving any data.
+[functions.mcp]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
