@@ -326,26 +326,43 @@ final class MeetingStore: ObservableObject {
         }
     }
 
-    /// Insert-or-update transcript rows on the primary key — the streaming /
-    /// outbox path may re-send a row (e.g. to add a diarized speaker label after
-    /// the plain row already landed), so a plain `insert` would PK-conflict.
-    /// Same not-yet-migrated `speaker` column fallback as `insertTranscript`.
+    /// Insert-or-update transcript rows. The streaming / outbox path re-sends a
+    /// slot (e.g. a re-transcription or dedup swap reissues `(meeting_id, idx)`
+    /// under a fresh `id`), so the conflict target must be the `(meeting_id,
+    /// idx)` unique index — the default PK (`id`) target misses the reissued
+    /// row and Postgres rejects it on `meeting_transcripts_meeting_id_idx_key`,
+    /// stranding the meeting as "saved on this device only" forever. The batch
+    /// is also collapsed to one row per slot first: it's keyed by `id` upstream,
+    /// so it may carry two rows for the same `idx`, which a single multipart
+    /// upsert can't touch twice. Same not-yet-migrated `speaker` fallback as
+    /// `insertTranscript`.
     func upsertTranscript(_ records: [TranscriptRecord]) async throws {
         guard !records.isEmpty else { return }
-        Log.ui.info("MeetingStore.upsertTranscript meeting=\(records[0].meetingID.uuidString) count=\(records.count)")
+        let deduped = Self.collapseByIdx(records)
+        Log.ui.info("MeetingStore.upsertTranscript meeting=\(deduped[0].meetingID.uuidString) count=\(deduped.count)")
         do {
             try await supabase
                 .from(Self.transcriptsTableName)
-                .upsert(records)
+                .upsert(deduped, onConflict: "meeting_id,idx")
                 .execute()
         } catch {
             guard Self.isMissingSpeakerColumn(error) else { throw error }
             Log.ui.error("upsertTranscript: 'speaker' column absent — retrying without diarization labels")
             try await supabase
                 .from(Self.transcriptsTableName)
-                .upsert(records.map { $0.droppingSpeaker() })
+                .upsert(deduped.map { $0.droppingSpeaker() }, onConflict: "meeting_id,idx")
                 .execute()
         }
+    }
+
+    /// Keep one row per `(meetingID, idx)`, last wins — the freshest text after
+    /// a re-transcription / dedup swap reissues a slot under a new `id`.
+    private static func collapseByIdx(_ records: [TranscriptRecord]) -> [TranscriptRecord] {
+        var byKey: [String: TranscriptRecord] = [:]
+        for record in records {
+            byKey["\(record.meetingID.uuidString)-\(record.idx)"] = record
+        }
+        return byKey.values.sorted { $0.idx < $1.idx }
     }
 
     /// PostgREST reports an unknown column as PGRST204 with a message naming it
