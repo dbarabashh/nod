@@ -587,12 +587,12 @@ private struct StatusHeader: View {
     @ViewBuilder private var indicator: some View {
         switch meeting {
         case .idle:
-            // Green = ready/available (Nod is alive, waiting to record).
-            // Grey read as "off" which contradicted reality.
-            Circle()
-                .fill(Color(red: 0.40, green: 0.85, blue: 0.55))
-                .frame(width: 8, height: 8)
-                .shadow(color: Color(red: 0.40, green: 0.85, blue: 0.55).opacity(0.55), radius: 3, x: 0, y: 0)
+            Image("NTemplate")
+                .renderingMode(.template)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 13, height: 13)
+                .foregroundColor(.white.opacity(0.85))
         case .recording:
             Circle()
                 .fill(Color(red: 0.95, green: 0.25, blue: 0.30))
