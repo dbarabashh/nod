@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-06-23_
+_Last updated: 2026-06-24_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -182,9 +182,12 @@ into Nod.
 configured our subprocessors so that they do not use your data for
 training:
 
-- LLM and Whisper calls go through OpenRouter with Zero Data Retention
-  enabled for non-frontier models and the "may train on request data"
-  routes (both paid and free) explicitly disabled.
+- Speech-to-text runs primarily on **Groq**, whose Services Agreement
+  prohibits using inputs or outputs to train any model and which retains
+  no customer data by default (only transient error/abuse logs, ≤ 30 days).
+- LLM and fallback Whisper calls go through OpenRouter with Zero Data
+  Retention enabled for non-frontier models and the "may train on request
+  data" routes (both paid and free) explicitly disabled.
 - First-party endpoints for OpenAI, Anthropic, and Google are disabled in
   our OpenRouter account. Traffic is routed to enterprise endpoints
   (Azure OpenAI, AWS Bedrock, Google Vertex AI), which contractually do
@@ -205,8 +208,9 @@ We do **not** sell or rent personal data to anyone. We share data with
 third parties only when one of the following applies:
 
 - It's a subprocessor on the published list, acting under a data
-  processing agreement (Supabase, OpenRouter, OpenAI via Azure, Google
-  Cloud / Vertex, Google OAuth, Apple, and Paddle for billing).
+  processing agreement (Supabase, Groq for speech-to-text, OpenRouter,
+  OpenAI via Azure, Google Cloud / Vertex, Google OAuth, Apple, and Paddle
+  for billing).
 - We're legally compelled (court order, lawful subpoena). We will notify
   you unless prohibited by law.
 - You explicitly ask us to (for example, exporting your data to another
@@ -224,8 +228,9 @@ European Union (AWS `eu-west-1`, Ireland).
 
 Some subprocessors operate globally and may process data outside the EU:
 
-- **OpenRouter**, **OpenAI/Azure**, and **Google/Vertex** may route
-  requests to US-based infrastructure. Transfers rely on the EU
+- **Groq** (speech-to-text), **OpenRouter**, **OpenAI/Azure**, and
+  **Google/Vertex** may route requests to US-based infrastructure.
+  Transfers rely on the EU
   Commission's adequacy decision for the US (EU–US Data Privacy
   Framework) where applicable, or on Standard Contractual Clauses
   (SCCs) otherwise.

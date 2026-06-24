@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-06-21_
+_Last updated: 2026-06-24_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company. We've made the
@@ -63,8 +63,13 @@ plays audio on your Mac.
 
 **We do not train any models on your data.** Period.
 
-We also do not allow our subprocessors to train on your data. The LLM and
-Whisper calls go through OpenRouter, where we have:
+We also do not allow our subprocessors to train on your data.
+
+Speech-to-text runs primarily on **Groq**, whose Services Agreement prohibits
+using inputs or outputs to train any model and which retains no customer data
+by default (only transient error/abuse logs, ≤ 30 days).
+
+The LLM and fallback Whisper calls go through OpenRouter, where we have:
 
 - Enabled **Zero Data Retention** for all non-frontier model routes.
 - **Disabled** "paid endpoints that may train on request data".
@@ -174,7 +179,7 @@ sure you comply with the rules where you and your participants are located.
 | Auth                  | Supabase Auth            | AWS `eu-west-1`   |
 | Server-side functions | Supabase Edge Functions  | EU                |
 | LLM gateway           | OpenRouter               | routed            |
-| Whisper transcription | OpenAI via Azure OpenAI  | (no-train)        |
+| Whisper transcription | Groq (primary); OpenAI/Azure + OpenRouter (fallback) | US (Groq); routed (no-train) |
 | Text embeddings       | Supabase Edge runtime (`gte-small`) | in-region, no external provider |
 | LLM summaries         | Google Gemini via Vertex | (no-train)        |
 
@@ -188,21 +193,23 @@ sure you comply with the rules where you and your participants are located.
 ## How data flows
 
 ```
-You ──► Nod (your Mac) ──► Supabase Edge Function (llm-proxy) ──► OpenRouter ──► Whisper / Gemini
+You ──► Nod (your Mac) ──► Supabase Edge Function (llm-proxy) ──┬─► Groq ──► Whisper (speech-to-text, primary)
+                          │                                     ├─► OpenRouter ──► Gemini (summaries) + Whisper (last-resort)
+                          │                                     └─► OpenAI ──► Whisper (fallback)
                           │
                           └─► Supabase Postgres (transcripts, summaries, usage logs)
 ```
 
-The OpenRouter API key never touches your Mac. The app sends requests to our
+No provider API key ever touches your Mac. The app sends requests to our
 own Supabase Edge Function (`llm-proxy`), authenticated with your Supabase
-JWT. The Edge Function attaches the OpenRouter key (stored only in Supabase
+JWT. The Edge Function attaches the provider key (stored only in Supabase
 secrets, readable only from the function's runtime) and forwards the call
-upstream.
+upstream — speech-to-text to Groq first, with OpenAI and OpenRouter as
+fallbacks.
 
-Audio bytes are forwarded once per ~5-second chunk and never written to
-durable storage anywhere in this chain — not on your Mac, not in our
-database, not by OpenRouter, and not by the upstream Whisper provider
-(routed through Azure OpenAI under their no-train commitment).
+Audio bytes are forwarded once per chunk and never written to durable
+storage anywhere in this chain — not on your Mac, not in our database, not
+by Groq (no retention by default), and not by any fallback Whisper provider.
 
 ---
 
