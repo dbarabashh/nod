@@ -89,7 +89,10 @@ struct ContentView: View {
                         .frame(width: 308, alignment: .topLeading)
                 }
             }
-            .padding(16)
+            .padding([.horizontal, .bottom], 16)
+            // Extra top room so a header icon's hover tooltip can sit above the
+            // row without being clipped by the panel's top edge.
+            .padding(.top, PanelTooltip.reservedTopSpace)
             // Measure the natural content height so any reshape (recording
             // pills replacing the taller pre-meeting card, a response card
             // opening/closing, …) triggers a panel repaint — see
@@ -475,6 +478,13 @@ private struct StatusHeader: View {
     let onLanguageSelect: (AppLanguage) -> Void
     var onCollapse: (() -> Void)?
     @State private var pulsing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Secondary controls stay minimized and reveal while the pointer is over
+    /// the trailing cluster. `revealWidth` is the group's measured full width, so
+    /// the reveal is a single width interpolation (0 → full) rather than views
+    /// being inserted/removed.
+    @State private var iconsExpanded = false
+    @State private var revealWidth: CGFloat = 0
 
     var body: some View {
         HStack(spacing: 8) {
@@ -496,30 +506,7 @@ private struct StatusHeader: View {
                 }
             }
             Spacer(minLength: 0)
-            if showMicPicker {
-                MicInputPicker(audioCapture: audioCapture)
-            }
-            // Screen-share visibility at a glance, before a demo: a monitor with
-            // an amber eye (open = Nod shows in the share, crossed = hidden). Tap
-            // to flip.
-            ScreenShareButton()
-            // Selectable mid-meeting: it controls generated output language,
-            // while transcription stays auto/multilingual and preserves the
-            // spoken language of each chunk.
-            PanelIconButton(
-                systemName: "rectangle.stack",
-                help: "Library",
-                action: { NotificationCenter.default.post(name: .nodOpenLibrary, object: nil) }
-            )
-            LanguagePicker(current: language, onSelect: onLanguageSelect)
-            PanelMenuButton()
-            if let onCollapse {
-                PanelIconButton(
-                    systemName: "chevron.up",
-                    help: "Collapse",
-                    action: onCollapse
-                )
-            }
+            trailingControls
         }
         .padding(.leading, 12)
         .padding(.trailing, 6)
@@ -536,7 +523,65 @@ private struct StatusHeader: View {
                     lineWidth: meeting == .paused ? 1 : 0
                 ))
         )
+        // Reveal the secondary icons when the pointer is anywhere over the whole
+        // header strip, not just the icon cluster.
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.panelReveal(reduceMotion: reduceMotion)) { iconsExpanded = hovering }
+        }
         .onAppear { pulsing = true }
+    }
+
+    // Secondary actions stay minimized and reveal on hover (HIG pointing-devices:
+    // "reveal/hide controls that minimize"). The reveal group's width interpolates
+    // 0 → full as one smooth motion — nothing is added or removed — while the
+    // "…" menu and collapse chevron stay pinned and uncovered on the trailing edge.
+    private var trailingControls: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                if showMicPicker {
+                    MicInputPicker(audioCapture: audioCapture)
+                        .panelTooltip("Mic")
+                }
+                PanelIconButton(
+                    systemName: "rectangle.stack",
+                    help: "Library",
+                    action: { NotificationCenter.default.post(name: .nodOpenLibrary, object: nil) }
+                )
+                .panelTooltip("Library")
+                ScreenShareButton()
+            }
+            .fixedSize()
+            .background(GeometryReader { geo in
+                Color.clear
+                    .onAppear { revealWidth = geo.size.width }
+                    .onChange(of: geo.size.width) { revealWidth = $0 }
+            })
+            .frame(width: iconsExpanded ? revealWidth : 0, alignment: .trailing)
+            .opacity(iconsExpanded ? 1 : 0)
+            // No clip: the 0-width frame + opacity hide the collapsed icons
+            // (and `allowsHitTesting` keeps the invisible ones from catching
+            // clicks), so a hover tooltip can extend any direction uncut.
+            .allowsHitTesting(iconsExpanded)
+
+            // Language is the key pre-meeting choice, so it stays pinned and
+            // visible by default (not tucked into the reveal group) — and
+            // disappears once the meeting starts and it's locked in.
+            if meeting == .idle {
+                LanguagePicker(current: language, onSelect: onLanguageSelect)
+                    .panelTooltip("Language")
+            }
+            PanelMenuButton()
+                .panelTooltip("More")
+            if let onCollapse {
+                PanelIconButton(
+                    systemName: "chevron.up",
+                    help: "Collapse",
+                    action: onCollapse
+                )
+                .panelTooltip("Collapse")
+            }
+        }
     }
 
     @ViewBuilder private var indicator: some View {
@@ -636,9 +681,7 @@ private struct ScreenShareButton: View {
             .background(Circle().fill(Color.white.opacity(0.10)))
         }
         .buttonStyle(.plain)
-        .help(visible
-            ? "Nod is visible when you share your screen — click to hide it"
-            : "Nod is hidden when you share your screen — click to show it")
+        .panelTooltip(visible ? "Visible when sharing" : "Hidden when sharing")
     }
 }
 
@@ -681,6 +724,58 @@ private struct EyeShape: Shape {
             path.addLine(to: pt24(16.5, 15.5, in: rect))
         }
         return path
+    }
+}
+
+/// Decelerating ease-out (cubic-bézier 0.22, 1, 0.36, 1 — "easeOutQuint") for a
+/// purposeful, settled reveal rather than a flat ease-in-out feel. Reduce Motion
+/// collapses it to a quick crossfade with no long deceleration.
+private extension Animation {
+    static func panelReveal(reduceMotion: Bool) -> Animation {
+        reduceMotion
+            ? .easeInOut(duration: 0.12)
+            : .timingCurve(0.22, 1, 0.36, 1, duration: 0.34)
+    }
+}
+
+/// A small label that fades in just above a header icon while the pointer is
+/// over it — a one-word reminder of what the icon does.
+private struct PanelTooltip: ViewModifier {
+    /// How far the capsule floats above its icon. The panel reserves
+    /// `reservedTopSpace` of top inset (see `ContentView`) so the lifted capsule
+    /// clears the window's top edge — keep `reservedTopSpace` ≥ `lift` + the
+    /// capsule's own height, or tooltips clip again.
+    static let lift: CGFloat = 24
+    static let reservedTopSpace: CGFloat = 30
+
+    let text: String
+    @State private var show = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.12)) { show = hovering }
+            }
+            .overlay(alignment: .top) {
+                if show {
+                    Text(text)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.95))
+                        .fixedSize()
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule(style: .continuous).fill(Color.black.opacity(0.82)))
+                        .offset(y: -Self.lift)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+}
+
+private extension View {
+    func panelTooltip(_ text: String) -> some View {
+        modifier(PanelTooltip(text: text))
     }
 }
 
