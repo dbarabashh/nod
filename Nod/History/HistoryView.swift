@@ -39,6 +39,13 @@ struct HistoryView: View {
     /// Live window content width, used to clamp the dock so the left column
     /// can't be crushed.
     @State private var windowWidth: CGFloat = 1040
+    /// In-progress dock width while a resize drag is active; nil when idle. The
+    /// panes keep their committed width during the drag and only a lightweight
+    /// preview line moves — so dragging never re-flows the heavy panes (smooth
+    /// even on a fast drag); the width is committed once on release.
+    @State private var resizePreview: CGFloat?
+    /// Whether the divider is hovered/dragged, so the seam line can highlight.
+    @State private var resizeActive = false
 
     init(initialFocusMeetingID: UUID? = nil) {
         self.initialFocusMeetingID = initialFocusMeetingID
@@ -59,22 +66,49 @@ struct HistoryView: View {
 
     var body: some View {
         let dockW = dockWidth.width(for: path.last?.id, totalWidth: windowWidth)
-        HStack(spacing: 0) {
-            navigationColumn
-                .frame(maxWidth: .infinity)
-            // The handle is an overlay pinned to the dock's leading edge, not a
-            // layout element — so the divider line sits exactly on the seam and
-            // moves in lockstep with the dock as it resizes live. The width
-            // updates in memory each frame and is flushed to disk once on release.
-            chatDock(width: dockW)
-                .overlay(alignment: .leading) {
-                    ChatResizeHandle(
-                        width: dockW,
-                        onResize: { dockWidth.setWidth($0, for: path.last?.id, totalWidth: windowWidth) },
-                        onCommit: { dockWidth.commit() },
-                        onReset: { dockWidth.resetWidth(for: path.last?.id) }
-                    )
-                }
+        ZStack(alignment: .leading) {
+            HStack(spacing: 0) {
+                navigationColumn
+                    .frame(maxWidth: .infinity)
+                // The handle is an overlay pinned to the dock's leading edge, not
+                // a layout element — so the divider sits exactly on the seam and
+                // moves in lockstep with the dock. While dragging it hides its own
+                // line; the moving preview line below stands in until release.
+                chatDock(width: dockW)
+                    .overlay(alignment: .leading) {
+                        ChatResizeHandle(
+                            width: resizePreview ?? dockW,
+                            onResize: { resizePreview = ChatDockWidth.clampedWidth($0, totalWidth: windowWidth) },
+                            onCommit: {
+                                if let preview = resizePreview {
+                                    dockWidth.setWidth(preview, for: path.last?.id, totalWidth: windowWidth)
+                                    dockWidth.commit()
+                                }
+                                resizePreview = nil
+                            },
+                            onReset: {
+                                dockWidth.resetWidth(for: path.last?.id)
+                                resizePreview = nil
+                            },
+                            onActiveChange: { resizeActive = $0 }
+                        )
+                    }
+            }
+
+            // The visible seam line, drawn at the window root so it runs the full
+            // height (under the transparent title bar) rather than starting below
+            // the safe-area inset. During a drag it tracks the proposed width (a
+            // 2pt line is free to move every frame → smooth at any speed); idle,
+            // it sits at the committed seam and highlights on hover.
+            if let preview = resizePreview {
+                seamLine(at: preview, color: Theme.Palette.violet.opacity(0.7), thickness: 2)
+            } else {
+                seamLine(
+                    at: dockW,
+                    color: resizeActive ? Theme.Palette.violet.opacity(0.7) : Theme.Palette.border,
+                    thickness: resizeActive ? 2 : 0.5
+                )
+            }
         }
         .readingWidth(into: $windowWidth)
         .background(WindowBackdrop().ignoresSafeArea())
@@ -166,6 +200,10 @@ struct HistoryView: View {
     private var libraryList: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                // In-column search instead of `.searchable`: the toolbar search
+                // field spans the whole window width and floats over the chat
+                // dock; this stays within the left column.
+                searchField
                 segmentBar
                 labelFilterBar
                 content
@@ -173,12 +211,57 @@ struct HistoryView: View {
                     .transition(.opacity)
             }
             .navigationTitle("Library")
-            .searchable(text: $searchQuery, prompt: "Search library")
         }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.Palette.muted)
+            TextField("Search library", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.Palette.ink)
+            if !searchQuery.isEmpty {
+                Button { searchQuery = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.Palette.muted)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.06))
+                .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
+        )
+        // A fixed, comfortable width pinned to the left rather than stretching
+        // across the whole column; shrinks only if the column gets narrower.
+        .frame(maxWidth: 260, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
     }
 
     private func closeDetail() {
         path.removeAll()
+    }
+
+    /// The vertical divider at the dock's leading edge (window x = total − width).
+    /// Drawn at the root and extended under the title bar so it runs the full
+    /// window height instead of starting below the safe-area inset.
+    private func seamLine(at width: CGFloat, color: Color, thickness: CGFloat) -> some View {
+        Rectangle()
+            .fill(color)
+            .frame(width: thickness)
+            .frame(maxHeight: .infinity)
+            .offset(x: max(0, windowWidth - width - thickness / 2))
+            .ignoresSafeArea(.container, edges: .top)
+            .allowsHitTesting(false)
     }
 
     // MARK: - Chat dock (right side)
@@ -935,11 +1018,13 @@ private struct UndoToast: View {
 
 // MARK: - Chat dock resize handle
 
-/// The draggable divider between the list/detail column and the chat dock. A
-/// hairline that thickens and shows a resize cursor on hover; dragging reports a
-/// new dock width via incremental deltas applied to the current (clamped) width
-/// — so overshooting a bound has no dead travel on reversal — and a double-click
-/// resets the session's width to the global.
+/// The drag target for the chat-dock divider — an invisible grab strip pinned
+/// over the dock's leading edge with a resize cursor. The visible seam line is
+/// drawn separately at the window root (so it can run full height, under the
+/// title bar); this reports `active` (hover or drag) so that line can highlight.
+/// Dragging reports a new dock width via incremental deltas applied to the
+/// current (clamped) width — so overshooting a bound has no dead travel on
+/// reversal — and a double-click resets the session's width to the global.
 private struct ChatResizeHandle: View {
     /// Current resolved dock width — the live base each incremental delta is
     /// applied to.
@@ -949,6 +1034,8 @@ private struct ChatResizeHandle: View {
     /// Drag ended — flush the width to disk once.
     let onCommit: () -> Void
     let onReset: () -> Void
+    /// Reports hover/drag so the root seam line can highlight.
+    let onActiveChange: (Bool) -> Void
 
     @State private var lastTranslation: CGFloat = 0
     @State private var hovering = false
@@ -961,17 +1048,13 @@ private struct ChatResizeHandle: View {
     }
 
     var body: some View {
-        Rectangle()
-            .fill(active ? Theme.Palette.violet.opacity(0.7) : Theme.Palette.border)
-            .frame(width: active ? 2 : 0.5)
+        Color.clear
+            .frame(width: ChatDockWidth.handleWidth)
             .frame(maxHeight: .infinity)
-            // The hairline pins to the leading edge (the dock seam); the rest of
-            // the strip is the invisible grab area.
-            .frame(width: ChatDockWidth.handleWidth, alignment: .leading)
             .contentShape(Rectangle())
             .onHover { hovering in
                 self.hovering = hovering
-                syncCursor()
+                refresh()
             }
             .gesture(
                 DragGesture(minimumDistance: 3)
@@ -982,22 +1065,27 @@ private struct ChatResizeHandle: View {
                         let delta = value.translation.width - lastTranslation
                         lastTranslation = value.translation.width
                         onResize(width - delta)
-                        syncCursor()
+                        refresh()
                     }
                     .onEnded { _ in
                         lastTranslation = 0
                         dragging = false
                         onCommit()
-                        syncCursor()
+                        refresh()
                     }
             )
             .onTapGesture(count: 2, perform: onReset)
             .onDisappear {
                 hovering = false
                 dragging = false
-                syncCursor()
+                refresh()
             }
             .help("Drag to resize the chat · double-click to reset")
+    }
+
+    private func refresh() {
+        syncCursor()
+        onActiveChange(active)
     }
 
     /// Keep exactly one resize cursor pushed while hovering or dragging, and pop

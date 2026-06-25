@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-06-24_
+_Last updated: 2026-06-25_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company. We've made the
@@ -181,7 +181,7 @@ sure you comply with the rules where you and your participants are located.
 | LLM gateway           | OpenRouter               | routed            |
 | Whisper transcription | Groq (primary); OpenAI/Azure + OpenRouter (fallback) | US (Groq); routed (no-train) |
 | Text embeddings       | Supabase Edge runtime (`gte-small`) | in-region, no external provider |
-| LLM summaries         | Google Gemini via Vertex | (no-train)        |
+| LLM summaries & chat  | Anthropic Claude via AWS Bedrock / Vertex (Google Gemini optional) | (no-train) |
 
 - Daily encrypted backups of the Postgres database, retained 7 days.
 - All HTTPS endpoints and direct database connections enforce TLS 1.2+
@@ -194,7 +194,7 @@ sure you comply with the rules where you and your participants are located.
 
 ```
 You ──► Nod (your Mac) ──► Supabase Edge Function (llm-proxy) ──┬─► Groq ──► Whisper (speech-to-text, primary)
-                          │                                     ├─► OpenRouter ──► Gemini (summaries) + Whisper (last-resort)
+                          │                                     ├─► OpenRouter ──► Claude (summaries + chat) + Whisper (last-resort)
                           │                                     └─► OpenAI ──► Whisper (fallback)
                           │
                           └─► Supabase Postgres (transcripts, summaries, usage logs)

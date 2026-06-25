@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-06-24_
+_Last updated: 2026-06-25_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -209,6 +209,7 @@ third parties only when one of the following applies:
 
 - It's a subprocessor on the published list, acting under a data
   processing agreement (Supabase, Groq for speech-to-text, OpenRouter,
+  Anthropic via AWS Bedrock / Google Vertex for LLM summaries and chat,
   OpenAI via Azure, Google Cloud / Vertex, Google OAuth, Apple, and Paddle
   for billing).
 - We're legally compelled (court order, lawful subpoena). We will notify
@@ -228,8 +229,9 @@ European Union (AWS `eu-west-1`, Ireland).
 
 Some subprocessors operate globally and may process data outside the EU:
 
-- **Groq** (speech-to-text), **OpenRouter**, **OpenAI/Azure**, and
-  **Google/Vertex** may route requests to US-based infrastructure.
+- **Groq** (speech-to-text), **OpenRouter**, **Anthropic** (via AWS
+  Bedrock / Google Vertex), **OpenAI/Azure**, and **Google/Vertex** may
+  route requests to US-based infrastructure.
   Transfers rely on the EU
   Commission's adequacy decision for the US (EU–US Data Privacy
   Framework) where applicable, or on Standard Contractual Clauses
