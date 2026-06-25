@@ -115,6 +115,7 @@ final class MeetingSession: ObservableObject {
     private let auth: AuthService
     private let profileStore: ProfileStore
     private let outbox: MeetingOutbox
+    private let modeStore: ModeStore
 
     init(
         audioCapture: AudioCaptureService,
@@ -126,7 +127,8 @@ final class MeetingSession: ObservableObject {
         language: LanguagePreference,
         auth: AuthService,
         profileStore: ProfileStore,
-        outbox: MeetingOutbox
+        outbox: MeetingOutbox,
+        modeStore: ModeStore
     ) {
         self.audioCapture = audioCapture
         self.store = store
@@ -138,6 +140,7 @@ final class MeetingSession: ObservableObject {
         self.auth = auth
         self.profileStore = profileStore
         self.outbox = outbox
+        self.modeStore = modeStore
     }
 
     deinit {
@@ -295,7 +298,9 @@ final class MeetingSession: ObservableObject {
         let kind = selectedKind
         let profile = profileContext
         let generation = sessionGeneration
-        let summaryTemplate = SummaryTemplate.current
+        // Modes apply to meetings only; `MeetingFraming` returns neutral framing
+        // for voice notes / media so they never inherit the last meeting mode.
+        let framing = MeetingFraming.active(for: kind, mode: modeStore.selected)
 
         // Open the detail view and reset the panel IMMEDIATELY — the summary
         // pass can take many seconds on a long call, so it must not block the
@@ -360,7 +365,8 @@ final class MeetingSession: ObservableObject {
                 language: lang,
                 personalContext: profile,
                 sessionKind: draft.kind,
-                summaryTemplate: summaryTemplate
+                summaryTemplate: framing.summary,
+                modeFocus: framing.focus
             )
 
             do {
@@ -488,6 +494,10 @@ final class MeetingSession: ObservableObject {
         response = .generating(kind: kind)
         let requestedKind = kind
         let promptKind = kind.promptKind
+        // Snapshot the framing at the moment the user invoked this, so a mode
+        // change between tap and generation can't re-frame the in-flight request
+        // (and so it matches the recap path, which also freezes its framing).
+        let framing = MeetingFraming.active(for: selectedKind, mode: modeStore.selected)
         Task {
             // Suggest reply is real-time — force the latest chunk into the
             // transcript before reading context. Other pills tolerate the 5s
@@ -505,7 +515,8 @@ final class MeetingSession: ObservableObject {
                 language: language.current,
                 personalContext: profileContext,
                 sessionKind: selectedKind,
-                replyContext: ReplyContext.current
+                replyContext: framing.reply,
+                modeFocus: framing.focus
             )
 
             // Suggest reply streams its plain-text answer so the first words land

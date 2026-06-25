@@ -44,6 +44,10 @@ struct ContentView: View {
     /// default. User can tap the chevron in StatusHeader to collapse to the
     /// tiny REC capsule, then tap that to re-expand.
     @State private var expanded: Bool = true
+    /// The user's meeting modes and the active one. Selecting a mode sets the
+    /// session's kind and mirrors its recap/reply framing into the existing
+    /// defaults the generation paths already read; authoring lives in Settings.
+    @EnvironmentObject private var modeStore: ModeStore
     /// True while the recording-consent modal is on screen; gates startMeeting()
     /// before audio capture begins. See issue #4.
     @State private var showConsentDisclaimer: Bool = false
@@ -210,6 +214,9 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             StatusHeader(
                 audioCapture: audioCapture,
+                modeStore: modeStore,
+                onManageModes: { NotificationCenter.default.post(name: .nodOpenModes, object: nil) },
+                showMode: session.selectedKind == .meeting,
                 showMicPicker: session.meeting == .idle && session.selectedKind.capturesMic,
                 meeting: session.meeting,
                 elapsed: elapsedString,
@@ -395,34 +402,23 @@ private struct PanelContentHeightKey: PreferenceKey {
     }
 }
 
-// MARK: - Input Device Picker
+// MARK: - Header menu glyph
 
-/// Microphone chooser as a single icon in the panel header (next to Library).
-/// The menu lists available inputs and pins the active one — selection writes
-/// straight to `audioCapture.preferredInputUID`, same as before; only the
-/// trigger moved from a full-width row to this compact glyph.
-private struct MicInputPicker: View {
-    @ObservedObject var audioCapture: AudioCaptureService
-    @State private var devices: [AudioInputDevice] = []
+/// Shared chrome for a header icon that opens a menu on the non-activating
+/// panel: the `glyph` is drawn under a transparent `Menu` that only catches the
+/// click. Putting the glyph inside a borderless `Menu`'s own label drops its
+/// circle background across macOS versions, so the two are layered instead.
+/// Used by the mic, language, and mode header controls so the chrome and its
+/// first-click handling stay identical in one place.
+private struct HeaderMenuGlyph<Glyph: View, MenuItems: View>: View {
+    @ViewBuilder var glyph: () -> Glyph
+    @ViewBuilder var menu: () -> MenuItems
 
     var body: some View {
-        // Chrome is drawn separately and matched to `PanelIconButton` (the
-        // Library glyph) so the two header icons are pixel-identical; a
-        // transparent `Menu` is overlaid only for the click. Putting the chrome
-        // inside the Menu's label drops its circle background — `.borderlessButton`
-        // re-renders and hugs the label across macOS versions.
         ZStack {
-            // `waveform`, not `mic.fill` — a mic glyph collides with the
-            // mute toggle (`StatusRow` uses mic/mic.slash) and reads as
-            // "mute me" rather than "choose input device".
-            Image(systemName: "waveform")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.white.opacity(0.6))
-                .frame(width: 22, height: 22)
-                .background(Circle().fill(Color.white.opacity(0.10)))
-
+            glyph()
             Menu {
-                menuItems
+                menu()
             } label: {
                 Color.clear
                     .frame(width: 22, height: 22)
@@ -434,6 +430,39 @@ private struct MicInputPicker: View {
             .fixedSize()
         }
         .frame(width: 22, height: 22)
+    }
+}
+
+private extension View {
+    /// The standard 22×22 translucent disc behind a header glyph.
+    func headerGlyphCircle() -> some View {
+        frame(width: 22, height: 22)
+            .background(Circle().fill(Color.white.opacity(0.10)))
+    }
+}
+
+// MARK: - Input Device Picker
+
+/// Microphone chooser as a single icon in the panel header (next to Library).
+/// The menu lists available inputs and pins the active one — selection writes
+/// straight to `audioCapture.preferredInputUID`, same as before; only the
+/// trigger moved from a full-width row to this compact glyph.
+private struct MicInputPicker: View {
+    @ObservedObject var audioCapture: AudioCaptureService
+    @State private var devices: [AudioInputDevice] = []
+
+    var body: some View {
+        HeaderMenuGlyph {
+            // `waveform`, not `mic.fill` — a mic glyph collides with the
+            // mute toggle (`StatusRow` uses mic/mic.slash) and reads as
+            // "mute me" rather than "choose input device".
+            Image(systemName: "waveform")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.white.opacity(0.6))
+                .headerGlyphCircle()
+        } menu: {
+            menuItems
+        }
         .help("Microphone — choose input device")
         .onAppear(perform: refresh)
     }
@@ -469,6 +498,13 @@ private struct StatusHeader: View {
     /// Drives the live level meter (`inputLevel`) and backs the header's mic
     /// chooser, so it's observed directly rather than threaded through props.
     @ObservedObject var audioCapture: AudioCaptureService
+    /// Backs the header's mode control — a picker pre-meeting, a read-only glyph
+    /// once recording.
+    @ObservedObject var modeStore: ModeStore
+    let onManageModes: () -> Void
+    /// Whether the mode control shows — modes apply to meetings only, so it's
+    /// hidden for voice notes and media captures.
+    let showMode: Bool
     /// Whether the mic chooser icon shows — only when the session captures the
     /// mic and we're pre-meeting, matching where the old picker row appeared.
     let showMicPicker: Bool
@@ -552,17 +588,25 @@ private struct StatusHeader: View {
                 ScreenShareButton()
             }
             .fixedSize()
-            .background(GeometryReader { geo in
-                Color.clear
-                    .onAppear { revealWidth = geo.size.width }
-                    .onChange(of: geo.size.width) { revealWidth = $0 }
-            })
+            .readingWidth(into: $revealWidth)
             .frame(width: iconsExpanded ? revealWidth : 0, alignment: .trailing)
             .opacity(iconsExpanded ? 1 : 0)
             // No clip: the 0-width frame + opacity hide the collapsed icons
             // (and `allowsHitTesting` keeps the invisible ones from catching
             // clicks), so a hover tooltip can extend any direction uncut.
             .allowsHitTesting(iconsExpanded)
+
+            // Mode applies to meetings only. When shown it stays pinned in both
+            // states: pre-meeting it's a picker the user chooses from; once
+            // recording it's a read-only glyph that reports the active mode.
+            if showMode {
+                ModeHeaderControl(
+                    store: modeStore,
+                    interactive: meeting == .idle,
+                    onManage: onManageModes
+                )
+                .panelTooltip(modeStore.selected.name)
+            }
 
             // Language is the key pre-meeting choice, so it stays pinned and
             // visible by default (not tucked into the reveal group) — and
@@ -902,97 +946,36 @@ private struct LanguagePicker: View {
     let onSelect: (AppLanguage) -> Void
 
     var body: some View {
-        // A round 22×22 icon that matches the mic / Library glyphs in the
-        // header, but its "glyph" is the active language's 2-letter code so the
-        // current language still reads at a glance. The chrome is drawn
-        // separately and a transparent `Menu` is overlaid only for the click —
-        // the Menu wraps a real `Picker` so SwiftUI keeps selection semantics
-        // (VoiceOver announces the choice) and the non-activating panel doesn't
-        // eat the first click. Putting the chrome inside the Menu label drops
-        // its circle background, same quirk handled in `MicInputPicker`.
-        ZStack {
+        // A round 22×22 icon matching the other header glyphs, but its "glyph"
+        // is the active language's 2-letter code so the current language reads at
+        // a glance. The Menu wraps a real `Picker` so SwiftUI keeps selection
+        // semantics (VoiceOver announces the choice).
+        HeaderMenuGlyph {
             Text(current.chipLabel)
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .tracking(0.5)
                 .foregroundColor(.white.opacity(0.78))
-                .frame(width: 22, height: 22)
-                .background(Circle().fill(Color.white.opacity(0.10)))
-
-            Menu {
-                Picker("Nod language", selection: Binding(
-                    get: { current },
-                    set: { onSelect($0) }
-                )) {
-                    ForEach(AppLanguage.allCases, id: \.self) { lang in
-                        Text(lang.nativeName).tag(lang)
-                    }
+                .headerGlyphCircle()
+        } menu: {
+            Picker("Nod language", selection: Binding(
+                get: { current },
+                set: { onSelect($0) }
+            )) {
+                ForEach(AppLanguage.allCases, id: \.self) { lang in
+                    Text(lang.nativeName).tag(lang)
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } label: {
-                Color.clear
-                    .frame(width: 22, height: 22)
-                    .contentShape(Circle())
             }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
+            .pickerStyle(.inline)
+            .labelsHidden()
         }
-        .frame(width: 22, height: 22)
         .help("Switch Nod language — applies to summaries, titles, cards, and answers")
-    }
-}
-
-/// Raycast-style command pill. Frosted dark capsule, neutral mic glyph,
-/// "Start meeting" label. The glyph is deliberately NOT a red record dot —
-/// red is reserved for the active REC state, and a red dot on the *start*
-/// affordance reads for a beat as "already recording".
-/// No kbd-shortcut badge — `.keyboardShortcut` on a `.nonactivatingPanel`
-/// doesn't fire because the panel rarely becomes key; showing a hint for a
-/// non-functional shortcut is worse than no hint.
-private struct StartMeetingButton: View {
-    var title: String = "Start meeting"
-    var icon: String = "mic.fill"
-    let action: () -> Void
-    @State private var hovered = false
-    @State private var pressed = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Theme.GlassButton.text)
-
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(Theme.GlassButton.text)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .frame(maxWidth: .infinity, minHeight: 42)
-            .glassButtonSurface(Capsule(style: .continuous))
-            .scaleEffect(pressed ? 0.985 : 1.0)
-            .animation(.easeOut(duration: 0.10), value: pressed)
-            .animation(.hoverReveal(reduceMotion: reduceMotion), value: hovered)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .linkCursor()
-        .onHover { hovered = $0 }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in pressed = true }
-                .onEnded { _ in pressed = false }
-        )
     }
 }
 
 /// Three-way segmented control for what the next recording is. Icon-over-
 /// caption segments so the labels fit the compact panel width. The selection
-/// drives audio-stream choice, the recap framing, and which live cards show.
+/// drives audio-stream choice, the recap framing, and which live cards show —
+/// and whether the meeting-only mode control appears in the header.
 private struct SessionKindPicker: View {
     @Binding var selection: SessionKind
 
@@ -1044,6 +1027,93 @@ private struct SessionKindPicker: View {
         case .voiceNote: "Capture your own voice only — think out loud, get it summarized."
         case .media: "Transcribe what's playing on your Mac — a video, podcast, or talk."
         }
+    }
+}
+
+/// The meeting mode in the panel header. Pre-meeting it's a `Menu` picker (the
+/// mode's glyph in the shared 22×22 header circle, opening the mode list plus
+/// "Manage Modes…"); once recording it's the same glyph rendered read-only so it
+/// can't be changed mid-meeting — it just reports the active mode. Uses the
+/// shared `HeaderMenuGlyph` chrome so the header icons stay pixel-consistent.
+private struct ModeHeaderControl: View {
+    @ObservedObject var store: ModeStore
+    let interactive: Bool
+    let onManage: () -> Void
+
+    var body: some View {
+        if interactive {
+            HeaderMenuGlyph {
+                glyph
+            } menu: {
+                Picker("Mode", selection: Binding(
+                    get: { store.selectedID },
+                    set: { store.select($0) }
+                )) {
+                    ForEach(store.modes) { mode in
+                        Label(mode.name, systemImage: mode.icon).tag(mode.id)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+                Divider()
+                Button("Manage Modes…", action: onManage)
+            }
+        } else {
+            glyph
+        }
+    }
+
+    private var glyph: some View {
+        Image(systemName: store.selected.icon)
+            .font(.system(size: 10, weight: .bold))
+            .foregroundColor(.white.opacity(interactive ? 0.78 : 0.45))
+            .headerGlyphCircle()
+    }
+}
+
+/// Raycast-style command pill. Frosted dark capsule, neutral mic glyph,
+/// "Start meeting" label. The glyph is deliberately NOT a red record dot —
+/// red is reserved for the active REC state, and a red dot on the *start*
+/// affordance reads for a beat as "already recording".
+/// No kbd-shortcut badge — `.keyboardShortcut` on a `.nonactivatingPanel`
+/// doesn't fire because the panel rarely becomes key; showing a hint for a
+/// non-functional shortcut is worse than no hint.
+private struct StartMeetingButton: View {
+    var title: String = "Start meeting"
+    var icon: String = "mic.fill"
+    let action: () -> Void
+    @State private var hovered = false
+    @State private var pressed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Theme.GlassButton.text)
+
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Theme.GlassButton.text)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, minHeight: 42)
+            .glassButtonSurface(Capsule(style: .continuous))
+            .scaleEffect(pressed ? 0.985 : 1.0)
+            .animation(.easeOut(duration: 0.10), value: pressed)
+            .animation(.hoverReveal(reduceMotion: reduceMotion), value: hovered)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .linkCursor()
+        .onHover { hovered = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in pressed = true }
+                .onEnded { _ in pressed = false }
+        )
     }
 }
 
@@ -1394,6 +1464,7 @@ private struct SaveErrorToast: View {
     let transcriptStore = TranscriptStore(client: llm)
     let meetingStore = MeetingStore(supabase: supabase)
     let profileStore = ProfileStore(supabase: supabase, auth: auth)
+    let modeStore = ModeStore()
     let session = MeetingSession(
         audioCapture: audioCapture,
         store: transcriptStore,
@@ -1404,7 +1475,8 @@ private struct SaveErrorToast: View {
         language: language,
         auth: auth,
         profileStore: profileStore,
-        outbox: MeetingOutbox()
+        outbox: MeetingOutbox(),
+        modeStore: modeStore
     )
     return ContentView()
         .environmentObject(session)
@@ -1415,5 +1487,6 @@ private struct SaveErrorToast: View {
         .environmentObject(EntitlementService(supabase: supabase))
         .environmentObject(HotkeyManager())
         .environmentObject(PanelSharingPreference())
+        .environmentObject(modeStore)
         .background(Color.gray.opacity(0.3))
 }

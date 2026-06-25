@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// List of past meetings, newest first. Two segments: All (live meetings)
@@ -32,6 +33,12 @@ struct HistoryView: View {
     @State private var undoToastID: UUID = .init()
     @State private var path: [Meeting] = []
     @State private var confirmingClearChat = false
+    /// Persisted, resizable width of the chat dock (global + per-session
+    /// override). Local to the window — the only place the dock lives.
+    @StateObject private var dockWidth = ChatDockWidth()
+    /// Live window content width, used to clamp the dock so the left column
+    /// can't be crushed.
+    @State private var windowWidth: CGFloat = 1040
 
     init(initialFocusMeetingID: UUID? = nil) {
         self.initialFocusMeetingID = initialFocusMeetingID
@@ -51,12 +58,25 @@ struct HistoryView: View {
     }
 
     var body: some View {
+        let dockW = dockWidth.width(for: path.last?.id, totalWidth: windowWidth)
         HStack(spacing: 0) {
             navigationColumn
                 .frame(maxWidth: .infinity)
-            Divider().overlay(Theme.Palette.border)
-            chatDock
+            // The handle is an overlay pinned to the dock's leading edge, not a
+            // layout element — so the divider line sits exactly on the seam and
+            // moves in lockstep with the dock as it resizes live. The width
+            // updates in memory each frame and is flushed to disk once on release.
+            chatDock(width: dockW)
+                .overlay(alignment: .leading) {
+                    ChatResizeHandle(
+                        width: dockW,
+                        onResize: { dockWidth.setWidth($0, for: path.last?.id, totalWidth: windowWidth) },
+                        onCommit: { dockWidth.commit() },
+                        onReset: { dockWidth.resetWidth(for: path.last?.id) }
+                    )
+                }
         }
+        .readingWidth(into: $windowWidth)
         .background(WindowBackdrop().ignoresSafeArea())
         .task {
             // Always refresh on appear. The previous `.idle` gate would
@@ -68,6 +88,8 @@ struct HistoryView: View {
             // already a loaded cache, so calling on every appear is cheap.
             await meetingStore.refresh()
             await labelStore.refresh()
+            // Drop dock-width overrides for sessions that no longer exist.
+            dockWidth.prune(keeping: Set(meetingStore.meetings.map(\.id)))
             if let id = initialFocusMeetingID {
                 focus(on: id)
             }
@@ -166,7 +188,7 @@ struct HistoryView: View {
     // session when you've drilled into one, otherwise every session at once.
     // Same composer, same look — no second window.
 
-    private var chatDock: some View {
+    private func chatDock(width: CGFloat) -> some View {
         VStack(spacing: 0) {
             dockHeader(for: path.last)
             Divider().overlay(Theme.Palette.border)
@@ -179,13 +201,8 @@ struct HistoryView: View {
                 }
             }
         }
-        .frame(width: 380)
+        .frame(width: width)
         .background(Color.white.opacity(0.025))
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(Theme.Palette.border)
-                .frame(width: 0.5)
-        }
         .onChange(of: path.last?.id) { _ in confirmingClearChat = false }
     }
 
@@ -913,6 +930,87 @@ private struct UndoToast: View {
                 .overlay(Capsule().stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
         )
         .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
+    }
+}
+
+// MARK: - Chat dock resize handle
+
+/// The draggable divider between the list/detail column and the chat dock. A
+/// hairline that thickens and shows a resize cursor on hover; dragging reports a
+/// new dock width via incremental deltas applied to the current (clamped) width
+/// — so overshooting a bound has no dead travel on reversal — and a double-click
+/// resets the session's width to the global.
+private struct ChatResizeHandle: View {
+    /// Current resolved dock width — the live base each incremental delta is
+    /// applied to.
+    let width: CGFloat
+    /// Live width updates during the drag (no disk write).
+    let onResize: (CGFloat) -> Void
+    /// Drag ended — flush the width to disk once.
+    let onCommit: () -> Void
+    let onReset: () -> Void
+
+    @State private var lastTranslation: CGFloat = 0
+    @State private var hovering = false
+    @State private var dragging = false
+    /// Whether we currently own a pushed cursor, so push/pop stay balanced.
+    @State private var cursorPushed = false
+
+    private var active: Bool {
+        hovering || dragging
+    }
+
+    var body: some View {
+        Rectangle()
+            .fill(active ? Theme.Palette.violet.opacity(0.7) : Theme.Palette.border)
+            .frame(width: active ? 2 : 0.5)
+            .frame(maxHeight: .infinity)
+            // The hairline pins to the leading edge (the dock seam); the rest of
+            // the strip is the invisible grab area.
+            .frame(width: ChatDockWidth.handleWidth, alignment: .leading)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                self.hovering = hovering
+                syncCursor()
+            }
+            .gesture(
+                DragGesture(minimumDistance: 3)
+                    .onChanged { value in
+                        dragging = true
+                        // Apply only the delta since the last event to the
+                        // current clamped width; dragging left widens the dock.
+                        let delta = value.translation.width - lastTranslation
+                        lastTranslation = value.translation.width
+                        onResize(width - delta)
+                        syncCursor()
+                    }
+                    .onEnded { _ in
+                        lastTranslation = 0
+                        dragging = false
+                        onCommit()
+                        syncCursor()
+                    }
+            )
+            .onTapGesture(count: 2, perform: onReset)
+            .onDisappear {
+                hovering = false
+                dragging = false
+                syncCursor()
+            }
+            .help("Drag to resize the chat · double-click to reset")
+    }
+
+    /// Keep exactly one resize cursor pushed while hovering or dragging, and pop
+    /// it otherwise — guarded by `cursorPushed` so the global cursor stack can't
+    /// drift (which would leave a stuck cursor).
+    private func syncCursor() {
+        if active, !cursorPushed {
+            NSCursor.resizeLeftRight.push()
+            cursorPushed = true
+        } else if !active, cursorPushed {
+            NSCursor.pop()
+            cursorPushed = false
+        }
     }
 }
 

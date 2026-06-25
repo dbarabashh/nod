@@ -1,0 +1,135 @@
+import Combine
+import Foundation
+
+/// Holds the user's meeting modes and the active selection — the single source
+/// of truth for meeting framing. UI-prototype scope: modes are persisted locally
+/// (Codable → `UserDefaults`), not synced anywhere. `MeetingSession` reads
+/// `selected` at generation time via `MeetingFraming`, so there's no global
+/// side channel to keep in sync.
+final class ModeStore: ObservableObject {
+    @Published var modes: [MeetingMode]
+    @Published private(set) var selectedID: UUID
+
+    private let defaults: UserDefaults
+    private static let modesKey = "modes.v3"
+    private static let selectedKey = "modes.selectedID"
+    private static let encoder = JSONEncoder()
+    private static let decoder = JSONDecoder()
+
+    /// Coalesces the (expensive) modes-array JSON write so a burst of edits —
+    /// e.g. typing into the Focus field — persists once, not per keystroke.
+    private var modesWriteWork: DispatchWorkItem?
+    private let modesWriteDelay: TimeInterval = 0.4
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let loaded = Self.loadModes(from: defaults)
+        let hadPersisted = (loaded?.isEmpty == false)
+        var modes = hadPersisted ? (loaded ?? []) : MeetingMode.presets
+
+        // First run of the modes feature: adopt whatever framing the user had set
+        // through the now-removed standalone "Summary style" / "Conversation type"
+        // pickers, so the upgrade doesn't silently reset their recap/reply choice.
+        // Match an existing preset; if the combination matches none, keep it as a
+        // one-off custom mode.
+        var migratedSelection: UUID?
+        if !hadPersisted {
+            let legacySummary = defaults.string(forKey: SummaryTemplate.defaultsKey).flatMap(SummaryTemplate.init)
+            let legacyReply = defaults.string(forKey: ReplyContext.defaultsKey).flatMap(ReplyContext.init)
+            if legacySummary != nil || legacyReply != nil {
+                let summary = legacySummary ?? .auto
+                let reply = legacyReply ?? .auto
+                if let match = modes.first(where: { $0.summary == summary && $0.reply == reply }) {
+                    migratedSelection = match.id
+                } else {
+                    let custom = MeetingMode(name: "Custom", icon: "star", summary: summary, reply: reply)
+                    modes.append(custom)
+                    migratedSelection = custom.id
+                }
+            }
+        }
+        self.modes = modes
+
+        let stored = defaults.string(forKey: Self.selectedKey).flatMap(UUID.init(uuidString:))
+        let validStored = stored.flatMap { id in modes.contains { $0.id == id } ? id : nil }
+        selectedID = migratedSelection ?? validStored ?? modes.first?.id ?? MeetingMode.fallback.id
+
+        // Persist the seeded/migrated state once so the migration doesn't re-run.
+        if !hadPersisted {
+            writeModes()
+            writeSelection()
+        }
+    }
+
+    /// The active mode, with a non-optional fallback so callers never unwrap.
+    var selected: MeetingMode {
+        modes.first { $0.id == selectedID } ?? modes.first ?? .fallback
+    }
+
+    func select(_ id: UUID) {
+        guard modes.contains(where: { $0.id == id }) else { return }
+        selectedID = id
+        writeSelection()
+    }
+
+    @discardableResult
+    func addMode() -> UUID {
+        let mode = MeetingMode(name: "New mode", icon: "star", summary: .auto, reply: .auto)
+        modes.append(mode)
+        // Make the new mode active so authoring it and using it are the same act —
+        // otherwise a freshly created mode is edited but silently inert.
+        selectedID = mode.id
+        flushModesWrite()
+        writeSelection()
+        return mode.id
+    }
+
+    func update(_ mode: MeetingMode) {
+        guard let index = modes.firstIndex(where: { $0.id == mode.id }) else { return }
+        modes[index] = mode
+        scheduleModesWrite()
+    }
+
+    func delete(_ id: UUID) {
+        modes.removeAll { $0.id == id }
+        if selectedID == id {
+            selectedID = modes.first?.id ?? MeetingMode.fallback.id
+            writeSelection()
+        }
+        flushModesWrite()
+    }
+
+    private func writeModes() {
+        if let data = try? Self.encoder.encode(modes) {
+            defaults.set(data, forKey: Self.modesKey)
+        }
+    }
+
+    private func writeSelection() {
+        defaults.set(selectedID.uuidString, forKey: Self.selectedKey)
+    }
+
+    /// Debounced modes write for high-frequency edits (text typing).
+    private func scheduleModesWrite() {
+        modesWriteWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.modesWriteWork = nil
+            self?.writeModes()
+        }
+        modesWriteWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + modesWriteDelay, execute: work)
+    }
+
+    /// Immediate modes write for discrete actions (add/delete) — also cancels any
+    /// pending debounced write so the latest in-memory state wins.
+    private func flushModesWrite() {
+        modesWriteWork?.cancel()
+        modesWriteWork = nil
+        writeModes()
+    }
+
+    private static func loadModes(from defaults: UserDefaults) -> [MeetingMode]? {
+        guard let data = defaults.data(forKey: modesKey) else { return nil }
+        return try? decoder.decode([MeetingMode].self, from: data)
+    }
+}
