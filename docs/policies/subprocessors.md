@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-06-24_
+_Last updated: 2026-06-25_
 
 A subprocessor is a third party that processes personal data on our behalf
 when you use Nod. We use the minimum number of subprocessors required to
@@ -19,7 +19,8 @@ subscribe to change notifications, email **dbarabashdev@gmail.com**.
 | **OpenRouter, Inc.**        | LLM request routing + Whisper transcription (last-resort fallback) | Audio chunks (transient), transcript text, chat messages, query text | Routed via no-train providers | No                    | Zero Data Retention enabled; "may train on request data" routes disabled |
 | **Groq, Inc.**              | Whisper (large-v3) speech-to-text — primary transcription provider | Audio chunks (transient — one short WAV per utterance) | USA (Google Cloud) | No | GroqCloud DPA; Services Agreement prohibits training on Inputs/Outputs; no retention by default (transient error/abuse logs ≤ 30 days; ZDR available) |
 | **OpenAI** (via Azure OpenAI Service) | Whisper speech-to-text (fallback) | Audio chunks (transient, ~5 s windows)                            | Routed by OpenRouter | No                    | Azure OpenAI no-train commitment |
-| **Google LLC** (via Google Vertex AI) | LLM summarisation               | Transcript text, system prompt                                    | Routed by OpenRouter | No                    | Vertex AI no-train commitment |
+| **Anthropic PBC** (via AWS Bedrock / Google Vertex AI) | LLM summarisation & chat — primary (Claude Sonnet 4.6, Claude Haiku 4.5 fallback) | Transcript text, system prompt, chat messages | Routed by OpenRouter | No | Bedrock / Vertex AI no-train commitment |
+| **Google LLC** (via Google Vertex AI) | LLM summarisation — optional alternative model (Gemini) + a routing host for Claude | Transcript text, system prompt | Routed by OpenRouter | No                    | Vertex AI no-train commitment |
 | **Google LLC** (OAuth)      | Authentication (sign-in with Google)     | Your Google email, OpenID profile claims                          | Global             | No                    | Google OAuth ToS     |
 | **Apple, Inc.**             | macOS app distribution & code signing    | Crash logs (if you opt-in via System Settings), receipt validation | Global             | No                    | Apple Developer Agreement |
 | **Paddle.com Market Limited** | Merchant of Record — subscription billing, payment processing, VAT/sales-tax remittance, invoicing, refunds | Name, email, billing address and country, and payment-method details you enter at checkout; subscription and transaction records | UK; global payment processing | No | Paddle DPA; Paddle acts as Merchant of Record |
@@ -58,7 +59,7 @@ entirely by Paddle as Merchant of Record.
 
 ```
 You ──► Nod (your Mac) ──► Supabase Edge Function (llm-proxy) ──┬─► Groq ──► Whisper (speech-to-text, primary)
-                          │                                     ├─► OpenRouter ──► Gemini (summaries) + Whisper (last-resort)
+                          │                                     ├─► OpenRouter ──► Claude (summaries + chat) + Whisper (last-resort)
                           │                                     └─► OpenAI ──► Whisper (fallback)
                           │
                           └─► Supabase Postgres (transcripts, summaries, usage logs)
@@ -83,6 +84,7 @@ forwarded once and never written to durable storage anywhere in this chain.
 | 2026-06-10 | Added Paddle.com Market Limited as an active subprocessor and Merchant of Record for subscription billing. |
 | 2026-06-23 | Added Vercel Inc. (marketing-site hosting + cookieless Web Analytics). Self-hosted website fonts and app icons to stop IP leakage to Google CDNs. |
 | 2026-06-24 | Added Groq, Inc. as the primary Whisper speech-to-text provider (audio transient, no retention by default). OpenAI/OpenRouter Whisper are now fallbacks. |
+| 2026-06-25 | LLM summaries & chat now default to Anthropic Claude (Sonnet 4.6, Haiku 4.5 fallback), routed via AWS Bedrock / Google Vertex AI (no-train). Google Gemini becomes an optional model rather than the default. No change to data shared or retention. |
 
 ---
 
