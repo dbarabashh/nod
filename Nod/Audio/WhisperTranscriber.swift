@@ -46,12 +46,24 @@ final class WhisperTranscriber: @unchecked Sendable {
     /// Whisper keep emitting English even when the speaker switches to another
     /// language (it effectively translates). That breaks the multilingual /
     /// code-switching property we rely on, so the tail is language-scoped: it
-    /// carries `promptLanguage`, resets on a detected language switch, and a
-    /// chunk whose detected language differs from the tail is re-transcribed
-    /// with no prompt (see `transcribeChunk`).
+    /// carries `promptLanguage` and resets on a detected language switch. (An
+    /// optional re-transcribe-without-prompt on that switch is gated behind
+    /// `repromptOnLanguageSwitch`, default off — see below.)
     private var promptTail: String = ""
     private var promptLanguage: String?
     private static let maxPromptTailChars = 200
+
+    /// On a detected language switch, re-transcribe the chunk with NO prompt so
+    /// the prior-language tail can't bias Whisper into translating the new
+    /// language back. Defaults OFF: an A/B on identical uk/ru/en surzhik clips
+    /// showed that KEEPING the prompt fixes the topic-critical words — "суржик"
+    /// only garbled to "сырчик"/"Уржиком" when the prompt was dropped — at the
+    /// minor cost of occasionally pulling a genuinely Russian turn toward the
+    /// Ukrainian tail. Flip on to restore the re-transcribe:
+    /// `defaults write com.example.nod stt.repromptOnLanguageSwitch -bool YES`.
+    private static var repromptOnLanguageSwitch: Bool {
+        UserDefaults.standard.object(forKey: "stt.repromptOnLanguageSwitch") as? Bool ?? false
+    }
 
     // In-flight transcription Tasks; flushPending awaits these so a Suggest-reply
     // sees all completed segments, in order, before it reads the context.
@@ -71,12 +83,21 @@ final class WhisperTranscriber: @unchecked Sendable {
     private var audioClockSpans: [AudioClockSpan] = []
 
     // Silero segmentation tuning (see sherpaOnnxSileroVadModelConfig):
-    /// Cut a segment only after this much trailing silence. Set high enough to
-    /// bridge mid-phrase pauses so a chunk is a whole utterance — too short and
-    /// the meeting fragments into many one-word chunks, which cost extra Whisper
+    /// Cut a segment only after this much trailing silence. A/B knob (default
+    /// 0.7s, was 1.0s): shorter closes a segment faster, which suits fast
+    /// code-switched (surzhik) dialogue where natural pauses run under a second
+    /// and a 1s gate glued separate utterances together. Don't push it too low —
+    /// the meeting then fragments into one-word chunks, which cost extra Whisper
     /// calls and make Whisper hallucinate speaker-name prefixes on the tiny
-    /// clips ("Emily King, PhD.: …").
-    private static let minSilenceDuration: Float = 1.0
+    /// clips ("Emily King, PhD.: …"). Override:
+    /// `defaults write com.example.nod vad.minSilence 1.0`.
+    private static var minSilenceDuration: Float {
+        if let override = UserDefaults.standard.object(forKey: "vad.minSilence") as? Double {
+            return Float(override)
+        }
+        return 0.7
+    }
+
     /// Drop sub-this speech blips ("um", "so") so they never reach Whisper.
     private static let minSpeechDuration: Float = 0.4
     /// Cap an unbroken segment so a non-stop talker / media playback still
@@ -297,7 +318,8 @@ final class WhisperTranscriber: @unchecked Sendable {
                 // language but emits the old one (translating). Re-transcribe the
                 // same audio with no prompt so the text comes back in the language
                 // actually spoken. One extra call, only at a language boundary.
-                if !prompt.isEmpty,
+                if Self.repromptOnLanguageSwitch,
+                   !prompt.isEmpty,
                    let detected = result.language,
                    let promptLang,
                    detected.caseInsensitiveCompare(promptLang) != .orderedSame {

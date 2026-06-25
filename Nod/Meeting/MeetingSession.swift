@@ -366,7 +366,8 @@ final class MeetingSession: ObservableObject {
                 personalContext: profile,
                 sessionKind: draft.kind,
                 summaryTemplate: framing.summary,
-                modeFocus: framing.focus
+                modeFocus: framing.focus,
+                meetingDate: PromptLibrary.sessionDateString(startedAt)
             )
 
             do {
@@ -516,7 +517,8 @@ final class MeetingSession: ObservableObject {
                 personalContext: profileContext,
                 sessionKind: selectedKind,
                 replyContext: framing.reply,
-                modeFocus: framing.focus
+                modeFocus: framing.focus,
+                meetingDate: recordingStartedAt.map(PromptLibrary.sessionDateString) ?? ""
             )
 
             // Suggest reply streams its plain-text answer so the first words land

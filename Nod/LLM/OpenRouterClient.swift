@@ -39,13 +39,17 @@ final class OpenRouterClient: ObservableObject {
     }
 
     /// Chat model override — kept in UserDefaults so devs can A/B models
-    /// without rebuilding. Default points at Gemini 2.0 Flash via OpenRouter.
+    /// without rebuilding. Default is Claude Sonnet 4.6: a reasoning-class model
+    /// that reads context, metaphor, and subtext far better than the previous
+    /// `gemini-2.0-flash` default, which produced shallow, literal recaps. Pairs
+    /// with the Claude Haiku 4.5 fallback below. Override with
+    /// `defaults write com.example.nod openrouter.model "google/gemini-2.5-pro"`.
     private static let modelKey = "openrouter.model"
     private static let fallbackModelKey = "openrouter.model.fallback"
     private static let whisperModelKey = "whisper.model"
 
     var model: String {
-        UserDefaults.standard.string(forKey: Self.modelKey) ?? "google/gemini-2.0-flash-001"
+        UserDefaults.standard.string(forKey: Self.modelKey) ?? "anthropic/claude-sonnet-4.6"
     }
 
     /// Cross-provider fallback used when the primary model is unavailable
@@ -59,14 +63,30 @@ final class OpenRouterClient: ObservableObject {
         UserDefaults.standard.string(forKey: Self.fallbackModelKey) ?? "anthropic/claude-haiku-4.5"
     }
 
-    /// Whisper model override — same rationale as above. `large-v3-turbo` is
-    /// the distilled 4-decoder-layer variant of `large-v3`: ~8× faster decode,
-    /// near-identical WER for the languages we care about, and meaningfully
-    /// cheaper per minute. Override with `defaults write com.example.nod
-    /// whisper.model "openai/whisper-large-v3"` to A/B against full v3, or
+    /// Provider routing hints for the chat call. The `google-vertex` pin +
+    /// `google-ai-studio` ignore exist solely to dodge Google's shared free-tier
+    /// 429s (see the routing note in `send`); they only apply to Google models.
+    /// For a non-Google primary (e.g. Claude) those hints would needlessly
+    /// constrain routing — Claude is also served via Vertex on OpenRouter, so
+    /// pinning the order there would silence Anthropic's own infra — so we send
+    /// no order/ignore and let OpenRouter pick the best provider.
+    private var providerPreference: ProviderPreference {
+        guard model.hasPrefix("google/") else {
+            return ProviderPreference(order: nil, ignore: nil, allow_fallbacks: true)
+        }
+        return ProviderPreference(order: ["google-vertex"], ignore: ["google-ai-studio"], allow_fallbacks: true)
+    }
+
+    /// Whisper model override — same rationale as above. Default is full
+    /// `large-v3`: meaningfully better WER on code-switched (uk/ru/en surzhik)
+    /// speech than the distilled `large-v3-turbo`, where the missing decoder
+    /// layers produced phonetic hallucinations on mixed-language audio. On Groq
+    /// (the primary STT provider) both run on the same LPU, so full v3 costs
+    /// almost no extra latency. Override with `defaults write com.example.nod
+    /// whisper.model "openai/whisper-large-v3-turbo"` to A/B against turbo, or
     /// `"openai/whisper-1"` if a route drops the v3 family.
     private var whisperModel: String {
-        UserDefaults.standard.string(forKey: Self.whisperModelKey) ?? "openai/whisper-large-v3-turbo"
+        UserDefaults.standard.string(forKey: Self.whisperModelKey) ?? "openai/whisper-large-v3"
     }
 
     private let proxyURL: URL
@@ -142,11 +162,7 @@ final class OpenRouterClient: ObservableObject {
             model: model,
             models: [model, fallbackModel],
             messages: messages,
-            provider: ProviderPreference(
-                order: ["google-vertex"],
-                ignore: ["google-ai-studio"],
-                allow_fallbacks: true
-            ),
+            provider: providerPreference,
             response_format: jsonMode ? ResponseFormat(type: "json_object") : nil,
             temperature: temperature,
             stream: nil
@@ -213,11 +229,7 @@ final class OpenRouterClient: ObservableObject {
                             .init(role: "system", content: system),
                             .init(role: "user", content: user)
                         ],
-                        provider: ProviderPreference(
-                            order: ["google-vertex"],
-                            ignore: ["google-ai-studio"],
-                            allow_fallbacks: true
-                        ),
+                        provider: providerPreference,
                         response_format: jsonMode ? ResponseFormat(type: "json_object") : nil,
                         temperature: nil,
                         stream: true

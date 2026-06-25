@@ -51,7 +51,8 @@ enum PromptLibrary {
         sessionKind: SessionKind = .meeting,
         replyContext: ReplyContext = .auto,
         summaryTemplate: SummaryTemplate = .auto,
-        modeFocus: String = ""
+        modeFocus: String = "",
+        meetingDate: String = ""
     ) -> (system: String, user: String) {
         let context = transcript.isEmpty
             ? "(No transcript captured yet.)"
@@ -63,12 +64,40 @@ enum PromptLibrary {
             replyContext: replyContext,
             summaryTemplate: summaryTemplate
         )
-        // Layer the user-level context blocks ahead of the task prompt:
-        // who the user is, then what they're focused on in this meeting mode.
-        let system = [personalContext, focusBlock(modeFocus), base]
+        // Layer the user-level context blocks ahead of the task prompt: who the
+        // user is, when the session happened (the relative-date anchor), then
+        // what they're focused on in this meeting mode.
+        let system = [personalContext, dateBlock(meetingDate), focusBlock(modeFocus), base]
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
         return (system, userMessage(for: kind, context: context))
+    }
+
+    /// Absolute, unambiguous date string for a session, used as the
+    /// relative-time anchor in the prompts. POSIX locale keeps it stable
+    /// regardless of device settings; the recap language is handled separately.
+    static func sessionDateString(_ date: Date) -> String {
+        sessionDateFormatter.string(from: date)
+    }
+
+    private static let sessionDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEEE, d MMMM yyyy"
+        return formatter
+    }()
+
+    /// The `[SESSION DATE]` anchor block. Gives the model an absolute date so it
+    /// can resolve relative references ("next week", "in two months") instead of
+    /// guessing — the source of the June/August-style date errors. Empty when no
+    /// date is supplied, so callers that don't pass one are unaffected.
+    private static func dateBlock(_ date: String) -> String {
+        let trimmed = date.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return """
+        [SESSION DATE]
+        This session was recorded on \(trimmed). Treat it as the anchor for every relative time reference in the transcript ("today", "yesterday", "next week", "in two months"). Resolve relatives against it; never invent a date that was not stated.
+        """
     }
 
     /// The `[MEETING FOCUS]` block — the active mode's free-text focus. Only the
@@ -680,7 +709,8 @@ enum PromptLibrary {
         summary: String,
         transcript: String,
         language: AppLanguage = .english,
-        personalContext: String = ""
+        personalContext: String = "",
+        meetingDate: String = ""
     ) -> String {
         let lang = language.promptName
         let noun = switch sessionKind {
@@ -712,7 +742,9 @@ enum PromptLibrary {
         === TRANSCRIPT ===
         \(transcript.isEmpty ? "(No transcript was saved for this session.)" : transcript)
         """
-        return personalContext.isEmpty ? body : personalContext + "\n\n" + body
+        return [personalContext, dateBlock(meetingDate), body]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
     }
 
     // MARK: - Query router (which session(s) is the question about?)
