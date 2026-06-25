@@ -159,7 +159,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             language: services.languagePreference,
             auth: services.auth,
             profileStore: services.profileStore,
-            outbox: services.meetingOutbox
+            outbox: services.meetingOutbox,
+            modeStore: services.modeStore
         )
 
         let content = ContentView(
@@ -174,6 +175,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         .environmentObject(services.updateGate)
         .environmentObject(services.hotkeys)
         .environmentObject(services.panelSharing)
+        .environmentObject(services.modeStore)
 
         // Start at the compact width — the panel launches idle. ContentView
         // reports the desired width as the layout changes and the panel
@@ -195,9 +197,10 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     // MARK: - Settings window
 
-    func showSettingsWindow(focusSubscription: Bool = false) {
+    func showSettingsWindow(focusSubscription: Bool = false, focusModes: Bool = false) {
         if let existing = settingsWindow {
             existing.makeKeyAndOrderFront(nil)
+            if focusModes { NotificationCenter.default.post(name: .nodOpenModes, object: nil) }
             return
         }
         let window = makeWindow(
@@ -218,7 +221,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             auth: services.auth,
             accountExport: services.accountExport,
             connections: services.connections,
-            focusSubscription: focusSubscription
+            modeStore: services.modeStore,
+            focusSubscription: focusSubscription,
+            focusModes: focusModes
         ))
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window

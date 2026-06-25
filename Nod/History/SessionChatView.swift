@@ -13,9 +13,13 @@ struct SessionChatView: View {
     @EnvironmentObject private var llm: OpenRouterClient
 
     /// Above this transcript size we retrieve the parts relevant to the
-    /// question instead of stuffing the whole thing — keeps long meetings
-    /// focused and within context.
-    private static let longTranscriptChars = 8000
+    /// question instead of stuffing the whole thing. Set high (≈ a multi-hour
+    /// meeting) so a typical session is answered against its FULL transcript —
+    /// the old 8K cap pushed most meetings onto an 8-chunk RAG path that missed
+    /// content phrased differently from the question (e.g. "client" vs the
+    /// transcript's "audience") and made the model lean on the recap. Only
+    /// genuinely long sessions now fall back to retrieval.
+    private static let longTranscriptChars = 50_000
 
     @State private var draft: String = ""
     /// nil until the transcript load resolves — the composer stays disabled
@@ -244,7 +248,7 @@ struct SessionChatView: View {
             )
             let chunks = await knowledgeStore.search(
                 query: prepared.standalone,
-                matchCount: 8,
+                matchCount: 16,
                 meetingID: meeting.id,
                 embedText: prepared.hyde
             )
@@ -260,7 +264,8 @@ struct SessionChatView: View {
             summary: current.summary,
             transcript: grounding,
             language: language,
-            personalContext: profileStore.promptContext
+            personalContext: profileStore.promptContext,
+            meetingDate: PromptLibrary.sessionDateString(current.startedAt)
         )
     }
 

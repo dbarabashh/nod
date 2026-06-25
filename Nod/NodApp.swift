@@ -78,6 +78,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
+        NotificationCenter.default.addObserver(forName: .nodOpenModes, object: nil, queue: nil) { [weak windows] _ in
+            Task { @MainActor in
+                windows?.showSettingsWindow(focusModes: true)
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
         NotificationCenter.default.addObserver(forName: .nodOpenLibrary, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in
                 windows?.showHistoryWindow(focusing: nil)
@@ -257,6 +263,9 @@ extension Notification.Name {
     /// Posted by the panel's overflow (•••) menu.
     static let nodOpenSettings = Notification.Name("nod.app.openSettings")
     static let nodOpenLibrary = Notification.Name("nod.app.openLibrary")
+    /// Posted by the panel's mode chip ("Manage Modes…") to open Settings on the
+    /// Modes tab.
+    static let nodOpenModes = Notification.Name("nod.app.openModes")
     static let nodHidePanel = Notification.Name("nod.app.hidePanel")
     /// Posted after a completed checkout (and from the panel) to open Settings
     /// on the Subscription tab — the single home for plan/billing.

@@ -5,7 +5,7 @@ import Foundation
 /// differently from a standup interjection. `.auto` lets the model infer the
 /// situation from the transcript; the explicit cases assert it. Persisted as a
 /// global default in `UserDefaults` (key `suggestReply.context`).
-enum ReplyContext: String, CaseIterable, Identifiable {
+enum ReplyContext: String, Codable, CaseIterable, Identifiable {
     case auto
     case interview
     case meeting

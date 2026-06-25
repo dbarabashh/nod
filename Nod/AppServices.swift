@@ -32,6 +32,9 @@ struct AppServices {
     let panelSharing: PanelSharingPreference
     let updateGate: UpdateGate
     let hotkeys: HotkeyManager
+    /// User's meeting modes (recap/reply/kind presets), shared by the panel chip
+    /// and the Settings editor.
+    let modeStore: ModeStore
     /// Offline transcript import from Granola's local cache — a low-cost
     /// migration path off a direct competitor.
     let granolaImporter: GranolaImporter
@@ -107,6 +110,7 @@ struct AppServices {
             panelSharing: PanelSharingPreference(),
             updateGate: UpdateGate(supabase: supabase),
             hotkeys: hotkeys,
+            modeStore: ModeStore(),
             granolaImporter: GranolaImporter(
                 meetingStore: meetingStore,
                 auth: auth,

@@ -10,7 +10,7 @@ import Foundation
 /// translate them into the recap output language so a Ukrainian recap gets
 /// Ukrainian headers. Sections with no grounded content are dropped, so an
 /// interview that never reached a recommendation simply omits that heading.
-enum SummaryTemplate: String, CaseIterable, Identifiable {
+enum SummaryTemplate: String, Codable, CaseIterable, Identifiable {
     case auto
     case standard
     case interview

@@ -2,8 +2,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject private var hotkey: HotkeyManager
-    @AppStorage(ReplyContext.defaultsKey) private var replyContext: ReplyContext = .auto
-    @AppStorage(SummaryTemplate.defaultsKey) private var summaryTemplate: SummaryTemplate = .auto
     @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting: Bool = MeetingLanguagePromptDefaults.defaultValue
 
     /// Optional so previews (and any future env-free mount) work without a
@@ -16,6 +14,7 @@ struct SettingsView: View {
     private let auth: AuthService?
     private let accountExport: AccountExportService?
     private let connections: ConnectionService?
+    private let modeStore: ModeStore?
 
     init(
         hotkey: HotkeyManager,
@@ -27,7 +26,9 @@ struct SettingsView: View {
         auth: AuthService? = nil,
         accountExport: AccountExportService? = nil,
         connections: ConnectionService? = nil,
-        focusSubscription: Bool = false
+        modeStore: ModeStore? = nil,
+        focusSubscription: Bool = false,
+        focusModes: Bool = false
     ) {
         _hotkey = ObservedObject(wrappedValue: hotkey)
         self.profileStore = profileStore
@@ -38,12 +39,13 @@ struct SettingsView: View {
         self.auth = auth
         self.accountExport = accountExport
         self.connections = connections
-        _tab = State(initialValue: focusSubscription ? .subscription : .profile)
+        self.modeStore = modeStore
+        _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .profile))
     }
 
     /// Left-rail categories. Each maps to one detail pane.
     private enum Tab: String, CaseIterable, Identifiable {
-        case profile, subscription, general, connections, suggestReply, shortcuts, privacy
+        case profile, subscription, general, modes, connections, shortcuts, privacy
         var id: String {
             rawValue
         }
@@ -53,8 +55,8 @@ struct SettingsView: View {
             case .profile: "Profile"
             case .subscription: "Subscription"
             case .general: "General"
+            case .modes: "Modes"
             case .connections: "Connections"
-            case .suggestReply: "Suggest reply"
             case .shortcuts: "Shortcuts"
             case .privacy: "Privacy"
             }
@@ -65,8 +67,8 @@ struct SettingsView: View {
             case .profile: "person.crop.circle"
             case .subscription: "creditcard"
             case .general: "gearshape"
+            case .modes: "square.stack.3d.up"
             case .connections: "puzzlepiece.extension"
-            case .suggestReply: "sparkles"
             case .shortcuts: "keyboard"
             case .privacy: "lock.shield"
             }
@@ -85,6 +87,9 @@ struct SettingsView: View {
         .background(WindowBackdrop().ignoresSafeArea())
         .onReceive(NotificationCenter.default.publisher(for: .nodOpenSubscription)) { _ in
             tab = .subscription
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .nodOpenModes)) { _ in
+            tab = .modes
         }
     }
 
@@ -177,8 +182,8 @@ struct SettingsView: View {
                 case .profile: profilePane
                 case .subscription: subscriptionPane
                 case .general: generalPane
+                case .modes: modesPane
                 case .connections: connectionsPane
-                case .suggestReply: suggestReplyPane
                 case .shortcuts: shortcutsPane
                 case .privacy: privacyPane
                 }
@@ -207,24 +212,6 @@ struct SettingsView: View {
                 }
             }
 
-            SettingsCard {
-                SettingsRow(
-                    icon: "list.bullet.rectangle",
-                    title: "Summary style",
-                    subtitle: summaryTemplate.settingsHint
-                ) {
-                    Picker("Summary style", selection: $summaryTemplate) {
-                        ForEach(SummaryTemplate.allCases) { template in
-                            Text(template.displayName).tag(template)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .tint(Theme.Palette.ink)
-                    .fixedSize()
-                }
-            }
-
             if let panelSharing {
                 ScreenShareSettingsSection(pref: panelSharing)
             }
@@ -232,6 +219,17 @@ struct SettingsView: View {
             if let granolaImporter, granolaImporter.isGranolaInstalled {
                 GranolaImportSection(importer: granolaImporter)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var modesPane: some View {
+        if let modeStore {
+            ModesSettingsSection(store: modeStore)
+        } else {
+            Text("Meeting modes are unavailable right now.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.muted)
         }
     }
 
@@ -254,26 +252,6 @@ struct SettingsView: View {
             Text("Sign in to manage your subscription.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.Palette.muted)
-        }
-    }
-
-    private var suggestReplyPane: some View {
-        SettingsCard {
-            SettingsRow(
-                icon: "sparkles",
-                title: "Conversation type",
-                subtitle: replyContext.settingsHint
-            ) {
-                Picker("Conversation type", selection: $replyContext) {
-                    ForEach(ReplyContext.allCases) { context in
-                        Text(context.displayName).tag(context)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .tint(Theme.Palette.ink)
-                .fixedSize()
-            }
         }
     }
 

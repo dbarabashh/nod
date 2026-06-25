@@ -50,7 +50,9 @@ enum PromptLibrary {
         personalContext: String = "",
         sessionKind: SessionKind = .meeting,
         replyContext: ReplyContext = .auto,
-        summaryTemplate: SummaryTemplate = .auto
+        summaryTemplate: SummaryTemplate = .auto,
+        modeFocus: String = "",
+        meetingDate: String = ""
     ) -> (system: String, user: String) {
         let context = transcript.isEmpty
             ? "(No transcript captured yet.)"
@@ -62,35 +64,96 @@ enum PromptLibrary {
             replyContext: replyContext,
             summaryTemplate: summaryTemplate
         )
-        let system = personalContext.isEmpty ? base : personalContext + "\n\n" + base
+        // Layer the user-level context blocks ahead of the task prompt: who the
+        // user is, when the session happened (the relative-date anchor), then
+        // what they're focused on in this meeting mode.
+        let system = [personalContext, dateBlock(meetingDate), focusBlock(modeFocus), base]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
         return (system, userMessage(for: kind, context: context))
     }
 
+    /// Absolute, unambiguous date string for a session, used as the
+    /// relative-time anchor in the prompts. POSIX locale keeps it stable
+    /// regardless of device settings; the recap language is handled separately.
+    static func sessionDateString(_ date: Date) -> String {
+        sessionDateFormatter.string(from: date)
+    }
+
+    private static let sessionDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEEE, d MMMM yyyy"
+        return formatter
+    }()
+
+    /// The `[SESSION DATE]` anchor block. Gives the model an absolute date so it
+    /// can resolve relative references ("next week", "in two months") instead of
+    /// guessing — the source of the June/August-style date errors. Empty when no
+    /// date is supplied, so callers that don't pass one are unaffected.
+    private static func dateBlock(_ date: String) -> String {
+        let trimmed = date.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return """
+        [SESSION DATE]
+        This session was recorded on \(trimmed). Treat it as the anchor for every relative time reference in the transcript ("today", "yesterday", "next week", "in two months"). Resolve relatives against it; never invent a date that was not stated.
+        """
+    }
+
+    /// The `[MEETING FOCUS]` block — the active mode's free-text focus. Only the
+    /// meeting generations pass a non-empty value (it's gated to meeting kind at
+    /// the call site), so a voice note or media recap never carries it.
+    private static func focusBlock(_ focus: String) -> String {
+        let trimmed = focus.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return """
+        [MEETING FOCUS — what the user is paying attention to in this conversation]
+        \(trimmed)
+        Use this to prioritize what to surface and how to frame the answer, but never invent facts to satisfy it — stay grounded in the transcript.
+        """
+    }
+
     /// The `[SITUATION]` block for the suggest-reply prompt. `[Me]` is always
-    /// the user being coached; `[Them]` is the counterpart.
-    private static func suggestReplyFraming(_ context: ReplyContext) -> String {
+    /// `[Me]` is the user being coached; `[Them]` is the counterpart.
+    ///
+    /// The one-line directive that opens `[SITUATION]`: it only *selects* which
+    /// playbook applies. The playbooks themselves live once in
+    /// `situationPlaybooks` (always in the prompt body), so `.auto` — which
+    /// classifies then applies — is as strong as an explicit pin instead of a
+    /// thinner fallback, and the explicit cases can't drift apart.
+    private static func situationDirective(_ context: ReplyContext) -> String {
         switch context {
         case .auto:
-            "Infer the situation from the transcript — job interview, sales call, 1:1, negotiation, standup, or casual conversation — and adapt [Me]'s reply to whatever it is."
+            "Classify the situation from the transcript — interview, sales call, negotiation, 1:1, work meeting, or casual — then follow that playbook from [SITUATION PLAYBOOKS] below. If it's genuinely mixed, lead with the dominant one."
         case .interview:
-            """
-            This is a JOB INTERVIEW: [Me] is the candidate, [Them] is the interviewer. Help [Me] answer the way a strong candidate FOR THE EXACT ROLE AND SENIORITY in [ABOUT THE USER] would — e.g. if they're interviewing for a senior engineer role, answer at a senior engineer's bar.
-            - Technical questions (coding, system design, trade-offs): give real depth — name the concrete approach, weigh the trade-offs, and ground it in a specific example from [Me]'s own experience already in the transcript or profile. No hand-waving, no textbook recitation.
-            - Behavioral questions: a crisp STAR answer (situation → action → result) drawn from [Me]'s real background.
-            Be confident and specific, lead with the answer, and never invent titles, employers, projects, or numbers [Me] hasn't actually established.
-            """
-        case .meeting:
-            "This is a work MEETING. Help [Me] contribute a sharp, useful line that moves the discussion forward."
+            "The situation is a JOB INTERVIEW — follow the INTERVIEW playbook in [SITUATION PLAYBOOKS] below, even if the transcript is ambiguous."
         case .salesCall:
-            "This is a SALES CALL where [Me] is the seller and [Them] is the prospect. Help [Me] advance the deal — address the concern, build value, and move toward a next step without being pushy."
-        case .oneOnOne:
-            "This is a 1:1 conversation. Help [Me] respond thoughtfully and personally — candid, constructive, and human."
+            "The situation is a SALES CALL — follow the SALES CALL playbook in [SITUATION PLAYBOOKS] below, even if the transcript is ambiguous."
         case .negotiation:
-            "This is a NEGOTIATION. Help [Me] hold their position, respond to the counterpart's move, and steer toward a favorable outcome without conceding prematurely."
+            "The situation is a NEGOTIATION — follow the NEGOTIATION playbook in [SITUATION PLAYBOOKS] below, even if the transcript is ambiguous."
+        case .oneOnOne:
+            "The situation is a 1:1 — follow the 1:1 playbook in [SITUATION PLAYBOOKS] below, even if the transcript is ambiguous."
+        case .meeting:
+            "The situation is a WORK MEETING — follow the WORK MEETING playbook in [SITUATION PLAYBOOKS] below, even if the transcript is ambiguous."
         case .casual:
-            "This is a CASUAL conversation. Keep [Me]'s reply relaxed, friendly, and brief."
+            "The situation is CASUAL — follow the CASUAL playbook in [SITUATION PLAYBOOKS] below, even if the transcript is ambiguous."
         }
     }
+
+    /// The per-situation guidance, kept in one block so every situation gets a
+    /// real, distinct playbook (not a one-liner) and `.auto` can apply any of
+    /// them after classifying. Behavioral/technical mechanics live in the
+    /// shared `[MATCH THE ANSWER TO THE QUESTION TYPE]` section, so these focus
+    /// on each situation's GOAL and stance, not question-type handling.
+    private static let situationPlaybooks = """
+    [SITUATION PLAYBOOKS]
+    - INTERVIEW — [Me] is the candidate, [Them] the interviewer. Answer at the bar of the EXACT role and seniority in [ABOUT THE USER] (a senior role earns a senior-level answer). Ground every claim in [Me]'s real experience from the transcript/profile; never invent titles, employers, projects, or numbers. Lead with the answer, be specific, no textbook recitation.
+    - SALES CALL — [Me] is the seller, [Them] the prospect. Goal: advance the deal. Address the concern on its merits, build value with a concrete specific, and end on a clear next step — without being pushy.
+    - NEGOTIATION — Goal: protect [Me]'s position. Don't concede first or concede for free; anchor, trade a concession only for a concession, and let silence work. Steer toward a favorable outcome without burning the relationship.
+    - 1:1 — A candid, personal conversation. It's fine to be direct or vulnerable, name the real feeling, and be constructive. This is not a debate to win.
+    - WORK MEETING — Contribute one sharp line that moves the discussion forward: a decision, a crisp point, or something that unblocks the group.
+    - CASUAL — Relaxed, warm, and brief. Drop the businesslike tone.
+    """
 
     private static func system(
         for kind: PromptKind,
@@ -140,8 +203,11 @@ enum PromptLibrary {
             You are helping the user decide what to SAY next in a conversation that is currently in progress. The user just pressed "Suggest reply" — they want the words they could speak aloud right now.
 
             [SITUATION]
-            \(suggestReplyFraming(replyContext))
-            Let the situation shape tone and depth: an interview answer should be fuller and more structured; a standup or casual interjection should be brief.
+            \(situationDirective(replyContext))
+            Let the situation set tone and depth: an interview answer is fuller and more structured; a standup or casual interjection is brief.
+            If a [MEETING FOCUS] block appears above, it is [Me]'s own brief for this conversation — let it sharpen which playbook applies and what to emphasize, but it never overrides the grounding rules below.
+
+            \(situationPlaybooks)
 
             [WHO IS WHO — YOU ARE THE USER'S COPILOT]
             The transcript marks turns with [Them] (the other people) and [Me] (the user you are helping). Your job is to produce the line [Me] should say next so they come across as sharp, prepared, and consistent — never caught off guard.
@@ -643,7 +709,8 @@ enum PromptLibrary {
         summary: String,
         transcript: String,
         language: AppLanguage = .english,
-        personalContext: String = ""
+        personalContext: String = "",
+        meetingDate: String = ""
     ) -> String {
         let lang = language.promptName
         let noun = switch sessionKind {
@@ -675,7 +742,9 @@ enum PromptLibrary {
         === TRANSCRIPT ===
         \(transcript.isEmpty ? "(No transcript was saved for this session.)" : transcript)
         """
-        return personalContext.isEmpty ? body : personalContext + "\n\n" + body
+        return [personalContext, dateBlock(meetingDate), body]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
     }
 
     // MARK: - Query router (which session(s) is the question about?)
