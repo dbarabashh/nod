@@ -51,4 +51,5 @@ jobs:
             -scheme Nod \
             -destination 'platform=macOS' \
             -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
             test
