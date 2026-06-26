@@ -13,7 +13,7 @@ jobs:
   build-test:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # xcodegen emits objectVersion 77, which only Xcode 16+ can read — pin the
       # newest stable Xcode so the runner's default (older) version doesn't fail
@@ -24,7 +24,7 @@ jobs:
           xcode-version: latest-stable
 
       - name: Cache VAD xcframework
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: Vendor/sherpa-onnx.xcframework
           key: vad-${{ hashFiles('scripts/fetch-vad-xcframework.sh') }}
