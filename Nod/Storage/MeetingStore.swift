@@ -107,36 +107,11 @@ final class MeetingStore: ObservableObject {
 
     // MARK: - Write
 
-    /// Persists a completed meeting. Throws on network / RLS / decode error
-    /// so the caller can surface a retry toast. Idempotent on the local
-    /// cache: if a draft for this id already exists (the meeting was
-    /// previously registered via `beginGenerating(_:)`), the local row
-    /// is replaced rather than duplicated.
-    func insert(_ meeting: Meeting) async throws {
-        Log.ui.info("MeetingStore.insert id=\(meeting.id.uuidString) startedAt=\(meeting.startedAt.timeIntervalSince1970)")
-        try await supabase
-            .from(Self.tableName)
-            .insert(meeting)
-            .execute()
-        if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
-            meetings[idx] = meeting
-        } else {
-            // Optimistic local update so HistoryView reflects the new row even
-            // before the next full refresh. Sorted newest-first to match the
-            // server-side ordering.
-            meetings.insert(meeting, at: 0)
-            meetings.sort { $0.startedAt > $1.startedAt }
-        }
-        // Promote loadState so HistoryView's content switch shows the list
-        // even if `refresh()` has never run (first meeting on a fresh
-        // install, HistoryView opened later).
-        loadState = .loaded
-    }
-
     /// Insert-or-update on the primary key. Used by the durable `MeetingOutbox`
     /// path: a meeting may already exist server-side from an earlier streamed
-    /// insert (live transcript), so a plain `insert` would PK-conflict. Mirrors
-    /// `insert`'s optimistic local-cache update.
+    /// insert (live transcript), so a plain insert would PK-conflict. Promotes
+    /// `loadState` and updates the local cache optimistically so HistoryView
+    /// reflects the new row before the next full refresh.
     func upsert(_ meeting: Meeting) async throws {
         Log.ui.info("MeetingStore.upsert id=\(meeting.id.uuidString)")
         try await supabase
@@ -157,7 +132,7 @@ final class MeetingStore: ObservableObject {
     /// Inserts a draft meeting (empty summary, nil title) into the local
     /// cache and flags its id as generating. No server call — the row
     /// only reaches Supabase when the caller follows up with
-    /// `insert(_:)` after the LLM lands. Used by the end-of-meeting flow
+    /// `upsert(_:)` after the LLM lands. Used by the end-of-meeting flow
     /// so MeetingDetailView can open immediately with a loading state
     /// while summary + title are still being produced.
     func beginGenerating(_ draft: Meeting) {
@@ -298,34 +273,6 @@ final class MeetingStore: ObservableObject {
 
     // MARK: - Transcripts
 
-    /// Bulk-inserts the in-memory transcript entries for a just-saved
-    /// meeting. Called from the end-of-meeting flow right after
-    /// `insert(_:)` succeeds. Throws on RLS / network / decode error so
-    /// the caller can decide whether to surface this — failing here
-    /// shouldn't block the summary save (the summary is already on the
-    /// server), so callers should log + continue rather than abort.
-    func insertTranscript(_ records: [TranscriptRecord]) async throws {
-        guard !records.isEmpty else { return }
-        Log.ui.info("MeetingStore.insertTranscript meeting=\(records[0].meetingID.uuidString) count=\(records.count)")
-        do {
-            try await supabase
-                .from(Self.transcriptsTableName)
-                .insert(records)
-                .execute()
-        } catch {
-            // Deploy-ordering guard: if the `speaker` column hasn't been applied
-            // to this environment yet, PostgREST rejects the whole batch. Don't
-            // lose the transcript over a not-yet-migrated column — retry without
-            // the diarization labels (they backfill once the column exists).
-            guard Self.isMissingSpeakerColumn(error) else { throw error }
-            Log.ui.error("insertTranscript: 'speaker' column absent — retrying without diarization labels")
-            try await supabase
-                .from(Self.transcriptsTableName)
-                .insert(records.map { $0.droppingSpeaker() })
-                .execute()
-        }
-    }
-
     /// Insert-or-update transcript rows. The streaming / outbox path re-sends a
     /// slot (e.g. a re-transcription or dedup swap reissues `(meeting_id, idx)`
     /// under a fresh `id`), so the conflict target must be the `(meeting_id,
@@ -334,8 +281,9 @@ final class MeetingStore: ObservableObject {
     /// stranding the meeting as "saved on this device only" forever. The batch
     /// is also collapsed to one row per slot first: it's keyed by `id` upstream,
     /// so it may carry two rows for the same `idx`, which a single multipart
-    /// upsert can't touch twice. Same not-yet-migrated `speaker` fallback as
-    /// `insertTranscript`.
+    /// upsert can't touch twice. Falls back to dropping the diarization
+    /// `speaker` labels if that column hasn't been migrated to this environment
+    /// yet (they backfill once it exists), rather than losing the transcript.
     func upsertTranscript(_ records: [TranscriptRecord]) async throws {
         guard !records.isEmpty else { return }
         let deduped = Self.collapseByIdx(records)

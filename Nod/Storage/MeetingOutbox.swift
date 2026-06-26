@@ -92,7 +92,9 @@ actor MeetingOutbox {
         }
         dir = resolved
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        load()
+        let loaded = Self.load(from: dir)
+        entries = loaded.entries
+        recordingIDsAtLaunch = loaded.recordingIDs
     }
 
     // MARK: - WAL mutations (driven live by MeetingSession)
@@ -310,10 +312,13 @@ actor MeetingOutbox {
         try? FileManager.default.removeItem(at: transcriptURL(id))
     }
 
-    private func load() {
+    private nonisolated static func load(from dir: URL) -> (entries: [UUID: OutboxEntry], recordingIDs: Set<UUID>) {
+        let decoder = JSONDecoder()
+        var entries: [UUID: OutboxEntry] = [:]
+        var recordingIDs: Set<UUID> = []
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil
-        ) else { return }
+        ) else { return ([:], []) }
         let suffix = ".meta.json"
         for metaFile in files where metaFile.lastPathComponent.hasSuffix(suffix) {
             let name = String(metaFile.lastPathComponent.dropLast(suffix.count))
@@ -322,7 +327,8 @@ actor MeetingOutbox {
                   let meta = try? decoder.decode(OutboxMeta.self, from: data) else { continue }
 
             var byID: [UUID: TranscriptRecord] = [:]
-            if let text = try? String(contentsOf: transcriptURL(id), encoding: .utf8) {
+            let transcriptFile = dir.appendingPathComponent("\(id.uuidString).jsonl")
+            if let text = try? String(contentsOf: transcriptFile, encoding: .utf8) {
                 for line in text.split(separator: "\n") {
                     if let rec = try? decoder.decode(TranscriptRecord.self, from: Data(line.utf8)) {
                         byID[rec.id] = rec // last-wins: a re-appended id reflects its latest form
@@ -338,11 +344,12 @@ actor MeetingOutbox {
                 syncedTranscriptIDs: [],
                 persistedTranscriptIDs: Set(transcripts.map(\.id))
             )
-            if meta.state == .recording { recordingIDsAtLaunch.insert(id) }
+            if meta.state == .recording { recordingIDs.insert(id) }
         }
         if !entries.isEmpty {
             Log.ui.info("MeetingOutbox loaded \(entries.count) pending meeting(s) from disk")
         }
+        return (entries, recordingIDs)
     }
 
     private struct OutboxMeta: Codable {

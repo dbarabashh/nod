@@ -23,9 +23,9 @@ open Nod.xcodeproj
 # CLI build:
 xcodebuild -project Nod.xcodeproj -scheme Nod build
 
-# CLI tests (when a test target exists — none yet at time of writing):
-xcodebuild -project Nod.xcodeproj -scheme Nod test
-xcodebuild -project Nod.xcodeproj -scheme Nod test -only-testing:NodTests/MeetingStoreTests/testInsert
+# CLI tests (NodTests bundle target — unit tests for the pure helpers):
+xcodebuild -project Nod.xcodeproj -scheme Nod -destination 'platform=macOS' test
+xcodebuild -project Nod.xcodeproj -scheme Nod test -only-testing:NodTests/TranscriptDedupTests/testIdenticalTextMatches
 ```
 
 Targets macOS 13+, Swift 5.9, **universal (Apple silicon + Intel)**. SPM deps: `supabase-swift` v2+, `Sparkle` v2+. The on-device VAD (sherpa-onnx) is a **vendored xcframework, not SPM** — see next section. Bundle ID: `com.example.nod`.

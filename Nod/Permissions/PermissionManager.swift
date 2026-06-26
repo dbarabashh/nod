@@ -1,8 +1,8 @@
-import Foundation
 import AppKit
 import AVFoundation
-import ScreenCaptureKit
 import Combine
+import Foundation
+import ScreenCaptureKit
 
 enum PermissionStatus: String, Codable {
     case notDetermined

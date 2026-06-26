@@ -1,5 +1,5 @@
-import Foundation
 import AVFoundation
+import Foundation
 
 /// Encodes a sequence of mono Float32 PCM buffers into a 16-bit PCM WAV blob
 /// suitable for posting to Whisper.
@@ -13,8 +13,10 @@ enum WAVEncoder {
         let blockAlign: UInt16 = channels * bitsPerSample / 8
         let byteRate: UInt32 = sampleRate * UInt32(blockAlign)
 
-        var totalFrames: Int = 0
-        for b in buffers { totalFrames += Int(b.frameLength) }
+        var totalFrames = 0
+        for b in buffers {
+            totalFrames += Int(b.frameLength)
+        }
         let pcmByteCount = totalFrames * Int(blockAlign)
 
         var data = Data()
@@ -45,7 +47,7 @@ enum WAVEncoder {
         for buffer in buffers {
             guard let channelData = buffer.floatChannelData?[0] else { continue }
             let count = Int(buffer.frameLength)
-            for i in 0..<count {
+            for i in 0 ..< count {
                 var sample = channelData[i]
                 if sample > 1 { sample = 1 }
                 if sample < -1 { sample = -1 }
@@ -61,6 +63,7 @@ enum WAVEncoder {
         var le = v.littleEndian
         return withUnsafeBytes(of: &le) { Data($0) }
     }
+
     private static func uint16LE(_ v: UInt16) -> Data {
         var le = v.littleEndian
         return withUnsafeBytes(of: &le) { Data($0) }

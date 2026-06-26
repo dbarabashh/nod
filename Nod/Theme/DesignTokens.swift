@@ -7,7 +7,6 @@ import SwiftUI
 /// **Semantic colours** (`Theme.Palette`) alias these primitives — call sites
 /// shouldn't reach in here directly except for one-off colour references.
 enum DesignTokens {
-
     // MARK: - Palette
 
     enum Palette {
