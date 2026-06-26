@@ -2,6 +2,13 @@ import AppKit
 import SwiftUI
 
 final class FloatingPanel<Content: View>: NSPanel {
+    // The currently open header menu (modes / mic / language), if any. SwiftUI
+    // `Menu` is a native NSMenu popup anchored to its button; when the panel is
+    // dragged via `isMovableByWindowBackground` the popup desyncs and appears to
+    // lag behind the moving panel. Dragging is the user's intent to reposition,
+    // so the open menu is dismissed the instant the panel starts moving.
+    private weak var trackingMenu: NSMenu?
+
     init(contentRect: NSRect, content: Content) {
         super.init(
             contentRect: contentRect,
@@ -59,6 +66,36 @@ final class FloatingPanel<Content: View>: NSPanel {
         hostingController.view.autoresizingMask = [.width, .height]
         contentViewController = hostingController
         setContentSize(contentRect.size)
+
+        let center = NotificationCenter.default
+        center.addObserver(
+            self,
+            selector: #selector(menuDidBeginTracking(_:)),
+            name: NSMenu.didBeginTrackingNotification,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(panelDidMove(_:)),
+            name: NSWindow.didMoveNotification,
+            object: self
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func menuDidBeginTracking(_ note: Notification) {
+        trackingMenu = note.object as? NSMenu
+    }
+
+    @objc private func panelDidMove(_ note: Notification) {
+        NotificationCenter.default.post(name: .nodPanelDidMove, object: self)
+        if let menu = trackingMenu {
+            trackingMenu = nil
+            menu.cancelTrackingWithoutAnimation()
+        }
     }
 
     override var canBecomeKey: Bool {
