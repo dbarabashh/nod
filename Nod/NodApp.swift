@@ -267,6 +267,11 @@ extension Notification.Name {
     /// Modes tab.
     static let nodOpenModes = Notification.Name("nod.app.openModes")
     static let nodHidePanel = Notification.Name("nod.app.hidePanel")
+    /// Posted while the floating panel is being dragged. Header hover tooltips
+    /// listen for this to dismiss themselves — a drag keeps the cursor "over" an
+    /// icon so `.onHover` never fires its exit, leaving the tooltip pill stuck on
+    /// screen mid-drag. Same intent as cancelling an open header menu on drag.
+    static let nodPanelDidMove = Notification.Name("nod.panel.didMove")
     /// Posted after a completed checkout (and from the panel) to open Settings
     /// on the Subscription tab — the single home for plan/billing.
     static let nodOpenSubscription = Notification.Name("nod.app.openSubscription")

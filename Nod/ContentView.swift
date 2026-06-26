@@ -800,6 +800,9 @@ private struct PanelTooltip: ViewModifier {
             .onHover { hovering in
                 withAnimation(.easeOut(duration: 0.12)) { show = hovering }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .nodPanelDidMove)) { _ in
+                if show { withAnimation(.easeOut(duration: 0.12)) { show = false } }
+            }
             .overlay(alignment: .top) {
                 if show {
                     Text(text)
