@@ -166,15 +166,24 @@ async function entitlementFor(admin: ReturnType<typeof adminClient>, userId: str
 // Stamp the client's build/version onto its profile row — version visibility
 // without an analytics SDK. Best-effort: a logging failure must never block
 // the LLM call. `update` (not upsert) so we never create empty profile rows.
+//
+// Only write when something actually changed: a newer build, or a last_seen_at
+// that's gone stale (heartbeat throttled to once a day). Without this gate the
+// proxy rewrote an identical row on every call — hundreds of dead tuples/day on
+// an 11-row table, pure autovacuum churn for no new information.
+const HEARTBEAT_THROTTLE_MS = 24 * 60 * 60 * 1000;
 async function stampClientVersion(admin: ReturnType<typeof adminClient>, userId: string, req: Request): Promise<void> {
     const build = parseInt(req.headers.get("x-app-build") ?? "", 10);
     if (!Number.isFinite(build)) return;
+    const staleBefore = new Date(Date.now() - HEARTBEAT_THROTTLE_MS).toISOString();
     await admin.from("profiles").update({
         app_build: build,
         app_version: req.headers.get("x-app-version"),
         os_version: req.headers.get("x-os-version"),
         last_seen_at: new Date().toISOString(),
-    }).eq("user_id", userId);
+    })
+        .eq("user_id", userId)
+        .or(`app_build.is.null,app_build.neq.${build},last_seen_at.is.null,last_seen_at.lt.${staleBefore}`);
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
