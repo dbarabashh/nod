@@ -11,9 +11,17 @@ concurrency:
 
 jobs:
   build-test:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+
+      # xcodegen emits objectVersion 77, which only Xcode 16+ can read — pin the
+      # newest stable Xcode so the runner's default (older) version doesn't fail
+      # with "future Xcode project file format".
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
       - name: Cache VAD xcframework
         uses: actions/cache@v4
