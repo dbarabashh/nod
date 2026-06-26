@@ -142,9 +142,19 @@ Reach for it before writing non-trivial framework code, when an API may be versi
 
 ## Architecture — the parts you can't infer from the file tree
 
+### Source layout
+
+Sources under `Nod/` are split by altitude into three top-level groups (see [`CONVENTIONS.md` § Architecture](./CONVENTIONS.md#architecture) for the placement rule):
+
+- **`Nod/App/`** — composition root + window shell (`NodApp`, `AppServices`, `ContentView`, `FloatingPanel`, `StatusItemController`, `WindowCoordinator`).
+- **`Nod/Features/<Name>/`** — one self-contained product surface per folder (`Auth`, `Meeting`, `History`, `Onboarding`, `Consent`, `Import`, `Export`, `Projects`, `Profile`, `Paywall`, `Settings`, `Update`, `Knowledge`, `Modes`).
+- **`Nod/Core/`** — infrastructure shared across features: `Backend`, `Storage`, `LLM`, `Audio` (incl. the sherpa VAD wrapper + `Nod-Bridging-Header.h`), `Permissions`, `Hotkeys`, `Language`, `Log.swift`, plus `DesignSystem/` (`Components` + `Theme`) and `Resources/` (`Assets.xcassets` + `silero_vad.onnx`).
+
+Dependency direction: `App/` and `Features/` use `Core/`; `Core/` must never import a feature. XcodeGen scans `path: Nod` recursively, so the nesting is organizational — but the bridging-header path in `project.yml` (`SWIFT_OBJC_BRIDGING_HEADER`) is hardcoded, so update it if `Core/Audio/` ever moves.
+
 ### Entry flow
 
-`NodApp` is a near-empty SwiftUI `App`; the real bootstrap is in `AppDelegate.applicationDidFinishLaunching` (`Nod/NodApp.swift`). It constructs every service exactly once, wires them together, then either shows the onboarding window or the floating panel based on `OnboardingState.isCompleted`. Services are passed downstream via `@EnvironmentObject`.
+`NodApp` is a near-empty SwiftUI `App`; the real bootstrap is in `AppDelegate.applicationDidFinishLaunching` (`Nod/App/NodApp.swift`). It constructs every service exactly once, wires them together, then either shows the onboarding window or the floating panel based on `OnboardingState.isCompleted`. Services are passed downstream via `@EnvironmentObject`.
 
 ### Audio pipeline (the hot path)
 
