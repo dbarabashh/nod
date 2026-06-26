@@ -26,3 +26,7 @@
 --disable docComments
 --disable wrap
 --disable numberFormatting
+
+# We align value tables by column on purpose (e.g. DesignTokens, Log cases),
+# so don't let the formatter collapse the padding.
+--disable consecutiveSpaces

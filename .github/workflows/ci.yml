@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache VAD xcframework
+        uses: actions/cache@v4
+        with:
+          path: Vendor/sherpa-onnx.xcframework
+          key: vad-${{ hashFiles('scripts/fetch-vad-xcframework.sh') }}
+
+      - name: Fetch VAD xcframework
+        run: ./scripts/fetch-vad-xcframework.sh
+
+      - name: Install tooling
+        run: brew install xcodegen swiftlint swiftformat
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: SwiftFormat (lint)
+        run: swiftformat --lint .
+
+      - name: SwiftLint
+        run: swiftlint lint --quiet
+
+      - name: Build & test
+        run: |
+          xcodebuild \
+            -project Nod.xcodeproj \
+            -scheme Nod \
+            -destination 'platform=macOS' \
+            -resultBundlePath TestResults.xcresult \
+            test

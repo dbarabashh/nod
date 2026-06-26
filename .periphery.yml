@@ -1,0 +1,9 @@
+project: Nod.xcodeproj
+schemes:
+  - Nod
+targets:
+  - Nod
+# Retains property declarations whose only use is being assigned — covers
+# Codable model fields mapped to DB columns and SwiftUI/AppKit retain holders
+# (Task handles, controllers) that Periphery otherwise reports as dead.
+retain_assign_only_properties: true

@@ -1,6 +1,6 @@
-import SwiftUI
 import AppKit
 import Carbon.HIToolbox
+import SwiftUI
 
 /// Button that, when activated, captures the next modifier+key combo via a
 /// local NSEvent monitor and writes it back to `HotkeyManager`.
@@ -120,7 +120,7 @@ struct HotkeyRecorderView: View {
         switch hotkey.setCombo(new, for: action) {
         case .ok:
             error = nil
-        case .conflict(let other):
+        case let .conflict(other):
             error = "Already used by “\(other.settingsLabel)”. Pick another."
         case .rejectedBySystem:
             error = "That shortcut is already used by another app. Pick another."

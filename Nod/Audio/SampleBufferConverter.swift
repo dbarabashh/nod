@@ -1,6 +1,6 @@
-import Foundation
 import AVFoundation
 import CoreMedia
+import Foundation
 
 enum SampleBufferConverter {
     /// Converts a CMSampleBuffer (from SCStream audio output) into an AVAudioPCMBuffer
@@ -42,8 +42,8 @@ enum SampleBufferConverter {
             channels: 1,
             interleaved: false
         ),
-              let converter = AVAudioConverter(from: inputFormat, to: monoFormat),
-              let output = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: buffer.frameCapacity)
+            let converter = AVAudioConverter(from: inputFormat, to: monoFormat),
+            let output = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: buffer.frameCapacity)
         else {
             return nil
         }
