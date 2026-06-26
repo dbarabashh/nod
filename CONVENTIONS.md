@@ -30,7 +30,15 @@ We optimize for **legibility a year from now** over cleverness today.
 
 **Default to value types.** Reach for `class` only when you need identity, reference semantics, or `ObservableObject`. `final class` if you do reach for it (we never subclass our own classes).
 
-**One feature per folder.** `Nod/Audio/`, `Nod/Auth/`, `Nod/Storage/`, `Nod/Permissions/`. One file can hold multiple closely-related types (e.g. `TranscriptEntry` + `TranscriptStore` could live together) — don't fragment for the sake of "one type per file."
+**The source tree is split by altitude — `App/`, `Features/`, `Core/`:**
+
+- **`Nod/App/`** — composition root + window shell: `NodApp` (the `AppDelegate` that wires every service once), `AppServices`, `ContentView`, `FloatingPanel`, `StatusItemController`, `WindowCoordinator`.
+- **`Nod/Features/<Name>/`** — one self-contained product surface per folder (`Auth`, `Meeting`, `History`, `Onboarding`, `Consent`, `Import`, `Export`, `Projects`, `Profile`, `Paywall`, `Settings`, `Update`, `Knowledge`, `Modes`). A feature owns its views, stores, and value types.
+- **`Nod/Core/`** — infrastructure reused by 2+ features and free of any one screen's business logic: `Backend`, `Storage`, `LLM`, `Audio` (incl. the sherpa VAD wrapper + bridging header), `Permissions`, `Hotkeys`, `Language`, `Log.swift`, plus `DesignSystem/` (`Components` + `Theme`) and `Resources/` (`Assets.xcassets` + `silero_vad.onnx`).
+
+**Placing new code:** used by multiple features and not tied to one screen → `Core/`; a self-contained slice of the product → `Features/`; app bootstrap / window plumbing → `App/`. Dependencies point one way — `App/` and `Features/` may use `Core/`; **`Core/` must never reach into a feature.** (XcodeGen scans `path: Nod` recursively, so this nesting is organizational, not a build constraint — but keep the direction clean by hand until/unless `Core/` is extracted into a local SPM package.)
+
+One file can hold multiple closely-related types (e.g. `TranscriptEntry` + `TranscriptStore` could live together) — don't fragment for the sake of "one type per file."
 
 ---
 
@@ -115,9 +123,10 @@ If you're unsure whether a comment clears that bar, it doesn't — delete it.
 
 ### File organization
 
-- Match the existing top-level folders (`Audio/`, `Auth/`, `Storage/`, `LLM/`, `Permissions/`, `Onboarding/`, `Language/`, `Backend/`, `Calendar/` — the last is being removed).
-- A new feature gets its own folder. A new type for an existing feature goes in that folder.
-- Don't introduce `Models/`, `ViewModels/`, `Helpers/`, `Utils/` — by-layer folders create artificial separation. Group by feature.
+- The tree is split by altitude into `App/`, `Features/`, `Core/` — see [Architecture](#architecture) for the full map and the placement rule.
+- A new feature gets its own folder under `Features/`. A new type for an existing feature goes in that feature's folder.
+- Shared, screen-agnostic infrastructure goes under `Core/` (`Core/DesignSystem/` for reusable UI, `Core/Resources/` for bundle assets).
+- Don't introduce `Models/`, `ViewModels/`, `Helpers/`, `Utils/` — by-layer folders create artificial separation. Group by feature inside `Features/`, by capability inside `Core/`.
 
 ---
 
