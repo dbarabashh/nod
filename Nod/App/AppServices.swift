@@ -10,7 +10,7 @@ struct AppServices {
     let permissions: PermissionManager
     let onboarding: OnboardingState
     let audioCapture: AudioCaptureService
-    let llmClient: OpenRouterClient
+    let llmClient: LLMProxyClient
     let transcriptStore: TranscriptStore
     let languagePreference: LanguagePreference
     let supabase: SupabaseClient
@@ -67,7 +67,7 @@ struct AppServices {
             )
         )
         let auth = AuthService(client: supabase)
-        let llmClient = OpenRouterClient(supabase: supabase)
+        let llmClient = LLMProxyClient(supabase: supabase)
         // Free the single-device slot on every sign-out path (menu, forced
         // device-conflict), while the token is still valid.
         auth.onSignOut = { [weak llmClient] in await llmClient?.releaseDevice() }

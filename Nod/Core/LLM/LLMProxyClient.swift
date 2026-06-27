@@ -7,12 +7,23 @@ import Supabase
 /// through `<supabase-project>/functions/v1/llm-proxy`. Authentication is
 /// the user's Supabase JWT; the OpenRouter API key lives in the server-side
 /// `OPENROUTER_API_KEY` secret and never reaches the client binary.
+///
+/// `@MainActor` is deliberate even though there are no `@Published` properties:
+/// the type is injected as an `@EnvironmentObject` and posts UI-affecting
+/// notifications (`.nodDeviceConflict`, `.nodUpdateRequired`,
+/// `.nodOpenSubscription`) whose observers run synchronously on the posting
+/// thread. Don't drop the isolation to move the per-chunk JSON/base64 work off
+/// the main thread without also relocating those side-effects — otherwise they
+/// fire on a background thread and race the UI. Profile first; the codec cost
+/// is a few ms per chunk and the WAV bytes are already built off-main in
+/// `WhisperTranscriber`.
 @MainActor
-final class OpenRouterClient: ObservableObject {
+final class LLMProxyClient: ObservableObject {
     enum ClientError: LocalizedError {
         case unauthenticated
         case updateRequired
         case deviceConflict
+        case entitlementRequired
         case requestFailed(status: Int, body: String)
         case emptyResponse
         case decodingFailed(String)
@@ -26,6 +37,8 @@ final class OpenRouterClient: ObservableObject {
                 "This version of Nod is out of date. Please update to continue."
             case .deviceConflict:
                 "This account is already in use on another device."
+            case .entitlementRequired:
+                "Your plan doesn't cover this. Please choose a plan to continue."
             case let .requestFailed(status, body):
                 "LLM proxy HTTP \(status): \(body)"
             case .emptyResponse:
@@ -114,11 +127,10 @@ final class OpenRouterClient: ObservableObject {
     }
 
     func complete(system: String, user: String, jsonMode: Bool = false) async throws -> String {
-        let userPreview = String(user.prefix(200))
         Log.llm.info(
             "→ chat via proxy model=\(model) fallback=\(fallbackModel) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)"
         )
-        Log.llm.info("→ user preview: \(userPreview)\(user.count > 200 ? "…" : "")")
+        Log.llm.sensitive("→ user[0..200]: \(user.prefix(200))")
 
         return try await send(
             messages: [
@@ -176,8 +188,8 @@ final class OpenRouterClient: ObservableObject {
                 Log.llm.error("empty content")
                 throw ClientError.emptyResponse
             }
-            let preview = String(text.prefix(200))
-            Log.llm.info("← OK len=\(text.count) preview: \(preview)\(text.count > 200 ? "…" : "")")
+            Log.llm.info("← OK len=\(text.count)")
+            Log.llm.sensitive("← reply[0..200]: \(text.prefix(200))")
             return text
         } catch let error as ClientError {
             throw error
@@ -203,7 +215,8 @@ final class OpenRouterClient: ObservableObject {
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
-            Log.llm.error("JSON decode failed: \(error.localizedDescription) — body[0..200]=\(String(cleaned.prefix(200)))")
+            Log.llm.error("JSON decode failed: \(error.localizedDescription)")
+            Log.llm.sensitive("JSON decode failed body[0..200]=\(String(cleaned.prefix(200)))")
             throw ClientError.decodingFailed(error.localizedDescription)
         }
     }
@@ -315,7 +328,7 @@ final class OpenRouterClient: ObservableObject {
             status == 429 || (status >= 500 && status < 600)
         case .networkFailed:
             true
-        case .unauthenticated, .updateRequired, .deviceConflict, .emptyResponse, .decodingFailed:
+        case .unauthenticated, .updateRequired, .deviceConflict, .entitlementRequired, .emptyResponse, .decodingFailed:
             false
         }
     }
@@ -592,7 +605,7 @@ final class OpenRouterClient: ObservableObject {
         request.setValue(AppVersion.version, forHTTPHeaderField: "x-app-version")
         request.setValue(AppVersion.osVersion, forHTTPHeaderField: "x-os-version")
         // Single-device lock: the proxy binds the account to this hardware id
-        // and 403s any other device. Name is percent-encoded — machine names
+        // and 409s any other device. Name is percent-encoded — machine names
         // aren't ASCII-safe, which an HTTP header value must be.
         request.setValue(DeviceIdentity.id, forHTTPHeaderField: "x-device-id")
         if let encodedName = DeviceIdentity.encodedName {
@@ -629,6 +642,16 @@ final class OpenRouterClient: ObservableObject {
         }
     }
 
+    /// True when a 403 body is the proxy's plan/feature gate
+    /// (`{ "error": "entitlement_required" | "feature_required" }`) rather than
+    /// the unrelated ownership 403 (`"meeting does not belong to user"`), which
+    /// must stay a hard error.
+    private static func isEntitlementError(_ data: Data) -> Bool {
+        guard let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let error = parsed["error"] as? String else { return false }
+        return error == "entitlement_required" || error == "feature_required"
+    }
+
     private func postToProxy(body: Data) async throws -> Data {
         let request = try await makeProxyRequest(body: body)
 
@@ -655,6 +678,17 @@ final class OpenRouterClient: ObservableObject {
             Log.llm.info("STT served by provider=\(sttProvider) status=\(http.statusCode)")
         }
         try throwIfGatedStatus(http)
+        if http.statusCode == 403, Self.isEntitlementError(data) {
+            // Backstop for an entitlement that lapsed mid-session (trial
+            // expired, subscription canceled) after the client-side start gate
+            // passed — chunks then 403 one after another. Route the user to the
+            // paywall instead of silently dropping transcription. The ownership
+            // 403 ("meeting does not belong to user") is a genuine error and
+            // falls through to `requestFailed` below.
+            Log.llm.error("proxy 403 entitlement — opening paywall")
+            NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+            throw ClientError.entitlementRequired
+        }
         if http.statusCode >= 400 {
             let raw = String(data: data, encoding: .utf8) ?? "<binary>"
             let sanitized = Self.sanitizeErrorBody(raw)
@@ -721,8 +755,8 @@ private struct ProxyEnvelope<Payload: Encodable>: Encodable {
 private struct EmptyPayload: Encodable {}
 
 extension Notification.Name {
-    /// Posted by `OpenRouterClient` when the proxy refuses a call because the
-    /// account is bound to another device (HTTP 403 `device_conflict`).
+    /// Posted by `LLMProxyClient` when the proxy refuses a call because the
+    /// account is bound to another device (HTTP 409 `device_conflict`).
     /// `AppDelegate` observes it to force a sign-out with an explanation.
     static let nodDeviceConflict = Notification.Name("nod.auth.deviceConflict")
 }

@@ -45,7 +45,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     private let mic: WhisperTranscriber
     private let system: WhisperTranscriber
 
-    init(client: OpenRouterClient) {
+    init(client: LLMProxyClient) {
         mic = WhisperTranscriber(source: .me, client: client)
         system = WhisperTranscriber(source: .them, client: client)
 
@@ -198,11 +198,11 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
 
             switch (source, existing.source) {
             case (.them, .me):
-                Log.stt.info("dedup: replaced ME bleed with cleaner THEM ('\(text.prefix(48))…')")
+                Log.stt.sensitive("dedup: replaced ME bleed with cleaner THEM ('\(text.prefix(48))…')")
                 entries[idx] = TranscriptEntry(source: .them, text: text, timestamp: timestamp)
                 lastSource = .them
             case (.me, .them):
-                Log.stt.info("dedup: dropped ME bleed of existing THEM ('\(text.prefix(48))…')")
+                Log.stt.sensitive("dedup: dropped ME bleed of existing THEM ('\(text.prefix(48))…')")
             default:
                 break
             }

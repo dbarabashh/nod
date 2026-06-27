@@ -109,7 +109,7 @@ final class MeetingSession: ObservableObject {
 
     private let audioCapture: AudioCaptureService
     private let store: TranscriptStore
-    private let llm: OpenRouterClient
+    private let llm: LLMProxyClient
     private let meetingStore: MeetingStore
     private let entityStore: EntityStore
     private let knowledgeStore: KnowledgeStore
@@ -122,7 +122,7 @@ final class MeetingSession: ObservableObject {
     init(
         audioCapture: AudioCaptureService,
         store: TranscriptStore,
-        llm: OpenRouterClient,
+        llm: LLMProxyClient,
         meetingStore: MeetingStore,
         entityStore: EntityStore,
         knowledgeStore: KnowledgeStore,
@@ -653,7 +653,7 @@ final class MeetingSession: ObservableObject {
             return try await generateRecap(system: system, user: user, transcript: transcript, language: language)
         }
 
-        let cleaned = OpenRouterClient.extractJSON(accumulated)
+        let cleaned = LLMProxyClient.extractJSON(accumulated)
         guard let data = cleaned.data(using: .utf8),
               let recap = try? JSONDecoder().decode(MeetingRecap.self, from: data)
         else {
@@ -877,7 +877,8 @@ final class MeetingSession: ObservableObject {
         // Cap at 120 chars — enough headroom for Ukrainian/Russian/Polish
         // 7-word titles whose roots are longer than English equivalents.
         guard !line.isEmpty, line.count <= 120 else {
-            Log.ui.info("title rejected (empty or too long): \(line.prefix(40))…")
+            Log.ui.info("title rejected (empty or too long): len=\(line.count)")
+            Log.ui.sensitive("title rejected: '\(line.prefix(40))…'")
             return nil
         }
         return line

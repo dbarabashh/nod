@@ -10,7 +10,7 @@ struct SessionChatView: View {
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
-    @EnvironmentObject private var llm: OpenRouterClient
+    @EnvironmentObject private var llm: LLMProxyClient
 
     /// Above this transcript size we retrieve the parts relevant to the
     /// question instead of stuffing the whole thing. Set high (≈ a multi-hour
@@ -213,7 +213,7 @@ struct SessionChatView: View {
             priorTurns = chatStore.messages[...]
         }
         let priorHistory = priorTurns.map {
-            OpenRouterClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
+            LLMProxyClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
         }
         if !retryLast { draft = "" }
         Task {
@@ -229,7 +229,7 @@ struct SessionChatView: View {
         }
     }
 
-    private func buildSystemPrompt(for query: String, history: [OpenRouterClient.ChatTurn]) async -> String {
+    private func buildSystemPrompt(for query: String, history: [LLMProxyClient.ChatTurn]) async -> String {
         // Match the user's typed language; fall back to the meeting's language.
         let language = AppLanguage.detect(from: query) ?? AppLanguage(rawValue: current.language) ?? .english
         let full = transcriptText ?? ""

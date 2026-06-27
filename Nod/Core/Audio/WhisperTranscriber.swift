@@ -19,7 +19,7 @@ final class WhisperTranscriber: @unchecked Sendable {
     var onFinal: ((TranscribedChunk) -> Void)?
     var onFailure: ((String, TranscriptSource) -> Void)?
 
-    private let client: OpenRouterClient
+    private let client: LLMProxyClient
     private let queue: DispatchQueue
     private var keepRecognizing = false
 
@@ -115,7 +115,7 @@ final class WhisperTranscriber: @unchecked Sendable {
     private var cachedConverter: AVAudioConverter?
     private var cachedSourceFormat: AVAudioFormat?
 
-    init(source: TranscriptSource, client: OpenRouterClient) {
+    init(source: TranscriptSource, client: LLMProxyClient) {
         self.source = source
         self.client = client
         queue = DispatchQueue(label: "nod.whisper.\(source.rawValue)", qos: .userInteractive)
