@@ -310,7 +310,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         case "chat":
             return forwardChat(body.payload, user.id);
         case "transcribe":
-            return forwardTranscribe(body.payload, user.id, entitlement);
+            return forwardTranscribe(body.payload, user.id, entitlement, admin);
         case "index":
             return handleIndex(body.payload, user.id);
         case "search":
@@ -503,7 +503,67 @@ async function readStreamUsage(
     return id ? { id } : null;
 }
 
-async function forwardTranscribe(payload: unknown, userId: string, entitlement: Entitlement | null): Promise<Response> {
+// STT providers (Groq, OpenAI, OpenRouter) don't return a per-request cost the
+// way OpenRouter's chat endpoint does, so we estimate it from the audio
+// duration × a per-provider rate. The rate card lives in `app_config.stt_rates`
+// (not a code constant) so a provider price change is a one-row UPDATE, not a
+// redeploy — and the monthly reconciliation cron reads the same source. Shape:
+//   { "<provider>": { "default": <$/h>, "min_billed_seconds": <int>,
+//                     "models": { "<model id>": <$/h> } } }
+// `min_billed_seconds` captures provider billing floors (Groq bills a 10s
+// minimum per request; our VAD segments average ~5s, so raw duration would
+// understate cost ~2x). `models` overrides the per-provider default for a
+// specific model id; OpenAI always serves whisper-1 so its default ($0.36/h)
+// covers every requested id.
+interface SttProviderRates {
+    default: number;
+    min_billed_seconds?: number;
+    models?: Record<string, number>;
+}
+type SttRates = Record<string, SttProviderRates>;
+
+// Used only when app_config is unreadable — Groq large-v3 list price + 10s floor.
+const STT_RATES_FALLBACK: SttRates = {
+    groq: { default: 0.111, min_billed_seconds: 10, models: { "openai/whisper-large-v3-turbo": 0.04, "openai/whisper-large-v3": 0.111 } },
+    openai: { default: 0.36, min_billed_seconds: 0 },
+    openrouter: { default: 0.111, min_billed_seconds: 0, models: { "openai/whisper-large-v3-turbo": 0.04, "openai/whisper-large-v3": 0.111 } },
+};
+
+let cachedSttRates: { value: SttRates; at: number } | null = null;
+const STT_RATES_TTL_MS = 60_000;
+
+async function sttRates(admin: ReturnType<typeof adminClient>): Promise<SttRates> {
+    const now = Date.now();
+    if (cachedSttRates && now - cachedSttRates.at < STT_RATES_TTL_MS) return cachedSttRates.value;
+    const { data, error } = await admin
+        .from("app_config")
+        .select("stt_rates")
+        .eq("singleton", true)
+        .single();
+    const value = (!error && isObject(data) && isObject(data.stt_rates))
+        ? data.stt_rates as SttRates
+        : STT_RATES_FALLBACK;
+    cachedSttRates = { value, at: now };
+    return value;
+}
+
+// Estimated cost for one transcription. Returns null when we can't price the
+// row (unknown provider) so it stays honestly empty rather than fabricated.
+function transcribeCostUsd(rates: SttRates, provider: string, model: string, audioSeconds: number | null): number | null {
+    if (audioSeconds == null || audioSeconds <= 0) return null;
+    // Fall back to the built-in card if a hand-edited config omits a provider,
+    // so a provider that actually served still records a cost.
+    const p = rates[provider] ?? STT_RATES_FALLBACK[provider];
+    if (!p) return null;
+    const rate = p.models?.[model] ?? p.default;
+    if (typeof rate !== "number") return null;
+    const floor = typeof p.min_billed_seconds === "number" ? p.min_billed_seconds : 0;
+    const billedSeconds = Math.max(audioSeconds, floor);
+    // Match the column precision: numeric(12, 6).
+    return Math.round((billedSeconds / 3600) * rate * 1e6) / 1e6;
+}
+
+async function forwardTranscribe(payload: unknown, userId: string, entitlement: Entitlement | null, admin: ReturnType<typeof adminClient>): Promise<Response> {
     const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";
     const audioSeconds = audioSecondsFromPayload(payload);
 
@@ -514,6 +574,12 @@ async function forwardTranscribe(payload: unknown, userId: string, entitlement: 
     console.log(`transcribe served user=${userId} provider=${provider} status=${status} model=${model}`);
 
     try {
+        // Providers return no usage for audio, so estimate from duration × the
+        // per-provider rate card in app_config. Only price — and only fetch the
+        // rate card — for successful calls; a failed upstream wasn't billable.
+        const cost = status >= 200 && status < 300
+            ? transcribeCostUsd(await sttRates(admin), provider, model, audioSeconds)
+            : null;
         await recordUsage({
             user_id: userId,
             kind: "transcribe",
@@ -524,7 +590,7 @@ async function forwardTranscribe(payload: unknown, userId: string, entitlement: 
             model: `${provider}:${model}`,
             status,
             audio_seconds: audioSeconds,
-            cost_usd: null, // No usage returned for audio; reconcile via provider billing later.
+            cost_usd: cost,
         });
     } catch (err) {
         console.warn(`transcribe usage record skipped: ${err}`);
