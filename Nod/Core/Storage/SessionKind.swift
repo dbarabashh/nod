@@ -52,6 +52,17 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// Status word shown in the panel header while capturing — framed as what
+    /// Nod is doing for the user, varying by what's actually captured so it
+    /// never reads as a stark "recording them" light.
+    var activeStatusLabel: String {
+        switch self {
+        case .meeting: "Listening"
+        case .voiceNote: "Noting"
+        case .media: "Transcribing"
+        }
+    }
+
     var icon: String {
         switch self {
         case .meeting: "person.2.fill"

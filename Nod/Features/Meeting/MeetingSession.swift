@@ -6,11 +6,13 @@ enum MeetingState: Equatable {
     case recording
     case paused
 
-    var statusLabel: String {
+    /// Header status word. While capturing it names what Nod is doing for the
+    /// user — varying by `SessionKind` — rather than a stark "REC".
+    func statusLabel(for kind: SessionKind) -> String {
         switch self {
-        case .idle: "READY"
-        case .recording: "REC"
-        case .paused: "PAUSED"
+        case .idle: "Ready"
+        case .recording: kind.activeStatusLabel
+        case .paused: "Paused"
         }
     }
 

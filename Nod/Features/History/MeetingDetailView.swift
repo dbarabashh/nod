@@ -882,8 +882,7 @@ struct MeetingDetailView: View {
     /// Writes `text` to the clipboard and runs the shared copy-button flash.
     /// Used by both the summary and transcript copy buttons.
     private func copyAndFlash(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        NSPasteboard.copyText(text)
         Task { await flashConfirmation(set: { copyFlash = true }, reset: { copyFlash = false }, for: 1.5) }
     }
 
@@ -928,8 +927,7 @@ struct MeetingDetailView: View {
         Task {
             do {
                 let url = try await meetingStore.createShareURL(for: meeting)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                NSPasteboard.copyText(url.absoluteString)
                 await flashConfirmation(set: { shareState = .copied }, reset: { shareState = .idle }, for: 1.8)
             } catch {
                 Log.ui.error("share link failed: \(error.localizedDescription)")

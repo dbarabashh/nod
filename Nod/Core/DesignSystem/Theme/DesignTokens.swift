@@ -33,6 +33,16 @@ enum DesignTokens {
         static let tealGlow        = Color(hex: 0x1CECBB)
         static let fuchsiaFlare    = Color(hex: 0xDD55E7)
         static let skyBlue         = Color(hex: 0x60A5FA)
+
+        // App control tints — opaque colors used by the meeting controls and the
+        // screen-share toggle. Kept as exact RGB (not hex) to preserve the values
+        // lifted verbatim from the original inline view code.
+        static let mintGreen       = Color(red: 0.62, green: 0.90, blue: 0.72)
+        static let coralRed        = Color(red: 0.95, green: 0.45, blue: 0.50)
+        static let maroon          = Color(red: 0.55, green: 0.18, blue: 0.22)
+        static let salmonPink      = Color(red: 0.95, green: 0.55, blue: 0.55)
+        static let slateInk        = Color(red: 0.16, green: 0.17, blue: 0.22)
+        static let amber           = Color(hex: 0xFFB454)
     }
 
     // MARK: - Surfaces (elevation ladder)
