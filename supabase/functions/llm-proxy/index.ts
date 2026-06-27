@@ -248,7 +248,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // Enforce on every other call — the proxy is the chokepoint, so a device
     // that loses the lock stops working regardless of client-side checks. A
-    // refused device gets 403 device_conflict and the client signs out. Fail
+    // refused device gets 409 device_conflict and the client signs out. Fail
     // open on any DB error: a lookup hiccup must never lock a user out of
     // their own account.
     if (deviceId) {
@@ -272,25 +272,28 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }
     }
 
-    // Entitlement gate. Every billable/feature-bearing kind is gated here — the
-    // proxy is the chokepoint a patched client can't skip (client-side gates are
-    // UX only). A locked account (expired trial, canceled sub, no subscription)
-    // gets 403 entitlement_required. `search` is additionally gated on the
-    // SPECIFIC plan feature its scope maps to, so a Starter user can ask within a
-    // single meeting but not across all of them or by label. The hour cap is
-    // deliberately soft — an over-cap call is still served (never blocked) and
-    // the remaining hours are surfaced via x-nod-hours-* headers.
-    // Fail open on lookup errors: a DB hiccup must never cut a live meeting.
-    // Gate by EXEMPTION, not by an allowlist of kinds: anything that isn't an
-    // explicitly-exempt device op is gated, so a future billable kind is gated
-    // by default rather than silently served free until someone remembers to
-    // add it here. (device_release already returned above; device_claim is the
-    // signed-in device handshake and carries no entitlement cost.)
+    // Entitlement gate — deny by default on a lapsed plan (expired trial,
+    // canceled sub, no subscription), with ONE exemption: `transcribe`. Live
+    // audio is irreplaceable, so a meeting that's mid-recording when the plan
+    // lapses still captures its transcript to the end; everything else (`chat`
+    // recap/Ask, `index`, `search`) is blocked. The end-of-meeting summary (a
+    // `chat` call) is therefore gated too, but it regenerates from the saved
+    // transcript after the user renews — the recording itself is never lost.
+    // Blocking `transcribe` for a NEW meeting is the client start-gate's job
+    // (it checks isActive before recording); the proxy can't tell a new meeting
+    // from a continued one, since both are just transcribe calls.
+    //
+    // `search` is additionally gated on the SPECIFIC plan feature its scope
+    // maps to (a Starter user can ask within one meeting but not across all).
+    // The hour cap stays soft (an over-cap call is still served; remaining
+    // hours surface via x-nod-hours-* headers). Fail open on lookup errors: a
+    // DB hiccup must never cut a live meeting.
     let entitlement: Entitlement | null = null;
     if (!UNGATED_KINDS.has(body.kind)) {
         entitlement = await entitlementFor(admin, user.id);
-        if (entitlement && entitlement.status !== "trialing" && entitlement.status !== "active") {
-            return json({ error: "entitlement_required", status: entitlement.status, plan: entitlement.plan }, 403);
+        const lapsed = entitlement && entitlement.status !== "trialing" && entitlement.status !== "active";
+        if (lapsed && body.kind !== "transcribe") {
+            return json({ error: "entitlement_required", status: entitlement!.status, plan: entitlement!.plan }, 403);
         }
         if (body.kind === "search" && entitlement) {
             const required = requiredSearchFeature(body.payload);

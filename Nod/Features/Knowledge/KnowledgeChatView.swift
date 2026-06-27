@@ -10,7 +10,7 @@ struct KnowledgeChatView: View {
     /// used when a mention or source is clicked.
     let onOpenMeeting: (UUID) -> Void
 
-    @EnvironmentObject private var llm: OpenRouterClient
+    @EnvironmentObject private var llm: LLMProxyClient
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var labelStore: LabelStore
@@ -425,7 +425,7 @@ struct KnowledgeChatView: View {
         // Captured before the new turn is appended — this is the context the
         // query-prep step resolves follow-ups against.
         let priorHistory = messages.map {
-            OpenRouterClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
+            LLMProxyClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
         }
         messages.append(QAMessage(role: .user, content: text, mentions: active))
         thinkingPhase = "Searching your sessions…"
@@ -477,7 +477,7 @@ struct KnowledgeChatView: View {
                 personalContext: profileStore.promptContext
             )
             let history = messages.map {
-                OpenRouterClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
+                LLMProxyClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
             }
             do {
                 // Low temperature — cross-session answers must stay grounded in

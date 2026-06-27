@@ -10,7 +10,7 @@ import Supabase
 /// - below `recommended_build` → `.recommended`: a dismissible nudge.
 ///
 /// The proxy is the backstop: if a stale client slips past the launch check
-/// and the `llm-proxy` rejects it with 426, `OpenRouterClient` posts
+/// and the `llm-proxy` rejects it with 426, `LLMProxyClient` posts
 /// `.nodUpdateRequired` and we flip to `.required` from anywhere.
 @MainActor
 final class UpdateGate: ObservableObject {
@@ -95,7 +95,7 @@ final class UpdateGate: ObservableObject {
 }
 
 extension Notification.Name {
-    /// Posted by `OpenRouterClient` when the proxy returns 426 — a stale
+    /// Posted by `LLMProxyClient` when the proxy returns 426 — a stale
     /// client that slipped past the launch check.
     static let nodUpdateRequired = Notification.Name("nod.update.required")
     /// Posted by `UpdateGate` to ask AppDelegate's Sparkle controller to run.

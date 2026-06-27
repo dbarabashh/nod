@@ -789,7 +789,7 @@ enum PromptLibrary {
     ///     question (HyDE) so retrieval matches answer-shaped chunks instead of
     ///     question-shaped ones. NEVER shown to the user, NEVER treated as fact.
     static func buildHyDE(
-        history: [OpenRouterClient.ChatTurn],
+        history: [LLMProxyClient.ChatTurn],
         query: String,
         language: AppLanguage = .english,
         personalContext: String = ""

@@ -23,11 +23,11 @@ final class ChatStore: ObservableObject {
     @Published private(set) var sendState: SendState = .idle
 
     private let supabase: SupabaseClient
-    private let llm: OpenRouterClient
+    private let llm: LLMProxyClient
     private static let tableName = "chat_messages"
     private var openMeetingID: UUID?
 
-    init(supabase: SupabaseClient, llm: OpenRouterClient) {
+    init(supabase: SupabaseClient, llm: LLMProxyClient) {
         self.supabase = supabase
         self.llm = llm
     }
@@ -97,7 +97,7 @@ final class ChatStore: ObservableObject {
 
     private func requestReply(systemPrompt: String, meetingID: UUID, userID: UUID) async {
         let history = messages.map {
-            OpenRouterClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
+            LLMProxyClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
         }
         do {
             // Low temperature: grounded answers about a real recording should

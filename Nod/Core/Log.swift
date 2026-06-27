@@ -19,6 +19,19 @@ struct AppLog {
         logger.debug("\(message, privacy: .public)")
     }
 
+    /// Logs a line that may contain user content — transcript text, prompts,
+    /// model output. Compiled to a no-op in release builds, so meeting content
+    /// never reaches the unified log or stdout; full detail in DEBUG only. The
+    /// `@autoclosure` means the message (and any `prefix`/interpolation it does)
+    /// isn't even built in release.
+    func sensitive(_ message: @autoclosure () -> String) {
+        #if DEBUG
+            let text = message()
+            logger.debug("\(text, privacy: .public)")
+            Swift.print("[\(timestamp)] [\(tag)] \(text)")
+        #endif
+    }
+
     private var timestamp: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss.SSS"

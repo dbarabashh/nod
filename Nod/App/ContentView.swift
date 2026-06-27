@@ -357,25 +357,29 @@ struct ContentView: View {
     }
 
     private func startMeeting() {
-        // Subscription gate: a locked account (trial ended / canceled) can't
-        // record — the proxy 403s transcription anyway, so send them to the
-        // paywall instead of failing mid-meeting. An unresolved entitlement
-        // (nil — not yet loaded or a transient lookup failure) falls through to
-        // the server so a paying user is never blocked client-side.
-        if entitlements.entitlement?.isActive == false {
-            Log.ui.info("startMeeting blocked — entitlement not active; opening paywall")
-            NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
-            return
-        }
-        // Consent gate: show the disclaimer modal before any audio capture
-        // on the user's first meeting. See issue #4.
-        if !consent.isAccepted {
-            withAnimation(.easeOut(duration: 0.15)) {
-                showConsentDisclaimer = true
+        Task { @MainActor in
+            // Subscription gate. The proxy serves `transcribe` even on a lapsed
+            // plan (it never cuts a live meeting), so this client check is the
+            // ONLY thing that blocks a NEW meeting — refresh first so it reflects
+            // a lapse that happened since the last sync, not a stale cache. An
+            // unresolved entitlement (nil — never loaded, or a refresh that just
+            // failed) falls through so a paying user is never blocked on a blip.
+            await entitlements.refresh()
+            if entitlements.entitlement?.isActive == false {
+                Log.ui.info("startMeeting blocked — entitlement not active; opening paywall")
+                NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+                return
             }
-            return
+            // Consent gate: show the disclaimer modal before any audio capture
+            // on the user's first meeting. See issue #4.
+            if !consent.isAccepted {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    showConsentDisclaimer = true
+                }
+                return
+            }
+            beginRecording()
         }
-        beginRecording()
     }
 
     private func beginRecording() {
@@ -404,7 +408,7 @@ private struct PanelContentHeightKey: PreferenceKey {
 }
 
 #Preview {
-    let llm = OpenRouterClient()
+    let llm = LLMProxyClient()
     let language = LanguagePreference()
     // Use a dedicated UserDefaults suite so previewing the Acknowledge flow
     // doesn't taint the developer's installed app's consent state.

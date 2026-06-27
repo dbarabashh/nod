@@ -24,13 +24,13 @@ struct RetrievedChunk: Decodable, Identifiable {
 /// server-side (gte-small), scoped to the owner by RLS.
 @MainActor
 final class KnowledgeStore: ObservableObject {
-    private let llm: OpenRouterClient
+    private let llm: LLMProxyClient
 
     /// ~1200 chars ≈ a few minutes of dialogue — small enough to be a precise
     /// retrieval unit, large enough to carry context.
     private static let targetChunkChars = 1200
 
-    init(llm: OpenRouterClient) {
+    init(llm: LLMProxyClient) {
         self.llm = llm
     }
 
