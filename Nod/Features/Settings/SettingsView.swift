@@ -477,8 +477,7 @@ private struct ConnectionsSection: View {
     }
 
     private func copyLink(_ link: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(link, forType: .string)
+        NSPasteboard.copyText(link)
         linkCopied = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { linkCopied = false }
     }

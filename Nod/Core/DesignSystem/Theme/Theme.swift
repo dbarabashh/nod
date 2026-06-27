@@ -41,6 +41,22 @@ enum Theme {
         static let warning = DesignTokens.Palette.goldenrod
         static let success = DesignTokens.Palette.vividGreen
         static let danger = DesignTokens.Palette.crimsonRed
+
+        /// The app-icon sky blue — used where a surface should carry the brand
+        /// tint (e.g. the live-capture ring) rather than a status colour.
+        static let brand = DesignTokens.Palette.skyBlue
+
+        // Meeting controls — the pause/resume/end/mute tints shared by the
+        // status row and the collapsed capsule, centralised here so the two
+        // surfaces can't drift.
+        static let controlResume = DesignTokens.Palette.mintGreen
+        static let controlEnd = DesignTokens.Palette.coralRed
+        static let controlEndSurface = DesignTokens.Palette.maroon
+        static let controlMicMuted = DesignTokens.Palette.salmonPink
+        static let controlSurface = DesignTokens.Palette.slateInk
+
+        /// The amber eye in the screen-share visibility toggle.
+        static let shareEye = DesignTokens.Palette.amber
     }
 
     /// Single source of truth for the primary "glass" button — the marketing
