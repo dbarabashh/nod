@@ -1,0 +1,14 @@
+-- founder_dashboard_exclude_employees
+--
+-- In production (ref lptqvnizjwglilgeukwx) this was applied as a second,
+-- separate migration that updated the founder analytics RPCs to exclude
+-- employee accounts from user-facing counts. Upstream, the founder-dashboard
+-- repo keeps all of this in a single self-documenting file
+-- (db/founder_dashboard_rpcs.sql) whose final state already bakes in the
+-- exclusion — so that change is fully contained in the companion migration
+-- 20260626184622_founder_dashboard_analytics_rpcs.sql in this directory.
+--
+-- This file mirrors the production migration history so the Supabase Preview
+-- check (and a fresh `supabase db reset`) reconcile against the remote, with
+-- no statements to run — the exclusion already exists after the previous
+-- migration applies. See that file for the actual function definitions.
