@@ -502,8 +502,20 @@ final class MeetingStore: ObservableObject {
         localAuthoritative: [UUID: Meeting] = [:]
     ) -> [Meeting] {
         var merged = rows
-        for draft in drafts where !merged.contains(where: { $0.id == draft.id }) {
-            merged.append(draft)
+        var indexByID = Dictionary(merged.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for draft in drafts {
+            // A generating meeting is live-streamed to the server mid-recording
+            // with `ended_at == started_at`, so its row may already be here with
+            // a 0:00 duration. Splice the draft's accurate bookends onto that row
+            // — but keep the server row's content, so an empty draft can't wipe a
+            // summary that already landed (only `localAuthoritative` replaces
+            // content). When the row is absent, keep the draft outright.
+            if let idx = indexByID[draft.id] {
+                merged[idx] = merged[idx].withBookends(from: draft)
+            } else {
+                indexByID[draft.id] = merged.count
+                merged.append(draft)
+            }
         }
         if !localAuthoritative.isEmpty {
             var present: Set<UUID> = []

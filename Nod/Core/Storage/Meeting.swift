@@ -120,6 +120,27 @@ struct Meeting: Codable, Identifiable {
         )
     }
 
+    /// Returns a copy with the recording bookends taken from `draft`, keeping
+    /// every other field. Used by the refresh merge: a meeting streamed to the
+    /// server mid-recording carries `ended_at == started_at`, but the local
+    /// generating draft holds the real stop time — so the duration stays
+    /// accurate during generation without clobbering the server row's content.
+    func withBookends(from draft: Meeting) -> Meeting {
+        Meeting(
+            id: id,
+            userID: userID,
+            createdAt: createdAt,
+            startedAt: draft.startedAt,
+            endedAt: draft.endedAt,
+            title: title,
+            kind: kind,
+            summary: summary,
+            recap: recap,
+            language: language,
+            deletedAt: deletedAt
+        )
+    }
+
     /// Returns a copy with only `deletedAt` replaced — the local-cache mirror
     /// of a soft delete / restore while the next refresh fetches the
     /// server-stamped value.

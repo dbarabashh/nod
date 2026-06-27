@@ -98,9 +98,9 @@ final class MeetingStoreMergeTests: XCTestCase {
         XCTAssertEqual(merged[0].summary, "final recap")
     }
 
-    func testDraftsStillDeferToServerRow() {
+    func testDraftsStillDeferToServerRowForContent() {
         // Unchanged contract: a *draft* (mid-generation) yields to a present
-        // server row — only `localAuthoritative` overrides it.
+        // server row for CONTENT — only `localAuthoritative` overrides summary.
         let id = UUID()
         let serverRow = makeMeeting(id: id, startedAt: Date(timeIntervalSince1970: 1000), summary: "final")
         let draft = makeMeeting(id: id, startedAt: Date(timeIntervalSince1970: 1000), summary: "")
@@ -108,6 +108,28 @@ final class MeetingStoreMergeTests: XCTestCase {
         let merged = MeetingStore.merging(rows: [serverRow], drafts: [draft])
 
         XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged[0].summary, "final")
+    }
+
+    func testDraftBookendsOverrideStaleServerRow() {
+        // The row was streamed mid-recording with `ended_at == started_at`
+        // (0:00). The local generating draft holds the real stop time — its
+        // bookends must win so the duration is accurate during generation,
+        // while the server row's content is left untouched.
+        let id = UUID()
+        let start = Date(timeIntervalSince1970: 1000)
+        let stale = Meeting(
+            id: id, userID: UUID(), createdAt: nil,
+            startedAt: start, endedAt: start,
+            title: nil, kind: .meeting, summary: "final", recap: nil,
+            language: "en", deletedAt: nil
+        )
+        let draft = makeMeeting(id: id, startedAt: start, summary: "")
+
+        let merged = MeetingStore.merging(rows: [stale], drafts: [draft])
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged[0].endedAt, draft.endedAt)
         XCTAssertEqual(merged[0].summary, "final")
     }
 }
