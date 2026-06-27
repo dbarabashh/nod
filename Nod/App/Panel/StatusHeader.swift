@@ -167,7 +167,9 @@ struct StatusHeader: View {
                     .foregroundColor(.white.opacity(0.50))
                     .lineLimit(1)
                     .fixedSize()
-                if meeting == .recording {
+                // Mic level only where the mic is actually captured — `media`
+                // is listen-only (no [Me] capture), so the meter would sit dead.
+                if meeting == .recording, kind.capturesMic {
                     LevelMeter(level: audioCapture.inputLevel)
                 }
             }

@@ -12,7 +12,7 @@ struct StatusRow: View {
         HStack(spacing: 10) {
             StatusIcon(action: onRecordToggle) {
                 Image(systemName: meeting == .paused ? "play.fill" : "pause.fill")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(meeting == .paused
                         ? Theme.Palette.controlResume
                         : .white.opacity(0.85))
@@ -21,7 +21,7 @@ struct StatusRow: View {
             if showMic {
                 StatusIcon(action: onMicToggle) {
                     Image(systemName: micMuted ? "mic.slash.fill" : "mic.fill")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(micMuted
                             ? Theme.Palette.controlMicMuted
                             : .white.opacity(0.85))
@@ -58,15 +58,22 @@ private struct StatusIcon<Content: View>: View {
     let action: () -> Void
     @ViewBuilder var content: Content
 
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+    }
+
     var body: some View {
         Button(action: action) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Theme.Palette.controlSurface)
-                content
-            }
-            .frame(width: 32, height: 32)
-            .shadow(color: Color.black.opacity(0.25), radius: 4, x: 0, y: 2)
+            content
+                // Sized to match the End pill's height in the same row.
+                .frame(width: 28, height: 28)
+                // Same frosted glass as the status-header section, sized to the
+                // control — so pause / mute read as part of the panel surface
+                // rather than solid dark chips floating on top of it.
+                .background(
+                    PanelMaterial()
+                        .clipShape(shape)
+                )
         }
         .buttonStyle(.plain)
     }

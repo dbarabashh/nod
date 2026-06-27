@@ -72,6 +72,13 @@ final class KnowledgeStore: ObservableObject {
             )
             guard meetingID == nil else { return results }
             return results.filter { $0.similarity >= Self.minSimilarity }
+        } catch LLMProxyClient.ClientError.entitlementRequired {
+            // Expected gated state, not a failure: on a lapsed plan the proxy
+            // 403s `search` and the client has already surfaced the paywall.
+            // Fail soft to [] — the chat call that follows enforces entitlement
+            // again and is the real gate, so don't log this as an error.
+            Log.ui.info("KnowledgeStore.search gated (entitlement) — returning no chunks")
+            return []
         } catch {
             Log.ui.error("KnowledgeStore.search failed: \(error.localizedDescription)")
             return []
