@@ -287,9 +287,9 @@ struct MeetingDetailView: View {
             metadataRow(
                 label: "Created",
                 value: AnyView(
-                    Text(Self.createdFormatter.string(from: meeting.startedAt) +
+                    Text(Self.createdFormatter.string(from: current.startedAt) +
                         " → " +
-                        endTimeString(meeting.endedAt))
+                        endTimeString(current.endedAt))
                         .font(.system(size: 12.5, weight: .regular))
                         .foregroundStyle(Theme.Palette.ink.opacity(0.92))
                 )
@@ -301,7 +301,7 @@ struct MeetingDetailView: View {
                         Image(systemName: "clock")
                             .font(.system(size: 11, weight: .regular))
                             .foregroundStyle(Theme.Palette.muted)
-                        Text(durationString(from: meeting.startedAt, to: meeting.endedAt))
+                        Text(durationString(from: current.startedAt, to: current.endedAt))
                             .font(.system(size: 12.5, weight: .regular))
                             .foregroundStyle(Theme.Palette.ink.opacity(0.92))
                     }
