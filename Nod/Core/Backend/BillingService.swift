@@ -75,13 +75,17 @@ final class BillingService: ObservableObject {
     /// browser); the caller should re-resolve the entitlement. `failed` — error.
     enum CheckoutOutcome { case opened, planChanged, failed }
 
-    func startCheckout(priceID: String) async -> CheckoutOutcome {
+    /// `referralCode` is attribution only — the server applies the friend's −50%
+    /// (monthly prices only) and stamps it for the webhook to credit the referrer.
+    /// An empty/blank code is sent as nil so the server doesn't carry noise.
+    func startCheckout(priceID: String, referralCode: String? = nil) async -> CheckoutOutcome {
         guard !isStartingCheckout else { return .failed }
         isStartingCheckout = true
         lastError = nil
         defer { isStartingCheckout = false }
 
-        struct Request: Encodable { let price_id: String }
+        let ref = referralCode?.trimmingCharacters(in: .whitespacesAndNewlines)
+        struct Request: Encodable { let price_id: String; let ref: String? }
         // create-checkout returns either { url } (new subscription → open it) or
         // { updated: true } (existing subscription changed in place).
         struct Response: Decodable { let url: URL?; let updated: Bool? }
@@ -89,7 +93,9 @@ final class BillingService: ObservableObject {
         do {
             let response: Response = try await supabase.functions.invoke(
                 "create-checkout",
-                options: FunctionInvokeOptions(body: Request(price_id: priceID))
+                options: FunctionInvokeOptions(
+                    body: Request(price_id: priceID, ref: (ref?.isEmpty == false) ? ref : nil)
+                )
             )
             if let url = response.url {
                 Log.ui.info("BillingService.startCheckout opening \(url.absoluteString)")

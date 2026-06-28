@@ -11,14 +11,27 @@
 //   subscription.created / .updated / .activated / .canceled / .past_due /
 //   .paused / .resumed  → upsert the subscription (plan + status + period)
 //
-// Secret (set via `supabase secrets set`, or a local --env-file):
-//   PADDLE_WEBHOOK_SECRET — the destination's signing secret (`pdl_ntfset_…`)
+// Referral payout (NOD-22): a referred friend's first renewal (status 'active'
+// on a new billing period) earns the referrer a free month; it's paid out once
+// the referrer is a paying subscriber. It reads `custom_data.ref` (stamped by
+// create-checkout), advances the referral via `process_referee_payment`, and
+// pays via `claim_referral_rewards` + a Paddle "defer next_billed_at by N
+// months" call — so this function needs PADDLE_API_KEY too. The payout is
+// best-effort: a missing key or a Paddle error is logged and the claim released
+// for retry, never failing the subscription event itself.
+//
+// Secrets (set via `supabase secrets set`, or a local --env-file):
+//   PADDLE_WEBHOOK_SECRET — destination signing secret (`pdl_ntfset_…`)
+//   PADDLE_API_KEY        — server-side API key (for the payout call)
 //
 // Deployed per-branch via git: the `develop` branch (sandbox secret) and
 // `main` (live secret) each get their own copy from their git branch.
 
 import { adminClient } from "../_shared/supabase.ts";
 import { json } from "../_shared/http.ts";
+import { PADDLE_API_BASE, PADDLE_HEADERS } from "../_shared/paddle.ts";
+
+const PADDLE_API_KEY = Deno.env.get("PADDLE_API_KEY");
 
 // Reject a validly-signed delivery whose `ts` is older than this — a captured
 // event (e.g. an old `subscription.activated`) can't be replayed later to
@@ -108,6 +121,124 @@ async function handleSubscription(admin: ReturnType<typeof adminClient>, data: R
     });
     if (error) throw new Error(`apply_paddle_subscription: ${error.message}`);
     console.log(`subscription applied user=${userId} status=${status} price=${priceId}`);
+
+    // Referral lifecycle, on a PAID event (status 'active'): advance the friend's
+    // referral (first payment → activated; first renewal → earned), and try to
+    // pay out THIS user's own earned referrals — so a referrer who (re)subscribes
+    // collects any months that were waiting. Best-effort: a referral hiccup never
+    // fails the subscription event.
+    if (status === "active") {
+        const custom = isObject(data.custom_data) ? data.custom_data : {};
+        const ref = str(custom.ref);
+        if (ref) {
+            try {
+                const { data: r, error: refErr } = await admin.rpc("process_referee_payment", {
+                    p_referee_user_id: userId,
+                    p_code: ref,
+                    p_period_start: periodStart,
+                });
+                if (refErr) {
+                    console.error(`process_referee_payment failed referee=${userId} ref=${ref}: ${refErr.message}`);
+                } else if (isObject(r) && r.action === "earned") {
+                    await claimAndPay(admin, str(r.referrer_user_id));
+                }
+            } catch (err) {
+                console.error(`referral processing error referee=${userId} ref=${ref}: ${err}`);
+            }
+        }
+        try {
+            await claimAndPay(admin, userId);
+        } catch (err) {
+            console.error(`referral claim error user=${userId}: ${err}`);
+        }
+    }
+}
+
+// Pay out a referrer's earned referrals. The RPC atomically claims up to the
+// annual cap (paying subscribers only); we defer their renewal by that many
+// months; on a Paddle failure we release the claim so a later event retries —
+// the reward is never silently lost.
+async function claimAndPay(admin: ReturnType<typeof adminClient>, referrerId: string): Promise<void> {
+    if (!referrerId) return;
+    const { data: claim, error } = await admin.rpc("claim_referral_rewards", {
+        p_referrer_user_id: referrerId,
+    });
+    if (error) {
+        console.error(`claim_referral_rewards failed referrer=${referrerId}: ${error.message}`);
+        return;
+    }
+    if (!isObject(claim)) return;
+    const months = Number(claim.count ?? 0);
+    if (months <= 0) return;
+
+    // A thrown error (e.g. a network failure mid-fetch) must release the claim
+    // too — otherwise the rows stay 'rewarded' but unpaid. Treat any failure as
+    // "not paid" and revert so a later event retries.
+    let ok = false;
+    try {
+        ok = await deferRenewal(str(claim.paddle_subscription_id), months);
+    } catch (err) {
+        console.error(`deferRenewal threw referrer=${referrerId}: ${err}`);
+    }
+    if (!ok) {
+        const ids = Array.isArray(claim.ids) ? claim.ids.map(String) : [];
+        const { error: revertErr } = await admin.rpc("revert_referral_claim", { p_ids: ids });
+        if (revertErr) {
+            console.error(`revert_referral_claim failed referrer=${referrerId}: ${revertErr.message}`);
+        } else {
+            console.warn(`referral payout failed — ${months} claim(s) released referrer=${referrerId}`);
+        }
+        return;
+    }
+    console.log(`referral payout: ${months} free month(s) via renewal defer referrer=${referrerId}`);
+}
+
+// The reward as subscription time: push the referrer's next renewal out by
+// `months` — never bonus hours, never a discount. Uniform across cycles (so
+// several accrued months grant at once, and a yearly plan can't get a free year
+// from a 100% discount). Returns false on a missing key or Paddle error so the
+// caller releases the claim for retry.
+async function deferRenewal(subscriptionId: string, months: number): Promise<boolean> {
+    if (!subscriptionId || months <= 0) return false;
+    if (!PADDLE_API_KEY) {
+        // Without the key, PADDLE_HEADERS sends 'Bearer undefined' and the base
+        // falls back to the sandbox host — never let that hit a real subscription.
+        console.error("referral payout skipped: PADDLE_API_KEY not set");
+        return false;
+    }
+
+    const getRes = await fetch(`${PADDLE_API_BASE}/subscriptions/${subscriptionId}`, { headers: PADDLE_HEADERS });
+    if (!getRes.ok) {
+        console.error(`referral payout fetch failed status=${getRes.status}`);
+        return false;
+    }
+    const current = (await getRes.json())?.data?.next_billed_at;
+    if (typeof current !== "string") {
+        console.error("referral payout: no next_billed_at to defer");
+        return false;
+    }
+    const res = await fetch(`${PADDLE_API_BASE}/subscriptions/${subscriptionId}`, {
+        method: "PATCH",
+        headers: PADDLE_HEADERS,
+        body: JSON.stringify({ next_billed_at: addMonths(current, months), proration_billing_mode: "do_not_bill" }),
+    });
+    if (!res.ok) {
+        console.error(`referral payout defer failed status=${res.status} ${(await res.text()).slice(0, 300)}`);
+        return false;
+    }
+    return true;
+}
+
+// Add `months` calendar months, clamping the day to the target month's length so
+// a month-end date doesn't overflow (Date.setMonth turns Jan 31 → Mar 3).
+function addMonths(iso: string, months: number): string {
+    const d = new Date(iso);
+    const day = d.getUTCDate();
+    d.setUTCDate(1);
+    d.setUTCMonth(d.getUTCMonth() + months);
+    const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    d.setUTCDate(Math.min(day, lastDay));
+    return d.toISOString();
 }
 
 // Prefer the custom_data breadcrumb our own checkout stamps; fall back to

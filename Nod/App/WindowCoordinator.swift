@@ -222,6 +222,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             accountExport: services.accountExport,
             connections: services.connections,
             modeStore: services.modeStore,
+            referral: services.referral,
             focusSubscription: focusSubscription,
             focusModes: focusModes
         ))

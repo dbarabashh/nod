@@ -27,6 +27,7 @@ struct AppServices {
     let labelStore: LabelStore
     let entitlements: EntitlementService
     let billing: BillingService
+    let referral: ReferralService
     let accountExport: AccountExportService
     let connections: ConnectionService
     let panelSharing: PanelSharingPreference
@@ -105,6 +106,7 @@ struct AppServices {
             labelStore: LabelStore(supabase: supabase, auth: auth),
             entitlements: EntitlementService(supabase: supabase),
             billing: BillingService(supabase: supabase),
+            referral: ReferralService(supabase: supabase),
             accountExport: AccountExportService(supabase: supabase),
             connections: ConnectionService(supabase: supabase),
             panelSharing: PanelSharingPreference(),

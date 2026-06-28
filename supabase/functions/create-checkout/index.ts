@@ -12,9 +12,20 @@
 //   Body:          { "price_id": "pri_…" }
 // Response:        { "url": "https://…/?_ptxn=txn_…" }
 //
+// Referral (NOD-22): the body may carry an optional `ref` — the referrer's
+// stable code. We always stamp it into `custom_data` (so the webhook can credit
+// the referrer once the friend pays), but the friend's −50% Paddle discount is
+// attached ONLY when the chosen price is a MONTHLY cycle. On a yearly price
+// "50% off 1 billing period" would be 50% off a whole year — see the hard
+// constraint in NOD-22. The discount itself is a single static Paddle discount
+// reused across all referred checkouts; its id is a per-branch secret.
+//
 // Secrets (set via `supabase secrets set`, or a local --env-file):
-//   PADDLE_API_KEY   — server-side API key (sandbox `apikey_…` or live)
-//   PADDLE_API_BASE  — defaults to the sandbox host
+//   PADDLE_API_KEY              — server-side API key (sandbox `apikey_…` or live)
+//   PADDLE_API_BASE             — defaults to the sandbox host
+//   PADDLE_REFERRAL_DISCOUNT_ID — static "−50% / recurring 1 period" discount
+//                                 (`dsc_…`), set PER BRANCH (sandbox vs live).
+//                                 Absent → referrals still attribute, no discount.
 //
 // Deployed per-branch via git: the `develop` branch (sandbox secrets) and
 // `main` (live secrets) each get their own copy from their git branch.
@@ -23,13 +34,15 @@ import { adminClient, authenticate } from "../_shared/supabase.ts";
 import { json } from "../_shared/http.ts";
 import { PADDLE_API_BASE, PADDLE_HEADERS } from "../_shared/paddle.ts";
 
-const PADDLE_API_KEY  = Deno.env.get("PADDLE_API_KEY");
+const PADDLE_API_KEY              = Deno.env.get("PADDLE_API_KEY");
+const PADDLE_REFERRAL_DISCOUNT_ID = Deno.env.get("PADDLE_REFERRAL_DISCOUNT_ID");
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_ANON_KEY         = Deno.env.get("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 interface CheckoutRequest {
     price_id: string;
+    ref?: string;
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -53,6 +66,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!body.price_id || typeof body.price_id !== "string") {
         return json({ error: "Missing 'price_id'" }, 400);
     }
+
+    // Referral code is attribution only — normalize to the minted format
+    // (uppercase, unambiguous alphabet). Validation (exists, not self) happens at
+    // the webhook, the source of truth; here we just carry it.
+    const ref = typeof body.ref === "string"
+        ? body.ref.trim().toUpperCase().slice(0, 16) || undefined
+        : undefined;
 
     // One subscription per user. If they already have a live Paddle subscription,
     // a plan/cycle switch must UPDATE it in place — never spin up a second one
@@ -105,12 +125,37 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }
     }
 
+    const customData: Record<string, unknown> = { user_id: user.id };
+    if (ref) customData.ref = ref;
+
     const payload: Record<string, unknown> = {
         items: [{ price_id: body.price_id, quantity: 1 }],
-        custom_data: { user_id: user.id },
+        custom_data: customData,
         collection_mode: "automatic",
     };
     if (customerId) payload.customer_id = customerId;
+
+    // Friend's −50% applies to MONTHLY prices only (see hard constraint). Resolve
+    // the cycle from our catalog rather than trusting the client.
+    if (ref && PADDLE_REFERRAL_DISCOUNT_ID) {
+        const { data: priceRow, error: priceErr } = await admin
+            .from("plan_prices")
+            .select("billing_cycle")
+            .eq("paddle_price_id", body.price_id)
+            .maybeSingle();
+        if (priceErr || !priceRow) {
+            // Don't risk applying the discount to an unknown cycle, but make the
+            // miss loud — a monthly price with no catalog row silently drops the
+            // friend's −50%.
+            console.error(`referral discount skipped: price lookup ${priceErr ? "errored" : "missed"} price=${body.price_id} ${priceErr?.message ?? ""}`);
+        }
+        if (priceRow?.billing_cycle === "monthly") {
+            payload.discount_id = PADDLE_REFERRAL_DISCOUNT_ID;
+            console.log(`referral discount applied user=${user.id} ref=${ref}`);
+        } else {
+            console.log(`referral discount skipped (non-monthly) user=${user.id} ref=${ref}`);
+        }
+    }
 
     const res = await fetch(`${PADDLE_API_BASE}/transactions`, {
         method: "POST",
