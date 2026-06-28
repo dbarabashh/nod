@@ -235,6 +235,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Opens Settings on the Subscription tab via the observer above.
                 NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
                 Task { @MainActor in await self.services?.entitlements.refresh() }
+            case "referral":
+                // Attribution B (NOD-22): a `nod://referral?code=ABC123` link
+                // pre-fills the paywall's referral field. Best-effort — the code
+                // is also always enterable by hand (attribution A).
+                let code = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "code" })?.value
+                if let code, !code.isEmpty {
+                    Log.ui.info("received referral deep link")
+                    ReferralService.storePendingCode(code)
+                    NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+                }
             default:
                 break
             }

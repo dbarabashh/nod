@@ -14,6 +14,8 @@ struct PaywallView: View {
     @ObservedObject var entitlements: EntitlementService
 
     @State private var cycle = "yearly"
+    @State private var referralCode = ""
+    @State private var showReferralField = false
 
     private struct PlanCopy {
         let id: String
@@ -67,6 +69,8 @@ struct PaywallView: View {
             }
             if isPaid {
                 manageButton
+            } else {
+                referralField
             }
             if let error = billing.lastError {
                 Text(error)
@@ -86,6 +90,43 @@ struct PaywallView: View {
         .task {
             await billing.loadPrices()
             await entitlements.refresh()
+        }
+        .onAppear {
+            // Attribution B: a code captured from a nod://referral deep link
+            // pre-fills the field and reveals it. Single-use so it isn't re-applied.
+            // Only consume when the field can actually be shown — a paid user has
+            // no referral field, so don't silently swallow the pending code.
+            guard !isPaid else { return }
+            if let pending = ReferralService.consumePendingCode() {
+                referralCode = pending
+                showReferralField = true
+            }
+        }
+    }
+
+    // MARK: - Referral code (attribution A)
+
+    @ViewBuilder
+    private var referralField: some View {
+        if showReferralField {
+            VStack(spacing: 6) {
+                TextField("Referral code", text: $referralCode)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12.5, design: .monospaced))
+                    .frame(maxWidth: 220)
+                    .onChange(of: referralCode) { newValue in
+                        let upper = newValue.uppercased()
+                        if upper != referralCode { referralCode = upper }
+                    }
+                Text("Applies −50% off your first month (monthly billing).")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(Theme.Palette.muted)
+            }
+        } else {
+            Button("Have a referral code?") { showReferralField = true }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.Palette.graphite)
         }
     }
 
@@ -227,7 +268,7 @@ struct PaywallView: View {
         return Button {
             guard let id = price?.paddlePriceID else { return }
             Task {
-                let outcome = await billing.startCheckout(priceID: id)
+                let outcome = await billing.startCheckout(priceID: id, referralCode: referralCode)
                 if outcome == .planChanged { await entitlements.refresh() }
             }
         } label: {
