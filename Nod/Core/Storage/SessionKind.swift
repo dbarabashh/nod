@@ -1,8 +1,8 @@
 import Foundation
 
 /// What a recording actually is. Drives audio-stream selection and the recap
-/// framing — a solo voice note shouldn't be mined for "action items with
-/// owners", and a podcast has no [Me] side to suggest replies for.
+/// framing — passive `media` produces no personal to-dos (see
+/// `extractsActionItems`), and a podcast has no [Me] side to suggest replies for.
 ///
 /// Stored in the `meetings.kind` column (`20260602120100_add_meeting_kind.sql`)
 /// as the raw string. `meeting` is the default for every legacy row.
@@ -31,6 +31,14 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable {
     /// with a [Me] side to coach. Hidden for the listen-only kinds.
     var supportsReplyCoaching: Bool {
         self == .meeting
+    }
+
+    /// Whether the recap should be mined for first-class to-dos. A meeting or a
+    /// voice note carries the user's own commitments ("call the bank", "ship the
+    /// fix"); `media` is passive listening — a podcast/video has no personal
+    /// action the user spoke out loud, so it produces no checklist.
+    var extractsActionItems: Bool {
+        self != .media
     }
 
     var title: String {

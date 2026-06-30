@@ -46,10 +46,33 @@ struct MeetingRecap: Codable, Equatable {
         }
     }
 
-    let sections: [Section]
+    /// A single action item, emitted by the recap in a dedicated top-level
+    /// `action_items` array (NOT as a `sections` entry) so the app can promote
+    /// each to a first-class, checkable to-do. Single-user product: there is no
+    /// owner field — every item is the user's own task; any "ask Sam" lives
+    /// inside `text`. `deadline` is the verbatim deadline if one was stated.
+    struct Action: Codable, Equatable {
+        let text: String
+        let deadline: String?
 
-    init(sections: [Section]) {
+        init(text: String, deadline: String? = nil) {
+            self.text = text
+            self.deadline = deadline
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            text = (try? c.decode(String.self, forKey: .text)) ?? ""
+            deadline = try? c.decodeIfPresent(String.self, forKey: .deadline)
+        }
+    }
+
+    let sections: [Section]
+    let actionItems: [Action]
+
+    init(sections: [Section], actionItems: [Action] = []) {
         self.sections = sections
+        self.actionItems = actionItems
     }
 
     /// Lenient decode. New rows carry `{"sections":[…]}`. Rows generated before
@@ -63,18 +86,22 @@ struct MeetingRecap: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         if let sections = try? c.decode([Section].self, forKey: .sections) {
             self.sections = sections
+            actionItems = (try? c.decode([Action].self, forKey: .actionItems)) ?? []
             return
         }
         sections = Self.legacySections(from: c)
+        actionItems = Self.legacyActions(from: c)
     }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(sections, forKey: .sections)
+        try c.encode(actionItems, forKey: .actionItems)
     }
 
     enum CodingKeys: String, CodingKey {
         case sections
+        case actionItems = "action_items"
         // Legacy keys, decode-only.
         case topics
         case decisions
@@ -103,21 +130,23 @@ struct MeetingRecap: Codable, Equatable {
                 }
             ))
         }
-        if let actions = try? c.decode([LegacyAction].self, forKey: .actions), !actions.isEmpty {
-            out.append(Section(
-                title: "Action items",
-                bullets: actions.map { a in
-                    let owner = a.owner ?? ""
-                    let task = a.task ?? ""
-                    let base = owner.isEmpty ? task : "\(owner) — \(task)"
-                    return Bullet(text: a.when.map { "\(base) (by \($0))" } ?? base)
-                }
-            ))
-        }
         if let open = try? c.decode([LegacyOpen].self, forKey: .openQuestions), !open.isEmpty {
             out.append(Section(title: "Open questions", bullets: open.map { Bullet(text: $0.text ?? "") }))
         }
         return out
+    }
+
+    /// Legacy `actions` (the pre-dynamic-section `{owner,task,when}` shape) map
+    /// onto the new structured `actionItems`. The owner is folded into `text`
+    /// (single-user product has no owner field) and `when` becomes `deadline`.
+    private static func legacyActions(from c: KeyedDecodingContainer<CodingKeys>) -> [Action] {
+        guard let actions = try? c.decode([LegacyAction].self, forKey: .actions) else { return [] }
+        return actions.map { a in
+            let owner = a.owner ?? ""
+            let task = a.task ?? ""
+            let text = owner.isEmpty ? task : "\(owner) — \(task)"
+            return Action(text: text, deadline: a.when)
+        }
     }
 
     /// True when no section carries any bullet — the model returned nothing

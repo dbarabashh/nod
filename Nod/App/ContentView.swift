@@ -433,6 +433,7 @@ private struct PanelContentHeightKey: PreferenceKey {
         meetingStore: meetingStore,
         entityStore: EntityStore(supabase: supabase),
         knowledgeStore: KnowledgeStore(llm: llm),
+        actionItemStore: ActionItemStore(supabase: supabase),
         language: language,
         auth: auth,
         profileStore: profileStore,

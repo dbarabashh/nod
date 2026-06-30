@@ -13,7 +13,8 @@ enum MeetingMarkdownExport {
     static func render(
         meeting: Meeting,
         transcript: [TranscriptRecord],
-        tags: [String] = []
+        tags: [String] = [],
+        actionItems: [ActionItem] = []
     ) -> String {
         var out = frontmatter(meeting: meeting, tags: tags)
         out += "\n"
@@ -24,6 +25,17 @@ enum MeetingMarkdownExport {
         let summary = meeting.summary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !summary.isEmpty {
             out += "\n## Summary\n\n\(summary)\n"
+        }
+
+        // Action items as Obsidian-friendly task list items (`- [ ]` / `- [x]`),
+        // in recap order. They live in their own table now, not the summary
+        // markdown, so a local export re-attaches them for data ownership.
+        if !actionItems.isEmpty {
+            out += "\n## Action items\n\n"
+            out += actionItems
+                .map { taskLine(for: $0) }
+                .joined(separator: "\n")
+            out += "\n"
         }
 
         if !transcript.isEmpty {
@@ -78,6 +90,17 @@ enum MeetingMarkdownExport {
     private static func line(for record: TranscriptRecord, meetingStart: Date) -> String {
         let stamp = offsetLabel(from: meetingStart, to: record.ts)
         return "[\(stamp)] **\(record.displayLabel())**: \(record.text)"
+    }
+
+    /// One action item as a Markdown task list line, deadline appended in
+    /// parentheses when present.
+    private static func taskLine(for item: ActionItem) -> String {
+        let box = item.done ? "[x]" : "[ ]"
+        let text = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let deadline = item.deadline?.trimmingCharacters(in: .whitespacesAndNewlines), !deadline.isEmpty {
+            return "- \(box) \(text) (\(deadline))"
+        }
+        return "- \(box) \(text)"
     }
 
     /// `[MM:SS]` (or `[H:MM:SS]` past an hour) offset of a transcript line from

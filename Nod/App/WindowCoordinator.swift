@@ -156,6 +156,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             meetingStore: services.meetingStore,
             entityStore: services.entityStore,
             knowledgeStore: services.knowledgeStore,
+            actionItemStore: services.actionItemStore,
             language: services.languagePreference,
             auth: services.auth,
             profileStore: services.profileStore,
@@ -265,6 +266,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             .environmentObject(services.profileStore)
             .environmentObject(services.entityStore)
             .environmentObject(services.knowledgeStore)
+            .environmentObject(services.actionItemStore)
             .environmentObject(services.llmClient)
             .environmentObject(services.languagePreference)
             .environmentObject(services.labelStore)

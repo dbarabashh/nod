@@ -263,7 +263,16 @@ final class LLMProxyClient: ObservableObject {
                         for try await line in bytes.lines {
                             lines.append(line)
                         }
-                        throw ClientError.requestFailed(status: http.statusCode, body: Self.sanitizeErrorBody(lines.joined(separator: "\n")))
+                        let raw = lines.joined(separator: "\n")
+                        if http.statusCode == 403, Self.isEntitlementError(Data(raw.utf8)) {
+                            // Same plan/feature gate as postToProxy: route to the
+                            // paywall with a human message instead of surfacing a
+                            // raw "LLM proxy HTTP 403" string in the chat.
+                            Log.llm.error("stream 403 entitlement — opening paywall")
+                            NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+                            throw ClientError.entitlementRequired
+                        }
+                        throw ClientError.requestFailed(status: http.statusCode, body: Self.sanitizeErrorBody(raw))
                     }
 
                     var produced = 0

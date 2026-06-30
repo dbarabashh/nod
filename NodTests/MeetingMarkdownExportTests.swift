@@ -67,6 +67,44 @@ final class MeetingMarkdownExportTests: XCTestCase {
         XCTAssertTrue(md.contains("[00:11] **Them**: Sounds good."))
     }
 
+    private func action(_ meetingID: UUID, text: String, deadline: String?, done: Bool, position: Int) -> ActionItem {
+        ActionItem(
+            id: UUID(),
+            meetingID: meetingID,
+            userID: UUID(),
+            text: text,
+            deadline: deadline,
+            position: position,
+            done: done,
+            doneAt: done ? Date(timeIntervalSince1970: 1_700_000_500) : nil,
+            createdAt: nil,
+            updatedAt: nil,
+            deletedAt: nil
+        )
+    }
+
+    func testRenderIncludesActionItemsAsTaskList() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let meeting = makeMeeting(title: "Sync", summary: "**Decisions**\n- Ship Friday", start: start, end: start.addingTimeInterval(60))
+        let items = [
+            action(meeting.id, text: "Move the release ticket", deadline: nil, done: false, position: 0),
+            action(meeting.id, text: "Mock up the pricing page", deadline: "by Friday", done: true, position: 1)
+        ]
+
+        let md = MeetingMarkdownExport.render(meeting: meeting, transcript: [], tags: [], actionItems: items)
+
+        XCTAssertTrue(md.contains("## Action items"))
+        XCTAssertTrue(md.contains("- [ ] Move the release ticket"))
+        XCTAssertTrue(md.contains("- [x] Mock up the pricing page (by Friday)"))
+    }
+
+    func testNoActionItemsSectionWhenEmpty() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let meeting = makeMeeting(title: "Sync", summary: "x", start: start, end: start)
+        let md = MeetingMarkdownExport.render(meeting: meeting, transcript: [])
+        XCTAssertFalse(md.contains("## Action items"))
+    }
+
     func testUntitledFallbackAndNoTranscriptSection() {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let meeting = makeMeeting(title: nil, summary: "", start: start, end: start)

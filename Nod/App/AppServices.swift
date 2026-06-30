@@ -23,6 +23,10 @@ struct AppServices {
     let profileStore: ProfileStore
     let chatStore: ChatStore
     let entityStore: EntityStore
+    /// First-class action items extracted from each meeting's recap — checkable
+    /// to-dos persisted in `action_items`, surfaced in the meeting body and the
+    /// History aggregate.
+    let actionItemStore: ActionItemStore
     let knowledgeStore: KnowledgeStore
     let labelStore: LabelStore
     let entitlements: EntitlementService
@@ -102,6 +106,7 @@ struct AppServices {
             profileStore: ProfileStore(supabase: supabase, auth: auth),
             chatStore: ChatStore(supabase: supabase, llm: llmClient),
             entityStore: EntityStore(supabase: supabase),
+            actionItemStore: ActionItemStore(supabase: supabase),
             knowledgeStore: KnowledgeStore(llm: llmClient),
             labelStore: LabelStore(supabase: supabase, auth: auth),
             entitlements: EntitlementService(supabase: supabase),

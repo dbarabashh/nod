@@ -460,6 +460,9 @@ enum PromptLibrary {
 
         STEP 2 — ORGANIZE the grounded items from your six lists into recap sections, then EMIT JSON. Every bullet must trace back to an item on a Step-1 list; if it's not on a list, it MUST NOT appear. No exceptions.
 
+        [ACTION ITEMS GO IN THEIR OWN ARRAY — NOT A SECTION]
+        Your Step-1 ACTIONS list does NOT become a `sections` entry. Emit every action in the dedicated top-level `action_items` array (see OUTPUT FORMAT). Do NOT also create a "To-dos" / "Action items" / "Next steps" / "Follow-ups" / "Commitments" section in `sections` — that would duplicate them. Each action_items entry is the task, phrased so it reads on its own (e.g. "Move the release ticket"), with the owner folded into the text only when it is someone other than the user (e.g. "Ask Tim to review the YAML"). DECISIONS, OPEN_THREADS, and topic content still become `sections` as normal.
+
         \(sectionPlan)
 
         ===========================
@@ -476,17 +479,21 @@ enum PromptLibrary {
                 { "text": "<1-2 sentences>", "quote": "<3-10 word verbatim quote, or null>" }
               ]
             }
+          ],
+          "action_items": [
+            { "text": "<the task, phrased to read on its own, in \(lang)>", "deadline": "<verbatim deadline if one was stated, else null>" }
           ]
         }
 
         Rules:
 
+        - `action_items` holds your Step-1 ACTIONS list and NOTHING else; it is separate from `sections`. Use [] when there are no outstanding tasks. Never repeat an action as a `sections` bullet.
         - Drop any section that has no grounded bullets — never emit a section with an empty `bullets` array, and never pad one with filler. A meeting that reached no decisions simply has no decisions section.
         - Each bullet's `text` is 1-2 sentences, readable in two seconds. Capture the RESOLUTION or CONCLUSION, not just that a topic "was discussed" — "X was raised and the team concluded Y", not "X was discussed".
         - Group related exchanges into ONE bullet — bullets are organized by substance, NOT chronological position. Merge back-to-back discussion of the same area.
         - Across the WHOLE recap, at least 1-2 bullets MUST carry a non-null `quote` (3-10 words, verbatim from the transcript, no quotation marks inside the string). Quotes are a grounding tripwire — you cannot quote what isn't there. Use null when you can't quote exactly; attribute a quote only if the speaker's name is on PEOPLE.
         - A decision/commitment bullet must NOT contain speculative phrasing ("maybe", "might", "could", "perhaps", "may"). If it can't be stated firmly, it's an open question, not a decision — route it to the open-questions section instead.
-        - An action/task bullet names the OWNER (a resolved label per [SPEAKER LABELS]) and a deadline only if one was stated. No identifiable owner → drop it. Re-check each against the idiom / past-tense / within-meeting-completion traps from Step 1 before keeping it.
+        - Each `action_items` entry is one outstanding task. Put a deadline in `deadline` only if one was stated (else null) — never inside `text`. When the owner is someone other than the user, fold them into `text` ("Ask Tim to review the YAML"); a task the user themselves owns needs no name. Re-check each against the idiom / past-tense / within-meeting-completion traps from Step 1 before keeping it; drop anything you cannot tie to a literal commitment.
         - Personal milestones (births, anniversaries, promotions, joins, departures) MUST surface if mentioned, even briefly — give them their own bullet.
 
         ===========================
@@ -522,7 +529,8 @@ enum PromptLibrary {
         BAD examples (do NOT produce):
         - a bullet echoing the literal `[Me]` / `[Them]` — speaker labels must be resolved per [SPEAKER LABELS].
         - a decision bullet "The team will maybe start a weekly bug bash." — speculative phrasing belongs under open questions, not decisions.
-        - an action bullet with owner "Someone" — missing owner; drop it instead.
+        - an `action_items` entry with no real commitment behind it ("Follow up on things") — drop it instead of inventing a task.
+        - a section titled "Action items" / "Next steps" / "To-dos" — actions belong in the `action_items` array, never in `sections`.
         - `"quote": "the team agreed on this"` — paraphrase in a quote; a quote is verbatim from the transcript or null.
         - "Alex will bury the lead..." — idiom trap; figurative phrases are not actions.
         - a section with an empty `bullets` array, or an "Overview"/"Introduction" section padded with generic filler.
@@ -541,7 +549,11 @@ enum PromptLibrary {
             Choose 3-6 section headings that fit what was actually discussed, each written in \(lang). Prefer concrete, specific headings over generic ones. Do NOT create an "Overview", "Introduction", or "Participants" section unless the meeting was explicitly about that.
             """
         }
-        let numbered = titles.enumerated()
+        // Action-type headings in a template are NOT sections — they map to the
+        // top-level `action_items` array. Filter them out of the section list so
+        // the plan doesn't contradict the [ACTION ITEMS] rule above.
+        let sectionTitles = titles.filter { !isActionHeading($0) }
+        let numbered = sectionTitles.enumerated()
             .map { "\($0.offset + 1). \($0.element)" }
             .joined(separator: "\n")
         return """
@@ -549,7 +561,22 @@ enum PromptLibrary {
         Organize the recap into these sections, in this order (translate each title into \(lang)):
         \(numbered)
         Drop any section with no grounded content rather than padding it. You may add ONE extra section at the end only if substantial grounded content fits none of the above.
+        Outstanding tasks from this meeting do NOT go in a section — emit them in the top-level `action_items` array as instructed above.
         """
+    }
+
+    /// True for template section titles that denote outstanding tasks; those are
+    /// routed to the `action_items` array, not rendered as a `sections` entry.
+    /// Matched narrowly on purpose: a bare `contains("action")` also swallows
+    /// "Reaction", "Transaction summary", and an intentional "Action plan",
+    /// silently dropping legitimate sections from the plan.
+    private static func isActionHeading(_ title: String) -> Bool {
+        let t = title.lowercased().trimmingCharacters(in: .whitespaces)
+        return t == "action" || t == "actions"
+            || t.contains("action item")
+            || t.contains("next step")
+            || t.contains("to-do") || t.contains("todo")
+            || t.contains("follow-up") || t.contains("follow up")
     }
 
     /// Few-shot calibration matched to the session kind, so a solo voice note
@@ -577,7 +604,7 @@ enum PromptLibrary {
 
             GOOD JSON (this is the quality bar):
 
-            {"sections":[{"title":"Topics covered","bullets":[{"text":"Two users were still being logged out after yesterday's auth fix; Priya traced one case to Safari and the team agreed to pair on it.","quote":"the refresh token isn't rotating on Safari"},{"text":"Timing of the 0.4 release was settled — pushed back a week so the auth fix can land first.","quote":null}]},{"title":"Decisions made","bullets":[{"text":"Release 0.4 will ship next week instead of this week, so the auth fix can land first.","quote":null}]},{"title":"Action items","bullets":[{"text":"Alex and Priya will pair on the Safari refresh-token bug after standup.","quote":null},{"text":"Priya will move the release ticket.","quote":null}]},{"title":"Open questions","bullets":[{"text":"Whether to start a weekly bug bash — Priya wants to think about it.","quote":null}]}]}
+            {"sections":[{"title":"Topics covered","bullets":[{"text":"Two users were still being logged out after yesterday's auth fix; Priya traced one case to Safari and the team agreed to pair on it.","quote":"the refresh token isn't rotating on Safari"},{"text":"Timing of the 0.4 release was settled — pushed back a week so the auth fix can land first.","quote":null}]},{"title":"Decisions made","bullets":[{"text":"Release 0.4 will ship next week instead of this week, so the auth fix can land first.","quote":null}]},{"title":"Open questions","bullets":[{"text":"Whether to start a weekly bug bash — Priya wants to think about it.","quote":null}]}],"action_items":[{"text":"Pair with Priya on the Safari refresh-token bug after standup.","deadline":null},{"text":"Priya to move the release ticket.","deadline":null}]}
 
             REMINDER: Alex, Priya, Safari, "0.4 release" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
             """
@@ -596,7 +623,7 @@ enum PromptLibrary {
 
             GOOD JSON (this is the quality bar):
 
-            {"sections":[{"title":"Topics covered","bullets":[{"text":"You worked through the pricing page rewrite and settled on two tiers instead of three.","quote":"two is cleaner"}]},{"title":"Decisions made","bullets":[{"text":"The pricing page will have two tiers — free, and pro at twelve euros.","quote":null}]},{"title":"Action items","bullets":[{"text":"Mock up the two-tier pricing page in Figma and send it to Olena before Friday.","quote":null}]},{"title":"Open questions","bullets":[{"text":"Whether to offer an annual discount — twenty percent was floated, pending a look at competitors.","quote":null}]}]}
+            {"sections":[{"title":"Topics covered","bullets":[{"text":"You worked through the pricing page rewrite and settled on two tiers instead of three.","quote":"two is cleaner"}]},{"title":"Decisions made","bullets":[{"text":"The pricing page will have two tiers — free, and pro at twelve euros.","quote":null}]},{"title":"Open questions","bullets":[{"text":"Whether to offer an annual discount — twenty percent was floated, pending a look at competitors.","quote":null}]}],"action_items":[{"text":"Mock up the two-tier pricing page in Figma and send it to Olena.","deadline":"before Friday"}]}
 
             REMINDER: the pricing page, Figma, Olena, "twelve euros" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
             """
@@ -614,9 +641,9 @@ enum PromptLibrary {
 
             GOOD JSON (this is the quality bar):
 
-            {"sections":[{"title":"Topics covered","bullets":[{"text":"The speaker argued that retrieval quality matters more than model size, citing a thirty percent gain from better chunking.","quote":"retrieval quality matters more than model size"}]},{"title":"Open questions","bullets":[{"text":"Evaluation of multi-hop retrieval — the speaker said there is still no good benchmark.","quote":null}]}]}
+            {"sections":[{"title":"Topics covered","bullets":[{"text":"The speaker argued that retrieval quality matters more than model size, citing a thirty percent gain from better chunking.","quote":"retrieval quality matters more than model size"}]},{"title":"Open questions","bullets":[{"text":"Evaluation of multi-hop retrieval — the speaker said there is still no good benchmark.","quote":null}]}],"action_items":[]}
 
-            Note there is NO decisions or action-items section — that is the EXPECTED shape for media; the user stated no personal takeaway action out loud, so those sections are simply omitted.
+            Note there is NO decisions section and `action_items` is empty — that is the EXPECTED shape for media; the user stated no personal takeaway action out loud, so the decisions section is omitted and the action_items array stays empty.
 
             REMINDER: retrieval quality, chunking, "thirty percent" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
             """

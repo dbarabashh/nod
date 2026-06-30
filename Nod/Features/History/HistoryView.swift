@@ -24,6 +24,10 @@ struct HistoryView: View {
     @State private var reindexProgress: ReindexProgress?
     @State private var searchQuery: String = ""
     @State private var segment: Segment = .all
+    /// Top-level destination, chosen from the left rail. Library holds the
+    /// meeting list (All/Trash); Action Items is the cross-meeting checklist —
+    /// a peer surface, not a filter of the list.
+    @State private var section: Section = .library
     /// Active label filter on the All segment; nil shows every meeting.
     @State private var filterLabelID: UUID?
     @State private var pendingHardDelete: Meeting?
@@ -59,6 +63,23 @@ struct HistoryView: View {
         }
     }
 
+    /// Left-rail destinations. Action Items is its own space, not a list filter,
+    /// so it sits beside the library rather than inside the All/Trash control.
+    enum Section: String, CaseIterable, Identifiable {
+        case library = "Library"
+        case actionItems = "Action Items"
+        var id: String {
+            rawValue
+        }
+
+        var icon: String {
+            switch self {
+            case .library: "rectangle.stack"
+            case .actionItems: "checklist"
+            }
+        }
+    }
+
     struct ReindexProgress: Equatable {
         let done: Int
         let total: Int
@@ -68,6 +89,7 @@ struct HistoryView: View {
         let dockW = dockWidth.width(for: path.last?.id, totalWidth: windowWidth)
         ZStack(alignment: .leading) {
             HStack(spacing: 0) {
+                sidebarRail
                 navigationColumn
                     .frame(maxWidth: .infinity)
                 // The handle is an overlay pinned to the dock's leading edge, not
@@ -178,6 +200,9 @@ struct HistoryView: View {
                 MeetingDetailView(meeting: meeting, onClose: closeDetail)
                     .id(meeting.id)
                     .transition(.opacity)
+            } else if section == .actionItems {
+                actionItemsScreen
+                    .transition(.opacity)
             } else {
                 libraryList
                     .transition(.opacity)
@@ -193,6 +218,87 @@ struct HistoryView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: path.last?.id)
+        .animation(.easeInOut(duration: 0.2), value: section)
+    }
+
+    // MARK: - Left rail (top-level sections)
+
+    /// Height of the clear band reserved at the rail's top for the window's
+    /// traffic-light buttons — the window has no toolbar, so they float over the
+    /// content's top-left. Nothing (tint, divider, or button) is drawn in it, so
+    /// the green button never sits on the rail's edge or its divider line.
+    private static let railTopBand: CGFloat = 44
+
+    /// Slim icon rail switching between Library and Action Items. Sits left of
+    /// the list so Action Items reads as its own destination — a global task
+    /// list — rather than a third tab of the meeting filter.
+    private var sidebarRail: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: Self.railTopBand)
+            VStack(spacing: 3) {
+                ForEach(Section.allCases) { sec in
+                    railButton(sec)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 4)
+            .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color.white.opacity(0.02))
+            .overlay(alignment: .trailing) {
+                Rectangle()
+                    .fill(Theme.Palette.border)
+                    .frame(width: 0.5)
+                    .frame(maxHeight: .infinity)
+            }
+        }
+        .frame(width: 62)
+        .frame(maxHeight: .infinity, alignment: .top)
+        // Drive the band off the window top, not the ambiguous title-bar safe
+        // area inset (0 under `fullSizeContentView`), so the clearance is exact.
+        .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private func railButton(_ target: Section) -> some View {
+        let selected = section == target
+        return Button {
+            guard section != target else { return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                section = target
+                // Action Items has no detail stack of its own — drop any open
+                // meeting so the switch lands on the checklist, not a stale row.
+                if target == .actionItems { path.removeAll() }
+            }
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: target.icon)
+                    .font(.system(size: 14, weight: .medium))
+                Text(target.rawValue)
+                    .font(.system(size: 9, weight: .medium))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+            }
+            .foregroundStyle(selected ? Theme.Palette.ink : Theme.Palette.muted)
+            .frame(width: 50, height: 46)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Theme.Palette.surfaceStrong)
+                    .opacity(selected ? 1 : 0)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(target.rawValue)
+    }
+
+    /// The cross-meeting checklist. Rendered without a `NavigationStack` of its
+    /// own — a nested large title overlapped the traffic lights — so the view
+    /// owns its inline title and respects the window's top safe-area inset.
+    private var actionItemsScreen: some View {
+        ActionItemsAggregateView(
+            meetings: meetingStore.meetings,
+            onOpenMeeting: openMeeting
+        )
     }
 
     /// In a `NavigationStack` only so the title, toolbar, and search field
@@ -348,6 +454,7 @@ struct HistoryView: View {
     /// the cross-session chat). The dock then follows to that session's chat.
     private func openMeeting(_ id: UUID) {
         guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else { return }
+        section = .library
         segment = .all
         path = [meeting]
     }
@@ -738,6 +845,7 @@ struct HistoryView: View {
             Log.ui.info("HistoryView.focus skipped — meeting not in cache: \(id.uuidString)")
             return
         }
+        section = .library
         segment = .all
         path = [meeting]
     }

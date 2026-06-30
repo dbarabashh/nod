@@ -17,6 +17,9 @@ enum Feature: String, CaseIterable {
     case askAcrossMeetings = "ask_across_meetings"
     /// Narrowing cross-session questions to a label ("Ask within <label>").
     case labelScoping = "label_scoping"
+    /// First-class action items — the per-meeting checklist + the cross-meeting
+    /// Action Items aggregate with dedup. Granted on trial/Pro, not Starter.
+    case actionItems = "action_items"
 }
 
 /// The resolved entitlement for the current user, as returned by the

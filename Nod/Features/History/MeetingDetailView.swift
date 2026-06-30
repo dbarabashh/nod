@@ -10,6 +10,7 @@ struct MeetingDetailView: View {
 
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var labelStore: LabelStore
+    @EnvironmentObject private var actionItemStore: ActionItemStore
 
     @State private var editableTitle: String = ""
     @State private var editableSummary: String = ""
@@ -125,6 +126,7 @@ struct MeetingDetailView: View {
                 Divider().overlay(Theme.Palette.border)
                 content
                 if selectedTab == .summary, !isFinalizing {
+                    ActionItemsView(meeting: meeting)
                     RelatedSessionsView(meeting: meeting)
                 }
             }
@@ -957,10 +959,12 @@ struct MeetingDetailView: View {
             }
 
             let tags = labelStore.labels(for: meeting.id).map(\.name)
+            let actionItems = await (try? actionItemStore.items(forMeeting: meeting.id)) ?? []
             let markdown = MeetingMarkdownExport.render(
                 meeting: exportMeeting,
                 transcript: records,
-                tags: tags
+                tags: tags,
+                actionItems: actionItems
             )
 
             let panel = NSSavePanel()

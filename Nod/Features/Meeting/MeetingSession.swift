@@ -113,6 +113,7 @@ final class MeetingSession: ObservableObject {
     private let meetingStore: MeetingStore
     private let entityStore: EntityStore
     private let knowledgeStore: KnowledgeStore
+    private let actionItemStore: ActionItemStore
     private let language: LanguagePreference
     private let auth: AuthService
     private let profileStore: ProfileStore
@@ -126,6 +127,7 @@ final class MeetingSession: ObservableObject {
         meetingStore: MeetingStore,
         entityStore: EntityStore,
         knowledgeStore: KnowledgeStore,
+        actionItemStore: ActionItemStore,
         language: LanguagePreference,
         auth: AuthService,
         profileStore: ProfileStore,
@@ -138,6 +140,7 @@ final class MeetingSession: ObservableObject {
         self.meetingStore = meetingStore
         self.entityStore = entityStore
         self.knowledgeStore = knowledgeStore
+        self.actionItemStore = actionItemStore
         self.language = language
         self.auth = auth
         self.profileStore = profileStore
@@ -419,6 +422,17 @@ final class MeetingSession: ObservableObject {
                 // background, so the extra latency is invisible to the user.
                 let landed = await outbox.isPending(updated.id) == false
                 if landed {
+                    // Promote the recap's extracted actions to first-class rows,
+                    // but only for kinds that carry personal to-dos (meeting /
+                    // voice note) — passive media has none. After the parent
+                    // meeting landed so the FK resolves.
+                    if updated.kind.extractsActionItems {
+                        await actionItemStore.saveExtracted(
+                            recap.actionItems,
+                            meetingID: updated.id,
+                            userID: userID
+                        )
+                    }
                     await extractEntities(
                         meetingID: updated.id,
                         userID: userID,
@@ -597,6 +611,13 @@ final class MeetingSession: ObservableObject {
             Log.ui.info("suggest reply ready (streamed)")
         } catch {
             guard isActiveRequest(requestedKind) else { return }
+            // An entitlement 403 already opened the paywall; retrying the
+            // one-shot just re-hits the gate (re-posting the notification), so
+            // surface the human message directly instead of falling back.
+            if case LLMProxyClient.ClientError.entitlementRequired = error {
+                response = .ready(kind: requestedKind, text: "⚠️ \(error.localizedDescription)")
+                return
+            }
             Log.ui.error(
                 "suggest reply stream failed (\(accumulated.isEmpty ? "before first token" : "mid-stream after \(accumulated.count) chars")) — retrying one-shot: \(error.localizedDescription)"
             )
@@ -649,6 +670,10 @@ final class MeetingSession: ObservableObject {
                 }
             }
         } catch {
+            // An entitlement 403 already opened the paywall and can't recover by
+            // retrying the one-shot path — that re-hits the same gate and posts
+            // the paywall notification a second time. Propagate it instead.
+            if case LLMProxyClient.ClientError.entitlementRequired = error { throw error }
             Log.llm.error("recap stream failed after \(accumulated.count) chars — falling back to one-shot: \(error.localizedDescription)")
             return try await generateRecap(system: system, user: user, transcript: transcript, language: language)
         }
