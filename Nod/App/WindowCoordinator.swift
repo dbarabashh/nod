@@ -251,16 +251,19 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         )
         window.title = "Library"
-        // Min size accommodates the list/detail column + the fixed 380pt chat
-        // dock so neither can collapse below a usable width.
-        window.contentMinSize = NSSize(width: 860, height: 520)
 
         // First-mount focus is handed in via init — the open-detail
         // notification fires before HistoryView's `.onReceive` subscribes
         // when the window is being created fresh, so its `.task` reads
         // `initialFocusMeetingID` after the initial refresh instead.
+        // No SwiftUI `minWidth/minHeight` on the root on purpose — a SwiftUI min
+        // frame makes the root demand 860pt even in a narrower window, and
+        // NSHostingView then centers that oversized content, clipping BOTH edges
+        // and sliding the left rail off-screen. The size floor is enforced at the
+        // window level instead (`contentMinSize`, set after the controller is
+        // attached), so the content always fills the window and the rail stays
+        // pinned at the leading edge.
         let root = HistoryView(initialFocusMeetingID: meetingID)
-            .frame(minWidth: 860, minHeight: 520)
             .environmentObject(services.meetingStore)
             .environmentObject(services.chatStore)
             .environmentObject(services.profileStore)
@@ -272,7 +275,21 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             .environmentObject(services.labelStore)
             .environmentObject(services.entitlements)
 
-        window.contentViewController = NSHostingController(rootView: root)
+        let hosting = NSHostingController(rootView: root)
+        // Don't let the hosting controller derive the window's min/max size from
+        // the SwiftUI content — it would override `contentMinSize` (and, with no
+        // SwiftUI min frame, let the window shrink to a cramped, unusable width).
+        // We own the window sizing; the floor below is authoritative.
+        hosting.sizingOptions = []
+        window.contentViewController = hosting
+        // With the hosting controller no longer sizing the window, set the opening
+        // size and the floor explicitly AFTER attaching it (assigning a
+        // contentViewController resets the window's size constraints). 1040×640
+        // opens comfortably; 860×520 keeps the rail + list/detail column + the
+        // 380pt chat dock all usable and is the hard minimum.
+        window.setContentSize(NSSize(width: 1040, height: 640))
+        window.contentMinSize = NSSize(width: 860, height: 520)
+        window.center()
         window.makeKeyAndOrderFront(nil)
         historyWindow = window
     }
@@ -282,6 +299,19 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     // MARK: - NSWindowDelegate
+
+    /// Hard floor on the History window's size. `contentMinSize` proved
+    /// unreliable under `fullSizeContentView` + an `NSHostingView` (the window
+    /// could still be dragged narrower, hiding the rail), so the minimum is
+    /// enforced here — AppKit calls this on every live-resize tick. Scoped to the
+    /// History window so the fixed-size sign-in / onboarding windows are
+    /// untouched. Runs on the main thread, so the isolated state is safe to read.
+    nonisolated func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        MainActor.assumeIsolated {
+            guard sender === historyWindow else { return frameSize }
+            return NSSize(width: max(frameSize.width, 860), height: max(frameSize.height, 520))
+        }
+    }
 
     nonisolated func windowWillClose(_ notification: Notification) {
         let closed = notification.object as AnyObject?
