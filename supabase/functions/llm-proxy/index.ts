@@ -323,42 +323,136 @@ Deno.serve(async (req: Request): Promise<Response> => {
 async function forwardChat(payload: unknown, userId: string): Promise<Response> {
     const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";
 
+    if (!isObject(payload)) {
+        return json({ error: "invalid chat payload" }, 400);
+    }
+
     // Streaming path (used by "Suggest reply"): pass the upstream SSE through
     // verbatim so the client renders tokens as they arrive. Usage is captured
     // off a teed copy of the stream — see forwardChatStream.
-    if (isObject(payload) && payload.stream === true) {
+    if (payload.stream === true) {
         return forwardChatStream(payload, userId, model);
     }
 
-    // Inject `usage: { include: true }` so OpenRouter returns `usage.cost`
-    // (USD) on every response. The Swift client decodes only `choices`, so
-    // adding this field is transparent client-side.
-    const enriched = isObject(payload) ? { ...payload, usage: { include: true } } : payload;
+    // One-shot path (typed chat question). We still consume OpenRouter as a
+    // stream internally so the request is bounded by an idle watchdog, not the
+    // old hard 30s total-duration cap — that cap 504'd chat whenever the
+    // completion ran long (large-transcript meetings), even though tokens were
+    // still flowing. The deltas are buffered back into the same one-shot JSON
+    // the client already decodes, so the switch is invisible client-side.
+    return forwardChatBuffered(payload, userId, model);
+}
 
-    const { status, text } = await callOpenRouter(OPENROUTER_CHAT_URL, enriched, CHAT_TIMEOUT_MS, userId, "chat");
+// Non-streaming chat served over an internal stream. Requests SSE from
+// OpenRouter (so a long-but-progressing generation isn't killed by a fixed
+// total timer), accumulates the deltas, and returns the assembled completion
+// as the one-shot `{ choices: [{ message: { content } }] }` envelope the Swift
+// client decodes. `usage: { include: true }` makes the terminal chunk carry
+// `usage.cost` for accounting.
+async function forwardChatBuffered(payload: Record<string, unknown>, userId: string, model: string): Promise<Response> {
+    const enriched = {
+        ...payload,
+        stream: true,
+        stream_options: { include_usage: true },
+        usage: { include: true },
+    };
 
-    // Best-effort: parse usage from the response. Never block the user on a
-    // logging failure — if anything throws, swallow it and serve the body.
+    const started = Date.now();
+    const controller = new AbortController();
+    // Idle watchdog, matching forwardChatStream: abort only when the upstream
+    // goes quiet for CHAT_TIMEOUT_MS (a hang before the first byte or a stall
+    // mid-stream), never mid-answer while tokens are arriving.
+    let lastActivity = Date.now();
+    const watchdog = setInterval(() => {
+        if (Date.now() - lastActivity > CHAT_TIMEOUT_MS) {
+            console.warn(`chat-buffered user=${userId} idle >${CHAT_TIMEOUT_MS}ms — aborting`);
+            controller.abort();
+        }
+    }, 5_000);
+
     try {
-        const parsed = JSON.parse(text);
-        await recordUsage({
-            user_id: userId,
-            kind: "chat",
-            model,
-            status,
-            prompt_tokens:     parsed?.usage?.prompt_tokens     ?? null,
-            completion_tokens: parsed?.usage?.completion_tokens ?? null,
-            generation_id:     parsed?.id                       ?? null,
-            cost_usd:          parsed?.usage?.cost              ?? null,
-        });
-    } catch (err) {
-        console.warn(`chat usage record skipped: ${err}`);
-    }
+        let upstream: Response;
+        try {
+            upstream = await fetch(OPENROUTER_CHAT_URL, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com/dbarabashh/Nod",
+                    "X-Title": "Nod",
+                },
+                body: JSON.stringify(enriched),
+                signal: controller.signal,
+            });
+        } catch (error) {
+            const aborted = error instanceof DOMException && error.name === "AbortError";
+            console.error(`chat-buffered user=${userId} upstream ${aborted ? "timeout" : "error"}: ${error}`);
+            return json({ error: aborted ? `Upstream timeout (idle ${CHAT_TIMEOUT_MS}ms)` : "Upstream request failed" }, aborted ? 504 : 502);
+        }
 
-    return new Response(text, {
-        status,
-        headers: { "Content-Type": "application/json" },
-    });
+        if (!upstream.ok || !upstream.body) {
+            const text = await upstream.text().catch(() => "");
+            console.error(`chat-buffered user=${userId} status=${upstream.status} (no stream body)`);
+            return new Response(text || JSON.stringify({ error: "upstream error" }), {
+                status: upstream.status || 502,
+                headers: { "Content-Type": "application/json" },
+            });
+        }
+
+        let assembled: BufferedChat;
+        try {
+            assembled = await readBufferedChat(upstream.body, () => { lastActivity = Date.now(); });
+        } catch (error) {
+            // The watchdog aborts the body read on an idle stall; a dropped
+            // connection surfaces here too. Without this catch the rejection
+            // escapes to Deno.serve as a generic 500 — defeating the 504 the
+            // idle watchdog exists to return.
+            const aborted = error instanceof DOMException && error.name === "AbortError";
+            console.error(`chat-buffered user=${userId} stream ${aborted ? "timeout" : "error"}: ${error}`);
+            return json({ error: aborted ? `Upstream timeout (idle ${CHAT_TIMEOUT_MS}ms)` : "Upstream stream failed" }, aborted ? 504 : 502);
+        }
+        const dt = Date.now() - started;
+        console.log(`chat-buffered user=${userId} model=${model} status=${upstream.status} dt=${dt}ms chars=${assembled.content.length} tokens=${assembled.usage?.completion_tokens ?? "?"}`);
+
+        try {
+            await recordUsage({
+                user_id: userId,
+                kind: "chat",
+                model,
+                status: upstream.status,
+                prompt_tokens:     assembled.usage?.prompt_tokens     ?? null,
+                completion_tokens: assembled.usage?.completion_tokens ?? null,
+                generation_id:     assembled.id                       ?? null,
+                cost_usd:          assembled.usage?.cost              ?? null,
+            });
+        } catch (err) {
+            console.warn(`chat usage record skipped: ${err}`);
+        }
+
+        // An upstream error can arrive as a 200 body carrying an `error` chunk
+        // with no content — surface it as 502 rather than an empty completion.
+        if (!assembled.content && assembled.error) {
+            console.error(`chat-buffered user=${userId} stream error: ${assembled.error}`);
+            return json({ error: assembled.error }, 502);
+        }
+
+        const responseBody = {
+            id: assembled.id,
+            model,
+            choices: [{
+                index: 0,
+                message: { role: "assistant", content: assembled.content },
+                finish_reason: assembled.finishReason ?? "stop",
+            }],
+            usage: assembled.usage,
+        };
+        return new Response(JSON.stringify(responseBody), {
+            status: upstream.status,
+            headers: { "Content-Type": "application/json" },
+        });
+    } finally {
+        clearInterval(watchdog);
+    }
 }
 
 // Streaming chat: forward OpenRouter's SSE body straight to the client while
@@ -501,6 +595,62 @@ async function readStreamUsage(
     }
     if (usage) return { ...usage, id };
     return id ? { id } : null;
+}
+
+interface BufferedChat {
+    content: string;
+    usage: StreamUsage | null;
+    id: string | null;
+    finishReason: string | null;
+    error: string | null;
+}
+
+// Drain an SSE chat stream into a complete assembled reply: concatenated
+// `delta.content`, plus the id, finish_reason, terminal usage, and any upstream
+// error chunk. Same tolerant line parsing as readStreamUsage — unparsable lines
+// (keepalives, split chunks) are skipped, never thrown.
+async function readBufferedChat(
+    stream: ReadableStream<Uint8Array>,
+    onActivity?: () => void,
+): Promise<BufferedChat> {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let content = "";
+    let usage: StreamUsage | null = null;
+    let id: string | null = null;
+    let finishReason: string | null = null;
+    let error: string | null = null;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            onActivity?.();
+            buf += decoder.decode(value, { stream: true });
+            let nl: number;
+            while ((nl = buf.indexOf("\n")) >= 0) {
+                const line = buf.slice(0, nl).trim();
+                buf = buf.slice(nl + 1);
+                if (!line.startsWith("data:")) continue;
+                const data = line.slice(5).trim();
+                if (data === "[DONE]") continue;
+                try {
+                    const obj = JSON.parse(data);
+                    if (typeof obj?.id === "string") id = obj.id;
+                    if (obj?.usage) usage = obj.usage as StreamUsage;
+                    if (obj?.error) {
+                        error = typeof obj.error?.message === "string" ? obj.error.message : JSON.stringify(obj.error);
+                    }
+                    const choice = obj?.choices?.[0];
+                    if (typeof choice?.delta?.content === "string") content += choice.delta.content;
+                    if (typeof choice?.finish_reason === "string") finishReason = choice.finish_reason;
+                } catch { /* keepalive / split chunk — ignore */ }
+            }
+        }
+    } finally {
+        reader.releaseLock();
+    }
+    return { content, usage: usage ? { ...usage, id } : null, id, finishReason, error };
 }
 
 // STT providers (Groq, OpenAI, OpenRouter) don't return a per-request cost the
