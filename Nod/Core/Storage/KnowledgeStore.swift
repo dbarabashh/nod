@@ -39,6 +39,9 @@ final class KnowledgeStore: ObservableObject {
     /// a failure just means this session won't surface in search, never a
     /// broken save.
     func index(meetingID: UUID, transcript: String) async {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
         let chunks = Self.chunk(transcript)
         guard !chunks.isEmpty else { return }
         Log.ui.info("KnowledgeStore.index meeting=\(meetingID.uuidString) chunks=\(chunks.count)")
@@ -62,6 +65,16 @@ final class KnowledgeStore: ObservableObject {
     ] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
+        #if DEBUG
+            if DemoMode.isEnabled {
+                return DemoData.knowledgeChunks(
+                    query: trimmed,
+                    matchCount: matchCount,
+                    meetingID: meetingID,
+                    meetingIDs: meetingIDs
+                )
+            }
+        #endif
         do {
             let results = try await llm.searchKnowledge(
                 query: trimmed,

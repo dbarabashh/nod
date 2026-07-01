@@ -29,6 +29,9 @@ final class ActionItemStore: ObservableObject {
     /// `(meeting_id, position) where deleted_at is null` is the atomic backstop
     /// for two callers that both pass this check at the same instant.
     func saveExtracted(_ actions: [MeetingRecap.Action], meetingID: UUID, userID: UUID) async {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
         let rows = actions.enumerated().compactMap { idx, action -> ActionItem? in
             let text = action.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
@@ -55,6 +58,9 @@ final class ActionItemStore: ObservableObject {
     /// network (its `saveExtracted` skipped) still materialises its tasks the
     /// first time it's opened, instead of showing an empty list forever.
     func itemsPromoting(for meeting: Meeting) async throws -> [ActionItem] {
+        #if DEBUG
+            if DemoMode.isEnabled { return DemoData.actionItems(for: meeting.id) }
+        #endif
         let existing = try await items(forMeeting: meeting.id)
         if !existing.isEmpty { return existing }
         // Passive media carries no personal to-dos — never promote a checklist
@@ -91,7 +97,10 @@ final class ActionItemStore: ObservableObject {
     /// RLS SELECT policy — a soft-delete UPDATE would otherwise trip the policy
     /// as a WITH CHECK on the now-hidden new row.
     func items(forMeeting meetingID: UUID) async throws -> [ActionItem] {
-        try await supabase
+        #if DEBUG
+            if DemoMode.isEnabled { return DemoData.actionItems(for: meetingID) }
+        #endif
+        return try await supabase
             .from(Self.tableName)
             .select()
             .eq("meeting_id", value: meetingID.uuidString)
@@ -106,7 +115,10 @@ final class ActionItemStore: ObservableObject {
     /// first — backs the History aggregate. RLS scopes to the owner; the
     /// `deleted_at IS NULL` filter is applied here in the query (see above).
     func allItems() async throws -> [ActionItem] {
-        try await supabase
+        #if DEBUG
+            if DemoMode.isEnabled { return DemoData.allActionItems() }
+        #endif
+        return try await supabase
             .from(Self.tableName)
             .select()
             .is("deleted_at", value: nil)
@@ -121,6 +133,9 @@ final class ActionItemStore: ObservableObject {
     /// the `meetings` soft-delete: stamps `deleted_at` so it drops out of every
     /// read without a hard delete.
     func softDelete(itemID: UUID) async throws {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
         struct Patch: Encodable {
             let deleted_at: Date
             let updated_at: Date
@@ -136,6 +151,9 @@ final class ActionItemStore: ObservableObject {
     /// Rename a single item's text — the inline edit of an AI-extracted or
     /// user-added task. The caller updates its local copy optimistically.
     func updateText(_ text: String, itemID: UUID) async throws {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
         struct Patch: Encodable {
             let text: String
             let updated_at: Date
@@ -151,6 +169,17 @@ final class ActionItemStore: ObservableObject {
     /// owner is resolved from the current session so the view needn't thread it
     /// through; RLS still checks `auth.uid() = user_id` on insert.
     func add(text: String, meetingID: UUID, position: Int) async throws -> ActionItem {
+        #if DEBUG
+            if DemoMode.isEnabled {
+                return ActionItem.new(
+                    meetingID: meetingID,
+                    userID: UUID(),
+                    text: text,
+                    deadline: nil,
+                    position: position
+                )
+            }
+        #endif
         let userID = try await supabase.auth.session.user.id
         let item = ActionItem.new(
             meetingID: meetingID,
@@ -166,6 +195,9 @@ final class ActionItemStore: ObservableObject {
     /// Check / uncheck a single item, stamping `done_at` and `updated_at`. The
     /// caller updates its local copy optimistically; this persists the change.
     func setDone(_ done: Bool, itemID: UUID) async throws {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
         struct Patch: Encodable {
             let done: Bool
             let done_at: Date?

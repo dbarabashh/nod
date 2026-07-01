@@ -116,6 +116,7 @@
 		E2485BAAC404E37EFAE5CEA4 /* WelcomeStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46A04894406BDE7F0626C7EF /* WelcomeStep.swift */; };
 		E3CEF731AC1DF0B81198058A /* silero_vad.onnx in Resources */ = {isa = PBXBuildFile; fileRef = 35C3AE41335A1F54ABE41B4F /* silero_vad.onnx */; };
 		E541341E603ECA7B1D7E28C2 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C9B19F835772EA6F313002E /* HistoryView.swift */; };
+		E7B6B4906AE592C7DFC44308 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B5060F762B65268EA145946 /* DemoData.swift */; };
 		E7E776C58DD7F39397FB1837 /* ScreenShareButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ACDCF968370582B807E3F8F /* ScreenShareButton.swift */; };
 		E8DC321B43A36D6F5C9707F4 /* ConnectionsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D681C52183CA72F086243B /* ConnectionsSection.swift */; };
 		E8F917A7CCDE767A295B98A5 /* LabelComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A9758C570690CC4B71C91F /* LabelComponents.swift */; };
@@ -217,6 +218,7 @@
 		982C5DD8511576D4D3D67D3F /* StatusHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusHeader.swift; sourceTree = "<group>"; };
 		9852D15740B533840DAC4B1B /* Nod-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Nod-Bridging-Header.h"; sourceTree = "<group>"; };
 		996F7633F92772627D14D346 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		9B5060F762B65268EA145946 /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
 		9B6FA69328C6F9B9E12ED22D /* SummaryTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplate.swift; sourceTree = "<group>"; };
 		9B99C2D73E32BFDDFFD07A1D /* ModesSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModesSettingsSection.swift; sourceTree = "<group>"; };
 		9D29E16C2F0B2E3B6F300CDE /* Meeting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting.swift; sourceTree = "<group>"; };
@@ -631,6 +633,7 @@
 				21901ABF0AF2D42F20E6E170 /* ChatMessage.swift */,
 				CCA30DF5B98CDB6D9948EAF8 /* ChatStore.swift */,
 				EE28F6AA9F8A89E081448732 /* Connection.swift */,
+				9B5060F762B65268EA145946 /* DemoData.swift */,
 				325D6DF38937D83990700FCF /* Entity.swift */,
 				9D50620ECD4BD55BEE26B1AE /* EntityStore.swift */,
 				B99CB1F0EFEAC3E666485766 /* KnowledgeStore.swift */,
@@ -858,6 +861,7 @@
 				AB9180C08829E72F431FF696 /* ConsentPreference.swift in Sources */,
 				216A59639956435390A597C8 /* ConsentStrings.swift in Sources */,
 				61AD300C7E5CB425A631FC7A /* ContentView.swift in Sources */,
+				E7B6B4906AE592C7DFC44308 /* DemoData.swift in Sources */,
 				EBEC61C56622C9628CAD0CEE /* DesignTokens.swift in Sources */,
 				1CDD698E65F33BFF1289D19F /* DeviceIdentity.swift in Sources */,
 				529AB50DCD539CCA0DEEFFDD /* EntitlementService.swift in Sources */,

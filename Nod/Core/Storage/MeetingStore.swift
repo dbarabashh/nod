@@ -114,6 +114,18 @@ final class MeetingStore: ObservableObject {
     /// reflects the new row before the next full refresh.
     func upsert(_ meeting: Meeting) async throws {
         Log.ui.info("MeetingStore.upsert id=\(meeting.id.uuidString)")
+        #if DEBUG
+            if DemoMode.isEnabled {
+                if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
+                    meetings[idx] = meeting
+                } else {
+                    meetings.insert(meeting, at: 0)
+                    meetings.sort { $0.startedAt > $1.startedAt }
+                }
+                loadState = .loaded
+                return
+            }
+        #endif
         try await supabase
             .from(Self.tableName)
             .upsert(meeting)
@@ -229,6 +241,14 @@ final class MeetingStore: ObservableObject {
     /// full refresh.
     func update(_ meeting: Meeting) async throws {
         Log.ui.info("MeetingStore.update id=\(meeting.id.uuidString)")
+        #if DEBUG
+            if DemoMode.isEnabled {
+                if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
+                    meetings[idx] = meeting
+                }
+                return
+            }
+        #endif
 
         // Custom encode so a nil title emits explicit `null` (not an omitted
         // key). Swift's synthesised Encodable uses `encodeIfPresent` for
@@ -286,6 +306,9 @@ final class MeetingStore: ObservableObject {
     /// yet (they backfill once it exists), rather than losing the transcript.
     func upsertTranscript(_ records: [TranscriptRecord]) async throws {
         guard !records.isEmpty else { return }
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
         let deduped = Self.collapseByIdx(records)
         Log.ui.info("MeetingStore.upsertTranscript meeting=\(deduped[0].meetingID.uuidString) count=\(deduped.count)")
         do {
@@ -325,6 +348,9 @@ final class MeetingStore: ObservableObject {
     /// Used by MeetingDetailView's Transcript tab — lazy, only runs when
     /// the tab is first opened.
     func fetchTranscript(meetingID: UUID) async throws -> [TranscriptRecord] {
+        #if DEBUG
+            if DemoMode.isEnabled { return DemoData.transcript(for: meetingID) }
+        #endif
         Log.ui.info("MeetingStore.fetchTranscript meeting=\(meetingID.uuidString)")
         // Sanity cap: ~5000 ≈ a 7-hour meeting at 5-second chunks. Real
         // meetings stay well under this; the cap exists so a runaway
@@ -372,6 +398,15 @@ final class MeetingStore: ObservableObject {
     /// reads only the summary back through that token. The link is revocable.
     func createShareURL(for meeting: Meeting) async throws -> URL {
         Log.ui.info("MeetingStore.createShareURL meeting=\(meeting.id.uuidString)")
+        #if DEBUG
+            if DemoMode.isEnabled {
+                let token = UUID().uuidString.lowercased()
+                guard let url = URL(string: "\(Self.shareViewerBaseURL)/share/\(token)") else {
+                    throw URLError(.badURL)
+                }
+                return url
+            }
+        #endif
         struct Params: Encodable {
             let p_meeting_id: UUID
         }
@@ -398,6 +433,16 @@ final class MeetingStore: ObservableObject {
     /// list).
     func softDelete(_ meeting: Meeting) async throws {
         Log.ui.info("MeetingStore.softDelete id=\(meeting.id.uuidString)")
+        #if DEBUG
+            if DemoMode.isEnabled {
+                meetings.removeAll { $0.id == meeting.id }
+                if case .loaded = trashState {
+                    trashedMeetings.insert(meeting.updating(deletedAt: Date()), at: 0)
+                }
+                pendingUndo = meeting
+                return
+            }
+        #endif
         struct Params: Encodable {
             let meeting_id: UUID
         }
@@ -422,6 +467,17 @@ final class MeetingStore: ObservableObject {
     /// stale trash timestamp on a row that's now live.
     func restore(_ id: UUID) async throws {
         Log.ui.info("MeetingStore.restore id=\(id.uuidString)")
+        #if DEBUG
+            if DemoMode.isEnabled {
+                if let idx = trashedMeetings.firstIndex(where: { $0.id == id }) {
+                    let row = trashedMeetings.remove(at: idx)
+                    meetings.insert(row.updating(deletedAt: nil), at: 0)
+                    meetings.sort { $0.startedAt > $1.startedAt }
+                }
+                if pendingUndo?.id == id { pendingUndo = nil }
+                return
+            }
+        #endif
         struct Params: Encodable {
             let meeting_id: UUID
         }
@@ -443,6 +499,14 @@ final class MeetingStore: ObservableObject {
     /// "Delete Forever" + the nightly pg_cron purge.
     func hardDelete(_ id: UUID) async throws {
         Log.ui.info("MeetingStore.hardDelete id=\(id.uuidString)")
+        #if DEBUG
+            if DemoMode.isEnabled {
+                meetings.removeAll { $0.id == id }
+                trashedMeetings.removeAll { $0.id == id }
+                if pendingUndo?.id == id { pendingUndo = nil }
+                return
+            }
+        #endif
         try await supabase
             .from(Self.tableName)
             .delete()
@@ -463,6 +527,12 @@ final class MeetingStore: ObservableObject {
     /// Fetches the user's soft-deleted meetings, newest-trashed first.
     /// Lazy — only runs when the Trash segment is opened.
     func refreshTrash() async {
+        #if DEBUG
+            if DemoMode.isEnabled {
+                trashState = .loaded
+                return
+            }
+        #endif
         if case .loading = trashState {
             Log.ui.info("MeetingStore.refreshTrash skipped — already in flight")
             return
@@ -561,6 +631,16 @@ final class MeetingStore: ObservableObject {
     /// reload button, "Couldn't sync" warning chip); leave the default
     /// for `.task`-driven auto-refreshes that should be throttled.
     func refresh(force: Bool = false) async {
+        #if DEBUG
+            if DemoMode.isEnabled {
+                if meetings.isEmpty { meetings = DemoData.meetings }
+                loadState = .loaded
+                lastRefreshFailed = false
+                lastSuccessfulFetchAt = Date()
+                return
+            }
+        #endif
+
         // Unconditional in-flight guard. Covers both initial fetch
         // (loadState would flip to .loading and the old check caught
         // those) AND silent refresh (loadState stays .loaded and the

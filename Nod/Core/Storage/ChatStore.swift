@@ -40,6 +40,13 @@ final class ChatStore: ObservableObject {
         messages = []
         sendState = .idle
         loadState = .loading
+        #if DEBUG
+            if DemoMode.isEnabled {
+                messages = DemoData.chat(for: meetingID)
+                loadState = .loaded
+                return
+            }
+        #endif
         do {
             let rows: [ChatMessage] = try await supabase
                 .from(Self.tableName)
@@ -125,6 +132,15 @@ final class ChatStore: ObservableObject {
     /// Permanently deletes the saved conversation for a session. The session
     /// itself (recording, summary, transcript) is untouched.
     func clearHistory(meetingID: UUID) async {
+        #if DEBUG
+            if DemoMode.isEnabled {
+                if openMeetingID == meetingID {
+                    messages = []
+                    sendState = .idle
+                }
+                return
+            }
+        #endif
         do {
             try await supabase
                 .from(Self.tableName)
@@ -142,6 +158,9 @@ final class ChatStore: ObservableObject {
     /// Best-effort persistence — a network blip shouldn't drop the turn from
     /// the on-screen conversation, so a failed insert is logged, not surfaced.
     private func persist(_ message: ChatMessage) async {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
         do {
             try await supabase.from(Self.tableName).insert(message).execute()
         } catch {

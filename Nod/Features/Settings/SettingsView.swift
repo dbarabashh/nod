@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -225,8 +226,58 @@ struct SettingsView: View {
             if let granolaImporter, granolaImporter.isGranolaInstalled {
                 GranolaImportSection(importer: granolaImporter)
             }
+
+            #if DEBUG
+                demoModeCard
+            #endif
         }
     }
+
+    #if DEBUG
+        /// Recording aid — fills the app with sample meetings and swallows every
+        /// DB read/write, so the whole workflow can be filmed without touching
+        /// Supabase. DEBUG-only: neither this card nor `DemoData` compile into
+        /// Release, so it can never reach the App Store build. Relaunches so the
+        /// stores reseed cleanly regardless of what's cached.
+        private var demoModeCard: some View {
+            SettingsCard {
+                SettingsRow(
+                    icon: "wand.and.stars",
+                    title: "Demo mode",
+                    subtitle: "Fill Nod with sample meetings for a recording. Nothing is read from or written to the database. Toggling relaunches Nod."
+                ) {
+                    Toggle("", isOn: demoBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .tint(Theme.Palette.violet)
+                }
+            }
+        }
+
+        private var demoBinding: Binding<Bool> {
+            Binding(
+                get: { DemoMode.isEnabled },
+                set: { newValue in
+                    DemoMode.set(newValue)
+                    Self.relaunch()
+                }
+            )
+        }
+
+        private static func relaunch() {
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.createsNewApplicationInstance = true
+            NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, error in
+                DispatchQueue.main.async {
+                    if let error {
+                        Log.ui.error("demo relaunch failed: \(error.localizedDescription)")
+                        return
+                    }
+                    NSApp.terminate(nil)
+                }
+            }
+        }
+    #endif
 
     @ViewBuilder
     private var modesPane: some View {

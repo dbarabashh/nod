@@ -26,6 +26,13 @@ final class LabelStore: ObservableObject {
 
     /// Loads all labels and their session links for the signed-in user.
     func refresh() async {
+        #if DEBUG
+            if DemoMode.isEnabled {
+                labels = DemoData.labels
+                assignments = DemoData.labelAssignments
+                return
+            }
+        #endif
         guard let userID = auth.currentSupabaseSession?.user.id else { return }
         do {
             let labels: [SessionLabel] = try await supabase
@@ -76,12 +83,20 @@ final class LabelStore: ObservableObject {
     /// taken (case-insensitive) — the unique index makes create idempotent.
     @discardableResult
     func create(name: String, color: String) async throws -> SessionLabel? {
-        guard let userID = auth.currentSupabaseSession?.user.id else { return nil }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if let existing = labels.first(where: { $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
             return existing
         }
+        #if DEBUG
+            if DemoMode.isEnabled {
+                let local = SessionLabel(id: UUID(), userID: UUID(), name: trimmed, color: color, createdAt: nil)
+                labels.append(local)
+                labels.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                return local
+            }
+        #endif
+        guard let userID = auth.currentSupabaseSession?.user.id else { return nil }
         let draft = SessionLabel(id: UUID(), userID: userID, name: trimmed, color: color, createdAt: nil)
         let saved: SessionLabel = try await supabase
             .from(Self.labelsTable)
@@ -98,6 +113,16 @@ final class LabelStore: ObservableObject {
     func rename(_ labelID: UUID, to name: String) async throws {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        #if DEBUG
+            if DemoMode.isEnabled {
+                if let idx = labels.firstIndex(where: { $0.id == labelID }) {
+                    let old = labels[idx]
+                    labels[idx] = SessionLabel(id: old.id, userID: old.userID, name: trimmed, color: old.color, createdAt: old.createdAt)
+                    labels.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                }
+                return
+            }
+        #endif
         try await supabase
             .from(Self.labelsTable)
             .update(["name": trimmed])
@@ -108,6 +133,15 @@ final class LabelStore: ObservableObject {
 
     /// Deletes a label. `meeting_labels` rows cascade server-side.
     func delete(_ labelID: UUID) async throws {
+        #if DEBUG
+            if DemoMode.isEnabled {
+                labels.removeAll { $0.id == labelID }
+                for (meetingID, ids) in assignments where ids.contains(labelID) {
+                    assignments[meetingID]?.remove(labelID)
+                }
+                return
+            }
+        #endif
         try await supabase
             .from(Self.labelsTable)
             .delete()
@@ -124,6 +158,12 @@ final class LabelStore: ObservableObject {
     /// Sets the exact set of labels on a session, inserting/deleting only the
     /// links that changed.
     func setLabels(_ desired: Set<UUID>, for meetingID: UUID) async throws {
+        #if DEBUG
+            if DemoMode.isEnabled {
+                assignments[meetingID] = desired.isEmpty ? nil : desired
+                return
+            }
+        #endif
         guard let userID = auth.currentSupabaseSession?.user.id else { return }
         let current = assignments[meetingID] ?? []
         let added = desired.subtracting(current)
