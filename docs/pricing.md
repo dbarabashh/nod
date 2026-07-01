@@ -22,7 +22,7 @@ base you can ask questions about.
 | Records you **+ the other side** | ✅ | ✅ | ✅ |
 | Live transcription, summaries & action items | ✅ | ✅ | ✅ |
 | **Ask Nod** about any meeting | ✅ | ✅ | ✅ |
-| Multilingual transcription (13 languages) | ✅ | ✅ | ✅ |
+| Multilingual transcription (14 languages) | ✅ | ✅ | ✅ |
 | Unlimited history, labels & search | ✅ | ✅ | ✅ |
 | Private by design — **audio never stored** | ✅ | ✅ | ✅ |
 | **Ask Nod across all meetings** (knowledge base) | ✅ | — | ✅ |
@@ -67,7 +67,7 @@ people with a steady, focused meeting load.
 - Records you **and the other side** on Zoom, Meet, Teams, and calls
 - Live transcription, summaries, and action items
 - **Ask Nod** about any individual meeting
-- Multilingual transcription — 13 languages
+- Multilingual transcription — 14 languages
 - Unlimited history, labels, and search
 - Private by design — your audio is never stored
 
