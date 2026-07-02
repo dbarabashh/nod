@@ -35,7 +35,14 @@ enum AudioDeviceCatalog {
         return nil
     }
 
-    static func currentDefaultInputDeviceID() -> AudioDeviceID {
+    static func name(forDeviceID id: AudioDeviceID) -> String? {
+        stringProperty(id, kAudioObjectPropertyName)
+    }
+
+    /// `nil` when there is genuinely no default input (the HAL can transiently
+    /// report none — "Could not find default device for dIn") rather than the
+    /// old sentinel `0`, so callers don't mistake "unknown" for a real device.
+    static func currentDefaultInputDeviceID() -> AudioDeviceID? {
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -43,7 +50,8 @@ enum AudioDeviceCatalog {
         )
         var id: AudioDeviceID = 0
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &id)
+        let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &id)
+        guard status == noErr, id != 0 else { return nil }
         return id
     }
 

@@ -24,6 +24,10 @@ final class AudioCaptureService: NSObject, ObservableObject {
     /// can't show stale activity once capture isn't flowing.
     @Published private(set) var inputLevel: Float = 0
     @Published private(set) var lastError: String?
+    /// Live list of selectable input devices, kept current by an always-on Core
+    /// Audio topology listener so the picker reflects plug/unplug and default
+    /// changes without a manual refresh. `refreshInputs()` forces a re-scan.
+    @Published private(set) var availableInputs: [AudioInputDevice] = []
     @Published var preferredInputUID: String? {
         didSet {
             if let preferredInputUID {
@@ -57,6 +61,21 @@ final class AudioCaptureService: NSObject, ObservableObject {
     private var systemRestartInFlight = false
     private static let systemWatchdogIntervalNanoseconds: UInt64 = 5_000_000_000
     private static let systemAudioStallSeconds: TimeInterval = 8
+    /// Set from the mic tap on every hardware buffer (independent of mute — a
+    /// muted mic still delivers frames). Drives the mic watchdog so a device
+    /// that stops delivering (unplugged headset, HAL stall) is caught and the
+    /// engine restarted, instead of the meeting going silently deaf.
+    private var lastMicFrameAt: Date?
+    private var micWatchdogTask: Task<Void, Never>?
+    private var micRestartInFlight = false
+    private static let micStallSeconds: TimeInterval = 8
+    /// Core Audio listener for input-device topology changes (a device
+    /// appearing/disappearing, or the system default switching). Lets us react
+    /// to the active input vanishing mid-meeting faster than the watchdog's
+    /// stall timeout, and to follow the system default when "System Default" is
+    /// selected.
+    private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
+    private var deviceListenerActive = false
 
     override init() {
         preferredInputUID = UserDefaults.standard.string(forKey: Self.preferredInputKey)
@@ -81,6 +100,22 @@ final class AudioCaptureService: NSObject, ObservableObject {
         outputHandler.onPCMBuffer = { [weak self] buffer in
             self?.onSystemBuffer?(buffer)
         }
+        refreshAvailableInputs()
+        registerInputDeviceListener()
+    }
+
+    deinit {
+        guard let block = deviceListenerBlock else { return }
+        for selector in Self.monitoredDeviceSelectors {
+            var addr = AudioObjectPropertyAddress(
+                mSelector: selector,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject), &addr, DispatchQueue.main, block
+            )
+        }
     }
 
     func start(captureMic: Bool = true, captureSystem: Bool = true) async {
@@ -93,7 +128,11 @@ final class AudioCaptureService: NSObject, ObservableObject {
         state = .capturing
 
         Log.audio.info("starting capture (mic=\(captureMic) system=\(captureSystem))")
-        if captureMic { await startMicrophone() }
+        if captureMic {
+            lastMicFrameAt = Date()
+            await startMicrophone()
+            startMicWatchdog()
+        }
         if captureSystem {
             lastSystemFrameAt = Date()
             await startSystemAudio()
@@ -104,6 +143,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
     func pause() {
         guard state == .capturing else { return }
         audioEngine?.pause()
+        stopMicWatchdog()
         stopSystemWatchdog()
         let stream = scStream
         scStream = nil
@@ -115,11 +155,13 @@ final class AudioCaptureService: NSObject, ObservableObject {
     func resume() async {
         guard state == .paused else { return }
         if captureMic {
-            do {
-                try audioEngine?.start()
-            } catch {
-                lastError = "Resume mic failed: \(error.localizedDescription)"
-            }
+            // Rebuild rather than just re-`start()` the paused engine: a device
+            // may have been unplugged or the default changed while paused, and
+            // only a fresh `startMicrophone` re-runs `applyInputDeviceSelection`.
+            stopMicrophone()
+            lastMicFrameAt = Date()
+            await startMicrophone()
+            startMicWatchdog()
         }
         if captureSystem {
             lastSystemFrameAt = Date()
@@ -131,6 +173,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
 
     func stop() async {
         guard state != .idle else { return }
+        stopMicWatchdog()
         stopSystemWatchdog()
         stopMicrophone()
         await stopSystemAudio()
@@ -149,29 +192,11 @@ final class AudioCaptureService: NSObject, ObservableObject {
         let engine = AVAudioEngine()
         let input = engine.inputNode
 
-        // Override the input device BEFORE reading the format or starting the engine.
-        // Otherwise AVAudioEngine binds to whatever system default was at engine init.
-        if let uid = preferredInputUID, let deviceID = AudioDeviceCatalog.deviceID(forUID: uid) {
-            if let unit = input.audioUnit {
-                var id = deviceID
-                let status = AudioUnitSetProperty(
-                    unit,
-                    kAudioOutputUnitProperty_CurrentDevice,
-                    kAudioUnitScope_Global,
-                    0,
-                    &id,
-                    UInt32(MemoryLayout<AudioDeviceID>.size)
-                )
-                if status == noErr {
-                    Log.audio.info("input device overridden to UID=\(uid) (id=\(deviceID))")
-                } else {
-                    Log.audio.error("failed to override input device (OSStatus=\(status))")
-                }
-            }
-        } else {
-            let defaultName = AVCaptureDevice.default(for: .audio)?.localizedName ?? "<unknown>"
-            Log.audio.info("using system default input device: \(defaultName)")
-        }
+        // Bind the requested input device before the engine settles. The naive
+        // "set CurrentDevice and hope" path silently no-ops (capture falls back
+        // to the system default) whenever the AUHAL is already initialized — see
+        // applyInputDeviceSelection.
+        applyInputDeviceSelection(to: input)
 
         // Settle the engine after any device-change side effects above so the
         // input node's reported format matches reality.
@@ -227,6 +252,9 @@ final class AudioCaptureService: NSObject, ObservableObject {
             }
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                // Liveness for the watchdog — set before the mute branch so a
+                // muted-but-delivering mic isn't mistaken for a stalled one.
+                lastMicFrameAt = Date()
                 if micEnabled {
                     micSamples += count
                     // Decaying peak hold — rises instantly to a loud frame,
@@ -252,6 +280,193 @@ final class AudioCaptureService: NSObject, ObservableObject {
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
+    }
+
+    /// Applies `preferredInputUID` to the engine's input node, verifying the
+    /// device actually bound and surfacing an explicit `lastError` when the
+    /// chosen mic can't be honored — instead of silently recording from whatever
+    /// the system default happens to be (the old behavior, which made a user who
+    /// once picked a Bluetooth headset unable to switch back to any other input).
+    /// Must run before `engine.prepare()` so the change is picked up on init.
+    private func applyInputDeviceSelection(to input: AVAudioInputNode) {
+        guard let uid = preferredInputUID else {
+            let defaultName = AVCaptureDevice.default(for: .audio)?.localizedName ?? "<unknown>"
+            Log.audio.info("using system default input device: \(defaultName)")
+            return
+        }
+
+        guard let deviceID = AudioDeviceCatalog.deviceID(forUID: uid) else {
+            Log.audio.error("preferred input UID=\(uid) not connected; using system default")
+            lastError = "Selected microphone isn't available — using the system default."
+            return
+        }
+
+        guard let unit = input.audioUnit else {
+            Log.audio.error("input node exposes no audio unit; cannot select UID=\(uid)")
+            lastError = "Couldn't select the microphone — using the system default."
+            return
+        }
+
+        let status = setInputDevice(deviceID, on: unit)
+        let actual = currentInputDevice(of: unit)
+        guard status == noErr, actual == deviceID else {
+            let actualName = actual.flatMap(AudioDeviceCatalog.name(forDeviceID:)) ?? "the default microphone"
+            Log.audio.error(
+                "input override to UID=\(uid) (id=\(deviceID)) failed: OSStatus=\(status), unit reports id=\(actual.map(String.init) ?? "?") (\(actualName))"
+            )
+            lastError = "Couldn't switch to the selected microphone — still using \(actualName)."
+            return
+        }
+
+        Log.audio.info("input device overridden to UID=\(uid) (id=\(deviceID))")
+    }
+
+    /// Rebinds the AUHAL to `deviceID`. Uninitializes first because
+    /// `kAudioOutputUnitProperty_CurrentDevice` returns `kAudioUnitErr_Initialized`
+    /// on an already-initialized unit; `engine.prepare()` re-initializes after.
+    private func setInputDevice(_ deviceID: AudioDeviceID, on unit: AudioUnit) -> OSStatus {
+        AudioUnitUninitialize(unit)
+        var id = deviceID
+        return AudioUnitSetProperty(
+            unit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &id,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+    }
+
+    /// The device the AUHAL is actually bound to — a `noErr` set doesn't
+    /// guarantee the HAL honored it, so callers verify against what they asked for.
+    private func currentInputDevice(of unit: AudioUnit) -> AudioDeviceID? {
+        var id: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioUnitGetProperty(
+            unit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &id,
+            &size
+        )
+        return status == noErr ? id : nil
+    }
+
+    // MARK: - Microphone recovery (watchdog + device listener)
+
+    private func startMicWatchdog() {
+        micWatchdogTask?.cancel()
+        micWatchdogTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.systemWatchdogIntervalNanoseconds)
+                await self?.restartMicrophoneIfStalled()
+            }
+        }
+    }
+
+    private func stopMicWatchdog() {
+        micWatchdogTask?.cancel()
+        micWatchdogTask = nil
+    }
+
+    private func restartMicrophoneIfStalled() async {
+        // No `audioEngine != nil` guard: a start that threw leaves the engine nil
+        // while state stays `.capturing`, and that's exactly the case the
+        // watchdog must retry rather than treat as healthy.
+        guard state == .capturing, captureMic, !micRestartInFlight else { return }
+        let elapsed = Date().timeIntervalSince(lastMicFrameAt ?? .distantPast)
+        guard elapsed >= Self.micStallSeconds else { return }
+        await restartMicrophone(reason: "no mic buffers for \(String(format: "%.1f", elapsed))s")
+    }
+
+    /// Tears down and rebuilds the mic engine, which re-runs
+    /// `applyInputDeviceSelection` — so a vanished preferred device recovers to
+    /// the system default (surfacing `lastError`), and a changed default is
+    /// picked up. Guarded by `micRestartInFlight` so the watchdog and the device
+    /// listener can't restart concurrently.
+    private func restartMicrophone(reason: String) async {
+        guard state == .capturing, captureMic, !micRestartInFlight else { return }
+        micRestartInFlight = true
+        Log.audio.error("restarting microphone — \(reason)")
+        stopMicrophone()
+        guard state == .capturing, captureMic else {
+            micRestartInFlight = false
+            return
+        }
+        lastMicFrameAt = Date()
+        await startMicrophone()
+        micRestartInFlight = false
+    }
+
+    /// Selectors that change the input-device menu: the device set (plug /
+    /// unplug) and which one is the system default (the "(default)" tag + the
+    /// System Default target).
+    private static let monitoredDeviceSelectors: [AudioObjectPropertySelector] = [
+        kAudioHardwarePropertyDevices,
+        kAudioHardwarePropertyDefaultInputDevice
+    ]
+
+    /// Re-scans the input devices and re-publishes only on an actual change, so
+    /// duplicate topology callbacks don't needlessly invalidate the picker.
+    func refreshInputs() {
+        refreshAvailableInputs()
+    }
+
+    private func refreshAvailableInputs() {
+        let latest = AudioDeviceCatalog.inputDevices()
+        if latest != availableInputs { availableInputs = latest }
+    }
+
+    private func registerInputDeviceListener() {
+        guard !deviceListenerActive else { return }
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                await self?.onDeviceTopologyChanged()
+            }
+        }
+        for selector in Self.monitoredDeviceSelectors {
+            var addr = AudioObjectPropertyAddress(
+                mSelector: selector,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            let status = AudioObjectAddPropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject), &addr, DispatchQueue.main, block
+            )
+            if status != noErr {
+                Log.audio.error("failed to register device listener (selector=\(selector), OSStatus=\(status))")
+            }
+        }
+        deviceListenerBlock = block
+        deviceListenerActive = true
+    }
+
+    /// One callback for both the live picker list and the capture-recovery path:
+    /// keep `availableInputs` current always, and rebind capture only if it's
+    /// running and the active device diverged.
+    private func onDeviceTopologyChanged() async {
+        refreshAvailableInputs()
+        await handleInputDeviceChange()
+    }
+
+    /// Compares the device the engine is bound to against the one it *should* be
+    /// on and restarts only when they diverge — so unrelated device toggles don't
+    /// churn a running capture. The target is the preferred device when present,
+    /// otherwise the system default (which is also the fallback when a preferred
+    /// device is unplugged); if neither can be resolved we leave capture alone
+    /// rather than restart toward an unknown device.
+    private func handleInputDeviceChange() async {
+        guard state == .capturing, captureMic, !micRestartInFlight else { return }
+        guard let unit = audioEngine?.inputNode.audioUnit else {
+            await restartMicrophone(reason: "input device changed while engine down")
+            return
+        }
+        let preferred = preferredInputUID.flatMap(AudioDeviceCatalog.deviceID(forUID:))
+        guard let intended = preferred ?? AudioDeviceCatalog.currentDefaultInputDeviceID() else { return }
+        if intended != currentInputDevice(of: unit) {
+            await restartMicrophone(reason: "active input device changed")
+        }
     }
 
     // MARK: - System audio (ScreenCaptureKit)

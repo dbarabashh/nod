@@ -72,7 +72,6 @@ private struct PausedGlyph: View {
 /// trigger moved from a full-width row to this compact glyph.
 private struct MicInputPicker: View {
     @ObservedObject var audioCapture: AudioCaptureService
-    @State private var devices: [AudioInputDevice] = []
 
     var body: some View {
         HeaderMenuGlyph {
@@ -87,15 +86,23 @@ private struct MicInputPicker: View {
             menuItems
         }
         .help("Microphone — choose input device")
-        .onAppear(perform: refresh)
+        // The list is kept live by the service's device listener; this just
+        // guarantees a fresh scan the moment the picker appears.
+        .onAppear { audioCapture.refreshInputs() }
     }
 
     @ViewBuilder private var menuItems: some View {
         Button(action: { audioCapture.preferredInputUID = nil }) {
-            Label("System Default", systemImage: audioCapture.preferredInputUID == nil ? "checkmark" : "")
+            HStack {
+                Text("System Default")
+                Spacer()
+                if audioCapture.preferredInputUID == nil {
+                    Image(systemName: "checkmark")
+                }
+            }
         }
         Divider()
-        ForEach(devices) { device in
+        ForEach(audioCapture.availableInputs) { device in
             Button(action: { audioCapture.preferredInputUID = device.uid }) {
                 HStack {
                     Text(device.name + (device.isDefault ? "  (default)" : ""))
@@ -107,11 +114,7 @@ private struct MicInputPicker: View {
             }
         }
         Divider()
-        Button("Refresh", action: refresh)
-    }
-
-    private func refresh() {
-        devices = AudioDeviceCatalog.inputDevices()
+        Button("Refresh") { audioCapture.refreshInputs() }
     }
 }
 
