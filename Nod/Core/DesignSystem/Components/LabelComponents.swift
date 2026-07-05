@@ -24,7 +24,7 @@ struct LabelChip: View {
                         .font(.system(size: 8, weight: .bold))
                 }
                 .buttonStyle(.plain)
-                .help("Remove label")
+                .help("Remove folder")
             }
         }
         .foregroundStyle(Theme.Palette.ink.opacity(0.85))
@@ -104,7 +104,7 @@ struct LabelPickerPopover: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TextField("Find or create a label", text: $query)
+            TextField("Find or create a folder", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .padding(8)
             Divider()
@@ -113,7 +113,7 @@ struct LabelPickerPopover: View {
                     ForEach(filtered) { row($0) }
                     if canCreate { createSection }
                     if filtered.isEmpty, !canCreate {
-                        Text("No labels yet")
+                        Text("No folders yet")
                             .font(.system(size: 12))
                             .foregroundStyle(Theme.Palette.muted)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -125,8 +125,8 @@ struct LabelPickerPopover: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: 264)
-        .alert("Rename label", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-            TextField("Label name", text: $renameText)
+        .alert("Rename folder", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Folder name", text: $renameText)
             Button("Cancel", role: .cancel) { renaming = nil }
             Button("Save") {
                 if let label = renaming { Task { try? await labelStore.rename(label.id, to: renameText) } }
@@ -141,7 +141,7 @@ struct LabelPickerPopover: View {
             Circle()
                 .fill(label.swatchColor)
                 .frame(width: 9, height: 9)
-            Text(confirming ? "Delete label?" : label.name)
+            Text(confirming ? "Delete folder?" : label.name)
                 .font(.system(size: 12.5, weight: confirming ? .medium : .regular))
                 .foregroundStyle(confirming ? Theme.Palette.danger : Theme.Palette.ink)
                 .lineLimit(1)
@@ -149,8 +149,8 @@ struct LabelPickerPopover: View {
             if confirming {
                 InlineConfirmButtons(
                     confirmIcon: "trash.fill",
-                    confirmHelp: "Delete label",
-                    cancelHelp: "Keep label",
+                    confirmHelp: "Delete folder",
+                    cancelHelp: "Keep folder",
                     onConfirm: { confirmDelete(label) },
                     onCancel: { confirmingDelete = nil }
                 )
@@ -168,7 +168,7 @@ struct LabelPickerPopover: View {
                 }
                 .buttonStyle(.plain)
                 .revealOnHover(hovering == label.id, reduceMotion: reduceMotion)
-                .help("Delete label")
+                .help("Delete folder")
                 .linkCursor()
             }
         }

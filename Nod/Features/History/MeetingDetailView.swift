@@ -245,7 +245,7 @@ struct MeetingDetailView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "tag")
                         .font(.system(size: 10, weight: .semibold))
-                    Text(assigned.isEmpty ? "Add label" : "Label")
+                    Text(assigned.isEmpty ? "Add to folder" : "Folder")
                         .font(.system(size: 11, weight: .medium))
                 }
                 .foregroundStyle(Theme.Palette.muted)
@@ -258,7 +258,7 @@ struct MeetingDetailView: View {
                 )
             }
             .buttonStyle(.plain)
-            .help("Add or remove labels")
+            .help("Add or remove folders")
             .popover(isPresented: $showLabelPicker, arrowEdge: .bottom) {
                 LabelPickerPopover(meetingID: meeting.id)
             }

@@ -321,7 +321,7 @@ struct KnowledgeChatView: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Scope questions to a label")
+        .help("Scope questions to a folder")
     }
 
     @ViewBuilder
@@ -461,7 +461,7 @@ struct KnowledgeChatView: View {
                 guard !ids.isEmpty else {
                     messages.append(QAMessage(
                         role: .assistant,
-                        content: "No sessions carry the “\(scope.name)” label yet. Add it to a session from its detail view, then ask again."
+                        content: "No sessions are in the “\(scope.name)” folder yet. Add one from a session's detail view, then ask again."
                     ))
                     isSending = false
                     return

@@ -37,7 +37,7 @@ struct PaywallView: View {
                 "Records you and the other side",
                 "Live transcription, summaries & action items",
                 "Ask Nod about any meeting",
-                "Unlimited history, labels & search"
+                "Unlimited history, folders & search"
             ]
         ),
         PlanCopy(
@@ -49,7 +49,7 @@ struct PaywallView: View {
                 "Up to 3 devices",
                 "Everything in Starter, plus:",
                 "Ask Nod across all meetings — your knowledge base",
-                "Label-scoped questions",
+                "Folder-scoped questions",
                 "Early access + priority support"
             ]
         )
