@@ -71,6 +71,16 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// "Keep going" verb for the inactivity prompt — mirrors `activeStatusLabel`
+    /// so the button never reads as "keep recording".
+    var continueActionTitle: String {
+        switch self {
+        case .meeting: "Keep listening"
+        case .voiceNote: "Keep noting"
+        case .media: "Keep transcribing"
+        }
+    }
+
     var icon: String {
         switch self {
         case .meeting: "person.2.fill"

@@ -261,6 +261,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
+
+    /// Fired when the user clicks the Dock icon (with no visible windows).
+    /// Re-open whichever primary surface matches the current state, and bring
+    /// back a panel that was hidden via the toggle hotkey.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        windows?.reconcile()
+        windows?.revealPanel()
+        NSApp.activate(ignoringOtherApps: true)
+        return true
+    }
 }
 
 extension Notification.Name {

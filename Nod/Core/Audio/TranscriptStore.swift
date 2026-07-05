@@ -40,6 +40,11 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     @Published private(set) var liveMe: String = ""
     @Published private(set) var liveThem: String = ""
     @Published private(set) var lastSource: TranscriptSource?
+    /// Speech-onset time of the most recent confirmed utterance on either
+    /// stream. Stamped from the chunk's audio-clock timestamp (not `Date()`) so
+    /// Whisper latency doesn't skew it. Drives trailing-silence trimming and the
+    /// forgot-to-stop watchdog; `nil` until the first utterance lands.
+    @Published private(set) var lastSpeechAt: Date?
     @Published private(set) var lastError: String?
 
     private let mic: WhisperTranscriber
@@ -69,6 +74,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             self.entries = []
             self.liveMe = ""
             self.liveThem = ""
+            self.lastSpeechAt = nil
             self.lastError = nil
         }
         await mic.start()
@@ -87,6 +93,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             self.liveMe = ""
             self.liveThem = ""
             self.lastSource = nil
+            self.lastSpeechAt = nil
             self.lastError = nil
         }
     }
@@ -189,6 +196,10 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     private func appendDeduped(chunk: TranscribedChunk, timestamp: Date) {
         let text = chunk.text
         let source = chunk.source
+        // Every chunk reaching here is real detected speech (including acoustic
+        // bleed, which is still someone talking) — record activity before the
+        // dedup branches so a dropped ME echo still counts. Keep it monotonic.
+        lastSpeechAt = max(lastSpeechAt ?? timestamp, timestamp)
         let cutoff = timestamp.addingTimeInterval(-Self.dedupWindowSeconds)
         let incoming = Self.wordSet(text)
         for (idx, existing) in entries.enumerated().reversed() {

@@ -48,8 +48,23 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         panel?.orderOut(nil)
     }
 
+    /// Order an existing (possibly hotkey-hidden) panel back to the front.
+    /// Unlike `showFloatingPanel`, this never creates one — it's the Dock
+    /// re-open path, where `reconcile` has already ensured the right surface
+    /// exists.
+    func revealPanel() {
+        panel?.orderFrontRegardless()
+    }
+
     func setPanelVisibleWhenSharing(_ visible: Bool) {
         panel?.sharingType = visible ? .readOnly : .none
+        // Keep the Dock icon / ⌘-Tab entry in lockstep with share visibility —
+        // hiding the panel from captures is pointless if the Dock still shows
+        // Nod. Only while the panel is the active surface; sign-in/onboarding
+        // force .regular regardless.
+        if panel != nil {
+            NSApp.setActivationPolicy(visible ? .regular : .accessory)
+        }
     }
 
     /// Shared chrome for every coordinator-owned window: transparent
@@ -143,7 +158,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         // Idempotent — re-entrant from the auth observer is normal.
         guard panel == nil else { return }
 
-        NSApp.setActivationPolicy(.accessory)
+        // Dock icon presence tracks share visibility. When Nod is visible in
+        // shares, show the icon so a user who hid the panel via the toggle
+        // hotkey can click it to bring the panel back (see
+        // AppDelegate.applicationShouldHandleReopen). In stealth mode the panel
+        // is excluded from screen captures, so a Dock icon (and ⌘-Tab entry)
+        // would leak Nod's presence anyway — go accessory to match.
+        NSApp.setActivationPolicy(services.panelSharing.visibleWhenSharing ? .regular : .accessory)
 
         // One session per panel — its lifetime matches the old view-local
         // @State (created with the panel, dropped on sign-out teardown), so

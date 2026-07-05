@@ -150,3 +150,71 @@ struct SaveErrorToast: View {
         .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
     }
 }
+
+// MARK: - Inactivity (forgot-to-stop) prompt
+
+/// Raised after a stretch of silence on both streams: asks whether the meeting
+/// is over. If ignored, the session auto-ends (trimmed to the last speech) when
+/// the countdown elapses — so a walked-away user doesn't record hours of dead
+/// air. "Keep recording" is the prominent action for a user who's still here.
+struct InactivityPrompt: View {
+    let secondsRemaining: Int
+    /// Kind-aware "keep going" label (e.g. "Keep listening") — never "recording".
+    let keepTitle: String
+    let onKeep: () -> Void
+    let onEnd: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "moon.zzz.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.Palette.warning)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Still there?")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                Text("No audio for a while — ending in \(Self.clock(secondsRemaining))")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(Theme.Palette.muted)
+            }
+
+            Spacer(minLength: 8)
+
+            Button(action: onEnd) {
+                Text("End")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+            }
+            .buttonStyle(.plain)
+
+            Button(action: onKeep) {
+                Text(keepTitle)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.GlassButton.text)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .glassButtonSurface(Capsule(style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 480)
+        .background(
+            ZStack {
+                PanelMaterial()
+                Theme.Palette.bgSoft.opacity(0.50)
+            }
+            .clipShape(Capsule(style: .continuous))
+        )
+        .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
+    }
+
+    private static func clock(_ seconds: Int) -> String {
+        let s = max(0, seconds)
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}

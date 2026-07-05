@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import SwiftUI
 
@@ -53,6 +54,13 @@ enum AIResponse: Equatable {
     case ready(kind: GenerationKind, text: String)
 }
 
+/// Non-nil while the "still recording?" prompt is showing after a stretch of
+/// silence. `secondsRemaining` counts down to an automatic, silence-trimmed end
+/// unless the user keeps recording or ends it themselves.
+struct AutoEndPrompt: Equatable {
+    var secondsRemaining: Int
+}
+
 /// Owns the recording lifecycle, mid-call generation, and end-of-meeting
 /// persistence that used to live as @State + private funcs in ContentView.
 /// One instance per floating panel — created in `showFloatingPanel` and
@@ -74,6 +82,32 @@ final class MeetingSession: ObservableObject {
     /// replayed on the next launch; this array is just the UI mirror.
     @Published private(set) var pendingMeetingSaves: [Meeting] = []
     @Published private(set) var saveErrorToast: String?
+    /// Drives the forgot-to-stop prompt; nil when no prompt is showing.
+    @Published private(set) var autoEndPrompt: AutoEndPrompt?
+
+    /// Inactivity-watchdog state. Silence is measured from the latest of
+    /// `store.lastSpeechAt`, `inactivityResetAt` (a resume or a "keep recording"
+    /// tap), and `recordingStartedAt`; `silenceBackoffMultiplier` grows on each
+    /// "keep recording" so we nag less. While the prompt is up, `promptDeadline`
+    /// is its wall-clock auto-end time and `speechAtPromptRaise` is the speech
+    /// marker captured when it was raised — any change to it dismisses the prompt.
+    private var inactivityResetAt: Date?
+    private var promptRaisedAt: Date?
+    private var promptDeadline: Date?
+    private var speechAtPromptRaise: Date?
+    /// Backoff factor on the silence threshold; doubles on each "keep recording"
+    /// so repeat prompts get progressively rarer.
+    private var silenceBackoffMultiplier: Double = 1
+    /// Silence needed to prompt when the user seems present (base) vs when
+    /// they're idle at the keyboard/mouse — a strong "walked away" hint. A
+    /// locked screen also stops delivering HID events, so idle subsumes lock;
+    /// system sleep suspends the timer, so that silence accrues for free on wake.
+    private static let autoEndBaseSilenceSeconds: TimeInterval = 600
+    private static let autoEndAwaySilenceSeconds: TimeInterval = 180
+    private static let autoEndMaxSilenceSeconds: TimeInterval = 2400
+    private static let hidIdleAwaySeconds: TimeInterval = 300
+    private static let maxSilenceBackoff: Double = 8
+    private static let autoEndCountdownSeconds = 120
 
     /// Wall-clock start of the current recording. Captured in beginRecording
     /// so we can stamp `started_at` accurately when we persist on summary.
@@ -184,7 +218,76 @@ final class MeetingSession: ObservableObject {
         while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             if meeting == .recording { elapsed += 1 }
+            tickInactivity()
         }
+    }
+
+    /// Once a second while recording: raise the forgot-to-stop prompt after a
+    /// stretch of silence on both streams, count it down, and auto-end (trimmed
+    /// to the last speech) if the user doesn't respond. A resumed conversation
+    /// after the prompt dismisses it.
+    private func tickInactivity() {
+        guard meeting == .recording else {
+            if autoEndPrompt != nil { clearAutoEndPrompt() }
+            return
+        }
+        let now = Date()
+
+        if autoEndPrompt != nil {
+            // Any new confirmed speech since the prompt was raised means the
+            // meeting is still live — dismiss. Comparing the whole timestamp
+            // (not onset-vs-raise) catches a chunk that finalizes during the
+            // countdown even though its speech started just before the prompt,
+            // so a continuous talker can't be auto-ended mid-sentence.
+            if store.lastSpeechAt != speechAtPromptRaise {
+                clearAutoEndPrompt()
+                return
+            }
+            // Wall-clock deadline, not a tick count, so main-thread jitter can't
+            // stretch "2:00" past two real minutes.
+            let remaining = (promptDeadline ?? now).timeIntervalSince(now)
+            if remaining <= 0 {
+                clearAutoEndPrompt()
+                Log.ui.info("auto-ending meeting after inactivity")
+                endMeeting()
+            } else {
+                let secs = Int(remaining.rounded(.up))
+                if autoEndPrompt?.secondsRemaining != secs {
+                    autoEndPrompt = AutoEndPrompt(secondsRemaining: secs)
+                }
+            }
+            return
+        }
+
+        let lastActivity = [store.lastSpeechAt, inactivityResetAt, recordingStartedAt]
+            .compactMap { $0 }
+            .max() ?? now
+        let silence = now.timeIntervalSince(lastActivity)
+        let away = hidIdleSeconds() >= Self.hidIdleAwaySeconds
+        let base = away ? Self.autoEndAwaySilenceSeconds : Self.autoEndBaseSilenceSeconds
+        let threshold = min(base * silenceBackoffMultiplier, Self.autoEndMaxSilenceSeconds)
+        if silence >= threshold {
+            promptRaisedAt = now
+            promptDeadline = now.addingTimeInterval(TimeInterval(Self.autoEndCountdownSeconds))
+            speechAtPromptRaise = store.lastSpeechAt
+            autoEndPrompt = AutoEndPrompt(secondsRemaining: Self.autoEndCountdownSeconds)
+            Log.ui.info("inactivity prompt raised (silence \(Int(silence))s, away=\(away))")
+        }
+    }
+
+    private func clearAutoEndPrompt() {
+        autoEndPrompt = nil
+        promptRaisedAt = nil
+        promptDeadline = nil
+        speechAtPromptRaise = nil
+    }
+
+    /// Seconds since the last keyboard/mouse event. A locked screen or a user
+    /// who walked away both read as idle here, letting us shorten the
+    /// silence-to-prompt wait.
+    private func hidIdleSeconds() -> TimeInterval {
+        guard let anyInput = CGEventType(rawValue: ~0) else { return 0 }
+        return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
     }
 
     // MARK: - Recording lifecycle
@@ -195,6 +298,9 @@ final class MeetingSession: ObservableObject {
         meeting = .recording
         elapsed = 0
         response = .none
+        clearAutoEndPrompt()
+        inactivityResetAt = nil
+        silenceBackoffMultiplier = 1
         // Stamp the wall-clock so the persisted row carries an accurate
         // `started_at` instead of using the summary-ready instant.
         let startedAt = Date()
@@ -269,7 +375,26 @@ final class MeetingSession: ObservableObject {
         await outbox.flush(using: meetingStore, userID: draft.userID)
     }
 
+    /// Tail kept after the last detected speech when trimming trailing silence —
+    /// covers Whisper latency plus the final in-flight VAD segment.
+    private static let trailingSilenceTailSeconds: TimeInterval = 30
+
+    /// End time clamped so a forgot-to-stop tail of dead air can't inflate the
+    /// meeting's duration: `lastSpeech + tail`, bounded to `[startedAt, now]`.
+    /// Falls back to `now` when there was no speech; a normal stop right after
+    /// talking also lands on `now` because `lastSpeech + tail` exceeds it.
+    private static func trimmedEndDate(startedAt: Date, lastSpeechAt: Date?) -> Date {
+        let now = Date()
+        guard let lastSpeechAt else { return now }
+        let trimmed = lastSpeechAt.addingTimeInterval(trailingSilenceTailSeconds)
+        return max(startedAt, min(now, trimmed))
+    }
+
     func endMeeting() {
+        // Idempotent: the auto-end tick, the prompt's End button, and the
+        // capsule/StatusRow End can all race to call this; a second entry after
+        // the first has reset to idle would mint a fresh id and double-persist.
+        guard meeting != .idle else { return }
         Log.ui.info("End Meeting — entries=\(store.entries.count)")
         store.stop()
         Task { await audioCapture.stop() }
@@ -297,7 +422,7 @@ final class MeetingSession: ObservableObject {
         // and the kind/language shouldn't shift if the user reconfigures while
         // the summary generates.
         let startedAt = recordingStartedAt ?? Date()
-        let endedAt = Date()
+        let endedAt = Self.trimmedEndDate(startedAt: startedAt, lastSpeechAt: store.lastSpeechAt)
         let lang = language.current
         let langCode = lang.rawValue
         let kind = selectedKind
@@ -473,6 +598,7 @@ final class MeetingSession: ObservableObject {
         response = .none
         elapsed = 0
         micMuted = false
+        clearAutoEndPrompt()
     }
 
     private func cleanupToIdle() {
@@ -494,8 +620,21 @@ final class MeetingSession: ObservableObject {
         case .paused:
             print("→ Resume")
             meeting = .recording
+            // Measure post-resume silence from now, not from the last pre-pause
+            // speech, so resuming doesn't instantly trip the inactivity prompt.
+            inactivityResetAt = Date()
             Task { await audioCapture.resume() }
         }
+    }
+
+    /// User dismissed the forgot-to-stop prompt — keep recording, and back off
+    /// the silence threshold (doubling, capped) so we don't nag on the next
+    /// quiet stretch.
+    func keepRecording() {
+        clearAutoEndPrompt()
+        inactivityResetAt = Date()
+        silenceBackoffMultiplier = min(silenceBackoffMultiplier * 2, Self.maxSilenceBackoff)
+        Log.ui.info("user kept recording — silence backoff ×\(Int(silenceBackoffMultiplier))")
     }
 
     func toggleMic() {

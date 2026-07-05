@@ -152,7 +152,24 @@ struct ContentView: View {
                 UpdateRequiredOverlay(onUpdate: { updateGate.startUpdate() })
                     .zIndex(4)
             }
+
+            if let prompt = session.autoEndPrompt {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    InactivityPrompt(
+                        secondsRemaining: prompt.secondsRemaining,
+                        keepTitle: session.selectedKind.continueActionTitle,
+                        onKeep: session.keepRecording,
+                        onEnd: session.endMeeting
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                }
+                .zIndex(2)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
+        .animation(.easeOut(duration: 0.18), value: session.autoEndPrompt != nil)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear { onPreferredWidthChange?(contentWidth) }
         .onChange(of: isWide) { _ in onPreferredWidthChange?(contentWidth) }
