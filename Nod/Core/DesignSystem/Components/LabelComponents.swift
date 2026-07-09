@@ -69,17 +69,89 @@ struct LabelFilterChip: View {
     }
 }
 
+/// A row of tappable colour swatches for the fixed `LabelPalette`. Shared by
+/// label creation and editing so the picker looks the same in both.
+struct LabelSwatchRow: View {
+    @Binding var selection: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(LabelPalette.swatches, id: \.self) { hex in
+                Circle()
+                    .fill(SessionLabel.color(fromHex: hex) ?? Theme.Palette.violet)
+                    .frame(width: 18, height: 18)
+                    .overlay(Circle().stroke(Color.white, lineWidth: selection == hex ? 2 : 0))
+                    .overlay(Circle().stroke(Theme.Palette.border, lineWidth: 0.5))
+                    .contentShape(Circle())
+                    .onTapGesture { selection = hex }
+            }
+        }
+    }
+}
+
+/// Edit an existing label's name and colour in one place — the fix for having
+/// to delete-and-recreate a label just to recolour it. Reused inline in the
+/// meeting-detail picker and as a popover from the History filter bar.
+struct LabelEditor: View {
+    let label: SessionLabel
+    var onFinish: () -> Void
+
+    @EnvironmentObject private var labelStore: LabelStore
+    @State private var name: String
+    @State private var color: String
+
+    init(label: SessionLabel, onFinish: @escaping () -> Void = {}) {
+        self.label = label
+        self.onFinish = onFinish
+        _name = State(initialValue: label.name)
+        _color = State(initialValue: label.color)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Folder name", text: $name)
+                .textFieldStyle(.roundedBorder)
+            LabelSwatchRow(selection: $color)
+            HStack(spacing: 8) {
+                Button(role: .destructive, action: delete) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.Palette.danger)
+                .help("Delete folder")
+                Spacer(minLength: 0)
+                Button("Cancel", action: onFinish)
+                    .keyboardShortcut(.cancelAction)
+                Button("Save", action: save)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .font(.system(size: 12.5))
+        }
+        .padding(12)
+    }
+
+    private func save() {
+        Task { try? await labelStore.update(label.id, name: name, color: color) }
+        onFinish()
+    }
+
+    private func delete() {
+        Task { try? await labelStore.delete(label.id) }
+        onFinish()
+    }
+}
+
 /// Assign labels to a session: toggle existing labels, create a new one inline
-/// (with a colour), and rename/delete via right-click. Commits through
-/// `LabelStore.setLabels` per toggle. Used from the meeting detail's `＋`.
+/// (with a colour), and edit (rename + recolour) or delete via right-click.
+/// Commits through `LabelStore.setLabels` per toggle. Used from the meeting
+/// detail's `＋`.
 struct LabelPickerPopover: View {
     let meetingID: UUID
 
     @EnvironmentObject private var labelStore: LabelStore
     @State private var query = ""
     @State private var newColor = LabelPalette.default
-    @State private var renaming: SessionLabel?
-    @State private var renameText = ""
+    @State private var editing: SessionLabel?
     @State private var hovering: UUID?
     @State private var confirmingDelete: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -104,35 +176,49 @@ struct LabelPickerPopover: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TextField("Find or create a folder", text: $query)
-                .textFieldStyle(.roundedBorder)
-                .padding(8)
-            Divider()
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(filtered) { row($0) }
-                    if canCreate { createSection }
-                    if filtered.isEmpty, !canCreate {
-                        Text("No folders yet")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.Palette.muted)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
+            if let editing {
+                editorHeader
+                Divider()
+                LabelEditor(label: editing) { self.editing = nil }
+            } else {
+                TextField("Find or create a folder", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(8)
+                Divider()
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(filtered) { row($0) }
+                        if canCreate { createSection }
+                        if filtered.isEmpty, !canCreate {
+                            Text("No folders yet")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Theme.Palette.muted)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10)
+                        }
                     }
                 }
+                .frame(maxHeight: 260)
+                .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxHeight: 260)
-            .fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: 264)
-        .alert("Rename folder", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-            TextField("Folder name", text: $renameText)
-            Button("Cancel", role: .cancel) { renaming = nil }
-            Button("Save") {
-                if let label = renaming { Task { try? await labelStore.rename(label.id, to: renameText) } }
-                renaming = nil
+    }
+
+    private var editorHeader: some View {
+        HStack(spacing: 6) {
+            Button { editing = nil } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 12, weight: .semibold))
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(Theme.Palette.muted)
+            Text("Edit folder")
+                .font(.system(size: 12.5, weight: .medium))
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
     }
 
     private func row(_ label: SessionLabel) -> some View {
@@ -180,7 +266,7 @@ struct LabelPickerPopover: View {
         .onHover { if $0 { hovering = label.id } else if hovering == label.id { hovering = nil } }
         .animation(.hoverReveal(reduceMotion: reduceMotion), value: hovering)
         .contextMenu {
-            Button("Rename") { renaming = label; renameText = label.name }
+            Button("Edit folder…") { editing = label }
             Button("Delete", role: .destructive) { confirmingDelete = label.id }
         }
     }
@@ -188,15 +274,7 @@ struct LabelPickerPopover: View {
     private var createSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
-            HStack(spacing: 6) {
-                ForEach(LabelPalette.swatches, id: \.self) { hex in
-                    Circle()
-                        .fill(SessionLabel.color(fromHex: hex) ?? Theme.Palette.violet)
-                        .frame(width: 16, height: 16)
-                        .overlay(Circle().stroke(Color.white, lineWidth: newColor == hex ? 2 : 0))
-                        .onTapGesture { newColor = hex }
-                }
-            }
+            LabelSwatchRow(selection: $newColor)
             Button(action: createAndAssign) {
                 HStack(spacing: 6) {
                     Image(systemName: "plus.circle.fill")
