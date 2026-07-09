@@ -107,6 +107,110 @@ struct StartMeetingButton: View {
     }
 }
 
+// MARK: - Ask composer
+
+/// The live "Ask" box shown while recording. A single-line field where the user
+/// types a free-form question about what's being said when the fixed cards
+/// (Catch me up, Key points) don't cover it. Return — or the send button — fires
+/// it; the answer streams into the response card the pills also use.
+///
+/// Sized to the 246-wide pill column so it reads as the primary member of the
+/// action stack. The floating panel `canBecomeKey` (see FloatingPanel), so
+/// clicking the field focuses it and accepts typing without activating the app.
+struct AskComposer: View {
+    @Binding var text: String
+    let enabled: Bool
+    let isBusy: Bool
+    /// True for users without the Pro entitlement: the box still shows (feature
+    /// discovery), but the trailing affordance is a lock and any send routes to
+    /// the paywall (handled by `onSend`) instead of asking.
+    var locked: Bool = false
+    let onSend: (String) -> Void
+    @FocusState private var focused: Bool
+
+    private var trimmed: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSend: Bool {
+        enabled && !isBusy && !trimmed.isEmpty
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(DesignTokens.Palette.electricBlue)
+                .frame(width: 12)
+
+            TextField(locked ? "Ask anything — Pro" : "Ask anything…", text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white.opacity(0.92))
+                .focused($focused)
+                // Skip autocorrect/spell services on this field — they add
+                // nothing for a short prompt (and would "fix" names/jargon), and
+                // not loading them keeps the first focus off the audio-stalling path.
+                .disableAutocorrection(true)
+                .disabled(!enabled)
+                .onSubmit(send)
+
+            trailing
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .frame(width: 246, alignment: .leading)
+        .background(
+            ZStack {
+                PanelMaterial()
+                Color.white.opacity(0.05)
+            }
+            .clipShape(Capsule(style: .continuous))
+        )
+        .opacity(enabled ? 1.0 : 0.55)
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        if isBusy {
+            ProgressView()
+                .controlSize(.mini)
+                .progressViewStyle(.circular)
+                .tint(.white.opacity(0.7))
+                .frame(width: 12, height: 12)
+        } else if locked {
+            Button(action: send) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(DesignTokens.Palette.electricBlue.opacity(0.85))
+            }
+            .buttonStyle(.plain)
+            .help("Ask is a Pro feature — upgrade to use it")
+        } else {
+            Button(action: send) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(canSend ? DesignTokens.Palette.electricBlue : .white.opacity(0.25))
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend)
+            .help("Ask Nod about the conversation so far")
+        }
+    }
+
+    private func send() {
+        // Locked users can send with empty text — the tap's job is to surface the
+        // paywall, which `onSend` does; keep whatever they typed rather than wiping.
+        if locked {
+            onSend(trimmed)
+            return
+        }
+        guard canSend else { return }
+        onSend(trimmed)
+        text = ""
+    }
+}
+
 // MARK: - Hero
 
 struct HeroButton: View {
@@ -124,7 +228,7 @@ struct HeroButton: View {
                         .tint(Theme.GlassButton.text)
                         .frame(width: 14, height: 14)
                 } else {
-                    Image(systemName: "sparkles")
+                    Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(DesignTokens.Palette.electricBlue)
                 }

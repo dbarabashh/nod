@@ -10,6 +10,9 @@ import Supabase
 enum Feature: String, CaseIterable {
     case liveTranscription = "live_transcription"
     case askSingleMeeting = "ask_single_meeting"
+    /// The in-meeting live "Ask" box — free-form questions about the running
+    /// transcript while recording. Pro-tier (granted to trial + pro, not starter).
+    case askLive = "ask_live"
     case multilingual
     case unlimitedHistory = "unlimited_history"
     /// Cross-session "Ask Nod" — the personal knowledge base over all meetings

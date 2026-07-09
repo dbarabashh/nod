@@ -214,6 +214,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for url in pending {
             Task { @MainActor in await services.auth.handleCallback(url) }
         }
+
+        // The first focus of any text field lazily spins up the spell / grammar /
+        // autocorrect / data-detector services on the main thread. If that first
+        // focus is the Ask box during a live recording, the one-time stall starves
+        // the audio render thread and is heard as a crackle — but only on a fresh
+        // launch, before the services are warm. Warm them now, off the audio path
+        // and deferred so launch itself isn't slowed.
+        DispatchQueue.main.async { Self.prewarmTextInput() }
+    }
+
+    /// One-time warm-up of the text-checking service stack, so the first real
+    /// text-field focus (notably the live Ask box mid-recording) doesn't pay the
+    /// lazy XPC spin-up as a main-thread stall. See the call site above.
+    private static func prewarmTextInput() {
+        let checker = NSSpellChecker.shared
+        let sample = "Warm up the text checker." as NSString
+        let types: NSTextCheckingResult.CheckingType =
+            [.spelling, .grammar, .correction, .replacement]
+        _ = checker.check(
+            sample as String,
+            range: NSRange(location: 0, length: sample.length),
+            types: types.rawValue,
+            options: nil,
+            inSpellDocumentWithTag: 0,
+            orthography: nil,
+            wordCount: nil
+        )
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

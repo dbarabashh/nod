@@ -33,6 +33,7 @@ enum GenerationKind: String {
     case suggestReply = "Suggest reply"
     case keyPoints = "Key points"
     case followUp = "Suggest follow-up questions"
+    case ask = "Ask"
 
     var promptKind: PromptKind {
         switch self {
@@ -40,6 +41,7 @@ enum GenerationKind: String {
         case .suggestReply: .suggestReply
         case .keyPoints: .smartReply
         case .followUp: .followUp
+        case .ask: .ask
         }
     }
 }
@@ -680,7 +682,12 @@ final class MeetingSession: ObservableObject {
             // in ~1s instead of after the whole completion. The other pills emit a
             // structured JSON object that can't be rendered until it's complete.
             if promptKind == .suggestReply {
-                await streamSuggestReply(system: system, user: user, requestedKind: requestedKind)
+                await streamPlainAnswer(
+                    system: system,
+                    user: user,
+                    requestedKind: requestedKind,
+                    emptyFallback: Self.suggestReplyEmptyFallback
+                )
                 return
             }
 
@@ -699,9 +706,13 @@ final class MeetingSession: ObservableObject {
                     try await generateRecap(system: system, user: user, transcript: context, language: language.current).toMarkdown()
                 case .suggestReply:
                     // Unreachable: the early return above routes suggestReply to
-                    // streamSuggestReply. Fail loudly if that guard is ever removed
+                    // streamPlainAnswer. Fail loudly if that guard is ever removed
                     // rather than silently rendering a blank card.
-                    preconditionFailure("suggestReply must stream via streamSuggestReply, not the buffered switch")
+                    preconditionFailure("suggestReply must stream via streamPlainAnswer, not the buffered switch")
+                case .ask:
+                    // Unreachable: the live Ask box calls `ask(_:)` → `streamPlainAnswer`,
+                    // never `generate(kind:)`. Present only to keep the switch total.
+                    preconditionFailure("ask must stream via streamPlainAnswer, not the buffered switch")
                 }
                 if case let .generating(k) = response, k == requestedKind {
                     response = .ready(kind: requestedKind, text: text)
@@ -717,15 +728,22 @@ final class MeetingSession: ObservableObject {
     }
 
     private static let suggestReplyEmptyFallback = "Not enough context yet — keep talking and try again."
+    private static let askEmptyFallback = "Nothing to answer from the session yet — give it a moment and try again."
 
-    /// Streams the suggest-reply answer into `response`, updating `.streaming`
-    /// per delta and finalizing `.ready`. Late deltas are dropped once the user
-    /// dismisses the card or fires another pill (`isActiveRequest`). Any stream
-    /// failure — whether before the first token or mid-stream — retries once via
+    /// Streams a plain-text answer into `response`, updating `.streaming` per
+    /// delta and finalizing `.ready`. Shared by "Suggest reply" and the live Ask
+    /// box — they differ only in `emptyFallback`. Late deltas are dropped once the
+    /// user dismisses the card or fires another request (`isActiveRequest`). Any
+    /// stream failure — before the first token or mid-stream — retries once via
     /// the one-shot path, which yields a guaranteed-complete answer: a truncated
     /// half-sentence must never be presented as a finished line the user reads
     /// aloud.
-    private func streamSuggestReply(system: String, user: String, requestedKind: GenerationKind) async {
+    private func streamPlainAnswer(
+        system: String,
+        user: String,
+        requestedKind: GenerationKind,
+        emptyFallback: String
+    ) async {
         var accumulated = ""
         var lastPublish = Date.distantPast
         do {
@@ -746,8 +764,8 @@ final class MeetingSession: ObservableObject {
             }
             guard isActiveRequest(requestedKind) else { return }
             let final = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
-            response = .ready(kind: requestedKind, text: final.isEmpty ? Self.suggestReplyEmptyFallback : final)
-            Log.ui.info("suggest reply ready (streamed)")
+            response = .ready(kind: requestedKind, text: final.isEmpty ? emptyFallback : final)
+            Log.ui.info("\(requestedKind.rawValue) ready (streamed)")
         } catch {
             guard isActiveRequest(requestedKind) else { return }
             // An entitlement 403 already opened the paywall; retrying the
@@ -758,22 +776,58 @@ final class MeetingSession: ObservableObject {
                 return
             }
             Log.ui.error(
-                "suggest reply stream failed (\(accumulated.isEmpty ? "before first token" : "mid-stream after \(accumulated.count) chars")) — retrying one-shot: \(error.localizedDescription)"
+                "\(requestedKind.rawValue) stream failed (\(accumulated.isEmpty ? "before first token" : "mid-stream after \(accumulated.count) chars")) — retrying one-shot: \(error.localizedDescription)"
             )
-            await oneShotSuggestReply(system: system, user: user, requestedKind: requestedKind)
+            await oneShotPlainAnswer(system: system, user: user, requestedKind: requestedKind, emptyFallback: emptyFallback)
         }
     }
 
-    /// One-shot fallback for suggest reply (plain text, no JSON). Used whenever
-    /// the stream fails, to recover a complete answer in a single request.
-    private func oneShotSuggestReply(system: String, user: String, requestedKind: GenerationKind) async {
+    /// One-shot fallback for `streamPlainAnswer` (plain text, no JSON). Used
+    /// whenever the stream fails, to recover a complete answer in a single request.
+    private func oneShotPlainAnswer(
+        system: String,
+        user: String,
+        requestedKind: GenerationKind,
+        emptyFallback: String
+    ) async {
         do {
             let text = try await llm.complete(system: system, user: user).trimmingCharacters(in: .whitespacesAndNewlines)
             guard isActiveRequest(requestedKind) else { return }
-            response = .ready(kind: requestedKind, text: text.isEmpty ? Self.suggestReplyEmptyFallback : text)
+            response = .ready(kind: requestedKind, text: text.isEmpty ? emptyFallback : text)
         } catch {
             guard isActiveRequest(requestedKind) else { return }
             response = .ready(kind: requestedKind, text: "⚠️ \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Live "Ask" box
+
+    /// The user typed a free-form question into the live Ask box mid-recording,
+    /// usually because the fixed cards (Catch me up, Key points) don't cover what
+    /// they want to know right now. Answers it grounded in the transcript so far,
+    /// streaming into the same response card the pills use. Ephemeral by design:
+    /// nothing here is remembered or fed into later cards or the end-of-meeting
+    /// recap.
+    func ask(_ text: String) {
+        let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else { return }
+        Log.ui.info("live ask — len=\(question.count) entries=\(store.entries.count)")
+        response = .generating(kind: .ask)
+        let framing = MeetingFraming.active(for: selectedKind, mode: modeStore.selected)
+        Task {
+            await store.flushPending()
+            let context = store.recentContext(maxEntries: PromptKind.ask.contextWindow ?? .max)
+            let (system, user) = PromptLibrary.build(
+                kind: .ask,
+                transcript: context,
+                language: language.current,
+                personalContext: profileContext,
+                sessionKind: selectedKind,
+                modeFocus: framing.focus,
+                meetingDate: recordingStartedAt.map(PromptLibrary.sessionDateString) ?? "",
+                userQuestion: question
+            )
+            await streamPlainAnswer(system: system, user: user, requestedKind: .ask, emptyFallback: Self.askEmptyFallback)
         }
     }
 

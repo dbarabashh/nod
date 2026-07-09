@@ -6,6 +6,7 @@ enum PromptKind {
     case followUp // "Suggest follow-up questions"
     case summary // "Recap so far" / "Meeting Summary"
     case suggestReply // "Suggest reply" — real-time response suggestion
+    case ask // live "Ask" box — free-form question / context during recording
 
     /// How many recent transcript entries this prompt actually needs. `nil`
     /// means "everything" — only `.summary` (end-of-meeting recap) and the
@@ -28,6 +29,10 @@ enum PromptKind {
         // ("Previous [Me] answers are LOAD-BEARING") — truncating breaks
         // the persona/consistency property the suggestion depends on.
         case .suggestReply:
+            nil
+        // A live question can reach back anywhere in the call ("what did we
+        // decide at the start?"), so give it the full transcript like the recap.
+        case .ask:
             nil
         // End-of-meeting recap must surface decisions and actions that
         // happened anywhere in the call.
@@ -52,7 +57,8 @@ enum PromptLibrary {
         replyContext: ReplyContext = .auto,
         summaryTemplate: SummaryTemplate = .auto,
         modeFocus: String = "",
-        meetingDate: String = ""
+        meetingDate: String = "",
+        userQuestion: String = ""
     ) -> (system: String, user: String) {
         let context = transcript.isEmpty
             ? "(No transcript captured yet.)"
@@ -70,7 +76,7 @@ enum PromptLibrary {
         let system = [personalContext, dateBlock(meetingDate), focusBlock(modeFocus), base]
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
-        return (system, userMessage(for: kind, context: context))
+        return (system, userMessage(for: kind, context: context, question: userQuestion))
     }
 
     /// Absolute, unambiguous date string for a session, used as the
@@ -169,6 +175,9 @@ enum PromptLibrary {
 
         case .smartReply:
             return keyPointsPrompt(language: lang, sessionKind: sessionKind)
+
+        case .ask:
+            return askPrompt(language: lang, sessionKind: sessionKind)
 
         case .followUp:
             return """
@@ -650,8 +659,58 @@ enum PromptLibrary {
         }
     }
 
-    private static func userMessage(for kind: PromptKind, context: String) -> String {
-        "Transcript so far:\n\n\(context)\n\nRespond now."
+    /// System prompt for the live "Ask" box — a free-form question the user typed
+    /// mid-recording when the fixed cards (Catch me up, Key points) don't cover
+    /// what they want to know. A one-off, ephemeral Q&A grounded in the transcript
+    /// so far; it does NOT persist or feed the recap. Answers in plain streamed
+    /// text.
+    private static func askPrompt(language lang: String, sessionKind: SessionKind) -> String {
+        let subject = switch sessionKind {
+        case .meeting: "a meeting that is currently in progress"
+        case .voiceNote: "a voice note the user is recording as they think out loud"
+        case .media: "media the user is listening to right now — a video, podcast, talk, or recording"
+        }
+        return """
+        LANGUAGE: reply in \(lang) unless the user clearly wrote their question in another language, in which case match the language of their question.
+
+        You are Nod, the user's live copilot during \(subject). The transcript SO FAR is given as context. The user just typed you a question from inside the app — usually because the fixed one-tap cards (a catch-up, key points) didn't cover exactly what they want to know right now. Answer that specific question.
+
+        - Answer directly and concretely, grounded in the transcript — e.g. "what did they just decide?", "did I miss anything on pricing?", "summarize the last few minutes", "what should I ask next?".
+        - If the question goes beyond the transcript (explaining a concept that came up, drafting a quick line, general knowledge), answer helpfully with what you know — but never claim something was said in the session if it wasn't.
+        - If the user's message is context rather than a question ("this is a keynote, I'm in the audience"), use it to shape THIS answer and reply briefly; it is a one-off, so nothing is remembered afterward.
+
+        [GROUNDING]
+        - The transcript is the source of truth for what happened in the session. Don't invent names, numbers, or claims that aren't in it.
+        - [Me] is the user; [Them] is the other side. These are routing hints — refer to people naturally, never echo the literal tags.
+
+        [STYLE]
+        - Concise and direct. No preamble like "Great question" — get to the answer.
+        - Answer like you're helping in real time: short paragraphs or tight bullets, not an essay.
+        - \(inlineMarkdownStyle)
+
+        [OUTPUT]
+        - Plain text only — no JSON, no code fences, no surrounding quotes.
+        """
+    }
+
+    private static func userMessage(for kind: PromptKind, context: String, question: String = "") -> String {
+        switch kind {
+        case .ask:
+            let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
+            return """
+            Transcript so far:
+
+            \(context)
+
+            The user just sent you this message:
+
+            \(trimmed.isEmpty ? "(empty)" : trimmed)
+
+            Respond now.
+            """
+        default:
+            return "Transcript so far:\n\n\(context)\n\nRespond now."
+        }
     }
 
     // MARK: - Title generation

@@ -55,6 +55,8 @@ struct ContentView: View {
     /// user taps Start so a stale language pin can't silently carry into a new
     /// meeting; on confirm we fall through to the consent gate / recording.
     @State private var showLanguagePrompt: Bool = false
+    /// Draft text in the live "Ask" box during a recording. Cleared on send.
+    @State private var askText: String = ""
     /// Whether to show the language confirm on Start. User-toggleable from the
     /// popup's checkbox and Settings → General.
     @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting: Bool = MeetingLanguagePromptDefaults.defaultValue
@@ -74,6 +76,13 @@ struct ContentView: View {
 
     private var contentWidth: CGFloat {
         isWide ? PanelWidth.wide : PanelWidth.compact
+    }
+
+    /// Live Ask is a Pro capability. Fail OPEN on an unresolved entitlement (nil /
+    /// load failure): the paywall is the real gate, so a Pro user whose fetch
+    /// transiently failed isn't wrongly locked out. Mirrors `KnowledgeChatView`.
+    private var canAskLive: Bool {
+        entitlements.entitlement == nil || entitlements.can(.askLive)
     }
 
     var body: some View {
@@ -267,6 +276,26 @@ struct ContentView: View {
                 }
 
             case .recording, .paused:
+                // The live Ask box — type a free-form question about what's being
+                // said when the fixed pills don't cover it. Sits above them as the
+                // open-ended entry point; the pills below are the one-tap shortcuts.
+                AskComposer(
+                    text: $askText,
+                    enabled: session.meeting == .recording,
+                    isBusy: session.isGenerating(for: .ask),
+                    locked: !canAskLive,
+                    onSend: { question in
+                        // Pro-gated. Non-Pro sees the box (discovery) but a send
+                        // opens the paywall instead of asking — same invisible
+                        // gate as Start meeting.
+                        guard canAskLive else {
+                            NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+                            return
+                        }
+                        session.ask(question)
+                    }
+                )
+
                 // One primary action (Catch me up — absorbs the old "Recap
                 // so far"; they answered the same "summarise what happened"
                 // need). The rest are a quieter secondary tier with glyphs
@@ -405,6 +434,9 @@ struct ContentView: View {
         // dismissing it separately first left it mid-removal when the idle
         // branch was yanked, ghosting behind the new content.
         showLanguagePrompt = false
+        // Drop any half-typed Ask draft so it can't carry into the new meeting,
+        // same discipline as showLanguagePrompt above.
+        askText = ""
         expanded = true
         session.beginRecording()
     }
