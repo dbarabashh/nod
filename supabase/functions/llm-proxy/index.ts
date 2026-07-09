@@ -320,12 +320,62 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 });
 
-async function forwardChat(payload: unknown, userId: string): Promise<Response> {
-    const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";
+// Providers with an explicit prompt-cache API (a cache_control breakpoint on a
+// content block). OpenAI caches automatically and rejects the unknown field, so
+// it's excluded — its prompts are left as plain strings. A model routed to a
+// non-listed provider (incl. an OpenRouter fallback) never gets the marker.
+const CACHEABLE_MODEL_PREFIXES = ["anthropic/", "google/"];
+function supportsExplicitPromptCache(model: unknown): boolean {
+    return typeof model === "string" && CACHEABLE_MODEL_PREFIXES.some((p) => model.startsWith(p));
+}
 
-    if (!isObject(payload)) {
+// The chat prompt's bulk — the meeting transcript + recap — rides in the system
+// message. In the multi-turn Q&A chat it repeats verbatim on every turn, so
+// marking it with a cache_control breakpoint lets Anthropic/Gemini serve that
+// stable prefix from cache (~10% of input price) on later turns instead of
+// re-billing it each question.
+//
+// Caching is OPT-IN via the client's `cache_prompt` flag, NOT applied to every
+// `kind:chat` call. This is deliberate: the single-shot generation calls
+// (summary, title, recap, entities — also `kind:chat`) each send a large, unique
+// transcript prompt exactly once, so a cache_control marker there is a cache
+// *write* (billed above base input) that's never read — a net surcharge. Only
+// the true multi-turn chat sets the flag. The flag is internal, so it's stripped
+// from the payload before forwarding upstream.
+//
+// (Sub-minimum prefixes — under 1k tokens on Sonnet, 4k on Haiku/Opus/Gemini Pro —
+// are ignored upstream, so a marker on a small chat prompt is a harmless no-op.)
+function applyPromptCaching(payload: Record<string, unknown>): Record<string, unknown> {
+    const { cache_prompt, ...rest } = payload as Record<string, unknown> & { cache_prompt?: unknown };
+    // Always drop the internal flag so it never reaches OpenRouter, regardless
+    // of whether we end up marking the prompt.
+    if (cache_prompt !== true || !supportsExplicitPromptCache(rest.model) || !Array.isArray(rest.messages)) {
+        return rest;
+    }
+    let marked = false;
+    const messages = (rest.messages as unknown[]).map((m) => {
+        if (marked || !isObject(m) || m.role !== "system" || typeof m.content !== "string") return m;
+        marked = true;
+        return {
+            ...m,
+            content: [{ type: "text", text: m.content, cache_control: { type: "ephemeral" } }],
+        };
+    });
+    return { ...rest, messages };
+}
+
+async function forwardChat(rawPayload: unknown, userId: string): Promise<Response> {
+    const model = isObject(rawPayload) && typeof rawPayload.model === "string" ? rawPayload.model : "unknown";
+
+    if (!isObject(rawPayload)) {
         return json({ error: "invalid chat payload" }, 400);
     }
+
+    // Apply prompt caching when the client opted in (`cache_prompt`), and strip
+    // that internal flag before forwarding. Non-opted calls pass through
+    // unchanged. The client still sends plain string message content; the
+    // cache_control content-block rewrite happens here.
+    const payload = applyPromptCaching(rawPayload);
 
     // Streaming path (used by "Suggest reply"): pass the upstream SSE through
     // verbatim so the client renders tokens as they arrive. Usage is captured
@@ -412,7 +462,7 @@ async function forwardChatBuffered(payload: Record<string, unknown>, userId: str
             return json({ error: aborted ? `Upstream timeout (idle ${CHAT_TIMEOUT_MS}ms)` : "Upstream stream failed" }, aborted ? 504 : 502);
         }
         const dt = Date.now() - started;
-        console.log(`chat-buffered user=${userId} model=${model} status=${upstream.status} dt=${dt}ms chars=${assembled.content.length} tokens=${assembled.usage?.completion_tokens ?? "?"}`);
+        console.log(`chat-buffered user=${userId} model=${model} status=${upstream.status} dt=${dt}ms chars=${assembled.content.length} tokens=${assembled.usage?.completion_tokens ?? "?"} prompt=${assembled.usage?.prompt_tokens ?? "?"} cached=${assembled.usage?.prompt_tokens_details?.cached_tokens ?? "?"}`);
 
         try {
             await recordUsage({
@@ -521,7 +571,7 @@ async function forwardChatStream(payload: Record<string, unknown>, userId: strin
         try {
             const usage = await readStreamUsage(toMeter, () => { lastActivity = Date.now(); });
             const dt = Date.now() - started;
-            console.log(`chat-stream user=${userId} model=${model} status=${upstream.status} dt=${dt}ms tokens=${usage?.completion_tokens ?? "?"}`);
+            console.log(`chat-stream user=${userId} model=${model} status=${upstream.status} dt=${dt}ms tokens=${usage?.completion_tokens ?? "?"} prompt=${usage?.prompt_tokens ?? "?"} cached=${usage?.prompt_tokens_details?.cached_tokens ?? "?"}`);
             await recordUsage({
                 user_id: userId,
                 kind: "chat",
@@ -556,6 +606,10 @@ interface StreamUsage {
     completion_tokens?: number | null;
     cost?: number | null;
     id?: string | null;
+    // OpenRouter/Anthropic report cache activity here: `cached_tokens` is the
+    // portion of the prompt served from cache (a hit), so a value > 0 on the
+    // 2nd+ turn confirms prompt caching is working.
+    prompt_tokens_details?: { cached_tokens?: number | null } | null;
 }
 
 // Drain a teed SSE stream and pull out the generation id + final usage chunk.
