@@ -110,14 +110,26 @@ final class LabelStore: ObservableObject {
         return saved
     }
 
-    func rename(_ labelID: UUID, to name: String) async throws {
+    /// Renames and/or recolours a label. A name that collides with another
+    /// label (case-insensitive) is ignored — the unique index would reject it —
+    /// but the colour still applies, so recolouring never silently fails.
+    func update(_ labelID: UUID, name: String, color: String) async throws {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard let current = labels.first(where: { $0.id == labelID }) else { return }
+        let collides = labels.contains {
+            $0.id != labelID && $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame
+        }
+        let finalName = (trimmed.isEmpty || collides) ? current.name : trimmed
         #if DEBUG
             if DemoMode.isEnabled {
                 if let idx = labels.firstIndex(where: { $0.id == labelID }) {
-                    let old = labels[idx]
-                    labels[idx] = SessionLabel(id: old.id, userID: old.userID, name: trimmed, color: old.color, createdAt: old.createdAt)
+                    labels[idx] = SessionLabel(
+                        id: current.id,
+                        userID: current.userID,
+                        name: finalName,
+                        color: color,
+                        createdAt: current.createdAt
+                    )
                     labels.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                 }
                 return
@@ -125,10 +137,13 @@ final class LabelStore: ObservableObject {
         #endif
         try await supabase
             .from(Self.labelsTable)
-            .update(["name": trimmed])
+            .update(["name": finalName, "color": color])
             .eq("id", value: labelID.uuidString)
             .execute()
-        await refresh()
+        if let idx = labels.firstIndex(where: { $0.id == labelID }) {
+            labels[idx] = SessionLabel(id: current.id, userID: current.userID, name: finalName, color: color, createdAt: current.createdAt)
+            labels.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
     }
 
     /// Deletes a label. `meeting_labels` rows cascade server-side.

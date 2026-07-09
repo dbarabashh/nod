@@ -30,6 +30,8 @@ struct HistoryView: View {
     @State private var section: Section = .library
     /// Active label filter on the All segment; nil shows every meeting.
     @State private var filterLabelID: UUID?
+    /// The label being renamed/recoloured from the filter bar, if any.
+    @State private var editingLabel: SessionLabel?
     @State private var pendingHardDelete: Meeting?
     /// Identity of the currently-displayed undo toast — flipped each time
     /// `meetingStore.pendingUndo` changes, so the auto-dismiss timer
@@ -514,6 +516,16 @@ struct HistoryView: View {
                             withAnimation(Self.contentFade) {
                                 filterLabelID = filterLabelID == label.id ? nil : label.id
                             }
+                        }
+                        .contextMenu {
+                            Button("Edit folder…") { editingLabel = label }
+                        }
+                        .popover(isPresented: Binding(
+                            get: { editingLabel?.id == label.id },
+                            set: { if !$0 { editingLabel = nil } }
+                        ), arrowEdge: .bottom) {
+                            LabelEditor(label: label) { editingLabel = nil }
+                                .frame(width: 240)
                         }
                     }
                 }
