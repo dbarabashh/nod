@@ -650,6 +650,12 @@ final class MeetingSession: ObservableObject {
     func generate(kind: GenerationKind) {
         Log.ui.info("user tapped '\(kind.rawValue)' — context.len=\(store.fullContext.count) entries=\(store.entries.count)")
         response = .generating(kind: kind)
+        #if DEBUG
+            if DemoMode.isEnabled {
+                demoGenerate(kind: kind)
+                return
+            }
+        #endif
         let requestedKind = kind
         let promptKind = kind.promptKind
         // Snapshot the framing at the moment the user invoked this, so a mode
@@ -800,6 +806,50 @@ final class MeetingSession: ObservableObject {
         }
     }
 
+    #if DEBUG
+        /// Demo-mode stand-in for the real pill generation. Each pill gets its own
+        /// canned, distinct output so the recording toolbar tells a coherent story
+        /// on camera without any proxy call: "Suggest reply" streams a line like
+        /// the real one; the buffered pills (Catch me up, Key points, Follow-up)
+        /// pop in after a short beat, exactly as they do after a real round-trip.
+        private func demoGenerate(kind: GenerationKind) {
+            Task {
+                if kind == .suggestReply {
+                    await streamDemoAnswer(DemoData.suggestReplyAnswer, requestedKind: kind)
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                guard isActiveRequest(kind) else { return }
+                switch kind {
+                case .hero: response = .ready(kind: kind, text: DemoData.catchUpAnswer)
+                case .keyPoints: response = .ready(kind: kind, text: DemoData.keyPointsAnswer)
+                case .followUp: response = .ready(kind: kind, text: DemoData.followUpAnswer)
+                // Unreachable: suggestReply returns above; ask() never routes here.
+                case .suggestReply, .ask: break
+                }
+            }
+        }
+
+        /// Fakes a streamed answer for demo mode — types the canned text out in
+        /// word-sized deltas so the live Ask card behaves exactly like a real
+        /// stream on camera, without touching the proxy. Honors `isActiveRequest`
+        /// so dismissing the card or asking again mid-stream cancels it.
+        private func streamDemoAnswer(_ answer: String, requestedKind: GenerationKind) async {
+            // A short beat before the first words, like a real request warming up.
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            let words = answer.split(separator: " ", omittingEmptySubsequences: false)
+            var accumulated = ""
+            for (idx, word) in words.enumerated() {
+                guard isActiveRequest(requestedKind) else { return }
+                accumulated += idx == 0 ? String(word) : " \(word)"
+                response = .streaming(kind: requestedKind, text: accumulated)
+                try? await Task.sleep(nanoseconds: 28_000_000)
+            }
+            guard isActiveRequest(requestedKind) else { return }
+            response = .ready(kind: requestedKind, text: accumulated.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    #endif
+
     // MARK: - Live "Ask" box
 
     /// The user typed a free-form question into the live Ask box mid-recording,
@@ -813,6 +863,12 @@ final class MeetingSession: ObservableObject {
         guard !question.isEmpty else { return }
         Log.ui.info("live ask — len=\(question.count) entries=\(store.entries.count)")
         response = .generating(kind: .ask)
+        #if DEBUG
+            if DemoMode.isEnabled {
+                Task { await streamDemoAnswer(DemoData.liveAskAnswer(for: question), requestedKind: .ask) }
+                return
+            }
+        #endif
         let framing = MeetingFraming.active(for: selectedKind, mode: modeStore.selected)
         Task {
             await store.flushPending()
