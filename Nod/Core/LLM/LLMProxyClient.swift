@@ -76,6 +76,19 @@ final class LLMProxyClient: ObservableObject {
         UserDefaults.standard.string(forKey: Self.fallbackModelKey) ?? "anthropic/claude-haiku-4.5"
     }
 
+    /// Model for the user-facing Q&A chat (`chat(system:history:)`) only — NOT
+    /// the summary/recap/title generation, which stays on the reasoning-class
+    /// `model` above. Chat over an already-summarized transcript is a lighter
+    /// task than composing the recap, so it runs on Claude Haiku 4.5: ~3× cheaper
+    /// per token than Sonnet, which is where the bulk of per-user LLM cost was
+    /// going (power chat users hit $2+/mo on Sonnet alone). Escalates to `model`
+    /// (Sonnet) via the fallback chain if Haiku fails. Override for an A/B with
+    /// `defaults write com.example.nod openrouter.model.chat "anthropic/claude-sonnet-4.6"`.
+    private static let chatModelKey = "openrouter.model.chat"
+    var chatModel: String {
+        UserDefaults.standard.string(forKey: Self.chatModelKey) ?? "anthropic/claude-haiku-4.5"
+    }
+
     /// Provider routing hints for the chat call. The `google-vertex` pin +
     /// `google-ai-studio` ignore exist solely to dodge Google's shared free-tier
     /// 429s (see the routing note in `send`); they only apply to Google models.
@@ -83,8 +96,8 @@ final class LLMProxyClient: ObservableObject {
     /// constrain routing — Claude is also served via Vertex on OpenRouter, so
     /// pinning the order there would silence Anthropic's own infra — so we send
     /// no order/ignore and let OpenRouter pick the best provider.
-    private var providerPreference: ProviderPreference {
-        guard model.hasPrefix("google/") else {
+    private func providerPreference(for primaryModel: String) -> ProviderPreference {
+        guard primaryModel.hasPrefix("google/") else {
             return ProviderPreference(order: nil, ignore: nil, allow_fallbacks: true)
         }
         return ProviderPreference(order: ["google-vertex"], ignore: ["google-ai-studio"], allow_fallbacks: true)
@@ -145,16 +158,33 @@ final class LLMProxyClient: ObservableObject {
     /// user/assistant history. Used by single-session chat (step 3). The
     /// transcript + recap live in `system`; `history` is just the dialogue.
     func chat(system: String, history: [ChatTurn], temperature: Double? = nil) async throws -> String {
-        Log.llm.info("→ multi-turn chat via proxy model=\(model) system.len=\(system.count) turns=\(history.count)")
+        Log.llm.info("→ multi-turn chat via proxy model=\(chatModel) system.len=\(system.count) turns=\(history.count)")
         var messages: [ChatRequest.Message] = [.init(role: "system", content: system)]
         messages += history.map { .init(role: $0.role.rawValue, content: $0.content) }
-        return try await send(messages: messages, jsonMode: false, temperature: temperature)
+        return try await send(messages: messages, jsonMode: false, temperature: temperature, primaryModel: chatModel, cachePrompt: true)
     }
 
     /// Shared transport for every chat call. Applies the same provider
     /// routing + model fallback chain used across the app (see the strategy
     /// note below) and decodes the assistant message.
-    private func send(messages: [ChatRequest.Message], jsonMode: Bool, temperature: Double? = nil) async throws -> String {
+    private func send(
+        messages: [ChatRequest.Message],
+        jsonMode: Bool,
+        temperature: Double? = nil,
+        primaryModel: String? = nil,
+        cachePrompt: Bool = false
+    ) async throws -> String {
+        // `primaryModel` overrides the default for a specific call purpose (the
+        // Q&A chat runs on the cheaper `chatModel`); summary/recap generation
+        // passes nil and stays on `model`. The retry chain is the primary
+        // followed by the other two configured models, deduped and order-
+        // preserving — so a chat that leads with Haiku still escalates to Sonnet
+        // on failure, while a summary call keeps its original [model, fallback].
+        let primary = primaryModel ?? model
+        var chain: [String] = []
+        for m in [primary, model, fallbackModel] where !chain.contains(m) {
+            chain.append(m)
+        }
         // Routing strategy:
         //
         // `provider.order = ["google-vertex"]` + `ignore = ["google-ai-studio"]`
@@ -166,18 +196,20 @@ final class LLMProxyClient: ObservableObject {
         // for the same free bucket. For non-Google primary models these hints
         // are no-ops; OpenRouter ignores irrelevant entries.
         //
-        // `models = [primary, fallback]` is the model-level retry chain. If
+        // `models = chain` (primary, then the other configured models, deduped)
+        // is the model-level retry chain. If
         // the primary fails for ANY reason (provider outage, 429 on every
         // route, content policy block), OpenRouter retries with the fallback
         // automatically — same response shape, transparent to the client.
         let payload = ChatRequest(
-            model: model,
-            models: [model, fallbackModel],
+            model: primary,
+            models: chain,
             messages: messages,
-            provider: providerPreference,
+            provider: providerPreference(for: primary),
             response_format: jsonMode ? ResponseFormat(type: "json_object") : nil,
             temperature: temperature,
-            stream: nil
+            stream: nil,
+            cache_prompt: cachePrompt ? true : nil
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
 
@@ -242,10 +274,11 @@ final class LLMProxyClient: ObservableObject {
                             .init(role: "system", content: system),
                             .init(role: "user", content: user)
                         ],
-                        provider: providerPreference,
+                        provider: providerPreference(for: model),
                         response_format: jsonMode ? ResponseFormat(type: "json_object") : nil,
                         temperature: nil,
-                        stream: true
+                        stream: true,
+                        cache_prompt: nil
                     )
                     let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
                     let request = try await makeProxyRequest(body: body)
@@ -865,6 +898,14 @@ private struct ChatRequest: Encodable {
     let response_format: ResponseFormat?
     let temperature: Double?
     let stream: Bool?
+    /// Opt-in prompt caching. Set only for the multi-turn Q&A chat, which
+    /// re-sends the same transcript/recap system prefix on every turn — so
+    /// caching it pays off (turn 1 writes, later turns read). Left nil for
+    /// single-shot generation (summary/title/recap/entities), where a marked
+    /// prefix would be a cache write that's never read, i.e. a net surcharge.
+    /// The proxy reads this flag, applies the provider cache_control marker,
+    /// and strips the field before forwarding upstream. nil is omitted from JSON.
+    let cache_prompt: Bool?
 }
 
 private struct ResponseFormat: Encodable {
