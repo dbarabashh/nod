@@ -176,7 +176,6 @@ DIST_DIR="dist"
 ARCHIVE_PATH="${DIST_DIR}/Nod-${VERSION}.xcarchive"
 EXPORT_DIR="${DIST_DIR}/export"
 APP_PATH="${EXPORT_DIR}/Nod.app"
-DMG_STAGE="${DIST_DIR}/dmg-stage"
 DMG_PATH="${DIST_DIR}/Nod-${VERSION}.dmg"
 LATEST_DMG_PATH="${DIST_DIR}/Nod-latest.dmg"
 APPCAST_PATH="${DIST_DIR}/appcast.xml"
@@ -187,7 +186,7 @@ APPCAST_PATH="${DIST_DIR}/appcast.xml"
 APPCAST_BASE_URL="https://hellonod.app/dmg"
 
 mkdir -p "${DIST_DIR}"
-rm -rf "${ARCHIVE_PATH}" "${EXPORT_DIR}" "${DMG_STAGE}" "${DMG_PATH}" "${LATEST_DMG_PATH}"
+rm -rf "${ARCHIVE_PATH}" "${EXPORT_DIR}" "${DMG_PATH}" "${LATEST_DMG_PATH}"
 
 # ───────────────────────── stamp version ─────────────────────────
 
@@ -241,17 +240,8 @@ xcodebuild \
 
 # ───────────────────────── DMG ─────────────────────────
 
-say "Build DMG"
-mkdir -p "${DMG_STAGE}"
-cp -R "${APP_PATH}" "${DMG_STAGE}/"
-ln -s /Applications "${DMG_STAGE}/Applications"
-
-hdiutil create \
-  -volname "Nod" \
-  -srcfolder "${DMG_STAGE}" \
-  -ov \
-  -format UDZO \
-  "${DMG_PATH}" >/dev/null
+say "Build DMG (styled: sky background, drag-to-Applications layout)"
+run "./scripts/make-dmg.sh '${APP_PATH}' '${DMG_PATH}'"
 
 say "Sign DMG"
 codesign --sign "${SIGN_IDENTITY}" --timestamp "${DMG_PATH}"
