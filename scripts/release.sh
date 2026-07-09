@@ -301,9 +301,12 @@ if [ "$NO_PUBLISH" = 1 ]; then
 fi
 
 say "Commit version bump"
+# Stamp both files (Info.plist + project.yml, kept in lockstep above) into ONE
+# commit and push it. Committing only Info.plist used to leave project.yml's bump
+# staged-but-uncommitted forever, tripping the next run's clean-tree check.
 git add Nod/Info.plist project.yml 2>/dev/null || true
-if [ -n "$(git status --porcelain Nod/Info.plist)" ]; then
-  git commit -m "release ${VERSION}" -- Nod/Info.plist
+if [ -n "$(git status --porcelain Nod/Info.plist project.yml)" ]; then
+  git commit -m "release ${VERSION}" -- Nod/Info.plist project.yml
 fi
 
 say "Tag v${VERSION}"
