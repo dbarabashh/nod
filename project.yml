@@ -59,6 +59,7 @@ targets:
         SUPublicEDKey: "/uu8USNElUMN+Bbw/SPdJywlJq2XfEVI/Rf+W7XzFBw="
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 86400
+        SUAutomaticallyUpdate: true
     settings:
       base:
         ENABLE_HARDENED_RUNTIME: YES
