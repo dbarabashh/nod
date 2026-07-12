@@ -20,7 +20,7 @@ struct InlineConfirmButtons: View {
                     .frame(width: 18, height: 18)
                     .background(Circle().fill(Theme.Palette.danger))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable(scale: 0.90))
             .help(confirmHelp)
             Button(action: onCancel) {
                 Image(systemName: "xmark")
@@ -30,7 +30,7 @@ struct InlineConfirmButtons: View {
                     .background(Circle().fill(Theme.Palette.surface))
                     .overlay(Circle().stroke(Theme.Palette.border, lineWidth: 0.5))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable(scale: 0.90))
             .help(cancelHelp)
         }
     }

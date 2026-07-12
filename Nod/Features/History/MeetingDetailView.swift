@@ -11,6 +11,7 @@ struct MeetingDetailView: View {
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var actionItemStore: ActionItemStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var editableTitle: String = ""
     @State private var editableSummary: String = ""
@@ -386,7 +387,7 @@ struct MeetingDetailView: View {
 
     private func tabButton(_ tab: Tab, label: String) -> some View {
         Button {
-            withAnimation(.easeOut(duration: 0.15)) { selectedTab = tab }
+            withAnimation(.standard(reduceMotion: reduceMotion)) { selectedTab = tab }
         } label: {
             VStack(spacing: 6) {
                 Text(label)

@@ -269,6 +269,6 @@ struct MiniAction: View {
                     .fill(Color.white.opacity(0.1))
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
     }
 }

@@ -13,6 +13,7 @@ struct ActionItemsAggregateView: View {
 
     @EnvironmentObject private var actionItemStore: ActionItemStore
     @EnvironmentObject private var entitlements: EntitlementService
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var items: [ActionItem] = []
     /// Cached cross-meeting duplicate flags (id → strongest match id) over the
@@ -74,10 +75,10 @@ struct ActionItemsAggregateView: View {
             if let undoItem {
                 undoToast(undoItem)
                     .padding(.bottom, 16)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(.edgeSlide(.bottom, reduceMotion: reduceMotion))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: undoItem?.id)
+        .animation(.momentum(reduceMotion: reduceMotion), value: undoItem?.id)
         .task(id: meetingScopeKey) {
             guard canUseActionItems else { return }
             await load()
@@ -188,7 +189,7 @@ struct ActionItemsAggregateView: View {
             ForEach(Filter.allCases) { f in
                 let selected = filter == f
                 Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { filter = f }
+                    withAnimation(.standard(reduceMotion: reduceMotion)) { filter = f }
                 } label: {
                     Text(f.rawValue)
                         .font(.system(size: 11.5, weight: .medium))
@@ -514,7 +515,7 @@ struct ActionItemsAggregateView: View {
                 .multilineTextAlignment(.center)
             if filter != .all, !relevantItems.isEmpty {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { filter = .all }
+                    withAnimation(.standard(reduceMotion: reduceMotion)) { filter = .all }
                 } label: {
                     Text("Show all")
                         .font(.system(size: 12.5, weight: .semibold))
@@ -710,7 +711,7 @@ struct ActionItemsAggregateView: View {
         inFlight.insert(item.id)
         defer { inFlight.remove(item.id) }
         let previous = items[idx]
-        withAnimation(.easeInOut(duration: 0.18)) {
+        withAnimation(.standard(reduceMotion: reduceMotion)) {
             items[idx] = previous.marked(done: target, at: Date())
         }
         // Checking off under Open makes the row disappear — offer a quick Undo
@@ -737,7 +738,7 @@ struct ActionItemsAggregateView: View {
         Task {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             if undoToken == token, undoItem?.id == item.id {
-                withAnimation(.easeInOut(duration: 0.2)) { undoItem = nil }
+                withAnimation(.momentum(reduceMotion: reduceMotion)) { undoItem = nil }
             }
         }
     }
@@ -748,7 +749,7 @@ struct ActionItemsAggregateView: View {
     }
 
     private func dismissUndo() {
-        withAnimation(.easeInOut(duration: 0.2)) { clearUndo() }
+        withAnimation(.momentum(reduceMotion: reduceMotion)) { clearUndo() }
     }
 
     private func undo(_ item: ActionItem) async {
@@ -757,7 +758,7 @@ struct ActionItemsAggregateView: View {
         inFlight.insert(item.id)
         defer { inFlight.remove(item.id) }
         if let idx = items.firstIndex(where: { $0.id == item.id }) {
-            withAnimation(.easeInOut(duration: 0.18)) {
+            withAnimation(.standard(reduceMotion: reduceMotion)) {
                 items[idx] = items[idx].marked(done: false, at: nil)
             }
         }
@@ -776,7 +777,7 @@ struct ActionItemsAggregateView: View {
         inFlight.insert(item.id)
         defer { inFlight.remove(item.id) }
         let snapshot = items
-        withAnimation(.easeInOut(duration: 0.18)) {
+        withAnimation(.standard(reduceMotion: reduceMotion)) {
             items.removeAll { $0.id == item.id }
         }
         do {
