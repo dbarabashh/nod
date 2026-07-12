@@ -342,6 +342,7 @@ struct PaywallView: View {
 private struct BillingCycleToggle: View {
     @Binding var cycle: String
     @Namespace private var pill
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let options: [(id: String, label: String)] = [
         ("yearly", "Yearly"),
@@ -374,7 +375,7 @@ private struct BillingCycleToggle: View {
                 .contentShape(Rectangle())
                 .onTapGesture {
                     guard cycle != option.id else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) { cycle = option.id }
+                    withAnimation(.standard(reduceMotion: reduceMotion)) { cycle = option.id }
                 }
             }
         }

@@ -19,6 +19,7 @@ struct HistoryView: View {
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var chatStore: ChatStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// (done, total) while a backfill re-index is running; nil when idle.
     @State private var reindexProgress: ReindexProgress?
@@ -216,11 +217,14 @@ struct HistoryView: View {
                     onDismiss: { meetingStore.dismissUndo() }
                 )
                 .padding(.bottom, 18)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(.edgeSlide(.bottom, reduceMotion: reduceMotion))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: path.last?.id)
-        .animation(.easeInOut(duration: 0.2), value: section)
+        .animation(.standard(reduceMotion: reduceMotion), value: path.last?.id)
+        .animation(.standard(reduceMotion: reduceMotion), value: section)
+        // The undo toast rises from the bottom edge — give it a momentum spring
+        // so entry and exit both read as arriving/leaving, not fading in place.
+        .animation(.momentum(reduceMotion: reduceMotion), value: meetingStore.pendingUndo?.id)
     }
 
     // MARK: - Left rail (top-level sections)
@@ -265,7 +269,7 @@ struct HistoryView: View {
         let selected = section == target
         return Button {
             guard section != target else { return }
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(.standard(reduceMotion: reduceMotion)) {
                 section = target
                 // Action Items has no detail stack of its own — drop any open
                 // meeting so the switch lands on the checklist, not a stale row.

@@ -9,6 +9,7 @@ struct ActionItemsView: View {
 
     @EnvironmentObject private var actionItemStore: ActionItemStore
     @EnvironmentObject private var entitlements: EntitlementService
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var items: [ActionItem] = []
     /// Items whose toggle is mid-flight — disables the row so a double-tap
@@ -147,7 +148,7 @@ struct ActionItemsView: View {
         inFlight.insert(item.id)
         defer { inFlight.remove(item.id) }
         let snapshot = items
-        withAnimation(.easeInOut(duration: 0.18)) {
+        withAnimation(.standard(reduceMotion: reduceMotion)) {
             items.removeAll { $0.id == item.id }
         }
         do {

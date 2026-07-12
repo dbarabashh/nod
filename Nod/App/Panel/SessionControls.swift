@@ -8,6 +8,11 @@ import SwiftUI
 /// and whether the meeting-only mode control appears in the header.
 struct SessionKindPicker: View {
     @Binding var selection: SessionKind
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Ties the single selection pill to whichever segment is active, so it
+    /// slides between them on a `.standard` spring instead of one plate fading
+    /// out while another fades in — the native segmented-control feel.
+    @Namespace private var selectionIndicator
 
     var body: some View {
         HStack(spacing: 4) {
@@ -28,7 +33,7 @@ struct SessionKindPicker: View {
     private func segment(_ kind: SessionKind) -> some View {
         let isSelected = selection == kind
         return Button {
-            withAnimation(.easeOut(duration: 0.14)) { selection = kind }
+            withAnimation(.standard(reduceMotion: reduceMotion)) { selection = kind }
         } label: {
             VStack(spacing: 3) {
                 Image(systemName: kind.icon)
@@ -40,13 +45,22 @@ struct SessionKindPicker: View {
             }
             .foregroundColor(isSelected ? .white : .white.opacity(0.72))
             .frame(maxWidth: .infinity, minHeight: 34)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.10) : .clear)
-            )
+            .background {
+                if isSelected {
+                    let pill = Capsule(style: .continuous).fill(Color.white.opacity(0.10))
+                    // Reduce Motion: skip the matched-geometry slide (a translation
+                    // is the vestibular motion the setting opts out of) and just
+                    // fill the active segment in place.
+                    if reduceMotion {
+                        pill
+                    } else {
+                        pill.matchedGeometryEffect(id: "selection", in: selectionIndicator)
+                    }
+                }
+            }
             .contentShape(Capsule(style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .help(helpText(kind))
     }
 
@@ -72,9 +86,6 @@ struct StartMeetingButton: View {
     var title: String = "Start meeting"
     var icon: String = "mic.fill"
     let action: () -> Void
-    @State private var hovered = false
-    @State private var pressed = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -91,19 +102,10 @@ struct StartMeetingButton: View {
             .padding(.vertical, 9)
             .frame(maxWidth: .infinity, minHeight: 38)
             .glassButtonSurface(Capsule(style: .continuous))
-            .scaleEffect(pressed ? 0.985 : 1.0)
-            .animation(.easeOut(duration: 0.10), value: pressed)
-            .animation(.hoverReveal(reduceMotion: reduceMotion), value: hovered)
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .linkCursor()
-        .onHover { hovered = $0 }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in pressed = true }
-                .onEnded { _ in pressed = false }
-        )
     }
 }
 
@@ -246,7 +248,7 @@ struct HeroButton: View {
             .glassButtonSurface(Capsule(style: .continuous))
             .opacity(enabled ? 1.0 : 0.55)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .disabled(!enabled || isGenerating)
     }
 }
@@ -312,7 +314,7 @@ struct SuggestionPill: View {
             )
             .opacity(enabled ? 1.0 : 0.55)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .disabled(!enabled || isGenerating)
     }
 }
