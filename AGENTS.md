@@ -7,7 +7,7 @@ in sync unless a rule is explicitly tool-specific.
 
 ## Project
 
-Nod — a macOS SwiftUI app that records meetings, transcribes via Whisper (per-chunk, streaming), and produces summaries via an LLM. Launches as an accessory (`LSUIElement = YES`, no Dock icon); the only UI is a floating non-activating panel anchored to the left of the screen.
+Nod — a macOS SwiftUI app that records meetings, transcribes via Whisper (per-chunk, streaming), and produces summaries via an LLM. Launches as an accessory (`LSUIElement = YES`), then switches `NSApp.setActivationPolicy(.regular)` at runtime (`WindowCoordinator`) to show a Dock icon and a normal window when one is visible or while sharing the panel; it drops back to `.accessory` otherwise. The primary UI is a floating non-activating panel anchored to the left of the screen.
 
 ## Build, run, and regenerate
 
