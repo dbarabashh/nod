@@ -21,6 +21,7 @@ struct ContentView: View {
     @EnvironmentObject private var updateGate: UpdateGate
     @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var hotkey: HotkeyManager
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Reports the panel's desired width as the layout switches between the
     /// compact single-column state and the wide two-column state. The
@@ -129,7 +130,7 @@ struct ContentView: View {
                 ConsentDisclaimerView(
                     strings: .english,
                     onCancel: {
-                        withAnimation(.easeOut(duration: 0.15)) {
+                        withAnimation(.standard(reduceMotion: reduceMotion)) {
                             showConsentDisclaimer = false
                         }
                     },
@@ -137,7 +138,7 @@ struct ContentView: View {
                         // Always log the legal acknowledgement; "Don't show
                         // again" only controls the local UX gate.
                         consent.acknowledge(persistGate: dontShowAgain)
-                        withAnimation(.easeOut(duration: 0.15)) {
+                        withAnimation(.standard(reduceMotion: reduceMotion)) {
                             showConsentDisclaimer = false
                         }
                         beginRecording()
@@ -175,10 +176,10 @@ struct ContentView: View {
                     .padding(.bottom, 8)
                 }
                 .zIndex(2)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(.edgeSlide(.bottom, reduceMotion: reduceMotion))
             }
         }
-        .animation(.easeOut(duration: 0.18), value: session.autoEndPrompt != nil)
+        .animation(.momentum(reduceMotion: reduceMotion), value: session.autoEndPrompt != nil)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear { onPreferredWidthChange?(contentWidth) }
         .onChange(of: isWide) { _ in onPreferredWidthChange?(contentWidth) }
@@ -227,7 +228,7 @@ struct ContentView: View {
                 elapsed: elapsedString,
                 language: language.current,
                 onExpand: {
-                    withAnimation(.easeOut(duration: 0.18)) { expanded = true }
+                    withAnimation(.standard(reduceMotion: reduceMotion)) { expanded = true }
                 },
                 onRecordToggle: session.toggleRecording,
                 onEnd: session.endMeeting
@@ -251,7 +252,7 @@ struct ContentView: View {
                 language: language.current,
                 onLanguageSelect: { language.current = $0 },
                 onCollapse: session.meeting != .idle ? {
-                    withAnimation(.easeOut(duration: 0.18)) { expanded = false }
+                    withAnimation(.standard(reduceMotion: reduceMotion)) { expanded = false }
                 } : nil
             )
 
@@ -373,7 +374,7 @@ struct ContentView: View {
         // Animate the card's appearance/disappearance, not every streamed delta —
         // keying the animation on `response` would re-run it on each token and
         // jitter the growing text.
-        .animation(.easeOut(duration: 0.18), value: responseCardVisible)
+        .animation(.standard(reduceMotion: reduceMotion), value: responseCardVisible)
     }
 
     /// The card to show for the current response, if any — a finished answer or
@@ -399,7 +400,7 @@ struct ContentView: View {
     // MARK: - Actions
 
     private func setLanguagePrompt(_ shown: Bool) {
-        withAnimation(.easeOut(duration: 0.15)) { showLanguagePrompt = shown }
+        withAnimation(.standard(reduceMotion: reduceMotion)) { showLanguagePrompt = shown }
     }
 
     private func startMeeting() {
@@ -419,7 +420,7 @@ struct ContentView: View {
             // Consent gate: show the disclaimer modal before any audio capture
             // on the user's first meeting. See issue #4.
             if !consent.isAccepted {
-                withAnimation(.easeOut(duration: 0.15)) {
+                withAnimation(.standard(reduceMotion: reduceMotion)) {
                     showConsentDisclaimer = true
                 }
                 return

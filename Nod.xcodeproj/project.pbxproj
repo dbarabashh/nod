@@ -88,6 +88,7 @@
 		9B91E373BB3B5EF5BA645146 /* SessionControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B2A641B99F14EED7AFA428B /* SessionControls.swift */; };
 		9CFCCA6F5F4A1818DFB5B168 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5843BDF8F169465AB74CBA4 /* AudioCaptureService.swift */; };
 		9F915E9A2E10F1BB40BBB72E /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23E03CADCF79FA17C6D05E59 /* OnboardingView.swift */; };
+		9FE502DC71F78A2033F2B831 /* PressableButtonStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFE449B6DC41C5B2B99EF3E /* PressableButtonStyle.swift */; };
 		A0E0B7D4D54E3522140CE8AA /* EntityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D50620ECD4BD55BEE26B1AE /* EntityStore.swift */; };
 		A367B0ED6D570C649D8F9934 /* AccountDataSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB57FD35637E9224FA7C9DE1 /* AccountDataSection.swift */; };
 		A5CB68ED67ABD67E8E115646 /* StatusRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FBD041EB6A785A14202E1A8 /* StatusRow.swift */; };
@@ -191,6 +192,7 @@
 		55317D97A7031E9542B5E531 /* TranscriptRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptRecord.swift; sourceTree = "<group>"; };
 		5827D9550C00025CB7F67975 /* PanelMaterial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelMaterial.swift; sourceTree = "<group>"; };
 		5A6B0DBE04D9DFBA1BC41959 /* ActionItemDedup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemDedup.swift; sourceTree = "<group>"; };
+		5AFE449B6DC41C5B2B99EF3E /* PressableButtonStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PressableButtonStyle.swift; sourceTree = "<group>"; };
 		5B5A4CF334DEA263E622B3EA /* SherpaVAD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SherpaVAD.swift; sourceTree = "<group>"; };
 		5D1EA704F3EC693942C44ADE /* NodTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NodTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5FA4547D79F1897EEBF224C0 /* ProfileStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStep.swift; sourceTree = "<group>"; };
@@ -614,6 +616,7 @@
 				8B1D47F66DD22DC2CF18750D /* InlineConfirmButtons.swift */,
 				19A9758C570690CC4B71C91F /* LabelComponents.swift */,
 				5827D9550C00025CB7F67975 /* PanelMaterial.swift */,
+				5AFE449B6DC41C5B2B99EF3E /* PressableButtonStyle.swift */,
 				A044822BEC995050BDB79920 /* ResponseCard.swift */,
 				B8E532D092AC652ED8FE19B2 /* ViewWidthReader.swift */,
 				C1EFEC847FBE3EA10AC2575F /* WindowBackdrop.swift */,
@@ -916,6 +919,7 @@
 				8D3BD09232A2E9BCCCADEFA5 /* PermissionManager.swift in Sources */,
 				CB22421ABBB8513D756EB51F /* PermissionRow.swift in Sources */,
 				69DEB6C11FC9D632E7EDDC07 /* PermissionsStep.swift in Sources */,
+				9FE502DC71F78A2033F2B831 /* PressableButtonStyle.swift in Sources */,
 				F11CA427737C576C21281551 /* Profile.swift in Sources */,
 				589DB6DC2174129AE95B6105 /* ProfileSettingsSection.swift in Sources */,
 				08E4B4DEE68DC6695EA01278 /* ProfileStep.swift in Sources */,

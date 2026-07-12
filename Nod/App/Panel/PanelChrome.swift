@@ -61,7 +61,7 @@ struct PanelIconButton: View {
                 .frame(width: 22, height: 22)
                 .background(Circle().fill(fill))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable(scale: 0.90))
         .help(help)
     }
 }

@@ -9,6 +9,42 @@ extension Animation {
             ? .easeInOut(duration: 0.12)
             : .spring(response: 0.34, dampingFraction: 0.68)
     }
+
+    /// Default spring for UI state changes — a selection moving, a control
+    /// swapping, a value settling. Critically damped (no overshoot) so it reads
+    /// as quick and calm, per Apple's fluid-interface guidance (response ~0.35,
+    /// damping 1.0). Prefer this over ad-hoc `.easeInOut`/`.easeOut` durations:
+    /// a spring animates from the presentation value, so it stays smooth when
+    /// interrupted or re-targeted mid-flight. Reduce Motion → short crossfade.
+    static func standard(reduceMotion: Bool) -> Animation {
+        reduceMotion
+            ? .easeInOut(duration: 0.12)
+            : .spring(response: 0.35, dampingFraction: 1.0)
+    }
+
+    /// Spring for motion that carried momentum into the animation — a sheet that
+    /// flies in, a card the user flicked, anything with a sense of arrival. A
+    /// little under-damped so it overshoots and settles (damping ~0.8). Use only
+    /// when the gesture itself was physical; on a plain fade/appear it feels
+    /// wrong. Reduce Motion drops the bounce for a short crossfade.
+    static func momentum(reduceMotion: Bool) -> Animation {
+        reduceMotion
+            ? .easeInOut(duration: 0.12)
+            : .spring(response: 0.32, dampingFraction: 0.8)
+    }
+}
+
+extension AnyTransition {
+    /// Slide in/out from an edge (paired with a fade), but collapse to a plain
+    /// crossfade under Reduce Motion. The `.standard`/`.momentum` springs only
+    /// change an animation's *curve* — they can't stop a `.move` transition from
+    /// translating, which is the exact vestibular motion Reduce Motion opts out
+    /// of. Use this at every `.move(edge:)` call site so the opt-out is real.
+    static func edgeSlide(_ edge: Edge, reduceMotion: Bool) -> AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .move(edge: edge).combined(with: .opacity)
+    }
 }
 
 extension View {

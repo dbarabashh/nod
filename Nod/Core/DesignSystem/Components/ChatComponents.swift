@@ -245,6 +245,7 @@ struct ThinkingIndicator: View {
     }
 
     @State private var displayed = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 8) {
@@ -260,7 +261,7 @@ struct ThinkingIndicator: View {
                     ))
             }
             .frame(height: 16, alignment: .leading)
-            .animation(.easeInOut(duration: 0.3), value: displayed)
+            .animation(.standard(reduceMotion: reduceMotion), value: displayed)
             Spacer(minLength: 0)
         }
         .onAppear { if displayed.isEmpty { displayed = phrases[0] } }
