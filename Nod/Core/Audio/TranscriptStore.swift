@@ -50,6 +50,9 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     private let mic: WhisperTranscriber
     private let system: WhisperTranscriber
 
+    /// Reconnect trigger for the transcribers' retry queues (NOD-29).
+    private let pathMonitor = NetworkPathMonitor()
+
     init(client: LLMProxyClient) {
         mic = WhisperTranscriber(source: .me, client: client)
         system = WhisperTranscriber(source: .them, client: client)
@@ -66,6 +69,11 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         system.onFailure = { [weak self] message, source in
             self?.handleFailure(message: message, source: source)
         }
+        pathMonitor.onChange = { [weak self] satisfied in
+            guard satisfied, let self else { return }
+            mic.drainRetryQueue()
+            system.drainRetryQueue()
+        }
     }
 
     func start() async {
@@ -77,6 +85,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             self.lastSpeechAt = nil
             self.lastError = nil
         }
+        pathMonitor.start()
         await mic.start()
         await system.start()
     }
@@ -85,6 +94,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         Log.stt.info("TranscriptStore.stop() — finalized entries=\(entries.count)")
         mic.stop()
         system.stop()
+        pathMonitor.cancel()
     }
 
     func clear() {
@@ -220,9 +230,76 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             return
         }
 
-        entries.append(TranscriptEntry(source: source, text: text, timestamp: timestamp))
-        lastSource = source
+        insertOrdered(TranscriptEntry(source: source, text: text, timestamp: timestamp))
     }
+
+    /// Insert `entry` keeping `entries` in timestamp order — so a segment
+    /// recovered late (a retried upload landing after later segments already
+    /// arrived) slots into its real chronological place instead of the tail.
+    ///
+    /// The clamp is the safety-critical part. `MeetingSession` streams the
+    /// leading run of entries older than its settle window and keys each server
+    /// row by *positional* `idx` (the upsert key `meeting_id,idx`); repositioning
+    /// an already-streamed entry would corrupt that key with no self-heal. So we
+    /// never insert ahead of an entry older than `reorderHorizon`, which is kept
+    /// strictly below that settle window — guaranteeing a reordered entry is
+    /// always newer than every streamed one and the streamed prefix stays fixed.
+    /// A segment recovered so late it predates the horizon is clamped to just
+    /// after the frontier: mildly out of place, never corrupting.
+    private func insertOrdered(_ entry: TranscriptEntry) {
+        let idx = Self.orderedInsertionIndex(
+            count: entries.count,
+            timestampAt: { entries[$0].timestamp },
+            inserting: entry.timestamp,
+            now: Date(),
+            horizon: Self.reorderHorizon
+        )
+        entries.insert(entry, at: idx)
+        // Only the newest entry drives the current-speaker bubble; a late insert
+        // in the middle must not claim it.
+        if idx == entries.count - 1 {
+            lastSource = entry.source
+        }
+    }
+
+    /// The index at which to insert an entry timestamped `inserting` so `entries`
+    /// stays timestamp-ordered, clamped so it never lands before an entry older
+    /// than `horizon` (already streamed under a positional `idx` — see
+    /// `insertOrdered`). Reads timestamps through `timestampAt` to avoid
+    /// allocating a throwaway array on the per-utterance path; pure and total so
+    /// the safety-critical clamp is unit tested directly.
+    ///
+    /// Input is near-ascending, not strictly: a clamped deep-recovery insert can
+    /// leave one entry mildly out of order in the recent tail. The clamp stays
+    /// correct regardless — `lower` counts through the streamed prefix, which is
+    /// always strictly sorted (nothing reorders or replaces it: dedup only touches
+    /// entries inside its 8s window, i.e. newer than the horizon).
+    static func orderedInsertionIndex(
+        count: Int,
+        timestampAt: (Int) -> Date,
+        inserting: Date,
+        now: Date,
+        horizon: TimeInterval
+    ) -> Int {
+        let floor = now.addingTimeInterval(-horizon)
+        var lower = 0
+        while lower < count, timestampAt(lower) < floor {
+            lower += 1
+        }
+        var idx = count
+        while idx > lower, timestampAt(idx - 1) > inserting {
+            idx -= 1
+        }
+        return idx
+    }
+
+    /// The age past which an entry is frozen against reordering (see
+    /// `insertOrdered`). `MeetingSession.streamSettleWindow` derives from this
+    /// (plus a margin) rather than being a second hand-tuned constant, so the
+    /// safety-critical `reorderHorizon < streamSettleWindow` invariant — a
+    /// reordered entry must never predate one already streamed under a positional
+    /// `idx` — holds by construction. Non-private for that Feature → Core derive.
+    static let reorderHorizon: TimeInterval = 10
 
     private static let dedupWindowSeconds: TimeInterval = 8
     private static let dedupSimilarityThreshold: Double = 0.7

@@ -124,6 +124,25 @@ final class LLMProxyClient: ObservableObject {
         return URLSession(configuration: config)
     }()
 
+    /// Dedicated session for audio transcription. `waitsForConnectivity` lets the
+    /// OS park a chunk upload while the link is down and fire it the moment
+    /// connectivity returns — so a Wi-Fi drop at the *start* of an upload no
+    /// longer instantly fails and discards the segment (NOD-29). It only covers
+    /// connection *establishment*; a drop mid-upload still throws
+    /// `NSURLErrorNetworkConnectionLost`, which the app-level retry queue in
+    /// `WhisperTranscriber` catches. `timeoutIntervalForResource` bounds the
+    /// wait, so a genuinely long outage still fails (into that queue) rather than
+    /// hanging forever. Kept separate from the chat session, which stays
+    /// fast-fail: interactive chat wants an immediate error + its own fallback,
+    /// not a silent 2-minute wait.
+    private let transcribeSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 70
+        config.timeoutIntervalForResource = 120
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config)
+    }()
+
     init(supabase: SupabaseClient? = nil) {
         self.supabase = supabase
         proxyURL = SupabaseConfig.url.appendingPathComponent("functions/v1/llm-proxy")
@@ -364,7 +383,7 @@ final class LLMProxyClient: ObservableObject {
     /// (provider hiccups), 429 (rate limits — time-bucketed, usually clear
     /// within seconds), and URLError-class transport blips. Excludes 4xx
     /// (other than 429), decoding errors, empty responses, and auth failures.
-    static func isTransient(_ error: ClientError) -> Bool {
+    nonisolated static func isTransient(_ error: ClientError) -> Bool {
         switch error {
         case let .requestFailed(status, _):
             status == 429 || (status >= 500 && status < 600)
@@ -423,7 +442,7 @@ final class LLMProxyClient: ObservableObject {
             "→ transcribe via proxy model=\(whisperModel) audio_bytes=\(audio.count) body_bytes=\(bodyData.count) lang=\(language ?? "auto") prompt=\(promptText != nil)"
         )
 
-        let data = try await postToProxyWithRetry(body: bodyData)
+        let data = try await postToProxyWithRetry(body: bodyData, using: transcribeSession)
         do {
             let decoded = try JSONDecoder().decode(WhisperResponse.self, from: data)
             let text = decoded.text ?? ""
@@ -581,12 +600,12 @@ final class LLMProxyClient: ObservableObject {
     /// errors (5xx, 429, URLError). 429s in particular were dropping ~30% of
     /// Whisper chunks on the OpenRouter free tier, which is what made the
     /// "Suggest reply" answers go stale mid-meeting.
-    private func postToProxyWithRetry(body: Data) async throws -> Data {
+    private func postToProxyWithRetry(body: Data, using session: URLSession? = nil) async throws -> Data {
         let maxAttempts = 3
         var lastError: ClientError = .emptyResponse
         for attempt in 0 ..< maxAttempts {
             do {
-                return try await postToProxy(body: body)
+                return try await postToProxy(body: body, using: session)
             } catch let error as ClientError {
                 lastError = error
                 let isLastAttempt = attempt == maxAttempts - 1
@@ -694,8 +713,9 @@ final class LLMProxyClient: ObservableObject {
         return error == "entitlement_required" || error == "feature_required"
     }
 
-    private func postToProxy(body: Data) async throws -> Data {
+    private func postToProxy(body: Data, using session: URLSession? = nil) async throws -> Data {
         let request = try await makeProxyRequest(body: body)
+        let session = session ?? self.session
 
         let data: Data
         let response: URLResponse
