@@ -27,6 +27,7 @@
 		317AA8A27E1227F2F1F0EB2F /* ChatComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CC55E246DF44FD3DFD4FB6 /* ChatComponents.swift */; };
 		31D7F7F62405BEE0A390C0CF /* KnowledgeChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872EE05908937004E97ECE11 /* KnowledgeChatView.swift */; };
 		40AAE833F865F23809D447EF /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1967765B63B923424FE75825 /* ProfileStore.swift */; };
+		415C4A59BEC26D4A49F97022 /* TranscriptOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC58FA0EB4DF64C449857718 /* TranscriptOrderingTests.swift */; };
 		42E5EF53F1F6A8E9A4C85672 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7240D0FAF24D64F78E681ED6 /* SignInView.swift */; };
 		43FD0B0E18F91EAFA91DEFBE /* ActionItemsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7FAE9369B52205814C7126D /* ActionItemsView.swift */; };
 		44AF2D9FE185C7136381552D /* MeetingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F1EC22DCDC03DC33EBB6EFB /* MeetingStore.swift */; };
@@ -112,6 +113,7 @@
 		DB440E5D9C513F7B9CFA1639 /* ViewWidthReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8E532D092AC652ED8FE19B2 /* ViewWidthReader.swift */; };
 		DD20EB04957BFF40AC3612D9 /* ActionItemStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40A6B4A87AB7FC689037663C /* ActionItemStore.swift */; };
 		DF0AB3D1913288F0888409CF /* MeetingOutboxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0609389426B622B59DFA01 /* MeetingOutboxTests.swift */; };
+		DFE1787A1D0C21DB71D2E310 /* NetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4E7455A7D59F870241AEA12 /* NetworkPathMonitor.swift */; };
 		DFE8989532DB7DC82E6AF32D /* HotkeyRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4025DEA0B69289EAFAD5D65 /* HotkeyRecorder.swift */; };
 		E0DA2A30522BA138C06CB99F /* ModesSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B99C2D73E32BFDDFFD07A1D /* ModesSettingsSection.swift */; };
 		E2485BAAC404E37EFAE5CEA4 /* WelcomeStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46A04894406BDE7F0626C7EF /* WelcomeStep.swift */; };
@@ -250,6 +252,7 @@
 		D451590C6B2056FD38F117E1 /* MeetingRecap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRecap.swift; sourceTree = "<group>"; };
 		D5F2C834CFAF929E08B65E2D /* RewardsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewardsSection.swift; sourceTree = "<group>"; };
 		DB57FD35637E9224FA7C9DE1 /* AccountDataSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDataSection.swift; sourceTree = "<group>"; };
+		DC58FA0EB4DF64C449857718 /* TranscriptOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptOrderingTests.swift; sourceTree = "<group>"; };
 		DD57C019704F863EC8C5B2F0 /* PermissionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionRow.swift; sourceTree = "<group>"; };
 		DE9FD93CE00C0BC2F40FD790 /* TutorialStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialStep.swift; sourceTree = "<group>"; };
 		E0C431767878A03C0AB833CA /* Nod.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Nod.entitlements; sourceTree = "<group>"; };
@@ -264,6 +267,7 @@
 		EE28F6AA9F8A89E081448732 /* Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connection.swift; sourceTree = "<group>"; };
 		F186092CBCFE2453631F2736 /* BillingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillingService.swift; sourceTree = "<group>"; };
 		F4025DEA0B69289EAFAD5D65 /* HotkeyRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyRecorder.swift; sourceTree = "<group>"; };
+		F4E7455A7D59F870241AEA12 /* NetworkPathMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkPathMonitor.swift; sourceTree = "<group>"; };
 		F704C7A39EDEA75CC33ED560 /* HallucinationFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HallucinationFilterTests.swift; sourceTree = "<group>"; };
 		F83E199DCAF5296B0D76878F /* Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profile.swift; sourceTree = "<group>"; };
 		FA8913CBB534D73BFB85E27C /* PanelSharingPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelSharingPreference.swift; sourceTree = "<group>"; };
@@ -506,6 +510,7 @@
 				C32126A24121EF0B3983AAE6 /* MeetingRecapTests.swift */,
 				C71D490D0577937862FE6A22 /* MeetingStoreMergeTests.swift */,
 				FDE407B014D9F046F46ABE56 /* TranscriptDedupTests.swift */,
+				DC58FA0EB4DF64C449857718 /* TranscriptOrderingTests.swift */,
 			);
 			path = NodTests;
 			sourceTree = "<group>";
@@ -560,6 +565,7 @@
 				48922831A1C01B93CEE6C55A /* ConnectionService.swift */,
 				B9C3A4C994928DF1D6A7079B /* DeviceIdentity.swift */,
 				86B747E569AB1981D6B8212A /* EntitlementService.swift */,
+				F4E7455A7D59F870241AEA12 /* NetworkPathMonitor.swift */,
 				527164101A7FDFA378B60467 /* ReferralService.swift */,
 				23DBB5F15412AEE92C6BD019 /* SupabaseConfig.swift */,
 			);
@@ -832,6 +838,7 @@
 				7DF43C62F778F5B09F2FDB7C /* MeetingRecapTests.swift in Sources */,
 				9A41E20961D847438D97AB67 /* MeetingStoreMergeTests.swift in Sources */,
 				FB9079A3E23E04F40C09DA41 /* TranscriptDedupTests.swift in Sources */,
+				415C4A59BEC26D4A49F97022 /* TranscriptOrderingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -898,6 +905,7 @@
 				44AF2D9FE185C7136381552D /* MeetingStore.swift in Sources */,
 				317271ABA4A86736E917ED52 /* ModeStore.swift in Sources */,
 				E0DA2A30522BA138C06CB99F /* ModesSettingsSection.swift in Sources */,
+				DFE1787A1D0C21DB71D2E310 /* NetworkPathMonitor.swift in Sources */,
 				C7B524DC6679D9B4A217462F /* NodApp.swift in Sources */,
 				82ED5BC1553793F6FABF5282 /* OnboardingState.swift in Sources */,
 				72D5A4B3C55A13D533972924 /* OnboardingStrings.swift in Sources */,
