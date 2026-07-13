@@ -69,6 +69,42 @@ final class WhisperTranscriber: @unchecked Sendable {
     // sees all completed segments, in order, before it reads the context.
     private var inFlightFlushes: [UUID: Task<Void, Never>] = [:]
 
+    /// A speech segment whose upload failed on a transient transport error and
+    /// is parked for a later retry (NOD-29). Carries the WAV plus the prompt
+    /// snapshot *as it was at the failed attempt* — replaying with the current,
+    /// since-advanced tail would condition the decode on the wrong point in the
+    /// conversation.
+    private struct PendingSegment {
+        let wav: Data
+        let prompt: String
+        let promptLanguage: String?
+        let timestamp: Date
+    }
+
+    /// Bounded FIFO of segments awaiting a retry. Touched only on `queue`.
+    /// Drained on a network `.satisfied` edge and after any successful upload.
+    /// Bounded like `pendingBuffers`: a long outage past the cap drops the
+    /// *oldest* audio (see `enqueueForRetryLocked`) rather than growing without
+    /// limit. 64 segments ≈ up to ~16 min of speech held in RAM.
+    private var retryQueue: [PendingSegment] = []
+    private static let maxRetryQueue = 64
+    private var droppedRetrySegments = 0
+
+    /// Parked segments in flight right now. Bounds a drain so a reconnect after a
+    /// long outage replays a rolling few segments at a time instead of firing all
+    /// 64 at once — a burst that just trips the proxy's per-worker/429 limits and
+    /// re-parks everything. Each replay tops the window back up as it lands.
+    /// Touched only on `queue`.
+    private var inFlightRetries = 0
+    private static let maxConcurrentRetries = 4
+
+    /// Bumped on every `start()`. A transcription Task captures the generation it
+    /// began under and drops its result if the value has since changed, so a
+    /// slow in-flight upload or a late queue drain can never leak a previous
+    /// meeting's words into the next one. (Also fixes the latent case of a slow
+    /// transcribe straddling an End → new-recording boundary.)
+    private var generation = 0
+
     private struct AudioClockSpan {
         let startSample: Int
         let count: Int
@@ -148,6 +184,7 @@ final class WhisperTranscriber: @unchecked Sendable {
     func start() async {
         Log.stt.info("[\(source.label)] Whisper start() — Silero VAD (sherpa)")
         queue.async {
+            self.generation &+= 1
             self.keepRecognizing = true
             // Reset Silero state for a fresh stream (also drops any queued segments).
             self.vad?.reset()
@@ -155,18 +192,40 @@ final class WhisperTranscriber: @unchecked Sendable {
             self.audioClockSpans.removeAll(keepingCapacity: false)
             self.promptTail = ""
             self.promptLanguage = nil
+            if !self.retryQueue.isEmpty {
+                Log.stt.error("[\(self.source.label)] discarding \(self.retryQueue.count) undelivered segment(s) from a previous session")
+                self.retryQueue.removeAll(keepingCapacity: false)
+            }
+            self.droppedRetrySegments = 0
+            // A retry Task from the previous session is generation-gated out
+            // without decrementing, so reset the window to avoid drift.
+            self.inFlightRetries = 0
         }
     }
 
     func stop() {
         queue.async {
-            self.keepRecognizing = false
             // Force out the in-progress utterance so the last words of a meeting
-            // aren't dropped, then drain everything pending.
+            // aren't dropped, then drain everything pending — both the VAD's
+            // finished segments and any parked retries (the link may well be back
+            // by End). keepRecognizing is cleared last so this final drain runs.
             self.vad?.flush()
             self.drainSegments(reason: "stop")
+            self.resendQueuedLocked(reason: "stop")
+            self.keepRecognizing = false
         }
         Log.stt.info("[\(source.label)] Whisper stopped")
+    }
+
+    /// Retry every parked segment now that connectivity is back. Called by
+    /// `TranscriptStore` on a network `.satisfied` edge. A no-op unless a
+    /// recording is active, so a reconnect between meetings can't replay stale
+    /// audio into a finished one.
+    func drainRetryQueue() {
+        queue.async {
+            guard self.keepRecognizing else { return }
+            self.resendQueuedLocked(reason: "reconnect")
+        }
     }
 
     /// `copying: false` is for callers that hand over a freshly allocated
@@ -239,11 +298,43 @@ final class WhisperTranscriber: @unchecked Sendable {
         let inFlight: [Task<Void, Never>] = await withCheckedContinuation { cont in
             queue.async { cont.resume(returning: Array(self.inFlightFlushes.values)) }
         }
-        for task in inFlight {
-            await task.value
+        if !inFlight.isEmpty {
+            // Bound the wait. With Layer 1 (`waitsForConnectivity`) a chunk upload
+            // can sit in-flight for the whole resource timeout during an outage,
+            // and the callers here are interactive (Suggest reply, live Ask) — they
+            // must not block on it. Race the in-flight drain against a deadline and
+            // take whichever lands first; a still-parked send finishes and emits in
+            // the background. Awaiting a non-throwing Task ignores cancellation, so
+            // the loser is abandoned rather than structurally awaited.
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                @Sendable func finishOnce() {
+                    let firstToFinish = resumed.withLock { done -> Bool in
+                        if done { return false }
+                        done = true
+                        return true
+                    }
+                    if firstToFinish { cont.resume() }
+                }
+                Task {
+                    for task in inFlight {
+                        await task.value
+                    }
+                    finishOnce()
+                }
+                Task {
+                    try? await Task.sleep(nanoseconds: Self.flushDeadlineNanos)
+                    finishOnce()
+                }
+            }
         }
         await MainActor.run {}
     }
+
+    /// How long `flushPending` waits for in-flight uploads before proceeding with
+    /// whatever has landed. Comfortably covers a normal online transcribe (~1–3s)
+    /// while capping the offline hang the connectivity-wait would otherwise cause.
+    private static let flushDeadlineNanos: UInt64 = 5_000_000_000
 
     // MARK: - Segment draining
 
@@ -259,7 +350,10 @@ final class WhisperTranscriber: @unchecked Sendable {
             sendToWhisper(
                 wav: wav,
                 reason: reason,
-                timestamp: timestamp(forSampleIndex: segment.start)
+                timestamp: timestamp(forSampleIndex: segment.start),
+                prompt: promptTail,
+                promptLanguage: promptLanguage,
+                retrying: false
             )
         }
     }
@@ -291,11 +385,18 @@ final class WhisperTranscriber: @unchecked Sendable {
 
     // MARK: - Whisper
 
-    /// Must be called on `queue`.
+    /// Must be called on `queue`. `prompt`/`promptLanguage` are the decode-time
+    /// context: the live path passes the current rolling tail; a retry passes the
+    /// snapshot captured when it first failed, so a late replay conditions on the
+    /// right point in the conversation. `retrying` also suppresses advancing the
+    /// live prompt tail — a deferred segment must not rewind it.
     private func sendToWhisper(
         wav: Data,
         reason: String,
-        timestamp: Date
+        timestamp: Date,
+        prompt: String,
+        promptLanguage promptLang: String?,
+        retrying: Bool
     ) {
         chunkCounter += 1
         let chunkID = chunkCounter
@@ -303,10 +404,7 @@ final class WhisperTranscriber: @unchecked Sendable {
 
         let src = source
         let taskID = UUID()
-        // Snapshot the rolling prompt + its language on `queue` so the async task
-        // sees stable values (the tail keeps mutating as later chunks confirm).
-        let prompt = promptTail
-        let promptLang = promptLanguage
+        let capturedGeneration = generation
         let task = Task<Void, Never> {
             defer {
                 self.queue.async { self.inFlightFlushes.removeValue(forKey: taskID) }
@@ -331,11 +429,11 @@ final class WhisperTranscriber: @unchecked Sendable {
                     }
                 }
                 let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let kept: String?
                 if trimmed.isEmpty {
                     Log.stt.info("[\(src.label)] chunk #\(chunkID) ← empty")
-                    return
-                }
-                if HallucinationFilter.isHallucination(
+                    kept = nil
+                } else if HallucinationFilter.isHallucination(
                     text: trimmed,
                     segments: result.segments,
                     promptContext: prompt
@@ -343,20 +441,120 @@ final class WhisperTranscriber: @unchecked Sendable {
                     // Don't log the dropped text itself — user transcript content
                     // must not land in `info` logs (CONVENTIONS.md § Logging).
                     Log.stt.info("[\(src.label)] chunk #\(chunkID) ← dropped (hallucination) chars=\(trimmed.count)")
-                    return
+                    kept = nil
+                } else {
+                    Log.stt.info("[\(src.label)] chunk #\(chunkID) ← \(trimmed)")
+                    kept = trimmed
                 }
-                Log.stt.info("[\(src.label)] chunk #\(chunkID) ← \(trimmed)")
-                // Advance the rolling prompt only with text we kept — never with
-                // dropped junk, or the prompt would propagate the hallucination.
                 let detectedLanguage = result.language
-                self.queue.async { self.appendPromptTail(trimmed, language: detectedLanguage) }
-                self.onFinal?(TranscribedChunk(text: trimmed, source: src, timestamp: timestamp))
+                // Emission is resolved on `queue` (generation gate + prompt tail)
+                // but fired after the hop, so `flushPending` still sees the append
+                // before its await returns.
+                let emission: TranscribedChunk? = await withCheckedContinuation { continuation in
+                    self.queue.async {
+                        guard self.generation == capturedGeneration else {
+                            continuation.resume(returning: nil)
+                            return
+                        }
+                        if retrying { self.inFlightRetries -= 1 }
+                        if let kept, !retrying {
+                            self.appendPromptTail(kept, language: detectedLanguage)
+                        }
+                        self.resendQueuedLocked(reason: retrying ? "retryDone" : "afterSuccess")
+                        continuation.resume(
+                            returning: kept.map { TranscribedChunk(text: $0, source: src, timestamp: timestamp) }
+                        )
+                    }
+                }
+                if let emission { self.onFinal?(emission) }
             } catch {
-                Log.stt.error("[\(src.label)] chunk #\(chunkID) Whisper failed: \(error.localizedDescription)")
-                self.onFailure?(error.localizedDescription, src)
+                // Transient failures park for retry rather than lose the audio;
+                // permanent ones can't be retried, so they surface to the user.
+                if Self.isRetriableTransport(error) {
+                    Log.stt.error(
+                        "[\(src.label)] chunk #\(chunkID) transient upload failure — queued for retry: \(error.localizedDescription)"
+                    )
+                    self.queue.async {
+                        guard self.generation == capturedGeneration else { return }
+                        // A failed retry frees its slot but does NOT top up: a
+                        // still-down link would just re-fail. Re-parked, it waits
+                        // for the next `.satisfied` edge or a live success.
+                        if retrying { self.inFlightRetries -= 1 }
+                        self.enqueueForRetryLocked(
+                            wav: wav,
+                            prompt: prompt,
+                            promptLanguage: promptLang,
+                            timestamp: timestamp,
+                            chunkID: chunkID
+                        )
+                    }
+                } else {
+                    Log.stt.error("[\(src.label)] chunk #\(chunkID) Whisper failed: \(error.localizedDescription)")
+                    self.onFailure?(error.localizedDescription, src)
+                }
             }
         }
         inFlightFlushes[taskID] = task
+    }
+
+    // MARK: - Retry queue (NOD-29)
+
+    /// True for transport failures worth parking: the client's own transient set
+    /// (offline / connection-dropped / upstream 5xx / 429). Anything else — auth,
+    /// entitlement, decode — is permanent and must not be retried.
+    private static func isRetriableTransport(_ error: Error) -> Bool {
+        guard let clientError = error as? LLMProxyClient.ClientError else { return false }
+        return LLMProxyClient.isTransient(clientError)
+    }
+
+    /// Park a failed segment. Must be on `queue`. On overflow the *oldest* parked
+    /// segment is evicted so the freshest speech — closest to reconnect and to
+    /// the ongoing conversation — survives a long outage. Lossy by design past
+    /// the cap; the loss-free fix is on-device STT (out of scope).
+    private func enqueueForRetryLocked(
+        wav: Data,
+        prompt: String,
+        promptLanguage: String?,
+        timestamp: Date,
+        chunkID: Int
+    ) {
+        if retryQueue.count >= Self.maxRetryQueue {
+            retryQueue.removeFirst()
+            droppedRetrySegments += 1
+            if droppedRetrySegments == 1 || droppedRetrySegments % 20 == 0 {
+                Log.stt.error("[\(source.label)] retry queue full — dropped \(droppedRetrySegments) oldest segment(s)")
+            }
+        }
+        retryQueue.append(PendingSegment(wav: wav, prompt: prompt, promptLanguage: promptLanguage, timestamp: timestamp))
+        Log.stt.info("[\(source.label)] chunk #\(chunkID) parked for retry (queued=\(retryQueue.count))")
+    }
+
+    /// Replay parked segments in capture order, up to `maxConcurrentRetries` in
+    /// flight at once — the rest stay parked and are pulled in as each replay
+    /// lands (see the success path). Must be on `queue`. A replay that fails again
+    /// re-parks itself, so a still-flaky link just cycles back here on the next
+    /// `.satisfied` edge or the next success — never a blind timer loop, never a
+    /// reconnect stampede.
+    private func resendQueuedLocked(reason: String) {
+        var started = 0
+        while inFlightRetries < Self.maxConcurrentRetries, !retryQueue.isEmpty {
+            let item = retryQueue.removeFirst()
+            inFlightRetries += 1
+            started += 1
+            sendToWhisper(
+                wav: item.wav,
+                reason: "retry",
+                timestamp: item.timestamp,
+                prompt: item.prompt,
+                promptLanguage: item.promptLanguage,
+                retrying: true
+            )
+        }
+        if started > 0 {
+            Log.stt.info(
+                "[\(source.label)] draining \(started) parked segment(s) (\(reason), inFlight=\(inFlightRetries), remaining=\(retryQueue.count))"
+            )
+        }
     }
 
     /// Append kept text to the rolling prompt and trim to the tail window. On a

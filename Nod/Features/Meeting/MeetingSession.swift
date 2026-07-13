@@ -133,7 +133,11 @@ final class MeetingSession: ObservableObject {
     /// retroactively replace a `.me` entry with a cleaner `.them` one within
     /// `TranscriptStore`'s 8s window, so streaming sooner would leave a stale
     /// echo row on the server. Past this margin an entry's id is final.
-    private static let streamSettleWindow: TimeInterval = 11
+    ///
+    /// Derived from `TranscriptStore.reorderHorizon` (+1s tick margin) so it
+    /// stays strictly above it: streaming freezes an entry's positional `idx`,
+    /// and reordering must have stopped first or that key corrupts.
+    private static let streamSettleWindow: TimeInterval = TranscriptStore.reorderHorizon + 1
     private static let streamInterval: TimeInterval = 5
 
     /// Bumped each time a recording starts. `endMeeting`'s deferred finalize
