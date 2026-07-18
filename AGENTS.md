@@ -64,6 +64,17 @@ SwiftFormat, then blocks the commit only on **error-level** SwiftLint
 violations in staged files (force-unwrap/cast/try). Configs: `.swiftlint.yml`,
 `.swiftformat` — both tuned to `CONVENTIONS.md`.
 
+**CI pins these tools — keep the pins in lockstep with local.** The `ci.yml`
+`build-test` job lints the whole repo (`swiftformat --lint .`, `swiftlint
+lint`). Homebrew tracks *latest*, whose default rule set drifts from local: a
+newer SwiftFormat enabled `wrapIfStatementBodies` by default and failed CI on
+files no local run ever flagged. So CI downloads **pinned** release binaries
+(SwiftFormat `0.61.1`, SwiftLint `0.63.3`) and prepends them to `PATH` — the
+runner also pre-installs newer builds at `/opt/homebrew/bin` that would
+otherwise win. When you upgrade your local SwiftFormat/SwiftLint, bump the
+`SWIFTFORMAT_VERSION`/`SWIFTLINT_VERSION` in `ci.yml` to match, or CI and the
+pre-commit hook will disagree.
+
 ## Configuration
 
 - **Supabase**: production project ref `lptqvnizjwglilgeukwx` (eu-west-1), linked via `supabase/config.toml`. The client URL + key live in `Nod/Backend/SupabaseConfig.swift`, **switched by build config** — Debug points at the `develop` sandbox branch, Release at production (see "Branches" below). Server-side secrets (incl. `OPENROUTER_API_KEY`) are set via `supabase secrets set` — never in the bundle.
@@ -112,6 +123,7 @@ We use [Supabase Branching](https://supabase.com/docs/guides/deployment/branchin
 - **Deploys are git-driven.** Pushing to a branch's git branch (for `develop`, via its open PR) makes Supabase apply new **migrations** and deploy **changed Edge Functions** to that branch's instance. Caveat seen in practice: it only redeploys functions whose files changed and has missed one — the deterministic fallback is `SUPABASE_ACCESS_TOKEN=sbp_… supabase functions deploy <name> --project-ref zdpvmwqauczsfwlgflas`.
 - **Nothing is inherited from prod automatically.** Secrets (`PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`, `OPENROUTER_API_KEY`, …) and **OAuth providers** (Google) must be set **per branch**. `SUPABASE_URL`/`ANON_KEY`/`SERVICE_ROLE_KEY` are auto-injected. For Google sign-in on a branch you must also add the branch's `…supabase.co/auth/v1/callback` to the Google Cloud OAuth client and allowlist `nod://auth-callback` in the branch's auth URL config.
 - **Environment-specific DATA is seeded per branch, not via migrations.** Values that differ between sandbox and live — notably `plan_prices.paddle_price_id` — are set with a one-off `UPDATE` against each branch (migrations only seed `pri_REPLACE_*` placeholders), so sandbox price ids never ship to prod.
+- **`main` and `develop` migration histories can legitimately diverge — don't blind-sync them.** Each branch's Supabase instance keeps its own `supabase_migrations.schema_migrations` history, and in-flight work lands on one before the other: prod carries the `founder_dashboard` migrations (applied from the separate founder-dashboard project), while the sandbox carries not-yet-merged feature migrations (`workspaces`, `decks`, …). The **"Supabase Preview" check fails on _every_ push — DB change or not** — whenever a branch's remote history has versions absent from that git branch's `supabase/migrations/` ("Remote migration versions not found in local migrations directory"). Fix by **vendoring the missing migrations into the matching git branch only**: fetch each byte-faithfully from the branch DB's `schema_migrations` via the Management API (`POST /v1/projects/<ref>/database/query` with the `sbp_` PAT) → `jq -j '.sql'` to a file → md5-verify against `md5(statements[1])`. Do **not** fast-forward migrations from `main` into `develop` (or vice-versa) — that pushes one env's schema onto the other's sandbox, which then tries to apply it.
 
 **CLI gotcha:** management commands (`secrets set`, `branches …`) read a **Personal Access Token** (`sbp_…`), not the `supabase login` keychain session — pass it inline and target a branch with `--project-ref`:
 
