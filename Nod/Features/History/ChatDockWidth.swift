@@ -15,9 +15,14 @@ import Foundation
 final class ChatDockWidth: ObservableObject {
     static let minWidth: CGFloat = 240
     static let defaultWidth: CGFloat = 380
-    /// Left (list/detail) column must keep at least this much room, so the dock
-    /// can't be dragged wide enough to crush it.
+    /// The detail pane must keep at least this much room, so the dock can't be
+    /// dragged wide enough to crush it. Reserved *on top of* the sidebar rail —
+    /// see `clampedWidth`.
     static let minDetailWidth: CGFloat = 368
+    /// Fixed width of the left sidebar rail — the single source of truth, applied
+    /// by `HistoryView.sidebarRail`. The clamp reserves it separately so the
+    /// detail pane keeps its full minimum rather than sharing with the rail.
+    static let sidebarRailWidth: CGFloat = 62
     /// Width of the resize handle's grab strip, overlaid on the dock's leading
     /// edge (it takes no layout space, so it isn't reserved in the clamp).
     static let handleWidth: CGFloat = 11
@@ -91,7 +96,7 @@ final class ChatDockWidth: ObservableObject {
     /// uses the same bounds. When the window is narrow the upper bound can fall
     /// below minWidth; keep the dock usable by clamping the bound to minWidth.
     static func clampedWidth(_ w: CGFloat, totalWidth: CGFloat) -> CGFloat {
-        let upper = max(minWidth, totalWidth - minDetailWidth)
+        let upper = max(minWidth, totalWidth - sidebarRailWidth - minDetailWidth)
         return min(max(w, minWidth), upper)
     }
 

@@ -409,49 +409,61 @@ struct MeetingDetailView: View {
     @ViewBuilder
     private var subToolbar: some View {
         if selectedTab == .summary {
+            // The buttons live in a horizontal scroll so the toolbar never forces
+            // a minimum width on the detail column — otherwise, widening the chat
+            // dock would push this column past the window and slide the dock off
+            // the right edge. At normal widths everything fits and nothing
+            // scrolls; the save indicator stays pinned to the trailing edge.
             HStack(spacing: 12) {
-                subToolbarItem(systemImage: "character", label: meeting.language.uppercased())
-                subToolbarDivider
-                Button(action: { isEditingSummary.toggle() }) {
-                    subToolbarLabel(
-                        systemImage: isEditingSummary ? "checkmark" : "square.and.pencil",
-                        text: isEditingSummary ? "Done" : "Edit"
-                    )
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        subToolbarItem(systemImage: "character", label: meeting.language.uppercased())
+                        subToolbarDivider
+                        Button(action: { isEditingSummary.toggle() }) {
+                            subToolbarLabel(
+                                systemImage: isEditingSummary ? "checkmark" : "square.and.pencil",
+                                text: isEditingSummary ? "Done" : "Edit"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isFinalizing)
+                        .opacity(isFinalizing ? 0.4 : 1)
+                        .linkCursor()
+                        subToolbarDivider
+                        copyButton("Copy", isActive: !isGenerating, action: copyAll)
+                        subToolbarDivider
+                        Button(action: shareLink) {
+                            subToolbarLabel(
+                                systemImage: shareIcon,
+                                text: shareLabel
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isFinalizing || shareState == .sharing)
+                        .opacity(isFinalizing ? 0.4 : 1)
+                        .linkCursor()
+                        subToolbarDivider
+                        exportButton
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(isFinalizing)
-                .opacity(isFinalizing ? 0.4 : 1)
-                .linkCursor()
-                subToolbarDivider
-                copyButton("Copy", isActive: !isGenerating, action: copyAll)
-                subToolbarDivider
-                Button(action: shareLink) {
-                    subToolbarLabel(
-                        systemImage: shareIcon,
-                        text: shareLabel
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(isFinalizing || shareState == .sharing)
-                .opacity(isFinalizing ? 0.4 : 1)
-                .linkCursor()
-                subToolbarDivider
-                exportButton
-                Spacer(minLength: 0)
+                .fixedSize(horizontal: false, vertical: true)
                 if !isFinalizing {
                     saveIndicator
+                        .fixedSize()
                 }
             }
             .padding(.vertical, 2)
         } else {
-            HStack(spacing: 12) {
-                subToolbarItem(systemImage: "character", label: meeting.language.uppercased())
-                subToolbarDivider
-                copyButton("Copy", isActive: transcriptIsCopyable, action: copyTranscript)
-                subToolbarDivider
-                exportButton
-                Spacer(minLength: 0)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    subToolbarItem(systemImage: "character", label: meeting.language.uppercased())
+                    subToolbarDivider
+                    copyButton("Copy", isActive: transcriptIsCopyable, action: copyTranscript)
+                    subToolbarDivider
+                    exportButton
+                }
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
