@@ -39,26 +39,28 @@ jobs:
       # that the pre-commit hook uses). Homebrew tracks latest, whose default
       # rule sets drift from local — e.g. a newer SwiftFormat turns on
       # `wrapIfStatementBodies` by default and then fails CI on files no local
-      # run ever flags. Pinning keeps CI and local deterministic; bump together.
-      - name: Install SwiftFormat (pinned)
+      # run ever flags. The runner also PRE-installs newer builds at
+      # /opt/homebrew/bin (which precedes /usr/local/bin on Apple Silicon), so we
+      # drop the pinned binaries in their own dir and prepend it to PATH via
+      # GITHUB_PATH to win over the pre-installed ones. Bump these in lockstep
+      # with the team's local versions.
+      - name: Install pinned lint tools
         env:
           SWIFTFORMAT_VERSION: 0.61.1
-        run: |
-          curl -fsSL -o /tmp/swiftformat.zip \
-            "https://github.com/nicklockwood/SwiftFormat/releases/download/${SWIFTFORMAT_VERSION}/swiftformat.zip"
-          unzip -o /tmp/swiftformat.zip -d /tmp/swiftformat-bin
-          sudo install /tmp/swiftformat-bin/swiftformat /usr/local/bin/swiftformat
-          swiftformat --version
-
-      - name: Install SwiftLint (pinned)
-        env:
           SWIFTLINT_VERSION: 0.63.3
         run: |
+          BIN="$RUNNER_TEMP/pinned-bin"
+          mkdir -p "$BIN"
+          curl -fsSL -o /tmp/swiftformat.zip \
+            "https://github.com/nicklockwood/SwiftFormat/releases/download/${SWIFTFORMAT_VERSION}/swiftformat.zip"
+          unzip -o /tmp/swiftformat.zip -d "$BIN"
           curl -fsSL -o /tmp/swiftlint.zip \
             "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/portable_swiftlint.zip"
-          unzip -o /tmp/swiftlint.zip -d /tmp/swiftlint-bin
-          sudo install /tmp/swiftlint-bin/swiftlint /usr/local/bin/swiftlint
-          swiftlint version
+          unzip -o /tmp/swiftlint.zip -d "$BIN"
+          chmod +x "$BIN/swiftformat" "$BIN/swiftlint"
+          echo "$BIN" >> "$GITHUB_PATH"
+          "$BIN/swiftformat" --version
+          "$BIN/swiftlint" version
 
       - name: Generate project
         run: xcodegen generate
