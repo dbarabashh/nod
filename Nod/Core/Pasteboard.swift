@@ -10,12 +10,12 @@ extension NSPasteboard {
         general.setString(string, forType: .string)
     }
 
-    /// Copy inline-Markdown as rich text. Resolves `**bold**`/`*italic*`/links
-    /// into a real `NSAttributedString` and writes RTF + HTML alongside a
-    /// plain-text fallback, so pasting into Word, Pages, or mail keeps the
-    /// formatting instead of leaking raw `*` characters — matching what a manual
-    /// select-and-copy already produces. Mirrors `renderRecapMarkdown`'s parse:
-    /// inline-only, literal `- ` bullets left as text.
+    /// Copy inline-Markdown as both rich text and its raw source. Resolves
+    /// `**bold**`/`*italic*`/links into an `NSAttributedString` written as RTF,
+    /// so pasting into Word, Pages, or mail keeps the formatting instead of
+    /// leaking raw `*` characters — matching a manual select-and-copy. The
+    /// plain-text fallback stays the original Markdown so plain targets (editors,
+    /// Obsidian) keep link URLs and emphasis markers rather than losing them.
     static func copyRichText(markdown: String) {
         let attributed = NSAttributedString.fromInlineMarkdown(markdown)
         let range = NSRange(location: 0, length: attributed.length)
@@ -26,32 +26,20 @@ extension NSPasteboard {
         ) {
             general.setData(rtf, forType: .rtf)
         }
-        if let html = try? attributed.data(
-            from: range,
-            documentAttributes: [.documentType: NSAttributedString.DocumentType.html]
-        ) {
-            general.setData(html, forType: .html)
-        }
-        general.setString(attributed.string, forType: .string)
+        general.setString(markdown, forType: .string)
     }
 }
 
 private extension NSAttributedString {
-    /// Inline-only Markdown → attributed string with real font traits. The raw
-    /// `inlinePresentationIntent` the parser emits doesn't survive RTF/HTML
-    /// serialization on its own, so bold/italic runs are given an actual bold or
-    /// italic `NSFont` before bridging. Matches `renderRecapMarkdown`'s parse so
-    /// the clipboard reads the same as what's on screen.
+    /// The same inline-Markdown parse the chat shows on screen
+    /// (`renderRecapMarkdown`), bridged to an attributed string with real font
+    /// traits: the raw `inlinePresentationIntent` the parser emits doesn't
+    /// survive RTF serialization on its own, so bold/italic runs are given an
+    /// actual bold or italic `NSFont` before serializing.
     static func fromInlineMarkdown(_ source: String) -> NSAttributedString {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        guard let parsed = try? AttributedString(markdown: source, options: options) else {
-            return NSAttributedString(string: source)
-        }
-        let baseSize: CGFloat = 13
+        let baseSize: CGFloat = 13.5
         let base = NSFont.systemFont(ofSize: baseSize)
-        let mutable = NSMutableAttributedString(parsed)
+        let mutable = NSMutableAttributedString(renderRecapMarkdown(source))
         let full = NSRange(location: 0, length: mutable.length)
         mutable.addAttribute(.font, value: base, range: full)
         mutable.enumerateAttribute(.inlinePresentationIntent, in: full) { value, range, _ in
