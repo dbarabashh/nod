@@ -213,7 +213,7 @@ struct ChatCopyButton: View {
     }
 
     private func copy() {
-        NSPasteboard.copyText(text)
+        NSPasteboard.copyRichText(markdown: text)
         copied = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
     }

@@ -443,7 +443,7 @@ struct ContentView: View {
     }
 
     private func copy(_ text: String) {
-        NSPasteboard.copyText(text)
+        NSPasteboard.copyRichText(markdown: text)
         Log.ui.info("Copied response to clipboard")
     }
 }
