@@ -768,6 +768,7 @@ struct HistoryView: View {
             )
             .onTapGesture { path.append(meeting) }
             .accessibilityAddTraits(.isButton)
+            .listRowInsets(MeetingRow.rowInsets)
             .listRowBackground(Color.clear)
             .listRowSeparatorTint(Theme.Palette.border)
             .contextMenu {
@@ -783,7 +784,7 @@ struct HistoryView: View {
                 }
             }
         }
-        .listStyle(.inset)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
     }
 
@@ -799,10 +800,11 @@ struct HistoryView: View {
                     Label("Delete Forever", systemImage: "trash.fill")
                 }
             }
+            .listRowInsets(MeetingRow.rowInsets)
             .listRowBackground(Color.clear)
             .listRowSeparatorTint(Theme.Palette.border)
         }
-        .listStyle(.inset)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
     }
 
@@ -903,6 +905,14 @@ private struct MeetingRow: View {
     @State private var isHovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Breathing room between the row content and the hover highlight's edge.
+    /// The list gives the row back the same amount via `listRowInsets`, so the
+    /// icon and text stay aligned with the search field and segment bar above.
+    static let hoverInset: CGFloat = 10
+    /// Vertical insets keep the highlight off the row separator — with zero
+    /// inset the separator draws flush against the highlight's bottom edge.
+    static let rowInsets = EdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6)
+
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
@@ -928,7 +938,6 @@ private struct MeetingRow: View {
                             restoreButton
                                 .revealOnHover(showRestore, reduceMotion: reduceMotion, anchor: .trailing)
                         }
-                        .padding(.trailing, 8)
                 }
 
                 Text(meeting.summaryPreview)
@@ -939,6 +948,7 @@ private struct MeetingRow: View {
             }
         }
         .padding(.vertical, 6)
+        .padding(.horizontal, Self.hoverInset)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Theme.Palette.surfaceStrong)
