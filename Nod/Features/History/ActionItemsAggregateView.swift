@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The cross-meeting action-items screen — its own left-rail destination beside
@@ -285,12 +286,13 @@ struct ActionItemsAggregateView: View {
         if addingMeetingID == group.meetingID {
             HStack(alignment: .firstTextBaseline, spacing: 11) {
                 checkbox(done: false)
-                TextField("New task", text: $newItemText)
+                TextField("New task", text: $newItemText, axis: .vertical)
                     .textFieldStyle(.plain)
+                    .lineLimit(1 ... 6)
                     .font(.system(size: 13.5))
                     .foregroundStyle(Theme.Palette.ink)
                     .focused($addingFocused)
-                    .onSubmit { Task { await commitAdd(group.meetingID) } }
+                    .chatSubmit(text: $newItemText) { Task { await commitAdd(group.meetingID) } }
                     .onExitCommand { cancelAdd() }
                     .onAppear { addingFocused = true }
                 fieldButtons(
@@ -320,7 +322,7 @@ struct ActionItemsAggregateView: View {
         }
     }
 
-    /// Save (⌘↩) / cancel (esc) pair shown beside an inline edit or add field.
+    /// Save (↩) / cancel (esc) pair shown beside an inline edit or add field.
     private func fieldButtons(save: @escaping () -> Void, cancel: @escaping () -> Void) -> some View {
         HStack(spacing: 2) {
             Button(action: save) {
@@ -350,15 +352,25 @@ struct ActionItemsAggregateView: View {
                 .onTapGesture { Task { await toggle(item) } }
             VStack(alignment: .leading, spacing: 5) {
                 if editingID == item.id {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        TextField("Task", text: $editingText)
+                    // Top-aligned, so the save/cancel pair stays put on the
+                    // first line as the field grows instead of riding its
+                    // baseline down the row.
+                    HStack(alignment: .top, spacing: 8) {
+                        // Vertical axis so a two-line task stays fully visible
+                        // while it's edited — a single-line field scrolls the
+                        // sentence out of view exactly when you need to read it.
+                        TextField("Task", text: $editingText, axis: .vertical)
                             .textFieldStyle(.plain)
+                            .lineLimit(1 ... 6)
                             .font(.system(size: 13.5))
                             .foregroundStyle(Theme.Palette.ink)
                             .focused($editingFocused)
-                            .onSubmit { Task { await commitEdit(item) } }
+                            .chatSubmit(text: $editingText) { Task { await commitEdit(item) } }
                             .onExitCommand { cancelEdit() }
-                            .onAppear { editingFocused = true }
+                            .onAppear {
+                                editingFocused = true
+                                placeCaretAtEnd()
+                            }
                         fieldButtons(
                             save: { Task { await commitEdit(item) } },
                             cancel: { cancelEdit() }
@@ -374,7 +386,13 @@ struct ActionItemsAggregateView: View {
                     if hasMeta(item) {
                         HStack(spacing: 6) {
                             if let deadline = item.deadline, !deadline.isEmpty {
-                                deadlinePill(deadline)
+                                let spoken = spokenAt(item)
+                                DeadlinePill(
+                                    display: ActionItemDeadline.display(phrase: deadline, spokenAt: spoken),
+                                    spokenAt: spoken,
+                                    meetingTitle: meetingTitle(item.meetingID),
+                                    compact: true
+                                )
                             }
                             if flagged[item.id] != nil {
                                 duplicatePill(for: item)
@@ -475,16 +493,6 @@ struct ActionItemsAggregateView: View {
         .contentShape(Rectangle())
     }
 
-    private func deadlinePill(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 10.5, weight: .medium))
-            .foregroundStyle(Theme.Palette.warning)
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(Theme.Palette.warning.opacity(0.12)))
-    }
-
     private func duplicatePill(for item: ActionItem) -> some View {
         HStack(spacing: 3) {
             Image(systemName: "doc.on.doc")
@@ -496,7 +504,7 @@ struct ActionItemsAggregateView: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(Capsule().fill(Theme.Palette.warning.opacity(0.12)))
-        .help(duplicateHelp(for: item))
+        .hoverTooltip(duplicateHelp(for: item), systemImage: "doc.on.doc")
     }
 
     // MARK: - States
@@ -596,13 +604,26 @@ struct ActionItemsAggregateView: View {
         flagged = ActionItemDedup.flag(relevantItems.filter { !$0.done }, dismissed: dismissed)
     }
 
+    /// Every row asks for its meeting's title, icon, and date, so a linear scan
+    /// per lookup is O(rows × meetings) on each body pass.
+    private var meetingsByID: [UUID: Meeting] {
+        Dictionary(meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     private func meetingTitle(_ id: UUID) -> String {
-        guard let m = meetings.first(where: { $0.id == id }) else { return "Meeting" }
-        return m.displayTitle(dateFormatter: Self.dateFormatter)
+        guard let meeting = meetingsByID[id] else { return "Meeting" }
+        return meeting.displayTitle(dateFormatter: Self.dateFormatter)
     }
 
     private func meetingIcon(_ id: UUID) -> String {
-        meetings.first(where: { $0.id == id })?.kind.icon ?? "calendar"
+        meetingsByID[id]?.kind.icon ?? "calendar"
+    }
+
+    /// The day a deadline phrase was spoken — what "end of week" was relative
+    /// to. Falls back to the row's own creation date for a user-added task or a
+    /// meeting that's no longer in scope.
+    private func spokenAt(_ item: ActionItem) -> Date {
+        meetingsByID[item.meetingID]?.startedAt ?? item.createdAt ?? Date()
     }
 
     private func duplicateHelp(for item: ActionItem) -> String {
@@ -652,6 +673,17 @@ struct ActionItemsAggregateView: View {
     }
 
     // MARK: Inline edit
+
+    /// AppKit selects the entire string when a field editor takes focus, which
+    /// on an inline rename reads as "one keystroke wipes this task". Drop the
+    /// caret at the end instead — the user opened an edit, not a replace.
+    private func placeCaretAtEnd() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(40))
+            guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+            editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+        }
+    }
 
     private func startEdit(_ item: ActionItem) {
         cancelAdd()

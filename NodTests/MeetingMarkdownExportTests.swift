@@ -95,7 +95,20 @@ final class MeetingMarkdownExportTests: XCTestCase {
 
         XCTAssertTrue(md.contains("## Action items"))
         XCTAssertTrue(md.contains("- [ ] Move the release ticket"))
-        XCTAssertTrue(md.contains("- [x] Mock up the pricing page (by Friday)"))
+        // 1_700_000_000 is Tue 14 Nov 2023 UTC, so "by Friday" is the 17th —
+        // an exported file is read long after the meeting, so it carries the
+        // resolved date rather than a phrase that only made sense that week.
+        XCTAssertTrue(md.contains("- [x] Mock up the pricing page (due 2023-11-17)"), md)
+    }
+
+    func testExportAnchorsAnUnreadablePhraseToTheMeetingDay() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let meeting = makeMeeting(title: "Sync", summary: "x", start: start, end: start.addingTimeInterval(60))
+        let items = [action(meeting.id, text: "Chase the invoice", deadline: "when Leo is back", done: false, position: 0)]
+
+        let md = MeetingMarkdownExport.render(meeting: meeting, transcript: [], tags: [], actionItems: items)
+
+        XCTAssertTrue(md.contains("- [ ] Chase the invoice (“when Leo is back”, said 2023-11-14)"), md)
     }
 
     func testNoActionItemsSectionWhenEmpty() {

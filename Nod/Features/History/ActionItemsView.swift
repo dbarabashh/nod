@@ -49,7 +49,10 @@ struct ActionItemsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                 if let deadline = item.deadline, !deadline.isEmpty {
-                    deadlinePill(deadline)
+                    DeadlinePill(
+                        display: ActionItemDeadline.display(phrase: deadline, spokenAt: meeting.startedAt),
+                        spokenAt: meeting.startedAt
+                    )
                 }
             }
             .padding(.vertical, 6)
@@ -86,19 +89,6 @@ struct ActionItemsView: View {
         }
         // Keep the control aligned with the first text line.
         .offset(y: 1)
-    }
-
-    private func deadlinePill(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Theme.Palette.warning)
-            .lineLimit(1)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Theme.Palette.warning.opacity(0.12))
-            )
     }
 
     private func sectionHeader(_ text: String) -> some View {

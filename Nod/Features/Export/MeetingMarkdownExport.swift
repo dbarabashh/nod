@@ -33,7 +33,7 @@ enum MeetingMarkdownExport {
         if !actionItems.isEmpty {
             out += "\n## Action items\n\n"
             out += actionItems
-                .map { taskLine(for: $0) }
+                .map { taskLine(for: $0, spokenAt: meeting.startedAt) }
                 .joined(separator: "\n")
             out += "\n"
         }
@@ -92,15 +92,16 @@ enum MeetingMarkdownExport {
         return "[\(stamp)] **\(record.displayLabel())**: \(record.text)"
     }
 
-    /// One action item as a Markdown task list line, deadline appended in
-    /// parentheses when present.
-    private static func taskLine(for item: ActionItem) -> String {
+    /// One action item as a Markdown task list line. The deadline is resolved
+    /// against the meeting date first: "end of week" only means something next
+    /// to the day it was said, and an exported file is read long after that.
+    private static func taskLine(for item: ActionItem, spokenAt: Date) -> String {
         let box = item.done ? "[x]" : "[ ]"
         let text = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let deadline = item.deadline?.trimmingCharacters(in: .whitespacesAndNewlines), !deadline.isEmpty {
-            return "- \(box) \(text) (\(deadline))"
+        guard let deadline = item.deadline?.trimmingCharacters(in: .whitespacesAndNewlines), !deadline.isEmpty else {
+            return "- \(box) \(text)"
         }
-        return "- \(box) \(text)"
+        return "- \(box) \(text) (\(ActionItemDeadline.exportLabel(phrase: deadline, spokenAt: spokenAt)))"
     }
 
     /// `[MM:SS]` (or `[H:MM:SS]` past an hour) offset of a transcript line from
