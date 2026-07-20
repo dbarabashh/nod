@@ -38,12 +38,52 @@ final class KnowledgeStore: ObservableObject {
     /// embeds each chunk (gte-small) and stores the vectors. Best-effort:
     /// a failure just means this session won't surface in search, never a
     /// broken save.
+    // MARK: - Cache
+
+    private struct CacheKey: Hashable {
+        let query: String
+        let matchCount: Int
+        let meetingID: UUID?
+        let meetingIDs: [UUID]?
+    }
+
+    private var cache: [CacheKey: [RetrievedChunk]] = [:]
+    private var cacheOrder: [CacheKey] = []
+
+    /// Small enough to stay bounded, big enough to cover a typing session and a
+    /// few chat turns. Results only go stale when the corpus changes, which is
+    /// exactly when `index`/`reindex` clear it.
+    private static let cacheLimit = 60
+
+    private func store(_ chunks: [RetrievedChunk], for key: CacheKey) {
+        cache[key] = chunks
+        touch(key)
+        if cacheOrder.count > Self.cacheLimit {
+            cache.removeValue(forKey: cacheOrder.removeFirst())
+        }
+    }
+
+    /// Moves a key to the most-recent end. Without this the eviction order is
+    /// insertion order, so a query served on every keystroke is dropped after
+    /// 60 distinct searches purely for being old.
+    private func touch(_ key: CacheKey) {
+        cacheOrder.removeAll { $0 == key }
+        cacheOrder.append(key)
+    }
+
+    private func invalidateCache() {
+        cache.removeAll()
+        cacheOrder.removeAll()
+    }
+
     func index(meetingID: UUID, transcript: String) async {
         #if DEBUG
             if DemoMode.isEnabled { return }
         #endif
         let chunks = Self.chunk(transcript)
         guard !chunks.isEmpty else { return }
+        // New content means every cached answer set is potentially incomplete.
+        invalidateCache()
         Log.ui.info("KnowledgeStore.index meeting=\(meetingID.uuidString) chunks=\(chunks.count)")
         do {
             try await llm.indexSession(meetingID: meetingID, chunks: chunks)
@@ -65,6 +105,23 @@ final class KnowledgeStore: ObservableObject {
     ] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
+        // Every miss is an embedding plus a pgvector scan, billed per call. The
+        // launcher searches on each pause in typing and a chat turn re-searches
+        // its own follow-ups, so the same query comes back constantly within a
+        // session — serve those from memory.
+        // Deliberately NOT keyed on `embedText`: that's the HyDE passage, which
+        // the model rewrites on every turn, so including it gave the chat path
+        // — the expensive one — a key that could never repeat.
+        let cacheKey = CacheKey(
+            query: trimmed,
+            matchCount: matchCount,
+            meetingID: meetingID,
+            meetingIDs: meetingIDs
+        )
+        if let hit = cache[cacheKey] {
+            touch(cacheKey)
+            return hit
+        }
         #if DEBUG
             if DemoMode.isEnabled {
                 return DemoData.knowledgeChunks(
@@ -83,8 +140,11 @@ final class KnowledgeStore: ObservableObject {
                 meetingIDs: meetingIDs,
                 embedText: embedText
             )
-            guard meetingID == nil else { return results }
-            return results.filter { $0.similarity >= Self.minSimilarity }
+            let filtered = meetingID == nil
+                ? results.filter { $0.similarity >= Self.minSimilarity }
+                : results
+            store(filtered, for: cacheKey)
+            return filtered
         } catch LLMProxyClient.ClientError.entitlementRequired {
             // Expected gated state, not a failure: on a lapsed plan the proxy
             // 403s `search` and the client has already surfaced the paywall.

@@ -27,7 +27,14 @@ final class MeetingStore: ObservableObject {
         case failed(String)
     }
 
-    @Published private(set) var meetings: [Meeting] = []
+    @Published private(set) var meetings: [Meeting] = [] {
+        didSet { byID = Dictionary(meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
+    }
+
+    /// Meetings keyed by id, rebuilt with the list. Every surface that renders
+    /// a retrieved chunk, a source chip, or a launcher row resolves a meeting
+    /// from an id, and each of them was building this same dictionary itself.
+    private(set) var byID: [UUID: Meeting] = [:]
     @Published private(set) var loadState: LoadState = .idle
 
     /// Soft-deleted meetings (the "Trash") — loaded lazily by the Trash

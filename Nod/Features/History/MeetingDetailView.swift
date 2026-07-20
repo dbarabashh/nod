@@ -135,6 +135,7 @@ struct MeetingDetailView: View {
             .padding(.vertical, 22)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .tooltipContainer()
         .background(Color.clear)
         .navigationTitle("")
         .onAppear {

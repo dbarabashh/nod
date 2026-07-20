@@ -283,21 +283,63 @@ final class LLMProxyClient: ObservableObject {
     /// The caller falls back to the one-shot `complete()` path if the stream
     /// fails before producing any token.
     func streamComplete(system: String, user: String, jsonMode: Bool = false) -> AsyncThrowingStream<String, Error> {
+        stream(
+            messages: [
+                .init(role: "system", content: system),
+                .init(role: "user", content: user)
+            ],
+            jsonMode: jsonMode
+        )
+    }
+
+    /// Streaming counterpart to `chat` — same grounding + running history, but
+    /// the answer arrives token by token. A cross-session answer takes seconds
+    /// to generate; streaming doesn't make it faster, it makes the user stop
+    /// waiting on a spinner for all of it.
+    ///
+    /// Runs on `chatModel` with the same fallback chain and prompt caching as
+    /// `chat`, so switching a caller to the stream doesn't change which model
+    /// answers or what the grounding costs.
+    func streamChat(system: String, history: [ChatTurn], temperature: Double? = nil) -> AsyncThrowingStream<String, Error> {
+        Log.llm.info("→ streaming chat via proxy model=\(chatModel) system.len=\(system.count) turns=\(history.count)")
+        var messages: [ChatRequest.Message] = [.init(role: "system", content: system)]
+        messages += history.map { .init(role: $0.role.rawValue, content: $0.content) }
+        return stream(
+            messages: messages,
+            jsonMode: false,
+            temperature: temperature,
+            primaryModel: chatModel,
+            cachePrompt: true
+        )
+    }
+
+    private func stream(
+        messages: [ChatRequest.Message],
+        jsonMode: Bool = false,
+        temperature: Double? = nil,
+        primaryModel: String? = nil,
+        cachePrompt: Bool = false
+    ) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    // Same primary-then-others chain as `send`, so a streamed
+                    // call escalates on provider failure exactly like a
+                    // one-shot one.
+                    let primary = primaryModel ?? model
+                    var chain: [String] = []
+                    for candidate in [primary, model, fallbackModel] where !chain.contains(candidate) {
+                        chain.append(candidate)
+                    }
                     let payload = ChatRequest(
-                        model: model,
-                        models: [model, fallbackModel],
-                        messages: [
-                            .init(role: "system", content: system),
-                            .init(role: "user", content: user)
-                        ],
-                        provider: providerPreference(for: model),
+                        model: primary,
+                        models: chain,
+                        messages: messages,
+                        provider: providerPreference(for: primary),
                         response_format: jsonMode ? ResponseFormat(type: "json_object") : nil,
-                        temperature: nil,
+                        temperature: temperature,
                         stream: true,
-                        cache_prompt: nil
+                        cache_prompt: cachePrompt ? true : nil
                     )
                     let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
                     let request = try await makeProxyRequest(body: body)

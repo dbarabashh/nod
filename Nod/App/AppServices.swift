@@ -28,6 +28,11 @@ struct AppServices {
     /// History aggregate.
     let actionItemStore: ActionItemStore
     let knowledgeStore: KnowledgeStore
+    /// The cross-session "Ask Nod" thread. One instance app-wide, so the
+    /// Library dock and the launcher panel are two views onto one conversation.
+    let knowledgeChat: KnowledgeChatStore
+    /// Saved cross-session conversations, listed and reopened from the rail.
+    let knowledgeThreads: KnowledgeThreadStore
     let labelStore: LabelStore
     let entitlements: EntitlementService
     let billing: BillingService
@@ -90,6 +95,13 @@ struct AppServices {
         }
 
         let meetingStore = MeetingStore(supabase: supabase)
+        let profileStore = ProfileStore(supabase: supabase, auth: auth)
+        let knowledgeStore = KnowledgeStore(llm: llmClient)
+        let labelStore = LabelStore(supabase: supabase, auth: auth)
+        let entityStore = EntityStore(supabase: supabase)
+        let actionItemStore = ActionItemStore(supabase: supabase)
+        let knowledgeThreads = KnowledgeThreadStore(supabase: supabase)
+        let retrievalFeedback = RetrievalFeedbackStore(supabase: supabase)
 
         return AppServices(
             permissions: permissions,
@@ -103,12 +115,25 @@ struct AppServices {
             consent: consent,
             meetingStore: meetingStore,
             meetingOutbox: MeetingOutbox(),
-            profileStore: ProfileStore(supabase: supabase, auth: auth),
+            profileStore: profileStore,
             chatStore: ChatStore(supabase: supabase, llm: llmClient),
-            entityStore: EntityStore(supabase: supabase),
-            actionItemStore: ActionItemStore(supabase: supabase),
-            knowledgeStore: KnowledgeStore(llm: llmClient),
-            labelStore: LabelStore(supabase: supabase, auth: auth),
+            entityStore: entityStore,
+            actionItemStore: actionItemStore,
+            knowledgeStore: knowledgeStore,
+            knowledgeChat: KnowledgeChatStore(
+                llm: llmClient,
+                knowledge: knowledgeStore,
+                meetings: meetingStore,
+                labels: labelStore,
+                profile: profileStore,
+                language: languagePreference,
+                entities: entityStore,
+                actionItems: actionItemStore,
+                threads: knowledgeThreads,
+                feedback: retrievalFeedback
+            ),
+            knowledgeThreads: knowledgeThreads,
+            labelStore: labelStore,
             entitlements: EntitlementService(supabase: supabase),
             billing: BillingService(supabase: supabase),
             referral: ReferralService(supabase: supabase),

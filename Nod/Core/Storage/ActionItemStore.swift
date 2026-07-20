@@ -129,6 +129,26 @@ final class ActionItemStore: ObservableObject {
             .value
     }
 
+    /// Just the outstanding tasks, newest first. Grounding an "what should I
+    /// do" answer needs a couple of dozen open items — pulling all 2000 rows to
+    /// filter and drop 99% of them client-side is transfer and decode for
+    /// nothing, on the answer's critical path.
+    func openItems(limit: Int) async throws -> [ActionItem] {
+        #if DEBUG
+            if DemoMode.isEnabled { return Array(DemoData.allActionItems().filter { !$0.done }.prefix(limit)) }
+        #endif
+        return try await supabase
+            .from(Self.tableName)
+            .select()
+            .is("deleted_at", value: nil)
+            .eq("done", value: false)
+            .order("created_at", ascending: false)
+            .order("position", ascending: true)
+            .limit(limit)
+            .execute()
+            .value
+    }
+
     /// Soft-delete a single item (used to resolve a flagged duplicate). Mirrors
     /// the `meetings` soft-delete: stamps `deleted_at` so it drops out of every
     /// read without a hard delete.

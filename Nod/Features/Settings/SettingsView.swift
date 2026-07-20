@@ -329,6 +329,14 @@ struct SettingsView: View {
             ) {
                 HotkeyRecorderView(hotkey: hotkey, action: .togglePanel)
             }
+            SettingsRowDivider()
+            SettingsRow(
+                icon: "magnifyingglass",
+                title: "Search & ask",
+                subtitle: "Open the quick panel from any app to search your sessions or ask across all of them."
+            ) {
+                HotkeyRecorderView(hotkey: hotkey, action: .openLauncher)
+            }
         }
     }
 

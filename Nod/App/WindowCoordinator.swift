@@ -35,6 +35,18 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         }
     }
 
+    /// The quick panel, built on first use — most sessions never open it, and
+    /// it holds a hosting controller plus an event monitor.
+    private lazy var launcher = LauncherController(
+        services: services,
+        openMeeting: { [weak self] id in self?.showHistoryWindow(focusing: id) },
+        openLibrary: { [weak self] in self?.showHistoryWindow() }
+    )
+
+    func toggleLauncher() {
+        launcher.toggle()
+    }
+
     func toggleFloatingPanel() {
         guard let panel else { return }
         if panel.isVisible {
@@ -290,6 +302,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             .environmentObject(services.profileStore)
             .environmentObject(services.entityStore)
             .environmentObject(services.knowledgeStore)
+            .environmentObject(services.knowledgeChat)
+            .environmentObject(services.knowledgeThreads)
             .environmentObject(services.actionItemStore)
             .environmentObject(services.llmClient)
             .environmentObject(services.languagePreference)

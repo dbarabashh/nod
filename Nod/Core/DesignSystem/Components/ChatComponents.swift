@@ -146,11 +146,20 @@ struct ChatSuggestionChip: View {
 struct AssistantTextBubble: View {
     private let content: String
     private let rendered: AttributedString
+    private let showsBubble: Bool
     @State private var isHovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(content: String) {
+    /// `showsBubble: false` is the same answer without the chat chrome — used
+    /// where the surface itself is already the container (the launcher panel),
+    /// so the markdown rendering and the copy affordance stay shared instead of
+    /// being written a second time.
+    init(content: String, showsBubble: Bool = true) {
         self.content = content
+        self.showsBubble = showsBubble
+        // Rendered once here, not in `body`: a streamed answer re-evaluates its
+        // body on every flush, and re-parsing the whole markdown each time is
+        // quadratic in the answer's length.
         rendered = renderRecapMarkdown(content)
     }
 
@@ -160,9 +169,9 @@ struct AssistantTextBubble: View {
                 .font(.system(size: 13.5))
                 .foregroundStyle(Theme.Palette.ink.opacity(0.95))
                 .textSelection(.enabled)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .chatBubbleBackground(isUser: false)
+                .padding(.horizontal, showsBubble ? 12 : 0)
+                .padding(.vertical, showsBubble ? 9 : 0)
+                .modifier(ChatBubbleFill(isEnabled: showsBubble))
                 .frame(maxWidth: .infinity, alignment: .leading)
             ChatCopyButton(text: content)
                 .padding(.leading, 2)
@@ -171,6 +180,19 @@ struct AssistantTextBubble: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .animation(.hoverReveal(reduceMotion: reduceMotion), value: isHovering)
+    }
+}
+
+/// Applies the assistant bubble only when the surface isn't already one.
+private struct ChatBubbleFill: ViewModifier {
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.chatBubbleBackground(isUser: false)
+        } else {
+            content
+        }
     }
 }
 
@@ -252,8 +274,12 @@ struct ThinkingIndicator: View {
             BouncingDots()
             ZStack(alignment: .leading) {
                 Text(displayed)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.Palette.muted)
+                    // Vibrancy, not flat grey: over a translucent surface a
+                    // muted tone dissolves into whatever is behind the window.
+                    // Brighter tint, a little more weight, a touch of tracking.
+                    .font(.system(size: 12, weight: .medium))
+                    .tracking(0.1)
+                    .foregroundStyle(Theme.Palette.ink.opacity(0.78))
                     .id(displayed)
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .offset(y: 6)),
@@ -288,7 +314,7 @@ private struct BouncingDots: View {
         HStack(spacing: 3) {
             ForEach(0 ..< 3, id: \.self) { index in
                 Circle()
-                    .fill(Theme.Palette.muted)
+                    .fill(Theme.Palette.ink.opacity(0.6))
                     .frame(width: 4, height: 4)
                     .opacity(animating ? 1 : 0.35)
                     .offset(y: animating ? -2 : 1)

@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-06-25_
+_Last updated: 2026-07-19_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company. We've made the
@@ -104,7 +104,18 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
 - **Your profile.** The optional name / role / focus you enter (in `profiles`),
   used to give the AI context. You can view, edit, or clear it in Settings.
 - **Session chats.** Messages you exchange with the per-session assistant, in
-  `chat_messages`. (The cross-session "Ask Nod" chat is not persisted.)
+  `chat_messages`.
+- **Cross-session chats ("Ask Nod").** Each conversation is saved as a thread
+  (`knowledge_threads`) with its messages (`knowledge_messages`), so you can
+  reopen and continue it. A saved message also keeps the sessions the answer
+  drew on and the excerpts it quoted, so a reopened answer still shows its
+  evidence. You can delete any thread from the Ask Nod list; deleting a thread
+  deletes its messages with it.
+- **Which source you opened.** When you click through from an answer to the
+  session it cited, we record that click (`retrieval_feedback`): the question
+  you asked, which session you opened, and its position in the list. This is
+  what lets search learn which sessions actually answer which questions. It is
+  your own content, under the same Row-Level Security as everything else.
 - **Entities.** People, projects, and topics extracted from your sessions
   (`entities` + `meeting_entities`) so related sessions can be linked.
 - **Account profile.** Your email and Google OAuth identity, stored in

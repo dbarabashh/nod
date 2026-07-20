@@ -219,6 +219,7 @@ struct ActionItemsAggregateView: View {
             .padding(.bottom, 24)
         }
         .scrollContentBackground(.hidden)
+        .tooltipContainer()
     }
 
     /// Per-meeting heading sitting above the group's card, so a session's tasks

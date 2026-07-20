@@ -9,6 +9,7 @@ import Foundation
 enum HotkeyAction: String, CaseIterable, Identifiable {
     case suggestReply
     case togglePanel
+    case openLauncher
 
     var id: String {
         rawValue
@@ -26,6 +27,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         switch self {
         case .suggestReply: 1
         case .togglePanel: 2
+        case .openLauncher: 3
         }
     }
 
@@ -35,6 +37,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         switch self {
         case .suggestReply: "suggest"
         case .togglePanel: "togglePanel"
+        case .openLauncher: "launcher"
         }
     }
 
@@ -52,6 +55,9 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         switch self {
         case .suggestReply: .init(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey | shiftKey))
         case .togglePanel: .init(keyCode: UInt32(kVK_ANSI_H), modifiers: UInt32(cmdKey | shiftKey))
+        // ⌘Space is Spotlight and ⌥Space is Raycast's own; ⌘⇧K stays clear of
+        // both and matches the ⌘K command-bar convention.
+        case .openLauncher: .init(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(cmdKey | shiftKey))
         }
     }
 
@@ -59,6 +65,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         switch self {
         case .suggestReply: "Suggest reply"
         case .togglePanel: "Show / hide panel"
+        case .openLauncher: "Search & ask"
         }
     }
 }

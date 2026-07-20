@@ -10,35 +10,16 @@ struct KnowledgeChatView: View {
     /// used when a mention or source is clicked.
     let onOpenMeeting: (UUID) -> Void
 
-    @EnvironmentObject private var llm: LLMProxyClient
-    @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var labelStore: LabelStore
-    @EnvironmentObject private var profileStore: ProfileStore
-    @EnvironmentObject private var language: LanguagePreference
     @EnvironmentObject private var entitlements: EntitlementService
+    /// The thread itself — shared with any other surface onto the same
+    /// conversation, so a question asked in the launcher can be continued here.
+    @EnvironmentObject private var chat: KnowledgeChatStore
 
-    private struct QAMessage: Identifiable, Equatable {
-        let id = UUID()
-        let role: Role
-        let content: String
-        var sources: [SessionRef] = []
-        var mentions: [SessionRef] = []
-        enum Role { case user, assistant }
-    }
+    private typealias SessionRef = KnowledgeChatStore.SessionRef
 
-    /// A session reference — either a source an answer drew on or a session the
-    /// user pinned via @-mention. Both are just an id + display title.
-    private struct SessionRef: Identifiable, Equatable {
-        let id: UUID
-        let title: String
-    }
-
-    @State private var messages: [QAMessage] = []
     @State private var draft: String = ""
-    @State private var isSending = false
-    @State private var thinkingPhase = ""
-    @State private var errorText: String?
     @FocusState private var inputFocused: Bool
 
     /// Sessions the user pinned with @ — when non-empty the question is scoped
@@ -52,12 +33,6 @@ struct KnowledgeChatView: View {
     /// label. Persists across turns until the user clears it. An explicit
     /// @mention overrides it for that message.
     @State private var scopeLabel: SessionLabel?
-
-    private static let sourceDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "d MMM"
-        return f
-    }()
 
     var body: some View {
         Group {
@@ -131,12 +106,14 @@ struct KnowledgeChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    if messages.isEmpty { emptyState }
-                    ForEach(messages) { message in
+                    if chat.messages.isEmpty { emptyState }
+                    ForEach(chat.messages) { message in
                         bubble(message).id(message.id)
                     }
-                    if isSending { typingIndicator.id(Self.typingAnchor) }
-                    if let errorText {
+                    // Once tokens are arriving the answer bubble IS the
+                    // progress indicator — two of them reads as a stall.
+                    if chat.isSending, !chat.isStreaming { typingIndicator.id(Self.typingAnchor) }
+                    if let errorText = chat.errorText {
                         Text(errorText)
                             .font(.system(size: 11.5))
                             .foregroundStyle(Theme.Palette.warning)
@@ -146,8 +123,12 @@ struct KnowledgeChatView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-            .onChange(of: messages.count) { _ in scrollToEnd(proxy) }
-            .onChange(of: isSending) { _ in scrollToEnd(proxy) }
+            .onChange(of: chat.messages.count) { _ in scrollToEnd(proxy) }
+            .onChange(of: chat.isSending) { _ in scrollToEnd(proxy) }
+            // A growing answer pushes itself off-screen otherwise.
+            // Keyed on length, not the string: SwiftUI would otherwise compare
+            // the whole growing answer on every flush.
+            .onChange(of: chat.messages.last?.content.count) { _ in scrollToEnd(proxy) }
         }
     }
 
@@ -173,7 +154,7 @@ struct KnowledgeChatView: View {
     }
 
     @ViewBuilder
-    private func bubble(_ message: QAMessage) -> some View {
+    private func bubble(_ message: KnowledgeChatStore.Message) -> some View {
         if message.role == .user {
             UserTextBubble(text: userAttributed(message))
                 .padding(.leading, 40)
@@ -181,14 +162,74 @@ struct KnowledgeChatView: View {
             VStack(alignment: .leading, spacing: 6) {
                 AssistantTextBubble(content: message.content)
                     .padding(.trailing, 40)
-                if !message.sources.isEmpty {
-                    sourcesRow(message.sources)
+                if !message.evidence.isEmpty {
+                    // The passages an answer stands on, not just which sessions
+                    // it touched. They're persisted with the message, so a
+                    // reopened thread shows the same evidence it was read with.
+                    evidenceRows(message.evidence, in: message.id)
+                } else if !message.sources.isEmpty {
+                    sourcesRow(message.sources, in: message.id)
                 }
             }
         }
     }
 
-    private func sourcesRow(_ sources: [SessionRef]) -> some View {
+    /// One row per session, with the passage the answer used — the same shape
+    /// the launcher shows, so an answer reads the same wherever it's opened.
+    private func evidenceRows(
+        _ items: [KnowledgeChatStore.Excerpt],
+        in answerID: KnowledgeChatStore.Message.ID
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("FROM YOUR SESSIONS")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(Theme.Palette.muted)
+            ForEach(Array(items.prefix(3).enumerated()), id: \.element.id) { rank, item in
+                Button {
+                    chat.noteOpenedSource(meetingID: item.meetingID, rank: rank, in: answerID)
+                    onOpenMeeting(item.meetingID)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(item.title)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Theme.Palette.ink.opacity(0.85))
+                                .lineLimit(1)
+                            Text(item.date)
+                                .font(.system(size: 10))
+                                .foregroundStyle(Theme.Palette.muted)
+                            Spacer(minLength: 0)
+                        }
+                        Text(item.text)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.Palette.graphite)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                            .fill(Theme.Palette.surface)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                                    .stroke(Theme.Palette.border, lineWidth: 0.5)
+                            )
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Open this session")
+            }
+        }
+        .padding(.leading, 2)
+        .padding(.trailing, 40)
+    }
+
+    private func sourcesRow(_ sources: [SessionRef], in answerID: KnowledgeChatStore.Message.ID) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("SOURCES")
                 .font(.system(size: 9, weight: .bold))
@@ -196,8 +237,11 @@ struct KnowledgeChatView: View {
                 .foregroundStyle(Theme.Palette.muted)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(sources) { source in
-                        Button { onOpenMeeting(source.id) } label: {
+                    ForEach(Array(sources.enumerated()), id: \.element.id) { rank, source in
+                        Button {
+                            chat.noteOpenedSource(meetingID: source.id, rank: rank, in: answerID)
+                            onOpenMeeting(source.id)
+                        } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "doc.text")
                                     .font(.system(size: 8.5, weight: .semibold))
@@ -225,7 +269,7 @@ struct KnowledgeChatView: View {
 
     /// User message with its @mentions rendered as underlined, tappable links
     /// (white on the violet bubble) that open the session.
-    private func userAttributed(_ message: QAMessage) -> AttributedString {
+    private func userAttributed(_ message: KnowledgeChatStore.Message) -> AttributedString {
         var result = AttributedString(message.content)
         for mention in message.mentions {
             let token = "@\(mention.title)"
@@ -241,7 +285,7 @@ struct KnowledgeChatView: View {
     }
 
     private var typingIndicator: some View {
-        ThinkingIndicator(phase: thinkingPhase)
+        ThinkingIndicator(phase: chat.thinkingPhase)
     }
 
     private var composer: some View {
@@ -366,11 +410,11 @@ struct KnowledgeChatView: View {
                     .foregroundStyle(Theme.Palette.muted)
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(meeting.displayTitle(dateFormatter: Self.sourceDateFormatter))
+                    Text(meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter))
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(Theme.Palette.ink)
                         .lineLimit(1)
-                    Text(Self.sourceDateFormatter.string(from: meeting.startedAt))
+                    Text(Meeting.shortDateFormatter.string(from: meeting.startedAt))
                         .font(.system(size: 10.5))
                         .foregroundStyle(Theme.Palette.muted)
                 }
@@ -384,11 +428,7 @@ struct KnowledgeChatView: View {
     }
 
     private var filteredMeetings: [Meeting] {
-        let query = mentionSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return meetingStore.meetings }
-        return meetingStore.meetings.filter {
-            ($0.title?.lowercased().contains(query) ?? false) || $0.summary.lowercased().contains(query)
-        }
+        meetingStore.meetings.filter { $0.matches(mentionSearch) }
     }
 
     /// Inserts the chosen session inline as "@Title" so the mention is part of
@@ -396,7 +436,7 @@ struct KnowledgeChatView: View {
     /// mentions are actually "active" is re-derived from the text at send time
     /// (so deleting the inline text drops the mention).
     private func insertMention(_ meeting: Meeting) {
-        let title = meeting.displayTitle(dateFormatter: Self.sourceDateFormatter)
+        let title = meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter)
         if !mentions.contains(where: { $0.id == meeting.id }) {
             mentions.append(SessionRef(id: meeting.id, title: title))
         }
@@ -407,229 +447,37 @@ struct KnowledgeChatView: View {
     }
 
     private var canSend: Bool {
-        !isSending && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !chat.isSending && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Send
 
+    /// The view's only job at send time: work out which mentions are still
+    /// live in the text (deleting the inline "@Title" drops the mention) and
+    /// hand the question to the store.
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend else { return }
-        // Mentions are per-message: only those still present inline count, and
-        // they travel with this message then reset.
         let active = mentions.filter { text.localizedCaseInsensitiveContains("@\($0.title)") }
-        let pinned = active.map(\.id)
         draft = ""
         mentions = []
-        errorText = nil
-        // Captured before the new turn is appended — this is the context the
-        // query-prep step resolves follow-ups against.
-        let priorHistory = messages.map {
-            LLMProxyClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
-        }
-        messages.append(QAMessage(role: .user, content: text, mentions: active))
-        thinkingPhase = "Searching your sessions…"
-        isSending = true
         let scope = scopeLabel
-        Task {
-            // Answer in the language the user typed, not the app default — the
-            // retrieved excerpts (often Ukrainian) otherwise drag the reply away
-            // from an English question. Resolved up front so query prep writes
-            // the HyDE passage in the same language too.
-            let replyLanguage = AppLanguage.detect(from: text) ?? language.current
-            // HyDE + conversational rewrite: a self-contained query (drives
-            // routing + entity matching) and a hypothetical transcript-style
-            // answer (embedded for the vector match). Runs before routing so a
-            // follow-up like "and the enterprise one?" resolves to the full
-            // question rather than the bare pronoun.
-            let prepared = await llm.prepareSearchQuery(
-                history: priorHistory,
-                query: text,
-                language: replyLanguage,
-                personalContext: profileStore.promptContext
-            )
-
-            // Precedence: an explicit @mention is the most specific intent and
-            // wins; otherwise an active label scope narrows to its sessions;
-            // otherwise the router decides ("last meeting" / "the pricing one"
-            // resolve to specific rows, broad questions stay corpus-wide).
-            let route: Route
-            if !pinned.isEmpty {
-                route = .specific(pinned)
-            } else if let scope {
-                let ids = Array(labelStore.meetingIDs(withLabel: scope.id))
-                guard !ids.isEmpty else {
-                    messages.append(QAMessage(
-                        role: .assistant,
-                        content: "No sessions are in the “\(scope.name)” folder yet. Add one from a session's detail view, then ask again."
-                    ))
-                    isSending = false
-                    return
-                }
-                route = .scoped(ids)
-            } else {
-                route = await routeQuery(prepared.standalone)
-            }
-            let (excerpts, sources) = await gather(for: route, query: prepared.standalone, embedText: prepared.hyde)
-            let system = PromptLibrary.buildKnowledgeSystem(
-                excerpts: excerpts,
-                language: replyLanguage,
-                personalContext: profileStore.promptContext
-            )
-            let history = messages.map {
-                LLMProxyClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
-            }
-            do {
-                // Low temperature — cross-session answers must stay grounded in
-                // the retrieved excerpts, not improvise. The reply is kicked off
-                // first so the "reading" beat below overlaps real work rather
-                // than adding latency.
-                async let pendingReply = llm.chat(system: system, history: history, temperature: 0.2)
-                if !sources.isEmpty {
-                    thinkingPhase = sources.count == 1
-                        ? "Reading 1 session…"
-                        : "Reading \(sources.count) sessions…"
-                    try? await Task.sleep(nanoseconds: 700_000_000)
-                }
-                thinkingPhase = "Writing your answer…"
-                let reply = try await pendingReply
-                messages.append(QAMessage(role: .assistant, content: reply, sources: sources))
-            } catch {
-                Log.ui.error("KnowledgeChat send failed: \(error.localizedDescription)")
-                errorText = error.localizedDescription
-            }
-            isSending = false
-        }
-    }
-
-    private enum Route {
-        case all
-        case specific([UUID])
-        case scoped([UUID])
-    }
-
-    private struct SessionRoute: Decodable {
-        let scope: String
-        let indices: [Int]?
-    }
-
-    /// Asks the model which session(s) the question targets. Falls back to a
-    /// corpus-wide search on any failure or ambiguity.
-    private func routeQuery(_ text: String) async -> Route {
-        // Cap the routable list so the prompt stays small; broad questions that
-        // reference an older session still resolve via the "all" path.
-        let routable = Array(meetingStore.meetings.prefix(60))
-        guard !routable.isEmpty else { return .all }
-        let list = routable.enumerated().map { idx, meeting in
-            "\(idx) | \(Self.sourceDateFormatter.string(from: meeting.startedAt)) | \(meeting.displayTitle(dateFormatter: Self.sourceDateFormatter)) | \(meeting.kind.rawValue)"
-        }.joined(separator: "\n")
-
-        let (system, user) = PromptLibrary.buildSessionRouter(sessionList: list, query: text)
-        do {
-            let route = try await llm.completeJSON(system: system, user: user, as: SessionRoute.self)
-            guard route.scope == "specific" else { return .all }
-            let ids = (route.indices ?? []).compactMap { routable.indices.contains($0) ? routable[$0].id : nil }
-            return ids.isEmpty ? .all : .specific(ids)
-        } catch {
-            Log.ui.error("KnowledgeChat router failed (using all): \(error.localizedDescription)")
-            return .all
-        }
-    }
-
-    /// Builds the grounding excerpts + sources for the routed scope. Specific
-    /// sessions are answered from their recap (+ relevant transcript parts if
-    /// indexed) so sources show only what the question is actually about.
-    private func gather(for route: Route, query: String, embedText: String?) async -> (excerpts: [String], sources: [SessionRef]) {
-        switch route {
-        case .all, .scoped:
-            // Corpus-style search (similarity + entity boost). A label scope is
-            // the same path, constrained server-side to the label's sessions.
-            let scopedIDs: [UUID]? = if case let .scoped(ids) = route { ids } else { nil }
-            let chunks = await knowledgeStore.search(query: query, meetingIDs: scopedIDs, embedText: embedText)
-            let byID = Dictionary(meetingStore.meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            return (chunks.map { labeledExcerpt($0, in: byID) }, resolveSources(chunks, in: byID))
-        case let .specific(ids):
-            // Resolve each session's static metadata up front (main-actor
-            // state), then run the per-session transcript searches concurrently
-            // — they're independent, so a 5-session ask shouldn't pay five
-            // serial round-trips.
-            let resolved: [ResolvedSession] = ids.compactMap { id in
-                guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else { return nil }
-                return ResolvedSession(
-                    id: id,
-                    title: meeting.displayTitle(dateFormatter: Self.sourceDateFormatter),
-                    date: Self.sourceDateFormatter.string(from: meeting.startedAt),
-                    summary: meeting.summary
-                )
-            }
-            let store = knowledgeStore
-            let chunksByIndex = await withTaskGroup(of: (Int, [RetrievedChunk]).self) { group in
-                for (index, session) in resolved.enumerated() {
-                    group.addTask { await (index, store.search(query: query, meetingID: session.id, embedText: embedText)) }
-                }
-                var collected = [[RetrievedChunk]](repeating: [], count: resolved.count)
-                for await (index, chunks) in group {
-                    collected[index] = chunks
-                }
-                return collected
-            }
-
-            var excerpts: [String] = []
-            var sources: [SessionRef] = []
-            for (index, session) in resolved.enumerated() {
-                var block = "[From: \(session.title) (\(session.date))]\nRecap:\n\(session.summary.isEmpty ? "(no recap)" : session.summary)"
-                let chunks = chunksByIndex[index]
-                if !chunks.isEmpty {
-                    block += "\n\nRelevant excerpts:\n" + chunks.map(\.content).joined(separator: "\n…\n")
-                }
-                excerpts.append(block)
-                sources.append(SessionRef(id: session.id, title: session.title))
-            }
-            return (excerpts, sources)
-        }
-    }
-
-    /// Distinct sessions behind the retrieved chunks, in retrieval order, so
-    /// the answer can show what it drew on.
-    private func resolveSources(_ chunks: [RetrievedChunk], in byID: [UUID: Meeting]) -> [SessionRef] {
-        var seen = Set<UUID>()
-        var refs: [SessionRef] = []
-        for chunk in chunks where seen.insert(chunk.meetingID).inserted {
-            let title = byID[chunk.meetingID]?
-                .displayTitle(dateFormatter: Self.sourceDateFormatter) ?? "A past session"
-            refs.append(SessionRef(id: chunk.meetingID, title: title))
-        }
-        return refs
-    }
-
-    /// Prefix each excerpt with a human source label so the model can cite it.
-    private func labeledExcerpt(_ chunk: RetrievedChunk, in byID: [UUID: Meeting]) -> String {
-        let label: String
-        if let meeting = byID[chunk.meetingID] {
-            let title = meeting.displayTitle(dateFormatter: Self.sourceDateFormatter)
-            label = "\(title) (\(Self.sourceDateFormatter.string(from: meeting.startedAt)))"
-        } else {
-            label = "a past session"
-        }
-        return "[From: \(label)]\n\(chunk.content)"
+        Task { await chat.ask(text, pinned: active, scope: scope) }
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
-        let target: AnyHashable? = isSending
+        let target: AnyHashable? = chat.isSending
             ? AnyHashable(Self.typingAnchor)
-            : messages.last.map { AnyHashable($0.id) }
+            : chat.messages.last.map { AnyHashable($0.id) }
         guard let target else { return }
+        // Mid-stream each flush would restart a 150ms scroll before the last
+        // finished, which is what makes streaming scroll feel rubbery.
+        guard !chat.isStreaming else {
+            proxy.scrollTo(target, anchor: .bottom)
+            return
+        }
         withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(target, anchor: .bottom) }
     }
 
     private static let typingAnchor = "nod.knowledge.typing"
-}
-
-/// A pinned session's static metadata, resolved on the main actor before its
-/// transcript search runs concurrently with the others.
-private struct ResolvedSession {
-    let id: UUID
-    let title: String
-    let date: String
-    let summary: String
 }

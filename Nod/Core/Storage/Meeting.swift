@@ -35,6 +35,24 @@ struct Meeting: Codable, Identifiable {
     // text per row; the detail view loads transcript entries lazily when
     // the Transcript tab is opened.
 
+    /// The short date a session is labelled with wherever it's listed — the
+    /// launcher row, the chat's source chip, the grounding label. Shared so the
+    /// same untitled session can't read differently in two of them.
+    static let shortDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMM"
+        return formatter
+    }()
+
+    /// Whether this session matches a free-text query. Shared by the Library's
+    /// filter and the launcher so the same words never surface a session in one
+    /// and hide it in the other.
+    func matches(_ query: String) -> Bool {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return true }
+        return title?.lowercased().contains(needle) == true || summary.lowercased().contains(needle)
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case userID = "user_id"

@@ -86,6 +86,81 @@ final class EntityStore: ObservableObject {
         }
     }
 
+    /// Every entity the user has, for matching names in a question. Small by
+    /// nature (people and projects, not chunks) and cached by the caller for a
+    /// session, so this is one query per app run rather than per question.
+    func allEntities() async -> [Entity] {
+        do {
+            return try await supabase
+                .from(Self.entitiesTable)
+                .select()
+                .limit(2000)
+                .execute()
+                .value
+        } catch {
+            Log.ui.error("EntityStore.allEntities failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    /// The sessions these entities appear in, newest first is left to the
+    /// caller — this is just the link table.
+    func meetingIDs(forEntities entityIDs: [UUID]) async -> [UUID] {
+        guard !entityIDs.isEmpty else { return [] }
+        do {
+            struct Link: Decodable { let meeting_id: UUID }
+            let links: [Link] = try await supabase
+                .from(Self.linksTable)
+                .select("meeting_id")
+                .in("entity_id", values: entityIDs.map(\.uuidString))
+                .execute()
+                .value
+            return Array(Set(links.map(\.meeting_id)))
+        } catch {
+            Log.ui.error("EntityStore.meetingIDs(forEntities) failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    /// People across several sessions in two queries instead of two per
+    /// session. Grounding a cross-session answer needs the participants of
+    /// every retrieved session at once, and the per-meeting call is itself two
+    /// round trips — so eight sessions meant sixteen requests before the model
+    /// could even be asked.
+    func people(forMeetings meetingIDs: [UUID]) async -> [UUID: [String]] {
+        guard !meetingIDs.isEmpty else { return [:] }
+        do {
+            struct Link: Decodable { let meeting_id: UUID; let entity_id: UUID }
+            let links: [Link] = try await supabase
+                .from(Self.linksTable)
+                .select("meeting_id,entity_id")
+                .in("meeting_id", values: meetingIDs.map(\.uuidString))
+                .execute()
+                .value
+            let entityIDs = Set(links.map(\.entity_id))
+            guard !entityIDs.isEmpty else { return [:] }
+            let entities: [Entity] = try await supabase
+                .from(Self.entitiesTable)
+                .select()
+                .in("id", values: entityIDs.map(\.uuidString))
+                .execute()
+                .value
+            let peopleByID = Dictionary(
+                entities.filter { $0.kind == .person }.map { ($0.id, $0.name) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            var grouped: [UUID: [String]] = [:]
+            for link in links {
+                guard let name = peopleByID[link.entity_id] else { continue }
+                grouped[link.meeting_id, default: []].append(name)
+            }
+            return grouped.mapValues { $0.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending } }
+        } catch {
+            Log.ui.error("EntityStore.people(forMeetings) failed: \(error.localizedDescription)")
+            return [:]
+        }
+    }
+
     /// Other sessions that share at least one entity with this one, ranked by
     /// how many they share, newest-first as a tiebreak. Capped small — this
     /// drives a humble "Related" list, not a graph.

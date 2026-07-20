@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-06-25_
+_Last updated: 2026-07-19_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -66,14 +66,16 @@ Calendar, Drive, or contacts.
 | Meeting metadata (start/end time, title, language, session **kind**: meeting / voice note / media) | To list and organise your sessions | Contract (Art. 6(1)(b)) |
 | Transcript **embeddings** (vector + chunk text, in `session_embeddings`) | To let you ask questions across your past sessions ("Ask Nod") | Contract (Art. 6(1)(b)) |
 | **Chat messages** with the per-session assistant (`chat_messages`) | To answer your questions about a session and keep the thread | Contract (Art. 6(1)(b)) |
+| **Cross-session chats** (`knowledge_threads`, `knowledge_messages`) — your questions, the answers, and the sessions/excerpts each answer used | To let you reopen and continue an "Ask Nod" conversation instead of losing it on quit | Contract (Art. 6(1)(b)) |
+| **Source clicks** (`retrieval_feedback`) — the question asked, the session opened from the answer, and its position in the list | To improve which sessions search returns for a question | Legitimate interest (Art. 6(1)(f)): improving the product you're using, on your own content |
 | **Entities** (people / projects / topics extracted from a session) | To link related sessions and power scoped search | Contract (Art. 6(1)(b)) |
 | Your optional **profile** (name, role, current focus) | To give the assistant context about you | Contract (Art. 6(1)(b)); you may leave it blank or clear it anytime |
 
 The embeddings, chat messages, and entities are derived from transcript
 content you already chose to record; they are stored in the same
 Supabase database, in the same `eu-west-1` region, under the same per-user
-Row-Level Security. The cross-session "Ask Nod" conversation is **not**
-persisted.
+Row-Level Security. Cross-session "Ask Nod" conversations are saved as threads
+you can reopen — and delete, which removes their messages with them.
 
 We do **not** store raw audio. Audio exists only as transient memory inside
 the app and inside the Whisper request, for the duration of a single

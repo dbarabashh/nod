@@ -5,11 +5,12 @@ import SwiftUI
 /// AppKit's tooltip is a system-yellow box with system timing and no way to
 /// style it — next to a dark glass panel it reads as a foreign element.
 ///
-/// Same glass as the undo toast, plus a tail pointing back at what it explains:
-/// a card floating free next to a dense list leaves the user guessing which row
-/// it belongs to. It sits above the anchor on purpose — SwiftUI draws later
-/// siblings on top, so a card growing upward passes over rows that are already
-/// painted, while one dropping downward slides under the next row's text.
+/// The card is NOT drawn where it's attached. A tooltip inside a row is stuck
+/// with that row's fate: a scroll view slices whatever hangs above it, and a
+/// card dropping below slides under the rows painted after it. So the anchor
+/// only publishes *where* it is, and the enclosing `tooltipContainer()` draws
+/// the card in one overlay above all of its content — one layer, no clipping,
+/// no z-order fights.
 private struct HoverTooltipModifier: ViewModifier {
     let text: String
     let detail: String?
@@ -17,9 +18,13 @@ private struct HoverTooltipModifier: ViewModifier {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isVisible = false
-    /// Identifies the in-flight dwell timer: every hover-exit rotates it, so a
-    /// timer from a pointer that has already left can never pop the card open.
-    @State private var dwellToken = UUID()
+    @State private var anchor: CGRect = .zero
+    /// Cancelled on hover-exit, so a timer from a pointer that has already left
+    /// can't pop the card open behind it.
+    @State private var dwellTask: Task<Void, Never>?
+    /// Stable across redraws so the container can tell "same tooltip, moved"
+    /// from "a different one".
+    @State private var identity = UUID()
 
     /// Long enough that sweeping the pointer across a list stays quiet, short
     /// enough that a deliberate hover doesn't feel unresponsive.
@@ -27,39 +32,130 @@ private struct HoverTooltipModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .overlay(alignment: .topLeading) {
+            // Installed only while the card is up: every anchor in a list
+            // carries this, and an always-on reader means a layout-reading
+            // subtree plus a preference walk per row, forever, for a card that
+            // is visible on one row at a time.
+            .background {
                 if isVisible {
-                    TooltipCard(text: text, detail: detail, systemImage: systemImage)
-                        .fixedSize(horizontal: false, vertical: true)
-                        // A zero-height slot pinned to the anchor's top edge,
-                        // with the card hanging out of its bottom — the bubble
-                        // lands fully above the anchor with no measuring and no
-                        // state. (`alignmentGuide` is the textbook way to do
-                        // this and simply doesn't lift the card here; measuring
-                        // it into an offset renders nothing at all.)
-                        .frame(height: 0, alignment: .bottom)
-                        .transition(
-                            reduceMotion
-                                ? .opacity
-                                : .scale(scale: 0.94, anchor: .bottomLeading).combined(with: .opacity)
+                    GeometryReader { geo in
+                        Color.clear.preference(
+                            key: TooltipAnchorKey.self,
+                            value: TooltipRequest(
+                                id: identity,
+                                text: text,
+                                detail: detail,
+                                systemImage: systemImage,
+                                anchor: geo.frame(in: .named(TooltipSpace.name))
+                            )
                         )
-                        .allowsHitTesting(false)
+                    }
                 }
             }
             .onHover { hovering in
+                dwellTask?.cancel()
                 guard hovering else {
-                    dwellToken = UUID()
                     withAnimation(.standard(reduceMotion: reduceMotion)) { isVisible = false }
                     return
                 }
-                let token = UUID()
-                dwellToken = token
-                Task {
+                dwellTask = Task {
                     try? await Task.sleep(for: Self.dwell)
-                    guard dwellToken == token else { return }
+                    guard !Task.isCancelled else { return }
                     withAnimation(.hoverReveal(reduceMotion: reduceMotion)) { isVisible = true }
                 }
             }
+    }
+}
+
+/// What an anchor publishes: its content and where it sits in the container.
+struct TooltipRequest: Equatable {
+    let id: UUID
+    let text: String
+    let detail: String?
+    let systemImage: String?
+    let anchor: CGRect
+}
+
+private struct TooltipAnchorKey: PreferenceKey {
+    static var defaultValue: TooltipRequest?
+
+    /// Last one wins — only one tooltip is ever open, since a pointer is only
+    /// over one thing at a time.
+    static func reduce(value: inout TooltipRequest?, nextValue: () -> TooltipRequest?) {
+        value = nextValue() ?? value
+    }
+}
+
+/// Marks the view whose bounds clip tooltips — normally the scroll view a list
+/// lives in — and hosts the layer they're drawn on.
+enum TooltipSpace {
+    static let name = "nod.tooltip.container"
+    /// Space a card needs above the anchor before it has to flip below: two
+    /// lines of detail plus its chrome.
+    static let neededAbove: CGFloat = 88
+    /// Gap between the anchor and the card, on whichever side it lands.
+    static let gap: CGFloat = 2
+}
+
+extension View {
+    /// Declares this view as the boundary tooltips inside it must stay within,
+    /// and draws them on top of it.
+    func tooltipContainer() -> some View {
+        coordinateSpace(name: TooltipSpace.name)
+            .overlayPreferenceValue(TooltipAnchorKey.self) { request in
+                if let request {
+                    TooltipLayer(request: request)
+                }
+            }
+            // Stops here: preferences otherwise keep travelling up, and an
+            // outer container would draw a second copy of the same card at
+            // coordinates that mean nothing in its own space.
+            .preference(key: TooltipAnchorKey.self, value: nil)
+    }
+
+    /// Styled hover explainer in place of `.help(_:)` — same information, drawn
+    /// in the app's material. The text is mirrored to an accessibility hint so
+    /// dropping AppKit's tooltip doesn't drop it for VoiceOver.
+    func hoverTooltip(_ text: String, detail: String? = nil, systemImage: String? = nil) -> some View {
+        modifier(HoverTooltipModifier(text: text, detail: detail, systemImage: systemImage))
+            .accessibilityHint([text, detail].compactMap { $0 }.joined(separator: ". "))
+    }
+}
+
+/// Positions the card against its anchor: above by default, below when the top
+/// of the container is too close for it to fit.
+private struct TooltipLayer: View {
+    let request: TooltipRequest
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var placesBelow: Bool {
+        request.anchor.minY < TooltipSpace.neededAbove
+    }
+
+    var body: some View {
+        TooltipCard(
+            text: request.text,
+            detail: request.detail,
+            systemImage: request.systemImage,
+            tailEdge: placesBelow ? .top : .bottom
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        // A zero-height slot at the anchor's edge, with the card hanging out of
+        // it — lands the bubble fully outside the anchor without measuring it.
+        .frame(height: 0, alignment: placesBelow ? .top : .bottom)
+        .offset(
+            x: request.anchor.minX,
+            y: placesBelow ? request.anchor.maxY + TooltipSpace.gap : request.anchor.minY - TooltipSpace.gap
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
+        .transition(
+            reduceMotion
+                ? .opacity
+                : .scale(scale: 0.94, anchor: placesBelow ? .topLeading : .bottomLeading).combined(with: .opacity)
+        )
+        .animation(.hoverReveal(reduceMotion: reduceMotion), value: request.id)
     }
 }
 
@@ -69,6 +165,7 @@ struct TooltipCard: View {
     let text: String
     var detail: String?
     var systemImage: String?
+    var tailEdge: VerticalEdge = .bottom
 
     static let tailHeight: CGFloat = 7
     private static let tailWidth: CGFloat = 14
@@ -79,11 +176,6 @@ struct TooltipCard: View {
     private static let maxTextWidth: CGFloat = 230
     private static let fontSize: CGFloat = 11.5
     private static let detailFontSize: CGFloat = 10.5
-    private static let fonts: [CGFloat: NSFont] = [
-        fontSize: .systemFont(ofSize: fontSize, weight: .medium),
-        detailFontSize: .systemFont(ofSize: detailFontSize, weight: .medium)
-    ]
-
     /// Measured on one line and clamped, so the card hugs a short hint and wraps
     /// a long one at a readable measure. The extra point absorbs the rounding
     /// difference between this measurement and SwiftUI's own.
@@ -93,7 +185,7 @@ struct TooltipCard: View {
     }
 
     private func width(of string: String, size: CGFloat) -> CGFloat {
-        guard let font = Self.fonts[size] else { return 0 }
+        let font = NSFont.systemFont(ofSize: size, weight: .medium)
         return (string as NSString).size(withAttributes: [.font: font]).width
     }
 
@@ -126,8 +218,8 @@ struct TooltipCard: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 10)
-        .padding(.top, 7)
-        .padding(.bottom, 7 + Self.tailHeight)
+        .padding(.top, 7 + (tailEdge == .top ? Self.tailHeight : 0))
+        .padding(.bottom, 7 + (tailEdge == .bottom ? Self.tailHeight : 0))
         .background(bubble)
     }
 
@@ -139,7 +231,8 @@ struct TooltipCard: View {
             cornerRadius: 9,
             tailWidth: Self.tailWidth,
             tailHeight: Self.tailHeight,
-            tailInset: Self.tailInset
+            tailInset: Self.tailInset,
+            tailEdge: tailEdge
         )
         return shape
             .fill(.regularMaterial)
@@ -156,10 +249,26 @@ struct TooltipBubble: Shape {
     let tailWidth: CGFloat
     let tailHeight: CGFloat
     let tailInset: CGFloat
+    /// Which side the tail leaves from — `.bottom` for a card above its anchor,
+    /// `.top` for one that had to flip below it.
+    var tailEdge: VerticalEdge = .bottom
 
     /// Traced as one outline rather than a rounded rect unioned with a triangle
     /// — `Path.union` is macOS 14, and the app ships to 13.
     func path(in rect: CGRect) -> Path {
+        guard tailEdge == .bottom else {
+            // Same outline, mirrored: build the downward-tail path in a flipped
+            // box and flip it back, rather than tracing a second one by hand.
+            let flipped = TooltipBubble(
+                cornerRadius: cornerRadius,
+                tailWidth: tailWidth,
+                tailHeight: tailHeight,
+                tailInset: tailInset
+            ).path(in: rect)
+            return flipped.applying(
+                CGAffineTransform(scaleX: 1, y: -1).concatenating(CGAffineTransform(translationX: 0, y: rect.height))
+            )
+        }
         let bottom = max(rect.maxY - tailHeight, rect.minY)
         let radius = min(cornerRadius, min(rect.width, bottom - rect.minY) / 2)
         let half = tailWidth / 2
@@ -198,15 +307,5 @@ struct TooltipBubble: Shape {
         )
         path.closeSubpath()
         return path
-    }
-}
-
-extension View {
-    /// Styled hover explainer in place of `.help(_:)` — same information, drawn
-    /// in the app's material. The text is mirrored to an accessibility hint so
-    /// dropping AppKit's tooltip doesn't drop it for VoiceOver.
-    func hoverTooltip(_ text: String, detail: String? = nil, systemImage: String? = nil) -> some View {
-        modifier(HoverTooltipModifier(text: text, detail: detail, systemImage: systemImage))
-            .accessibilityHint([text, detail].compactMap { $0 }.joined(separator: ". "))
     }
 }

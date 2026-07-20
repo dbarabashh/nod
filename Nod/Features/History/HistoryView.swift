@@ -64,6 +64,7 @@ struct HistoryView: View {
     enum Section: String, CaseIterable, Identifiable {
         case library = "Library"
         case actionItems = "Action Items"
+        case chats = "Ask Nod"
         var id: String {
             rawValue
         }
@@ -72,6 +73,7 @@ struct HistoryView: View {
             switch self {
             case .library: "rectangle.stack"
             case .actionItems: "checklist"
+            case .chats: "sparkles"
             }
         }
     }
@@ -88,7 +90,13 @@ struct HistoryView: View {
                 sidebarRail
                 navigationColumn
                     .frame(maxWidth: .infinity)
-                chatDock(width: dockW)
+                // The dock is the chat you keep *beside* the library. In the
+                // Ask Nod section the chat is the destination itself, and both
+                // read the same store — leaving the dock mounted showed the
+                // very same conversation twice, side by side.
+                if showsChatDock {
+                    chatDock(width: dockW)
+                }
             }
 
             // The divider — seam line, grab strip, and in-flight resize preview —
@@ -96,17 +104,23 @@ struct HistoryView: View {
             // panes. The committed width is held during the drag (the panes don't
             // re-flow, so it stays smooth even on a fast drag) and flushed to the
             // store once on release.
-            ChatDockDivider(
-                committedWidth: dockW,
-                windowWidth: windowWidth,
-                onCommit: { newWidth in
-                    dockWidth.setWidth(newWidth, for: path.last?.id, totalWidth: windowWidth)
-                    dockWidth.commit()
-                },
-                onReset: { dockWidth.resetWidth(for: path.last?.id) }
-            )
+            if showsChatDock {
+                ChatDockDivider(
+                    committedWidth: dockW,
+                    windowWidth: windowWidth,
+                    onCommit: { newWidth in
+                        dockWidth.setWidth(newWidth, for: path.last?.id, totalWidth: windowWidth)
+                        dockWidth.commit()
+                    },
+                    onReset: { dockWidth.resetWidth(for: path.last?.id) }
+                )
+            }
         }
         .readingWidth(into: $windowWidth)
+        // Window-level fallback so an anchor is never left without a layer to
+        // draw on — a missing container fails silently, with no build error and
+        // no log. Scroll views declare their own tighter one, which wins.
+        .tooltipContainer()
         .background(WindowBackdrop().ignoresSafeArea())
         .task {
             // Always refresh on appear. The previous `.idle` gate would
@@ -123,6 +137,10 @@ struct HistoryView: View {
             if let id = initialFocusMeetingID {
                 focus(on: id)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .nodOpenKnowledgeChats)) { _ in
+            path.removeAll()
+            section = .chats
         }
         .onReceive(NotificationCenter.default.publisher(for: .nodOpenMeetingDetail)) { note in
             if let id = note.userInfo?[Notification.nodMeetingIDKey] as? UUID {
@@ -164,6 +182,12 @@ struct HistoryView: View {
         }
     }
 
+    /// The Ask Nod section *is* the cross-session chat, so the dock beside it
+    /// would be a second view onto the same thread.
+    private var showsChatDock: Bool {
+        section != .chats
+    }
+
     // MARK: - Navigation column (list + detail)
 
     /// Master/detail as a cross-fade, not a `NavigationStack` push — macOS can't
@@ -176,6 +200,9 @@ struct HistoryView: View {
                     .transition(.opacity)
             } else if section == .actionItems {
                 actionItemsScreen
+                    .transition(.opacity)
+            } else if section == .chats {
+                KnowledgeThreadsView(onOpenMeeting: openMeeting)
                     .transition(.opacity)
             } else {
                 libraryList
@@ -244,7 +271,9 @@ struct HistoryView: View {
                 section = target
                 // Action Items has no detail stack of its own — drop any open
                 // meeting so the switch lands on the checklist, not a stale row.
-                if target == .actionItems { path.removeAll() }
+                // Only the Library has a detail stack — drop any open meeting so
+                // switching lands on the destination, not a stale detail view.
+                if target != .library { path.removeAll() }
             }
         } label: {
             VStack(spacing: 3) {
@@ -663,8 +692,7 @@ struct HistoryView: View {
         let q = normalizedQuery
         if q.isEmpty { return result }
         return result.filter { meeting in
-            if let title = meeting.title?.lowercased(), title.contains(q) { return true }
-            return meeting.summary.lowercased().contains(q)
+            meeting.matches(q)
         }
     }
 

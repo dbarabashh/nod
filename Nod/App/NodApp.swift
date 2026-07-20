@@ -56,6 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: .nodSuggestHotkey, object: nil)
             case .togglePanel:
                 windows?.toggleFloatingPanel()
+            case .openLauncher:
+                windows?.toggleLauncher()
             }
         }
 
@@ -311,6 +313,9 @@ extension Notification.Name {
     /// Posted by the panel's overflow (•••) menu.
     static let nodOpenSettings = Notification.Name("nod.app.openSettings")
     static let nodOpenLibrary = Notification.Name("nod.app.openLibrary")
+    /// Switch the Meetings window to the saved cross-session chats — posted
+    /// when the launcher hands its thread over.
+    static let nodOpenKnowledgeChats = Notification.Name("nod.history.openKnowledgeChats")
     /// Posted by the panel's mode chip ("Manage Modes…") to open Settings on the
     /// Modes tab.
     static let nodOpenModes = Notification.Name("nod.app.openModes")

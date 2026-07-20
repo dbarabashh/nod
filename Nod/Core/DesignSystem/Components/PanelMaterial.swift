@@ -13,11 +13,33 @@ import SwiftUI
 /// consistent dark glass regardless of what's behind the panel.
 struct PanelMaterial: View {
     var material: NSVisualEffectView.Material = .hudWindow
+    /// Rounds the blur itself. SwiftUI's `clipShape` doesn't clip an
+    /// AppKit-backed view, so a rounded card drawn on this material still shows
+    /// the effect view's square corners — and, on a window with padding around
+    /// the card, a grey rectangle spilling out behind it.
+    var cornerRadius: CGFloat = 0
+    /// How hard the dark scrim pins the blur. The default is tuned for the
+    /// panel's small pills; a large surface needs more, because the bigger the
+    /// area the more desktop bleeds through it and the less contrast the
+    /// white-on-dark content keeps.
+    var scrim: Double = 0.32
+
+    /// The panel's small floating pills — the default weight.
+    static func pill(_ material: NSVisualEffectView.Material = .hudWindow) -> PanelMaterial {
+        PanelMaterial(material: material)
+    }
+
+    /// A whole-window surface. Heavier scrim on purpose: the larger the area,
+    /// the more desktop bleeds through and the less contrast white-on-dark
+    /// content keeps.
+    static func card(cornerRadius: CGFloat, material: NSVisualEffectView.Material = .hudWindow) -> PanelMaterial {
+        PanelMaterial(material: material, cornerRadius: cornerRadius, scrim: 0.62)
+    }
 
     var body: some View {
         ZStack {
-            PanelEffect(material: material)
-            DesignTokens.Surface.level0.opacity(0.32)
+            PanelEffect(material: material, cornerRadius: cornerRadius)
+            DesignTokens.Surface.level0.opacity(scrim)
         }
     }
 }
@@ -48,16 +70,27 @@ extension View {
 
 struct PanelEffect: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .hudWindow
+    var cornerRadius: CGFloat = 0
 
-    func makeNSView(context: Context) -> NSVisualEffectView {
+    func makeNSView(context _: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = material
         view.blendingMode = .behindWindow
         view.state = .active
+        apply(cornerRadius, to: view)
         return view
     }
 
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+    func updateNSView(_ nsView: NSVisualEffectView, context _: Context) {
         nsView.material = material
+        apply(cornerRadius, to: nsView)
+    }
+
+    private func apply(_ radius: CGFloat, to view: NSVisualEffectView) {
+        guard radius > 0 else { return }
+        view.wantsLayer = true
+        view.layer?.cornerRadius = radius
+        view.layer?.cornerCurve = .continuous
+        view.layer?.masksToBounds = true
     }
 }
