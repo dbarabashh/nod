@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-07-19_
+_Last updated: 2026-07-21_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -108,7 +108,26 @@ abuse.
 Legal basis: legitimate interest in operating a sustainable service
 (Art. 6(1)(f)).
 
-### 3.5 Device binding
+### 3.5 Onboarding progress
+
+While you set Nod up for the first time, we record in `onboarding_events`
+which setup screen you reached, whether you granted or declined the
+microphone and screen-recording permissions, whether you skipped that step,
+and whether the app needed to restart to pick up a screen-recording grant.
+Each row holds your user ID, a timestamp, the event name, and the app
+version — no meeting content, no screen contents, and nothing about what you
+do in the app after setup finishes.
+
+We need this because setup progress is otherwise stored only on your own Mac,
+which left us unable to tell whether new users were getting stuck on the macOS
+permission prompts. It is written to our own database in the same
+`eu-west-1` region under the same per-user Row-Level Security as the rest of
+your data, and is never sent to a third party. It is deleted with your account.
+
+Legal basis: legitimate interest in diagnosing and fixing a broken setup
+experience (Art. 6(1)(f)).
+
+### 3.6 Device binding
 
 To enforce your plan's device limit — and prevent one login from being shared
 across many machines — we store one row per signed-in device in `user_devices`:
@@ -125,7 +144,7 @@ web.
 Legal basis: legitimate interest in securing accounts and preventing
 unauthorised credential sharing (Art. 6(1)(f)).
 
-### 3.6 Subscription and billing state
+### 3.7 Subscription and billing state
 
 When you start a trial or buy a plan, we store one row per account in
 `subscriptions` describing the state of your subscription — never your card
@@ -145,18 +164,22 @@ it lists the tiers and prices everyone sees. Every `subscriptions` row is
 protected by the same per-user Row-Level Security as the rest of your data,
 in the same `eu-west-1` region.
 
-### 3.7 What we do **not** collect
+### 3.8 What we do **not** collect
 
 - The macOS app embeds **no** analytics SDKs (PostHog, Mixpanel, Amplitude,
-  Segment, Google Analytics, Sentry, etc.). The marketing website uses only
-  **Vercel Web Analytics** — cookieless, aggregate page-view and download-click
-  counts, no cross-site tracking (see the Subprocessors page).
+  Segment, Google Analytics, Sentry, etc.). The only in-app product telemetry
+  is the first-party setup log described in § 3.5, which goes to our own
+  database and no one else's. The marketing website uses only **Vercel Web
+  Analytics** — cookieless, aggregate page-view and download-click counts, no
+  cross-site tracking (see the Subprocessors page).
+- We do **not** track which features you use, which screens you open, or how
+  long you spend in the app once setup is finished.
 - We do **not** track you across the web or use advertising cookies.
 - We do **not** read your calendar, email, or other Google services.
 - We do **not** collect your contacts or address book.
 - We do **not** sell your personal data to anyone, ever.
 
-### 3.8 Importing from other apps (Granola)
+### 3.9 Importing from other apps (Granola)
 
 If you previously used **Granola**, Nod can import your past meetings'
 **transcripts** from Granola's own offline cache file on your Mac
@@ -256,6 +279,7 @@ We can provide our SCCs and transfer impact assessments on request to
 | Meetings (in trash)                  | 30 days. A nightly Postgres job permanently deletes anything older. |
 | Meeting transcripts                  | Same as the parent meeting (cascade delete).                         |
 | Transcript embeddings, session chats, entity links | Same as the parent meeting (cascade delete). Extracted entities themselves are per-user and removed on account deletion. |
+| Onboarding progress (`onboarding_events`) | Until you delete your account (cascade).                        |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |
 | Usage metadata                       | 24 months, then aggregated and anonymised.                           |
 | Encrypted database backups           | 7 days rolling.                                                      |
@@ -263,8 +287,8 @@ We can provide our SCCs and transfer impact assessments on request to
 
 When you delete your account from **Settings → Privacy**, we erase your
 auth profile, meetings (active and trashed), transcripts, summaries, chats,
-entities, labels, device bindings, usage rows, and subscription row
-immediately — the deletion cascades the moment you confirm it. We retain
+entities, labels, device bindings, usage rows, onboarding events, and
+subscription row immediately — the deletion cascades the moment you confirm it. We retain
 your consent acknowledgement rows for the legal-defence window above; these
 become orphaned (`user_id` set to NULL) and are no longer linked to you in
 any externally-resolvable way.

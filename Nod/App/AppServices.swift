@@ -9,6 +9,9 @@ import Supabase
 struct AppServices {
     let permissions: PermissionManager
     let onboarding: OnboardingState
+    /// Server-side funnel log for the onboarding steps — the only signal we
+    /// have for where a new user stops, since `OnboardingState` is local-only.
+    let onboardingTelemetry: OnboardingTelemetry
     let audioCapture: AudioCaptureService
     let llmClient: LLMProxyClient
     let transcriptStore: TranscriptStore
@@ -86,6 +89,7 @@ struct AppServices {
             supabase: supabase,
             auth: auth
         )
+        let onboardingTelemetry = OnboardingTelemetry(supabase: supabase, auth: auth)
 
         audioCapture.onMicBuffer = { [weak transcriptStore] buffer in
             transcriptStore?.appendMicBuffer(buffer)
@@ -106,6 +110,7 @@ struct AppServices {
         return AppServices(
             permissions: permissions,
             onboarding: onboarding,
+            onboardingTelemetry: onboardingTelemetry,
             audioCapture: audioCapture,
             llmClient: llmClient,
             transcriptStore: transcriptStore,
