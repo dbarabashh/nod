@@ -8,6 +8,7 @@ struct OnboardingView: View {
     @EnvironmentObject private var language: LanguagePreference
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var auth: AuthService
+    @EnvironmentObject private var telemetry: OnboardingTelemetry
 
     /// Pad past the traffic-light strip so step titles never collide with the
     /// close button. macOS chrome occupies ~28pt of the window's top.
@@ -37,6 +38,7 @@ struct OnboardingView: View {
         // expands to use the new space.
         .frame(minWidth: 580, minHeight: 560)
         .onAppear { permissions.refresh() }
+        .task(id: state.status.currentStep) { telemetry.stepShown(state.status.currentStep) }
     }
 
     private var strings: OnboardingStrings {
@@ -81,6 +83,8 @@ struct OnboardingView: View {
                         // feature the tutorial walks through — finish onboarding
                         // straight away rather than narrating features they
                         // declined.
+                        telemetry.permissionsSkipped()
+                        telemetry.completed()
                         state.complete()
                         onComplete()
                     } else {
@@ -90,6 +94,7 @@ struct OnboardingView: View {
             )
         case .tutorial:
             TutorialStep(strings: strings, onFinish: {
+                telemetry.completed()
                 state.complete()
                 onComplete()
             })

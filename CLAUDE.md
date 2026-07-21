@@ -233,7 +233,8 @@ Code → doc binding cheat-sheet:
 | SSL enforcement disabled (`supabase --experimental ssl-enforcement get`), TLS version downgraded | `security.md` "Trust at a glance" + "Infrastructure" |
 | Soft-delete window changed from 30 days, or the `purge-trashed-meetings` pg_cron job removed | `security.md` "Access control", `privacy.md` § 7 |
 | Backup retention changes (Supabase plan upgrade, PITR enabled) | `security.md` "Infrastructure", `privacy.md` § 7 |
-| Analytics SDK added (PostHog, Sentry, Amplitude, etc.) | `privacy.md` § 3.5 "What we do not collect" (this list must stay accurate), `subprocessors.md` |
+| Analytics SDK added (PostHog, Sentry, Amplitude, etc.) | `privacy.md` § 3.8 "What we do not collect" (this list must stay accurate), `subprocessors.md` |
+| New first-party telemetry event or table (e.g. `onboarding_events`) | `privacy.md` § 3.5 + § 3.8 — the "we do not track" list must stay true |
 | OpenRouter key path changes (any client-side fallback, alternative proxy, new edge function) | `security.md` "Infrastructure" last bullet |
 | Google OAuth scopes expanded beyond openid/email/profile (in `AuthService.signInWithGoogle`) | `privacy.md` § 3.1 |
 | Consent disclaimer body changes (`ConsentStrings.swift`) | `consent.md`, `privacy.md` § 3.3; also bump `ConsentPreference.disclaimerVersion` |

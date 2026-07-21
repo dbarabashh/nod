@@ -5,6 +5,7 @@ struct PermissionsStep: View {
     let onFinish: (_ skipped: Bool) -> Void
 
     @EnvironmentObject private var permissions: PermissionManager
+    @EnvironmentObject private var telemetry: OnboardingTelemetry
     @State private var pendingMic = false
     @State private var pendingScreen = false
 
@@ -69,7 +70,12 @@ struct PermissionsStep: View {
                     RelaunchCard(
                         hint: strings.actionRelaunchHint,
                         actionLabel: strings.actionRelaunch,
-                        onRelaunch: permissions.relaunch
+                        onRelaunch: {
+                            Task {
+                                await telemetry.relaunchClicked()
+                                permissions.relaunch()
+                            }
+                        }
                     )
                     if let relaunchError = permissions.lastRelaunchError {
                         Text("Couldn't relaunch automatically (\(relaunchError)). Please quit Nod and reopen it manually.")
@@ -104,6 +110,12 @@ struct PermissionsStep: View {
         .padding(.horizontal, 32)
         .padding(.bottom, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: needsRelaunch) { needed in
+            if needed { telemetry.relaunchPrompted() }
+        }
+        .onChange(of: permissions.lastRelaunchError) { error in
+            if let error { telemetry.relaunchFailed(error) }
+        }
     }
 
     private var allGranted: Bool {
@@ -130,7 +142,9 @@ struct PermissionsStep: View {
     private func requestMicrophone() {
         Task {
             pendingMic = true
-            _ = await permissions.requestMicrophone()
+            telemetry.permissionRequested(.microphone)
+            let granted = await permissions.requestMicrophone()
+            telemetry.permissionResolved(.microphone, granted: granted)
             pendingMic = false
         }
     }
@@ -138,7 +152,9 @@ struct PermissionsStep: View {
     private func requestScreenRecording() {
         Task {
             pendingScreen = true
-            _ = await permissions.requestScreenRecording()
+            telemetry.permissionRequested(.screenRecording)
+            let granted = await permissions.requestScreenRecording()
+            telemetry.permissionResolved(.screenRecording, granted: granted)
             pendingScreen = false
         }
     }
