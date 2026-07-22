@@ -32,10 +32,15 @@ final class ScreenContextService: ObservableObject {
     /// tick. The unique index is the real guarantee; this saves the round trip.
     private var recentHashes: Set<String> = []
 
-    /// Sampling interval. Littlebird polls every two seconds; we deliberately
-    /// don't. A tighter loop mostly re-reads an unchanged window, and every
-    /// read is another window's text held in memory.
-    private static let interval: TimeInterval = 15
+    /// Sampling interval. Tight enough to catch a screen the user only glances
+    /// at, loose enough that the AX walk isn't running constantly — each tick
+    /// costs a tree traversal (bounded at 2000 nodes / 200 ms per message).
+    /// Unchanged screens cost nothing downstream: the content hash collapses
+    /// them before they reach the database.
+    ///
+    /// Stated in `privacy.md` § 3.10(b) — changing it changes a published
+    /// claim, not just a constant.
+    private static let interval: TimeInterval = 5
 
     init(supabase: SupabaseClient?, exclusions: ScreenExclusions, reader: AccessibilityReader = AccessibilityReader()) {
         self.supabase = supabase

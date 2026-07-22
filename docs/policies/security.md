@@ -122,7 +122,7 @@ tightest controls:
 
 - **Off by default.** It never arrives switched on with an app update. You
   turn it on in Settings → Privacy.
-- **What it stores.** Every ~15 seconds it reads the text of the window you
+- **What it stores.** Every ~5 seconds it reads the text of the window you
   are actually looking at and stores it in `screen_observations`: the text,
   the app, the window title, and a timestamp. No images, no keystrokes, no
   clipboard, no passwords field contents.

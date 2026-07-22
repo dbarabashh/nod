@@ -253,7 +253,7 @@ the product:
 |---|---|
 | **Default** | **Off.** You enable it in Settings → Privacy. It is never switched on by an app update. |
 | **What is stored** | The window's text, the app's identifier, the window title, and a timestamp, in `screen_observations`. No images, no keystrokes, no clipboard, no password-field contents. |
-| **How often** | About every 15 seconds, and only for the window you are actually looking at. An unchanged screen is stored once, not once per sample. |
+| **How often** | About every 5 seconds, and only for the window you are actually looking at. An unchanged screen is stored once, not once per sample. |
 | **How long** | Every row carries an expiry — 14 days by default, and you choose. A scheduled job deletes expired rows server-side, so the index shrinks on its own even if you never open Nod again. |
 | **Exclusions** | Your blocklist is checked **before** anything is read. An excluded app or window is never traversed. |
 | **Deletion** | Yours to delete at any time; account deletion removes all of it. |
