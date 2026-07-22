@@ -69,6 +69,15 @@ enum ScreenObservationBuilder {
     /// single row from dominating retrieval.
     static let maximumCharacters = 4_000
 
+    /// Puts the window title at the head of the stored text, so a title-only
+    /// match is findable. Skipped when the body already starts with it — many
+    /// windows repeat their own title as the first label.
+    static func merge(title: String, text: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !text.hasPrefix(trimmed) else { return text }
+        return trimmed + "\n" + text
+    }
+
     /// Joins, collapses, and trims a walk's output. Returns nil when the window
     /// has nothing worth keeping.
     static func text(from parts: [String]) -> String? {

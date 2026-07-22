@@ -117,7 +117,13 @@ final class ScreenContextService: ObservableObject {
             userID: userID,
             sourceApp: bundleID,
             sourceTitle: captured.title,
-            content: captured.text,
+            // The title leads the content on purpose. It is often the most
+            // informative line on screen — the channel, ticket, or document
+            // name — and search runs over `content`, so a title-only match
+            // ("Jira (DM)") would otherwise be invisible. It also makes the
+            // dedup hash per-window instead of per-body, so two channels with
+            // identical chrome stay two observations.
+            content: ScreenObservationBuilder.merge(title: captured.title, text: captured.text),
             retention: ScreenContextDefaults.retention
         )
         guard recentHashes.insert(observation.contentHash).inserted else { return }
@@ -176,8 +182,8 @@ extension ScreenContextService {
     static func relevant(_ observations: [ScreenObservation], for terms: [String]) -> [ScreenObservation] {
         let required = terms.count > 1 ? 2 : 1
         return observations.filter { observation in
-            let content = observation.content.lowercased()
-            return terms.count(where: { content.contains($0) }) >= required
+            let haystack = (observation.sourceTitle + "\n" + observation.content).lowercased()
+            return terms.count(where: { haystack.contains($0) }) >= required
         }
     }
 

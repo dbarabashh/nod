@@ -325,3 +325,34 @@ final class ScreenContextRelevanceTests: XCTestCase {
         XCTAssertEqual(ScreenContextService.relevant([board], for: ["jira", "ticket"]).count, 1)
     }
 }
+
+final class ScreenObservationMergeTests: XCTestCase {
+    /// Search runs over `content`, so a window whose only useful signal is its
+    /// title — a Slack DM named "Jira", a ticket, a document — must carry that
+    /// title into the searchable text or it can never be found.
+    func testTitleLeadsTheStoredText() {
+        let merged = ScreenObservationBuilder.merge(title: "Jira (DM) - Slack", text: "Home\nDMs\nActivity")
+
+        XCTAssertTrue(merged.hasPrefix("Jira (DM) - Slack\n"))
+        XCTAssertTrue(merged.contains("Activity"))
+    }
+
+    func testTitleIsNotRepeatedWhenTheBodyAlreadyStartsWithIt() {
+        let merged = ScreenObservationBuilder.merge(title: "Inbox", text: "Inbox\n12 unread")
+
+        XCTAssertEqual(merged, "Inbox\n12 unread")
+    }
+
+    func testEmptyTitleChangesNothing() {
+        XCTAssertEqual(ScreenObservationBuilder.merge(title: "   ", text: "body"), "body")
+    }
+
+    /// Two Slack channels expose near-identical chrome; without the title in the
+    /// hash they would collapse into one observation.
+    func testDifferentWindowsWithIdenticalChromeStayDistinct() {
+        let first = ScreenObservationBuilder.merge(title: "Jira (DM)", text: "Home\nDMs")
+        let second = ScreenObservationBuilder.merge(title: "Iqbal (DM)", text: "Home\nDMs")
+
+        XCTAssertNotEqual(ScreenObservation.hash(first), ScreenObservation.hash(second))
+    }
+}
