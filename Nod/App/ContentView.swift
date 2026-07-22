@@ -488,7 +488,8 @@ private struct PanelContentHeightKey: PreferenceKey {
         auth: auth,
         profileStore: profileStore,
         outbox: MeetingOutbox(),
-        modeStore: modeStore
+        modeStore: modeStore,
+        screenExclusions: ScreenExclusions(defaults: previewDefaults)
     )
     return ContentView()
         .environmentObject(session)

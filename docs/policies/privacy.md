@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-07-21_
+_Last updated: 2026-07-22_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -177,6 +177,12 @@ in the same `eu-west-1` region.
 - We do **not** track you across the web or use advertising cookies.
 - We do **not** read your calendar, email, or other Google services.
 - We do **not** collect your contacts or address book.
+- We do **not** take screenshots or record video of your screen. The one
+  thing Nod reads from the screen is described in § 3.10: the participant
+  list of a call, as text, while a session records — never images, never
+  outside a session, and never from an app or site you have excluded.
+- We do **not** keep an index of your activity, the apps you open, or what
+  you type. Nod is not an ambient recorder.
 - We do **not** sell your personal data to anyone, ever.
 
 ### 3.9 Importing from other apps (Granola)
@@ -198,6 +204,39 @@ when you explicitly tap **Import from Granola** in Settings.
 
 Legal basis: Contract (Art. 6(1)(b)) — you asked us to bring your own data
 into Nod.
+
+### 3.10 Conferencing window (telling speakers apart)
+
+To label who said what, Nod needs to know how many people are on a call.
+While — and only while — a session is recording, it reads the **participant
+list** of a running conferencing app.
+
+What this is, precisely:
+
+- It reads **text, not pixels.** Nod uses the macOS accessibility interface,
+  the same one screen readers use, to read the labels a window already
+  exposes. It takes **no screenshots** and records **no video** of your
+  screen.
+- It looks at **one app**: a running conferencing app (Zoom, Teams, Webex,
+  Slack). For a **browser**, it reads only a window whose title names a call
+  (for example "Meet – abc-defg-hij"); every other window and tab is skipped
+  without being read.
+- It runs **a couple of times per session**, not continuously — a participant
+  list changes rarely, so there is nothing to gain from polling.
+- Of what it reads, Nod uses the **number** of participants, which it passes
+  to the on-device speaker-clustering step. The names are held in memory for
+  the duration of the session and are **not written to the database, not sent
+  to any server, and not included in your transcript or summary.**
+- It requires the macOS **Accessibility** permission, which you grant
+  explicitly in System Settings. Without it, this step is skipped and Nod
+  falls back to guessing the number of speakers from the audio alone.
+- You can exclude any app, whole categories of website, or specific sites in
+  **Settings → Privacy**. An excluded app or window is never read.
+
+Legal basis: Legitimate interest (Art. 6(1)(f)) — attributing speech to
+speakers is the feature you are using Nod for, and the data stays on your
+Mac. Participants' names are processed locally and transiently; they are
+never transmitted or stored.
 
 ---
 

@@ -51,6 +51,8 @@ struct AppServices {
     /// Offline transcript import from Granola's local cache — a low-cost
     /// migration path off a direct competitor.
     let granolaImporter: GranolaImporter
+    /// Apps and websites the user has put off-limits to screen reading.
+    let screenExclusions: ScreenExclusions
 
     /// Construction ORDER is load-bearing — Supabase before the LLM client,
     /// auth before the stores that read it, callback wiring last.
@@ -152,7 +154,8 @@ struct AppServices {
                 meetingStore: meetingStore,
                 auth: auth,
                 language: languagePreference
-            )
+            ),
+            screenExclusions: ScreenExclusions()
         )
     }
 }

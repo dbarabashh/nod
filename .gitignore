@@ -38,3 +38,7 @@ sparkle_private_key*
 !CLAUDE.md
 !.agents/
 !.claude/
+
+# Diarization models — fetched by scripts/fetch-diarization-models.sh
+Nod/Core/Resources/pyannote_segmentation.onnx
+Nod/Core/Resources/speaker_embedding.onnx

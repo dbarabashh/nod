@@ -27,6 +27,15 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable {
         self != .voiceNote
     }
 
+    /// Whether the system-audio stream is worth clustering into distinct
+    /// speakers. Off for `voiceNote` — a solo memo has one speaker by
+    /// construction, and clustering it would only split the user across
+    /// phantom labels. The user's own mic is never diarized: it is already
+    /// a known single speaker.
+    var supportsDiarization: Bool {
+        capturesSystem
+    }
+
     /// Meeting-only live cards (Suggest reply / follow-up) assume a dialogue
     /// with a [Me] side to coach. Hidden for the listen-only kinds.
     var supportsReplyCoaching: Bool {

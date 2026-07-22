@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-07-19_
+_Last updated: 2026-07-22_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company. We've made the
@@ -27,6 +27,9 @@ possible and no audio ever stored. This page documents exactly how that works.
 - **Audio is never stored.** Chunks are transcribed in ~5-second windows and
   the bytes are released as soon as the transcript returns. Only the
   transcript and your notes are persisted.
+- **No screenshots, no screen recording.** Nod reads the participant list of
+  a call as text, only while a session records, only from the call window,
+  and only if you grant Accessibility access. You can exclude any app or site.
 - **Private by default.** No team workspaces, no shared notes, no public
   links — your meetings are visible only to you.
 - **No SOC 2 yet.** Nod is in private beta. Independent audit isn't something
@@ -86,6 +89,29 @@ Nod **does not store any audio**. Audio is held in memory only long enough to
 chunk it (~5 seconds), normalise it, and POST the chunk to Whisper through our
 proxy. As soon as the transcript returns, the audio bytes are released. There
 is no recording file, no waveform export, no cloud-stored audio — ever.
+
+### Screen access
+
+Nod reads one thing from your screen, for one purpose: the **participant list
+of a call**, so it can tell speakers apart in the transcript.
+
+- **Text, not pixels.** It uses the macOS accessibility interface — the same
+  one screen readers use — to read labels a window already exposes. Nod takes
+  no screenshots and records no video of your screen. There is no image to
+  store, leak, or subpoena.
+- **Only while recording.** Nothing is read between sessions. Nod keeps no
+  index of your activity, the apps you open, or what you type.
+- **One window.** A running conferencing app (Zoom, Teams, Webex, Slack), or —
+  for a browser — only a window whose title names a call. Other windows and
+  tabs are skipped without being read.
+- **Nothing leaves the Mac.** Only the participant *count* is used, and it is
+  passed to on-device speaker clustering. Names live in memory for the session
+  and are never written to the database or sent to any server.
+- **Off unless you allow it.** This needs the macOS Accessibility permission,
+  granted by you in System Settings. Without it the step is skipped.
+- **You can exclude anything.** Settings → Privacy lists every installed app
+  with a switch, plus website categories and specific sites. An excluded app
+  or window is never read.
 
 ### What we do store
 
@@ -243,6 +269,14 @@ No. Neither we nor our subprocessors. See [Model training](#model-training).
 **Do you store audio recordings?**
 No. Audio is chunked, transcribed, and discarded within seconds. Only the
 transcript is saved.
+
+**Does Nod take screenshots or watch my screen?**
+No. It takes no screenshots and records no video. While a session is
+recording, it reads the participant list of your call window as text, through
+the macOS accessibility interface, to work out how many people are speaking.
+Only the count is used; the names never leave your Mac. Nothing is read
+between sessions, and Settings → Privacy lets you exclude any app, website
+category, or specific site.
 
 **How do you notify other meeting participants?**
 We don't — you do. Nod runs locally and doesn't integrate with Zoom/Meet/Teams,

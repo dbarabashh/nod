@@ -17,6 +17,7 @@ struct SettingsView: View {
     private let connections: ConnectionService?
     private let modeStore: ModeStore?
     private let referral: ReferralService?
+    private let screenExclusions: ScreenExclusions?
 
     init(
         hotkey: HotkeyManager,
@@ -30,6 +31,7 @@ struct SettingsView: View {
         connections: ConnectionService? = nil,
         modeStore: ModeStore? = nil,
         referral: ReferralService? = nil,
+        screenExclusions: ScreenExclusions? = nil,
         focusSubscription: Bool = false,
         focusModes: Bool = false
     ) {
@@ -44,6 +46,7 @@ struct SettingsView: View {
         self.connections = connections
         self.modeStore = modeStore
         self.referral = referral
+        self.screenExclusions = screenExclusions
         _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .profile))
     }
 
@@ -365,7 +368,12 @@ struct SettingsView: View {
     @ViewBuilder
     private var privacyPane: some View {
         if let auth, let accountExport {
-            AccountDataSection(auth: auth, export: accountExport)
+            VStack(alignment: .leading, spacing: 20) {
+                if let screenExclusions {
+                    ScreenPrivacySection(exclusions: screenExclusions)
+                }
+                AccountDataSection(auth: auth, export: accountExport)
+            }
         } else {
             Text("Sign in to manage your data.")
                 .font(.system(size: 12.5))

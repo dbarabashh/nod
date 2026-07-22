@@ -29,6 +29,9 @@ set. All contact emails resolve to `dbarabashdev@gmail.com`.
 | OpenRouter key path changes (any client-side fallback, alternative proxy, new edge function) | `security.md` "Infrastructure" last bullet |
 | Google OAuth scopes expanded beyond openid/email/profile (in `AuthService.signInWithGoogle`) | `privacy.md` § 3.1 |
 | Consent disclaimer body changes (`ConsentStrings.swift`) | `consent.md`, `privacy.md` § 3.3; also bump `ConsentPreference.disclaimerVersion` |
+| Screen reading widens: a new app in `ConferencingApp`, a new marker in `isMeetingWindowTitle`, reading outside a recording session, reading anything beyond the participant list, or persisting/transmitting what was read | `privacy.md` § 3.10 + § 3.8, `security.md` "Screen access" + "Trust at a glance", `consent.md`. Persisting or transmitting names would also need a **new** legal basis and a consent-script change |
+| Screenshots or OCR are ever added to the screen path (`Core/Screen/`) | `privacy.md` § 3.8 ("we do not take screenshots" must stay literally true), `security.md` "Screen access", `consent.md` — and re-read whether this still fits the product's positioning |
+| Exclusion controls change (`ScreenExclusions`, `WebsiteCategory`, `ScreenPrivacySection`) | `privacy.md` § 3.10, `security.md` "Screen access" — both promise the user can exclude apps, categories, and sites |
 | Sharing surface changes (`create_meeting_share` RPC, `share-ask` edge function) | `privacy.md` § 3 + the share viewer's privacy invariants in `../share-nod-ui-service` |
 | Nod incorporates as a company | **every file** — replace "Dima Barabash, individual developer" with entity name + address, fill governing-law and supervisory-authority sections, bump "Last updated", give existing users 30-day notice |
 | Paid tier launches (Paddle wired up) | `terms.md` § 7, `subprocessors.md` Paddle row moves out of "planned" |

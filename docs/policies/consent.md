@@ -1,6 +1,6 @@
 # Recording & Consent
 
-_Last updated: 2026-05-27_
+_Last updated: 2026-07-22_
 
 > **Nod is in private beta**, built by an individual developer. The
 > guidance below reflects how the product actually behaves today; the
@@ -32,6 +32,12 @@ consult a lawyer in your jurisdiction.
 - Audio is never stored — it is transcribed in ~5-second chunks and
   immediately discarded. Only the transcript and the AI-generated summary
   remain. See [Security & Privacy](./security.md) for details.
+- To tell speakers apart, Nod may read the **participant list** of your call
+  window — as text, through the macOS accessibility interface, never as a
+  screenshot. Only the number of participants is used; the names stay in
+  memory on your Mac and are never stored or transmitted. This does not
+  change what you owe the other participants: the spoken notice below is
+  about **recording**, which is the part that affects them.
 
 ---
 

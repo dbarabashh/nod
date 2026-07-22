@@ -159,6 +159,7 @@ final class MeetingSession: ObservableObject {
     private let profileStore: ProfileStore
     private let outbox: MeetingOutbox
     private let modeStore: ModeStore
+    private let screenExclusions: ScreenExclusions
 
     init(
         audioCapture: AudioCaptureService,
@@ -172,7 +173,8 @@ final class MeetingSession: ObservableObject {
         auth: AuthService,
         profileStore: ProfileStore,
         outbox: MeetingOutbox,
-        modeStore: ModeStore
+        modeStore: ModeStore,
+        screenExclusions: ScreenExclusions
     ) {
         self.audioCapture = audioCapture
         self.store = store
@@ -186,12 +188,24 @@ final class MeetingSession: ObservableObject {
         self.profileStore = profileStore
         self.outbox = outbox
         self.modeStore = modeStore
+        self.screenExclusions = screenExclusions
     }
 
     deinit {
         // A sign-out drops the session mid-recording; stop the streaming loop so
         // it doesn't outlive the panel. The WAL on disk keeps whatever streamed.
         streamTask?.cancel()
+    }
+
+    /// Last roster read from a conferencing app during this session, used to
+    /// tell diarization how many people to expect.
+    private var roster: MeetingRoster?
+
+    /// `media` stays opt-in until music-heavy audio is validated — soundtracks
+    /// cluster into speakers that don't exist.
+    private var shouldDiarize: Bool {
+        guard selectedKind.supportsDiarization else { return false }
+        return selectedKind != .media || DiarizationDefaults.includesMedia
     }
 
     /// Always-on personal context prepended to every LLM system prompt so
@@ -339,8 +353,11 @@ final class MeetingSession: ObservableObject {
             startStreamLoop(draft: draft, generation: sessionGeneration)
         }
 
+        if shouldDiarize {
+            sampleRoster()
+        }
         Task {
-            await store.start()
+            await store.start(diarizing: shouldDiarize)
             await audioCapture.start(
                 captureMic: selectedKind.capturesMic,
                 captureSystem: selectedKind.capturesSystem
@@ -482,12 +499,20 @@ final class MeetingSession: ObservableObject {
 
             await store.flushPending()
 
+            // Clustering a long call costs minutes. It runs alongside the recap
+            // stream, and the finalize waits only `speakerJoinTimeout` for it:
+            // persistence must never be held hostage to a background pass. A
+            // result that lands late is applied afterwards, in `applyLateSpeakers`.
+            let expectedSpeakers = await self.expectedThemSpeakers()
+            let speakerTask = Task { await store.resolveSpeakers(expectedSpeakerCount: expectedSpeakers) }
+            let speakers = await Self.value(of: speakerTask, within: Self.speakerJoinTimeout) ?? [:]
+
             // Prefer the post-flush transcript (it includes the last in-flight
             // chunk) while this is still the active session; if a newer recording
             // took over the store during flush, fall back to the pinned snapshot
             // so this meeting is still persisted instead of silently dropped.
             let entriesSnapshot = sessionGeneration == generation ? store.entries : pinnedEntries
-            let context = Self.transcriptContext(from: entriesSnapshot)
+            let context = Self.transcriptContext(from: entriesSnapshot, speakers: speakers)
             guard !context.isEmpty else {
                 if sessionGeneration == generation { store.clear() }
                 await outbox.discard(draftID)
@@ -534,10 +559,14 @@ final class MeetingSession: ObservableObject {
                 // WAL, THEN push. The recap is on disk before the network write,
                 // so a quit / crash / app update can't lose it — launch replay
                 // resends whatever didn't drain here.
-                let records = transcriptRecords(from: entriesSnapshot, meeting: updated)
+                let records = transcriptRecords(from: entriesSnapshot, meeting: updated, speakers: speakers)
                 await outbox.complete(updated, transcripts: records, for: updated.id)
                 await drainOutbox()
                 meetingStore.finishFinalizing(id: updated.id)
+
+                if speakers.isEmpty {
+                    await applyLateSpeakers(from: speakerTask, entries: entriesSnapshot, meeting: updated)
+                }
 
                 // Enrichment (entities for "Related" + embeddings for
                 // cross-session search) only runs once the meeting actually
@@ -584,7 +613,11 @@ final class MeetingSession: ObservableObject {
                 // transcript is pinned in `entriesSnapshot`, and only the live
                 // store clear is gated so the new recording isn't wiped.
                 let fallback = draft.updating(title: nil, summary: Self.summaryFailedFallback)
-                let records = transcriptRecords(from: entriesSnapshot, meeting: fallback)
+                let records = await transcriptRecords(
+                    from: entriesSnapshot,
+                    meeting: fallback,
+                    speakers: speakerTask.value
+                )
                 await outbox.complete(fallback, transcripts: records, for: draftID)
                 await drainOutbox()
                 if sessionGeneration == generation { store.clear() }
@@ -611,6 +644,9 @@ final class MeetingSession: ObservableObject {
         streamTask?.cancel()
         streamTask = nil
         recordingDraft = nil
+        // Participant names are session-scoped by policy (privacy.md § 3.10):
+        // they exist to size the clustering pass and must not outlive it.
+        roster = nil
         resetPanelForIdle()
         store.clear()
     }
@@ -1049,8 +1085,16 @@ final class MeetingSession: ObservableObject {
 
     /// Array-based counterpart to `TranscriptStore.fullContext` so finalize can
     /// read a pinned snapshot, not the shared live store the next recording resets.
-    private static func transcriptContext(from entries: [TranscriptEntry]) -> String {
-        entries.map { "[\($0.source.label)]: \($0.text)" }.joined(separator: "\n")
+    private static func transcriptContext(from entries: [TranscriptEntry], speakers: [UUID: Int] = [:]) -> String {
+        entries.map { entry in
+            // The `[Them]` prefix is load-bearing — every playbook rule in
+            // `PromptLibrary` keys on it — so a resolved speaker narrows the
+            // label rather than replacing it.
+            let speaker = entry.segmentID.flatMap { speakers[$0] }
+            let label = speaker.map { "\(entry.source.label) · Speaker \($0)" } ?? entry.source.label
+            return "[\(label)]: \(entry.text)"
+        }
+        .joined(separator: "\n")
     }
 
     /// `baseIdx` offsets the row `idx` so a streamed tail (entries
@@ -1059,7 +1103,8 @@ final class MeetingSession: ObservableObject {
     private func transcriptRecords(
         from entries: [TranscriptEntry],
         meeting: Meeting,
-        baseIdx: Int = 0
+        baseIdx: Int = 0,
+        speakers: [UUID: Int] = [:]
     ) -> [TranscriptRecord] {
         entries.enumerated().map { offset, entry in
             TranscriptRecord(
@@ -1071,9 +1116,80 @@ final class MeetingSession: ObservableObject {
                 text: entry.text,
                 ts: entry.timestamp,
                 idx: baseIdx + offset,
-                speaker: nil
+                speaker: entry.segmentID.flatMap { speakers[$0] }
             )
         }
+    }
+
+    /// How long the finalize waits for clustering before persisting without
+    /// speakers. A short call lands well inside this; an hour-long one does not,
+    /// and its rows are relabelled by `applyLateSpeakers` instead of making the
+    /// user watch "Generating…" for minutes.
+    private static let speakerJoinTimeout: TimeInterval = 30
+
+    /// `task.value`, or nil if it hasn't finished within `timeout`. The task
+    /// keeps running — the caller decides what to do with a late result.
+    private static func value<T: Sendable>(of task: Task<T, Never>, within timeout: TimeInterval) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask { await task.value }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return nil
+            }
+            let first = await group.next()
+            group.cancelAll()
+            return first.flatMap { $0 }
+        }
+    }
+
+    /// Rewrites the already-persisted transcript rows once a slow clustering
+    /// pass finishes. Rows are upserted by the same ids, so this updates them in
+    /// place rather than duplicating the transcript.
+    private func applyLateSpeakers(
+        from task: Task<[UUID: Int], Never>,
+        entries: [TranscriptEntry],
+        meeting: Meeting
+    ) async {
+        let speakers = await task.value
+        guard !speakers.isEmpty else { return }
+
+        let records = transcriptRecords(from: entries, meeting: meeting, speakers: speakers)
+        do {
+            try await meetingStore.upsertTranscript(records)
+            Log.stt.info("diarization: relabelled \(records.count) transcript row(s) after the join timeout")
+        } catch {
+            // The transcript is already saved and readable; only the speaker
+            // labels are missing, so a failure here is not worth surfacing.
+            Log.stt.error("diarization: late relabel failed — \(error.localizedDescription)")
+        }
+    }
+
+    /// Reads the conferencing app's participant list off the main actor. Purely
+    /// additive: no roster simply means diarization falls back to its distance
+    /// threshold.
+    private func sampleRoster() {
+        Task {
+            let rules = screenExclusions.rules
+            let sampled = await Task.detached(priority: .utility) {
+                MeetingRosterReader(exclusions: rules).sample()
+            }.value
+            guard let sampled else { return }
+            self.roster = sampled
+        }
+    }
+
+    /// How many distinct voices the `them` stream should contain: everyone on
+    /// the call except the user, whose own voice arrives on the mic instead.
+    /// Zero means "unknown" — diarization then clusters by threshold.
+    private func expectedThemSpeakers() async -> Int {
+        let rules = screenExclusions.rules
+        if let fresh = await Task.detached(priority: .utility, operation: { MeetingRosterReader(exclusions: rules).sample() }).value {
+            roster = fresh
+        }
+        guard let roster, roster.speakerCount > 1 else { return 0 }
+        let expected = roster.speakerCount - 1
+        self.roster = nil
+        return expected
     }
 
     /// Best-effort entity extraction — links the saved session to the

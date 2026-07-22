@@ -13,10 +13,10 @@ struct TranscriptRecord: Codable, Identifiable {
     let text: String
     let ts: Date
     let idx: Int
-    /// Legacy diarization column, retained for wire/DB compatibility. Always nil
-    /// now that speaker labels are source-based (`me`/`them`) only; meetings
-    /// recorded during the diarization era may still carry a value on the server,
-    /// which the UI ignores.
+    /// Which clustered voice on the `them` stream said this, `1...N` in order of
+    /// first appearance. Nil when the session wasn't diarized, when clustering
+    /// couldn't attribute the line, or on the `me` stream — the user's own mic
+    /// is a single known speaker and is never clustered.
     let speaker: Int?
 
     enum CodingKeys: String, CodingKey {
@@ -46,9 +46,14 @@ struct TranscriptRecord: Codable, Identifiable {
 }
 
 extension TranscriptRecord {
-    /// `Me` / `Them` — speaker labels are source-based only.
+    /// `Me`, or `Them` narrowed to the clustered voice when diarization
+    /// attributed the line — `Them · Speaker 2`. The source prefix stays so
+    /// every existing surface (and every prompt rule keyed on `[Them]`) keeps
+    /// reading the same way whether or not speakers were resolved.
     func displayLabel() -> String {
-        TranscriptSource(rawValue: source)?.label ?? source
+        let base = TranscriptSource(rawValue: source)?.label ?? source
+        guard let speaker, TranscriptSource(rawValue: source) == .them else { return base }
+        return "\(base) · Speaker \(speaker)"
     }
 
     /// A copy with the diarized speaker stripped — used to retry an insert

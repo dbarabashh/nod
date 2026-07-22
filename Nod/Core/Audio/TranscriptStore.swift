@@ -26,6 +26,9 @@ struct TranscriptEntry: Identifiable, Equatable {
     let source: TranscriptSource
     let text: String
     let timestamp: Date
+    /// The VAD segment this line came from, used to look up a diarized speaker
+    /// once the session ends. `nil` on sources that are never diarized.
+    var segmentID: UUID?
 }
 
 /// One Whisper-finalised chunk handed up from a `WhisperTranscriber`.
@@ -33,6 +36,7 @@ struct TranscribedChunk {
     let text: String
     let source: TranscriptSource
     let timestamp: Date
+    var segmentID: UUID?
 }
 
 final class TranscriptStore: ObservableObject, @unchecked Sendable {
@@ -76,7 +80,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         }
     }
 
-    func start() async {
+    func start(diarizing: Bool = false) async {
         Log.stt.info("TranscriptStore.start() — Whisper (mic + system)")
         DispatchQueue.main.async {
             self.entries = []
@@ -87,7 +91,9 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         }
         pathMonitor.start()
         await mic.start()
-        await system.start()
+        // Only the system stream is clustered: the mic is the user, already a
+        // single known speaker.
+        await system.start(retainingAudioForDiarization: diarizing)
     }
 
     func stop() {
@@ -118,6 +124,26 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         // paying a second copy (the mic path keeps the default copy because
         // its tap buffer is engine-owned).
         system.append(buffer, copying: false)
+    }
+
+    /// Cluster the session's system audio into speakers, keyed by the segment id
+    /// carried on each `TranscriptEntry`. Empty when the session wasn't
+    /// diarized, produced no speech, or the models aren't bundled.
+    func resolveSpeakers(expectedSpeakerCount: Int = 0) async -> [UUID: Int] {
+        guard let buffer = await system.detachDiarizationBuffer() else { return [:] }
+        return await Task.detached(priority: .utility) {
+            guard let diarizer = SpeakerDiarizer.bundled(speakerCount: expectedSpeakerCount) else { return [:] }
+            Log.stt.info(
+                "diarization: clustering \(Int(buffer.retainedSeconds))s of speech (threshold \(SpeakerDiarizer.Configuration.defaultClusteringThreshold))…"
+            )
+            let started = Date()
+            let speakers = buffer.resolveSpeakers(using: diarizer)
+            let distinct = Set(speakers.values).count
+            Log.stt.info(
+                "diarization: \(distinct) speaker(s) over \(Int(buffer.retainedSeconds))s of speech in \(String(format: "%.1f", Date().timeIntervalSince(started)))s"
+            )
+            return speakers
+        }.value
     }
 
     /// Force-flush both transcribers and append the results synchronously
@@ -220,7 +246,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             switch (source, existing.source) {
             case (.them, .me):
                 Log.stt.sensitive("dedup: replaced ME bleed with cleaner THEM ('\(text.prefix(48))…')")
-                entries[idx] = TranscriptEntry(source: .them, text: text, timestamp: timestamp)
+                entries[idx] = TranscriptEntry(source: .them, text: text, timestamp: timestamp, segmentID: chunk.segmentID)
                 lastSource = .them
             case (.me, .them):
                 Log.stt.sensitive("dedup: dropped ME bleed of existing THEM ('\(text.prefix(48))…')")
@@ -230,7 +256,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             return
         }
 
-        insertOrdered(TranscriptEntry(source: source, text: text, timestamp: timestamp))
+        insertOrdered(TranscriptEntry(source: source, text: text, timestamp: timestamp, segmentID: chunk.segmentID))
     }
 
     /// Insert `entry` keeping `entries` in timestamp order — so a segment

@@ -195,7 +195,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             auth: services.auth,
             profileStore: services.profileStore,
             outbox: services.meetingOutbox,
-            modeStore: services.modeStore
+            modeStore: services.modeStore,
+            screenExclusions: services.screenExclusions
         )
 
         let content = ContentView(
@@ -258,6 +259,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             connections: services.connections,
             modeStore: services.modeStore,
             referral: services.referral,
+            screenExclusions: services.screenExclusions,
             focusSubscription: focusSubscription,
             focusModes: focusModes
         ))
