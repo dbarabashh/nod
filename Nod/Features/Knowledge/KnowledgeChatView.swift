@@ -11,6 +11,7 @@ struct KnowledgeChatView: View {
     let onOpenMeeting: (UUID) -> Void
 
     @EnvironmentObject private var meetingStore: MeetingStore
+    @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var entitlements: EntitlementService
     /// The thread itself — shared with any other surface onto the same
@@ -132,19 +133,33 @@ struct KnowledgeChatView: View {
         }
     }
 
+    /// The home surface: this is what opening Nod shows, so it greets the user
+    /// and points at their own sessions rather than describing the feature.
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Ask anything across your recordings")
-                .font(.system(size: 14, weight: .semibold))
+        VStack(alignment: .leading, spacing: 6) {
+            Text(ChatHomeSuggestions.greeting(for: profileStore.profile?.displayName))
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
-            VStack(alignment: .leading, spacing: 5) {
-                suggestion("What have I been thinking about lately?")
-                suggestion("What did I say I'd follow up on?")
+            Text(Self.todayFormatter.string(from: Date()))
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.muted)
+                .padding(.bottom, 14)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(ChatHomeSuggestions.build(meetings: meetingStore.meetings), id: \.self) { text in
+                    suggestion(text)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 24)
+        .padding(.vertical, 28)
     }
+
+    private static let todayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, d MMMM"
+        return formatter
+    }()
 
     private func suggestion(_ text: String) -> some View {
         ChatSuggestionChip(text: text) {

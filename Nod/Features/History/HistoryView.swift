@@ -28,7 +28,9 @@ struct HistoryView: View {
     /// Top-level destination, chosen from the left rail. Library holds the
     /// meeting list (All/Trash); Action Items is the cross-meeting checklist —
     /// a peer surface, not a filter of the list.
-    @State private var section: Section = .library
+    /// Chat is the home surface: opening Nod should land on "what do you want
+    /// to know", not on a file list. The library is one click away in the rail.
+    @State private var section: Section = .chats
     /// Active label filter on the All segment; nil shows every meeting.
     @State private var filterLabelID: UUID?
     /// The label being renamed/recoloured from the filter bar, if any.
