@@ -58,7 +58,8 @@ enum PromptLibrary {
         summaryTemplate: SummaryTemplate = .auto,
         modeFocus: String = "",
         meetingDate: String = "",
-        userQuestion: String = ""
+        userQuestion: String = "",
+        participants: [String] = []
     ) -> (system: String, user: String) {
         let context = transcript.isEmpty
             ? "(No transcript captured yet.)"
@@ -73,15 +74,34 @@ enum PromptLibrary {
         // Layer the user-level context blocks ahead of the task prompt: who the
         // user is, when the session happened (the relative-date anchor), then
         // what they're focused on in this meeting mode.
-        let system = [personalContext, dateBlock(meetingDate), focusBlock(modeFocus), base]
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n\n")
+        let system = [
+            personalContext,
+            dateBlock(meetingDate),
+            focusBlock(modeFocus),
+            participantsBlock(participants),
+            base
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: "\n\n")
         return (system, userMessage(for: kind, context: context, question: userQuestion))
     }
 
     /// Absolute, unambiguous date string for a session, used as the
     /// relative-time anchor in the prompts. POSIX locale keeps it stable
     /// regardless of device settings; the recap language is handled separately.
+    /// Who the conferencing app said was on the call. A hint for resolving
+    /// `Speaker N`, never an assertion that these people spoke — someone can sit
+    /// on a call in silence, and the prompt is told to leave a speaker unnamed
+    /// rather than guess.
+    private static func participantsBlock(_ participants: [String]) -> String {
+        guard !participants.isEmpty else { return "" }
+        return """
+        [CALL PARTICIPANTS]
+        The conferencing app listed these people on the call: \(participants.joined(separator: ", ")).
+        Some of them may not have spoken. Use this only to put a name to a voice when the transcript makes it unambiguous.
+        """
+    }
+
     static func sessionDateString(_ date: Date) -> String {
         sessionDateFormatter.string(from: date)
     }
@@ -427,6 +447,7 @@ enum PromptLibrary {
         [SPEAKER LABELS]
         The transcript marks turns with `[Me]:` (the user holding the device) and `[Them]:` (the other party). Treat these as routing hints for WHO said what — they are NEVER to appear literally in the output. Before writing the recap, decide how to refer to each speaker in the recap language:
         - If a personal name for that speaker appears literally in the transcript (on your PEOPLE list, said by either party — e.g. "I'm Dima", "thanks, Sarah"), USE that name in the recap.
+        - `[Them · Speaker N]` marks distinct voices on the other side, clustered from the audio. Treat each N as one person and keep them apart. If a [CALL PARTICIPANTS] block is present, it lists who was on the call — map a Speaker N to a participant ONLY when the transcript makes it unambiguous (they introduce themselves, someone addresses them by name, or only one participant can plausibly be that voice). If the mapping is uncertain, keep "Speaker N" rather than guessing: a wrong name is worse than an unnamed speaker.
         - Otherwise, use a natural noun phrase in the recap language. Prefer a concrete role if one is clear from context (e.g. the recruiter, the candidate, the interviewer, the hiring manager, the PM). If no role is clear, fall back to a neutral phrase: for `[Me]` use the second-person form natural to the recap language ("ви" in Ukrainian, "you" in English, etc.) or "the user"; for `[Them]` use "the other participant" / "співрозмовник" / equivalent.
         - Be consistent: pick one label per speaker and use it throughout the recap. Do not mix "Dima" and "the candidate" for the same person.
         - HARD BAN: the literal strings `[Me]`, `[Them]`, `Me:`, `Them:` must NEVER appear anywhere in the output. If you catch yourself about to write one, stop and substitute the label you picked above.

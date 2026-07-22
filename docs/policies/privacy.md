@@ -223,10 +223,16 @@ What this is, precisely:
   without being read.
 - It runs **a couple of times per session**, not continuously — a participant
   list changes rarely, so there is nothing to gain from polling.
-- Of what it reads, Nod uses the **number** of participants, which it passes
-  to the on-device speaker-clustering step. The names are held in memory for
-  the duration of the session and are **not written to the database, not sent
-  to any server, and not included in your transcript or summary.**
+- Nod uses the **number** of participants for on-device speaker clustering,
+  and the **names** to put a name to a voice in your summary. The name list is
+  sent once, with the transcript, to the summarising model through our EU proxy
+  under Zero Data Retention — the same path and the same protections as the
+  transcript itself (§ 4, § 5). It is **not stored** as its own record: the
+  list is dropped when the session ends, and only whatever the summary itself
+  says is kept.
+- The model is instructed to leave a speaker as "Speaker 2" when the transcript
+  does not make the match unambiguous. A wrong name is worse than an unnamed
+  speaker.
 - It requires the macOS **Accessibility** permission, which you grant
   explicitly in System Settings. Without it, this step is skipped and Nod
   falls back to guessing the number of speakers from the audio alone.
@@ -234,9 +240,9 @@ What this is, precisely:
   **Settings → Privacy**. An excluded app or window is never read.
 
 Legal basis: Legitimate interest (Art. 6(1)(f)) — attributing speech to
-speakers is the feature you are using Nod for, and the data stays on your
-Mac. Participants' names are processed locally and transiently; they are
-never transmitted or stored.
+speakers is the feature you are using Nod for. Participants' names are read
+locally, used transiently, and travel no further than the summarising model
+already handling the transcript of the same conversation.
 
 ---
 

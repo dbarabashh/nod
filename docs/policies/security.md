@@ -104,9 +104,11 @@ of a call**, so it can tell speakers apart in the transcript.
 - **One window.** A running conferencing app (Zoom, Teams, Webex, Slack), or —
   for a browser — only a window whose title names a call. Other windows and
   tabs are skipped without being read.
-- **Nothing leaves the Mac.** Only the participant *count* is used, and it is
-  passed to on-device speaker clustering. Names live in memory for the session
-  and are never written to the database or sent to any server.
+- **Count on-device, names once to the summariser.** The participant count
+  drives on-device speaker clustering and never leaves your Mac. The names are
+  sent once, alongside the transcript, to the summarising model through our EU
+  proxy under Zero Data Retention, so a summary can say "Alina" instead of
+  "Speaker 2". The list itself is not stored — it is dropped with the session.
 - **Off unless you allow it.** This needs the macOS Accessibility permission,
   granted by you in System Settings. Without it the step is skipped.
 - **You can exclude anything.** Settings → Privacy lists every installed app

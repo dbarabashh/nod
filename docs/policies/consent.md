@@ -34,8 +34,10 @@ consult a lawyer in your jurisdiction.
   remain. See [Security & Privacy](./security.md) for details.
 - To tell speakers apart, Nod may read the **participant list** of your call
   window — as text, through the macOS accessibility interface, never as a
-  screenshot. Only the number of participants is used; the names stay in
-  memory on your Mac and are never stored or transmitted. This does not
+  screenshot. The count is used on-device; the names go with the transcript to
+  the summarising model so the summary can name who said what, under the same
+  Zero Data Retention terms as everything else, and are not stored as a
+  separate record. This does not
   change what you owe the other participants: the spoken notice below is
   about **recording**, which is the part that affects them.
 

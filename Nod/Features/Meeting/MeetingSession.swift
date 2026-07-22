@@ -504,6 +504,7 @@ final class MeetingSession: ObservableObject {
             // persistence must never be held hostage to a background pass. A
             // result that lands late is applied afterwards, in `applyLateSpeakers`.
             let expectedSpeakers = await self.expectedThemSpeakers()
+            let participants = self.rosterParticipants
             let speakerTask = Task { await store.resolveSpeakers(expectedSpeakerCount: expectedSpeakers) }
             let speakers = await Self.value(of: speakerTask, within: Self.speakerJoinTimeout) ?? [:]
 
@@ -528,7 +529,8 @@ final class MeetingSession: ObservableObject {
                 sessionKind: draft.kind,
                 summaryTemplate: framing.summary,
                 modeFocus: framing.focus,
-                meetingDate: PromptLibrary.sessionDateString(startedAt)
+                meetingDate: PromptLibrary.sessionDateString(startedAt),
+                participants: participants
             )
 
             do {
@@ -1187,9 +1189,14 @@ final class MeetingSession: ObservableObject {
             roster = fresh
         }
         guard let roster, roster.speakerCount > 1 else { return 0 }
-        let expected = roster.speakerCount - 1
-        self.roster = nil
-        return expected
+        return roster.speakerCount - 1
+    }
+
+    /// Participant names for the recap prompt, taken once and dropped — they
+    /// are session-scoped by policy (privacy.md § 3.10).
+    private var rosterParticipants: [String] {
+        defer { roster = nil }
+        return roster?.participants ?? []
     }
 
     /// Best-effort entity extraction — links the saved session to the
