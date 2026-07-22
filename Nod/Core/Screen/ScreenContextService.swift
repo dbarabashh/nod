@@ -123,7 +123,9 @@ final class ScreenContextService: ObservableObject {
                 .upsert(observation, onConflict: "user_id,source_app,content_hash")
                 .execute()
             lastCaptureAt = observation.observedAt
-            Log.screen.info("context: stored \(observation.content.count) chars from \(bundleID)")
+            Log.screen.info(
+                "context: stored \(observation.content.count) chars from \(bundleID) — \(captured.title)"
+            )
         } catch {
             recentHashes.remove(observation.contentHash)
             Log.screen.error("context: store failed — \(error.localizedDescription)")
@@ -153,6 +155,7 @@ extension ScreenContextService {
                 .limit(limit)
                 .execute()
                 .value
+            Log.screen.info("context: \(rows.count) observation(s) matched \(terms.count) term(s)")
             return rows
         } catch {
             Log.screen.error("context: lookup failed — \(error.localizedDescription)")
