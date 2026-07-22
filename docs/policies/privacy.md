@@ -177,12 +177,15 @@ in the same `eu-west-1` region.
 - We do **not** track you across the web or use advertising cookies.
 - We do **not** read your calendar, email, or other Google services.
 - We do **not** collect your contacts or address book.
-- We do **not** take screenshots or record video of your screen. The one
-  thing Nod reads from the screen is described in § 3.10: the participant
-  list of a call, as text, while a session records — never images, never
-  outside a session, and never from an app or site you have excluded.
-- We do **not** keep an index of your activity, the apps you open, or what
-  you type. Nod is not an ambient recorder.
+- We do **not** take screenshots or record video of your screen — in any
+  mode, ever. What Nod reads from the screen, it reads as text (§ 3.10).
+- We do **not** log your keystrokes, read your clipboard, or capture password
+  fields.
+- We do **not** read anything from an app, category, or site you have
+  excluded — the check runs before anything is read.
+- We do **not** keep a screen index at all unless you switch **ambient
+  context** on yourself (§ 3.10). It is off by default and never enabled by an
+  update.
 - We do **not** sell your personal data to anyone, ever.
 
 ### 3.9 Importing from other apps (Granola)
@@ -205,13 +208,16 @@ when you explicitly tap **Import from Granola** in Settings.
 Legal basis: Contract (Art. 6(1)(b)) — you asked us to bring your own data
 into Nod.
 
-### 3.10 Conferencing window (telling speakers apart)
+### 3.10 What Nod reads from your screen
 
-To label who said what, Nod needs to know how many people are on a call.
-While — and only while — a session is recording, it reads the **participant
-list** of a running conferencing app.
+Nod reads from the screen in two separate ways. Both read **text, not
+pixels**, through the macOS accessibility interface — the same one screen
+readers use. **No screenshots and no video are captured in either mode.** Both
+require the macOS **Accessibility** permission, which you grant explicitly.
 
-What this is, precisely:
+**(a) Call participants — while a session records.** To label who said what,
+Nod needs to know how many people are on the call, so it reads the
+**participant list** of a running conferencing app.
 
 - It reads **text, not pixels.** Nod uses the macOS accessibility interface,
   the same one screen readers use, to read the labels a window already
@@ -233,11 +239,36 @@ What this is, precisely:
 - The model is instructed to leave a speaker as "Speaker 2" when the transcript
   does not make the match unambiguous. A wrong name is worse than an unnamed
   speaker.
-- It requires the macOS **Accessibility** permission, which you grant
-  explicitly in System Settings. Without it, this step is skipped and Nod
-  falls back to guessing the number of speakers from the audio alone.
+- Without the Accessibility permission this step is skipped, and Nod falls
+  back to guessing the number of speakers from the audio alone.
+
+**(b) Ambient context — only if you switch it on.**
+
+Nod can keep a time-limited index of text from the window you are working in,
+so you can ask it about what you were doing and not only about what was said
+out loud. This reads beyond a meeting, so it carries the tightest controls in
+the product:
+
+| | |
+|---|---|
+| **Default** | **Off.** You enable it in Settings → Privacy. It is never switched on by an app update. |
+| **What is stored** | The window's text, the app's identifier, the window title, and a timestamp, in `screen_observations`. No images, no keystrokes, no clipboard, no password-field contents. |
+| **How often** | About every 15 seconds, and only for the window you are actually looking at. An unchanged screen is stored once, not once per sample. |
+| **How long** | Every row carries an expiry — 14 days by default, and you choose. A scheduled job deletes expired rows server-side, so the index shrinks on its own even if you never open Nod again. |
+| **Exclusions** | Your blocklist is checked **before** anything is read. An excluded app or window is never traversed. |
+| **Deletion** | Yours to delete at any time; account deletion removes all of it. |
+
+Legal basis: Consent (Art. 6(1)(a)) — this one is opt-in, and you can
+withdraw it by switching it off, which stops capture immediately; existing
+rows expire or can be deleted at once.
+
+We would rather state the trade than bury it: with ambient context on, Nod
+holds a time-limited record of text you had on screen. That is more than a
+meeting recorder holds. It is off unless you choose otherwise, it is bounded,
+and it is yours to delete.
+
 - You can exclude any app, whole categories of website, or specific sites in
-  **Settings → Privacy**. An excluded app or window is never read.
+  **Settings → Privacy**, and the exclusions apply to **both** modes above.
 
 Legal basis: Legitimate interest (Art. 6(1)(f)) — attributing speech to
 speakers is the feature you are using Nod for. Participants' names are read
@@ -325,6 +356,7 @@ We can provide our SCCs and transfer impact assessments on request to
 | Meeting transcripts                  | Same as the parent meeting (cascade delete).                         |
 | Transcript embeddings, session chats, entity links | Same as the parent meeting (cascade delete). Extracted entities themselves are per-user and removed on account deletion. |
 | Onboarding progress (`onboarding_events`) | Until you delete your account (cascade).                        |
+| Screen observations (`screen_observations`) | The expiry set when captured — **14 days by default**, changeable in Settings. A scheduled job deletes expired rows. Empty unless you switched ambient context on; deletable at any time; removed on account deletion (cascade). |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |
 | Usage metadata                       | 24 months, then aggregated and anonymised.                           |
 | Encrypted database backups           | 7 days rolling.                                                      |

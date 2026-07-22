@@ -260,6 +260,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             modeStore: services.modeStore,
             referral: services.referral,
             screenExclusions: services.screenExclusions,
+            screenContext: services.screenContext,
             focusSubscription: focusSubscription,
             focusModes: focusModes
         ))

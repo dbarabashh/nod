@@ -201,3 +201,84 @@ final class ExclusionMatchingTests: XCTestCase {
         XCTAssertTrue(rules.excludesWindow(title: "Revolut/Business — Dashboard"))
     }
 }
+
+@MainActor
+final class ScreenContextTests: XCTestCase {
+    func testAmbientContextIsOffUntilTurnedOn() {
+        // The legal basis for ambient capture is consent (privacy.md § 3.10(b)),
+        // which only holds while the feature is opt-in.
+        UserDefaults.standard.removeObject(forKey: ScreenContextDefaults.enabledKey)
+
+        XCTAssertFalse(ScreenContextDefaults.isEnabled)
+    }
+
+    func testRetentionFallsBackToTheDocumentedDefault() {
+        UserDefaults.standard.removeObject(forKey: ScreenContextDefaults.retentionDaysKey)
+
+        XCTAssertEqual(ScreenContextDefaults.retentionDays, 14)
+        XCTAssertEqual(ScreenContextDefaults.retention, 14 * 24 * 60 * 60)
+    }
+
+    func testSearchDropsShortAndCommonWords() {
+        let terms = ScreenContextService.searchTerms(in: "what was that ticket about the export formatting")
+
+        XCTAssertFalse(terms.contains("was"))
+        XCTAssertFalse(terms.contains("what"))
+        XCTAssertFalse(terms.contains("about"))
+        XCTAssertTrue(terms.contains("ticket"))
+        XCTAssertTrue(terms.contains("formatting"))
+    }
+
+    func testSearchIsBoundedSoAQueryCannotFanOut() {
+        let terms = ScreenContextService.searchTerms(in: "alpha bravo charlie delta echo foxtrot golf hotel india")
+
+        XCTAssertLessThanOrEqual(terms.count, 6)
+    }
+
+    func testUnchangedScreensHashIdentically() {
+        let first = ScreenObservation.hash("Ready for Live\n  AP-2: Sign up journey")
+        let second = ScreenObservation.hash("ready for live\nAP-2:   Sign up journey  ")
+
+        XCTAssertEqual(first, second)
+    }
+
+    func testDifferentScreensHashDifferently() {
+        XCTAssertNotEqual(ScreenObservation.hash("AP-2 moved"), ScreenObservation.hash("AP-4 moved"))
+    }
+
+    func testThinWindowsAreNotWorthStoring() {
+        XCTAssertNil(ScreenObservationBuilder.text(from: ["Mute", "Chat", "Leave"]))
+        XCTAssertNil(ScreenObservationBuilder.text(from: []))
+    }
+
+    func testLongWindowsAreTruncatedNotDropped() {
+        // Distinct lines on purpose: identical ones are deduplicated first, and
+        // this is asserting the length cap, not the dedup.
+        let long = (0 ..< 40).map { "line \($0) " + String(repeating: "context ", count: 40) }
+
+        let text = ScreenObservationBuilder.text(from: long)
+
+        XCTAssertEqual(text?.count, ScreenObservationBuilder.maximumCharacters)
+    }
+
+    func testRepeatedLinesCollapseBeforeTheLengthCap() {
+        let repeated = Array(repeating: String(repeating: "context ", count: 40), count: 40)
+
+        let text = ScreenObservationBuilder.text(from: repeated)
+
+        let expected = repeated[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(text, expected, "a window repeating one line is one line of content")
+    }
+
+    func testObservationCarriesAnExpiry() {
+        let observation = ScreenObservation(
+            userID: UUID(),
+            sourceApp: "com.tinyspeck.slackmacgap",
+            sourceTitle: "Slack",
+            content: String(repeating: "a", count: 200),
+            retention: 3600
+        )
+
+        XCTAssertEqual(observation.expiresAt.timeIntervalSince(observation.observedAt), 3600, accuracy: 1)
+    }
+}

@@ -9,6 +9,9 @@ import SwiftUI
 /// exhaustive list answers that.
 struct ScreenPrivacySection: View {
     @ObservedObject var exclusions: ScreenExclusions
+    var screenContext: ScreenContextService?
+    @AppStorage(ScreenContextDefaults.enabledKey) private var ambientEnabled = false
+    @AppStorage(ScreenContextDefaults.retentionDaysKey) private var retentionDays = ScreenContextDefaults.defaultRetentionDays
     @State private var scope: Scope = .apps
     @State private var installedApps: [InstalledApp] = []
     @State private var appQuery = ""
@@ -26,6 +29,7 @@ struct ScreenPrivacySection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
+            ambientContextCard
             tabs
             switch scope {
             case .apps: appsPane
@@ -47,6 +51,43 @@ struct ScreenPrivacySection: View {
                 .font(.system(size: 11.5))
                 .foregroundStyle(Theme.Palette.muted)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The one switch in Nod that widens what it reads beyond a recording, so
+    /// it states the trade in the row itself rather than in a policy the user
+    /// will not open.
+    private var ambientContextCard: some View {
+        SettingsCard {
+            SettingsRow(
+                icon: "sparkles.rectangle.stack",
+                title: "Ambient context",
+                subtitle: "Let Nod read the window you're working in, so you can ask about what you were doing — "
+                    + "not just what was said. Off by default. Excluded apps and sites are never read."
+            ) {
+                Toggle("", isOn: $ambientEnabled)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .onChange(of: ambientEnabled) { _ in screenContext?.refresh() }
+            }
+
+            if ambientEnabled {
+                SettingsRowDivider()
+                SettingsRow(
+                    icon: "clock.arrow.circlepath",
+                    title: "Keep for",
+                    subtitle: "Older context is deleted automatically, on the server, even if you never open Nod again."
+                ) {
+                    Picker("", selection: $retentionDays) {
+                        Text("7 days").tag(7)
+                        Text("14 days").tag(14)
+                        Text("30 days").tag(30)
+                    }
+                    .labelsHidden()
+                    .frame(width: 110)
+                }
+            }
         }
     }
 

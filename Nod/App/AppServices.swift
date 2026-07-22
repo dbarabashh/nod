@@ -53,6 +53,9 @@ struct AppServices {
     let granolaImporter: GranolaImporter
     /// Apps and websites the user has put off-limits to screen reading.
     let screenExclusions: ScreenExclusions
+    /// Ambient screen capture. Constructed always, running only when the user
+    /// has switched it on — see `ScreenContextDefaults`.
+    let screenContext: ScreenContextService
 
     /// Construction ORDER is load-bearing — Supabase before the LLM client,
     /// auth before the stores that read it, callback wiring last.
@@ -103,6 +106,8 @@ struct AppServices {
         let meetingStore = MeetingStore(supabase: supabase)
         let profileStore = ProfileStore(supabase: supabase, auth: auth)
         let knowledgeStore = KnowledgeStore(llm: llmClient)
+        let screenExclusions = ScreenExclusions()
+        let screenContext = ScreenContextService(supabase: supabase, exclusions: screenExclusions)
         let labelStore = LabelStore(supabase: supabase, auth: auth)
         let entityStore = EntityStore(supabase: supabase)
         let actionItemStore = ActionItemStore(supabase: supabase)
@@ -137,7 +142,8 @@ struct AppServices {
                 entities: entityStore,
                 actionItems: actionItemStore,
                 threads: knowledgeThreads,
-                feedback: retrievalFeedback
+                feedback: retrievalFeedback,
+                screenContext: screenContext
             ),
             knowledgeThreads: knowledgeThreads,
             labelStore: labelStore,
@@ -155,7 +161,8 @@ struct AppServices {
                 auth: auth,
                 language: languagePreference
             ),
-            screenExclusions: ScreenExclusions()
+            screenExclusions: screenExclusions,
+            screenContext: screenContext
         )
     }
 }

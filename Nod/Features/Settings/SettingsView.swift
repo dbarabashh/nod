@@ -18,6 +18,7 @@ struct SettingsView: View {
     private let modeStore: ModeStore?
     private let referral: ReferralService?
     private let screenExclusions: ScreenExclusions?
+    private let screenContext: ScreenContextService?
 
     init(
         hotkey: HotkeyManager,
@@ -32,6 +33,7 @@ struct SettingsView: View {
         modeStore: ModeStore? = nil,
         referral: ReferralService? = nil,
         screenExclusions: ScreenExclusions? = nil,
+        screenContext: ScreenContextService? = nil,
         focusSubscription: Bool = false,
         focusModes: Bool = false
     ) {
@@ -47,6 +49,7 @@ struct SettingsView: View {
         self.modeStore = modeStore
         self.referral = referral
         self.screenExclusions = screenExclusions
+        self.screenContext = screenContext
         _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .profile))
     }
 
@@ -370,7 +373,7 @@ struct SettingsView: View {
         if let auth, let accountExport {
             VStack(alignment: .leading, spacing: 20) {
                 if let screenExclusions {
-                    ScreenPrivacySection(exclusions: screenExclusions)
+                    ScreenPrivacySection(exclusions: screenExclusions, screenContext: screenContext)
                 }
                 AccountDataSection(auth: auth, export: accountExport)
             }

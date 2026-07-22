@@ -57,6 +57,10 @@ final class KnowledgeChatStore: ObservableObject {
 
     private let llm: LLMProxyClient
     private let knowledge: KnowledgeStore
+    /// Ambient screen context, when the user has switched it on. Optional so
+    /// every existing construction site (and every preview) keeps working, and
+    /// so a nil here degrades to transcript-only grounding rather than failing.
+    private let screenContext: ScreenContextService?
     private let meetings: MeetingStore
     private let labels: LabelStore
     private let profile: ProfileStore
@@ -136,7 +140,8 @@ final class KnowledgeChatStore: ObservableObject {
         entities: EntityStore,
         actionItems: ActionItemStore,
         threads: KnowledgeThreadStore,
-        feedback: RetrievalFeedbackStore
+        feedback: RetrievalFeedbackStore,
+        screenContext: ScreenContextService? = nil
     ) {
         self.llm = llm
         self.knowledge = knowledge
@@ -148,6 +153,7 @@ final class KnowledgeChatStore: ObservableObject {
         self.actionItems = actionItems
         self.threads = threads
         self.feedback = feedback
+        self.screenContext = screenContext
     }
 
     /// The user opened a session from an answer's sources. Attributed to the
@@ -545,6 +551,22 @@ extension KnowledgeChatStore {
         let evidence: [Excerpt]
     }
 
+    /// An observation carries no session to open, so it is labelled with where
+    /// and when it was seen — enough for the model to attribute it, and for the
+    /// user to recognise it in an answer.
+    private static func labeledObservation(_ observation: ScreenObservation) -> String {
+        let stamp = observationStamp.string(from: observation.observedAt)
+        let title = observation.sourceTitle.isEmpty ? observation.sourceApp : observation.sourceTitle
+        return "[On your screen — \(title), \(stamp)]\n\(observation.content)"
+    }
+
+    private static let observationStamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
     private struct SessionRoute: Decodable {
         let scope: String
         let indices: [Int]?
@@ -705,10 +727,13 @@ extension KnowledgeChatStore {
             // the same path, constrained server-side to the label's sessions.
             let scopedIDs: [UUID]? = if case let .scoped(ids) = scope { ids } else { nil }
             let chunks = await knowledge.search(query: query, meetingIDs: scopedIDs, embedText: embedText)
+            // Screen observations answer the half of "what was I working on"
+            // that was never said out loud. Empty unless ambient context is on.
+            let observed = await screenContext?.recentContext(matching: query) ?? []
             await loadPeople(for: Array(Set(chunks.map(\.meetingID))))
             let byID = meetingsByID
             return Grounding(
-                excerpts: chunks.map { labeledExcerpt($0, in: byID) },
+                excerpts: chunks.map { labeledExcerpt($0, in: byID) } + observed.map(Self.labeledObservation),
                 sources: resolveSources(chunks, in: byID),
                 evidence:
                 // A row we can't name can't be opened either — "A past session"

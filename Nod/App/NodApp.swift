@@ -136,6 +136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Task { await services.updateGate.check() }
+        // Ambient capture is opt-in: this starts it only if the user has
+        // already turned it on, and is a no-op otherwise.
+        services.screenContext.refresh()
 
         panelSharingObserveTask = Task { @MainActor [weak windows] in
             // `@Published` fires in willSet, so use the yielded value rather

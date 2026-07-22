@@ -27,9 +27,13 @@ possible and no audio ever stored. This page documents exactly how that works.
 - **Audio is never stored.** Chunks are transcribed in ~5-second windows and
   the bytes are released as soon as the transcript returns. Only the
   transcript and your notes are persisted.
-- **No screenshots, no screen recording.** Nod reads the participant list of
-  a call as text, only while a session records, only from the call window,
-  and only if you grant Accessibility access. You can exclude any app or site.
+- **No screenshots, no screen recording — ever.** What Nod reads from the
+  screen it reads as *text*, through the macOS accessibility interface. There
+  is no image captured, stored, or transmitted anywhere in the product.
+- **Ambient context is off until you turn it on.** Nod can keep a
+  time-limited index of text from windows you haven't excluded, so you can ask
+  it about what you were working on. It ships **off**, you switch it on, you
+  choose how long it is kept, and you can exclude any app, category, or site.
 - **Private by default.** No team workspaces, no shared notes, no public
   links — your meetings are visible only to you.
 - **No SOC 2 yet.** Nod is in private beta. Independent audit isn't something
@@ -92,28 +96,49 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
 
 ### Screen access
 
-Nod reads one thing from your screen, for one purpose: the **participant list
-of a call**, so it can tell speakers apart in the transcript.
+Nod reads from your screen in two distinct ways. Both read **text, not
+pixels** — via the macOS accessibility interface, the same one screen readers
+use. Nod takes **no screenshots** and records **no video**, in either mode.
+Both require the macOS **Accessibility** permission, which you grant in System
+Settings; without it, neither runs.
 
-- **Text, not pixels.** It uses the macOS accessibility interface — the same
-  one screen readers use — to read labels a window already exposes. Nod takes
-  no screenshots and records no video of your screen. There is no image to
-  store, leak, or subpoena.
-- **Only while recording.** Nothing is read between sessions. Nod keeps no
-  index of your activity, the apps you open, or what you type.
+**1. Call participants — while a session records.**
+
 - **One window.** A running conferencing app (Zoom, Teams, Webex, Slack), or —
   for a browser — only a window whose title names a call. Other windows and
   tabs are skipped without being read.
+- **A couple of samples per session**, not a loop. A participant list changes
+  rarely.
 - **Count on-device, names once to the summariser.** The participant count
-  drives on-device speaker clustering and never leaves your Mac. The names are
-  sent once, alongside the transcript, to the summarising model through our EU
-  proxy under Zero Data Retention, so a summary can say "Alina" instead of
+  drives on-device speaker clustering and never leaves your Mac. The names go
+  once, alongside the transcript, to the summarising model through our EU proxy
+  under Zero Data Retention, so a summary can say "Alina" instead of
   "Speaker 2". The list itself is not stored — it is dropped with the session.
-- **Off unless you allow it.** This needs the macOS Accessibility permission,
-  granted by you in System Settings. Without it the step is skipped.
-- **You can exclude anything.** Settings → Privacy lists every installed app
-  with a switch, plus website categories and specific sites. An excluded app
-  or window is never read.
+
+**2. Ambient context — only if you switch it on.**
+
+This is the part that reads beyond a meeting, so it is the part with the
+tightest controls:
+
+- **Off by default.** It never arrives switched on with an app update. You
+  turn it on in Settings → Privacy.
+- **What it stores.** Every ~15 seconds it reads the text of the window you
+  are actually looking at and stores it in `screen_observations`: the text,
+  the app, the window title, and a timestamp. No images, no keystrokes, no
+  clipboard, no passwords field contents.
+- **Bounded retention.** Every row carries an expiry — 14 days by default, and
+  you choose. A scheduled job deletes expired rows server-side, so context
+  stops existing even if you never open the app again.
+- **Deduplicated.** An unchanged screen is one row, not one row per tick.
+- **Your blocklist wins.** The exclusion check runs *before* anything is read,
+  not after. An excluded app or window is never traversed at all.
+- **Deletable.** You can delete observations the same way you delete a
+  meeting, and account deletion takes them with it.
+
+We are stating the trade plainly: with ambient context on, Nod holds a
+time-limited record of text you had on screen. That is more than a meeting
+recorder holds. It is off unless you decide otherwise, it is bounded, and it
+is yours to delete.
 
 ### What we do store
 
@@ -146,6 +171,10 @@ of a call**, so it can tell speakers apart in the transcript.
   your own content, under the same Row-Level Security as everything else.
 - **Entities.** People, projects, and topics extracted from your sessions
   (`entities` + `meeting_entities`) so related sessions can be linked.
+- **Screen observations — only with ambient context on.** Text read from
+  windows you haven't excluded, in `screen_observations`, with the app, the
+  window title, and an expiry. Empty unless you switched the feature on;
+  purged automatically when rows expire.
 - **Account profile.** Your email and Google OAuth identity, stored in
   Supabase Auth.
 - **Consent acknowledgements.** An audit row each time you click "Acknowledge
@@ -273,12 +302,14 @@ No. Audio is chunked, transcribed, and discarded within seconds. Only the
 transcript is saved.
 
 **Does Nod take screenshots or watch my screen?**
-No. It takes no screenshots and records no video. While a session is
-recording, it reads the participant list of your call window as text, through
-the macOS accessibility interface, to work out how many people are speaking.
-Only the count is used; the names never leave your Mac. Nothing is read
-between sessions, and Settings → Privacy lets you exclude any app, website
-category, or specific site.
+No screenshots, no video — what Nod reads, it reads as text. By default the
+only thing it reads is the participant list of your call window, while a
+session records, to tell speakers apart. Separately, you can switch on
+**ambient context**, which keeps a time-limited index of text from windows you
+haven't excluded so you can ask Nod about what you were working on. That is
+off until you turn it on, its retention is yours to set, and Settings →
+Privacy lets you exclude any app, website category, or specific site before
+anything is read.
 
 **How do you notify other meeting participants?**
 We don't — you do. Nod runs locally and doesn't integrate with Zoom/Meet/Teams,
