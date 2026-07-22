@@ -32,11 +32,11 @@ final class KnowledgeChatStore: ObservableObject {
         var similarity: Double = 0
     }
 
-    struct Message: Identifiable, Equatable {
-        enum Role { case user, assistant }
+    enum MessageRole { case user, assistant }
 
+    struct Message: Identifiable, Equatable {
         let id = UUID()
-        let role: Role
+        let role: MessageRole
         /// Mutable so a streamed answer grows in place. Replacing the whole
         /// value per token minted a new `id`, which tore down and rebuilt the
         /// bubble — re-parsing the entire answer as markdown — on every delta.
@@ -72,6 +72,11 @@ final class KnowledgeChatStore: ObservableObject {
     /// People per session, resolved once per session per app run — the same
     /// handful of sessions come back across a conversation's turns.
     private var peopleCache: [UUID: [String]] = [:]
+
+    /// Cached for the app run: entities are people and projects, not chunks —
+    /// a handful of rows that don't change between questions.
+    private var entityNames: [(String, UUID)] = []
+    private var entityCacheStamp = -1
 
     /// The label the model reads. A bare "16 Jul" can't answer "what happened
     /// on Friday?" — it needs the weekday and how long ago that was.
@@ -217,9 +222,11 @@ final class KnowledgeChatStore: ObservableObject {
         guard messages.count > baseline, let last = messages.last, last.role == .assistant else { return nil }
         return last
     }
+}
 
-    // MARK: - Ask
+// MARK: - Ask
 
+extension KnowledgeChatStore {
     /// Answers `text` across the user's sessions. `pinned` are @-mentioned
     /// sessions (most specific intent, wins over everything); `scope` narrows to
     /// a folder when no mention was made.
@@ -512,9 +519,11 @@ final class KnowledgeChatStore: ObservableObject {
             LLMProxyClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
         }
     }
+}
 
-    // MARK: - Routing
+// MARK: - Routing
 
+extension KnowledgeChatStore {
     /// What routing decided: either the question is already answered without
     /// asking the model (an empty folder, a period with nothing in it), or
     /// there's a scope to retrieve from. Split so `gather` takes only the half
@@ -659,11 +668,6 @@ final class KnowledgeChatStore: ObservableObject {
         .search(ids.count <= roundupLimit ? .specific(ids) : .scoped(ids))
     }
 
-    /// Cached for the app run: entities are people and projects, not chunks —
-    /// a handful of rows that don't change between questions.
-    private var entityNames: [(String, UUID)] = []
-    private var entityCacheStamp = -1
-
     /// Asks the model which session(s) the question targets. Falls back to a
     /// corpus-wide search on any failure or ambiguity.
     private func routeQuery(_ text: String) async -> Routing {
@@ -686,9 +690,11 @@ final class KnowledgeChatStore: ObservableObject {
             return .search(.all)
         }
     }
+}
 
-    // MARK: - Retrieval
+// MARK: - Retrieval
 
+extension KnowledgeChatStore {
     /// Builds the grounding excerpts + sources for the routed scope. Specific
     /// sessions are answered from their recap (+ relevant transcript parts if
     /// indexed) so sources show only what the question is actually about.
