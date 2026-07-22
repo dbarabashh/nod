@@ -31,5 +31,10 @@ sparkle_private_key*
 # only VAD artifact tracked in git.
 /Vendor/
 
-# Re-include agent docs that ~/.gitignore_global ignores by default
+# Re-include agent context that a global gitignore may exclude. AGENTS.md is
+# canonical; CLAUDE.md is a symlink to it. Rules and skills live in .agents/,
+# with symlinks under .claude/.
+!AGENTS.md
 !CLAUDE.md
+!.agents/
+!.claude/
