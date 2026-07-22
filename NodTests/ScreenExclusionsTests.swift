@@ -282,3 +282,46 @@ final class ScreenContextTests: XCTestCase {
         XCTAssertEqual(observation.expiresAt.timeIntervalSince(observation.observedAt), 3600, accuracy: 1)
     }
 }
+
+@MainActor
+final class ScreenContextRelevanceTests: XCTestCase {
+    private func observation(_ content: String) -> ScreenObservation {
+        ScreenObservation(
+            userID: UUID(),
+            sourceApp: "com.example.app",
+            sourceTitle: "Window",
+            content: content,
+            retention: 3600
+        )
+    }
+
+    /// Postgres matches any term, so one incidental word used to be enough to
+    /// drag an unrelated window into the answer's grounding.
+    func testASingleIncidentalWordIsNotEnough() {
+        let terms = ["jira", "ticket", "updates", "barabash"]
+        let sourceCode = observation("private var ambientEnabled = false // updates the toggle")
+
+        XCTAssertTrue(ScreenContextService.relevant([sourceCode], for: terms).isEmpty)
+    }
+
+    func testTwoMatchingTermsAreKept() {
+        let terms = ["jira", "ticket", "updates", "barabash"]
+        let board = observation("Jira board — AP-2 ticket moved to Ready for Live")
+
+        XCTAssertEqual(ScreenContextService.relevant([board], for: terms).count, 1)
+    }
+
+    /// A one-word question has nothing to corroborate against, so one hit has
+    /// to count or it would never retrieve anything.
+    func testASingleTermQuestionStillMatches() {
+        let board = observation("Jira board — AP-2 moved")
+
+        XCTAssertEqual(ScreenContextService.relevant([board], for: ["jira"]).count, 1)
+    }
+
+    func testMatchingIsCaseInsensitive() {
+        let board = observation("JIRA BOARD — TICKET AP-2")
+
+        XCTAssertEqual(ScreenContextService.relevant([board], for: ["jira", "ticket"]).count, 1)
+    }
+}

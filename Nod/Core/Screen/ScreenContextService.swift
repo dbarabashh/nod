@@ -152,14 +152,27 @@ extension ScreenContextService {
                 .gt("expires_at", value: Date())
                 .textSearch("content", query: terms.joined(separator: " | "))
                 .order("observed_at", ascending: false)
-                .limit(limit)
+                .limit(limit * 4)
                 .execute()
                 .value
-            Log.screen.info("context: \(rows.count) observation(s) matched \(terms.count) term(s)")
-            return rows
+            let relevant = Array(Self.relevant(rows, for: terms).prefix(limit))
+            Log.screen.info("context: \(relevant.count)/\(rows.count) observation(s) kept for \(terms.count) term(s)")
+            return relevant
         } catch {
             Log.screen.error("context: lookup failed — \(error.localizedDescription)")
             return []
+        }
+    }
+
+    /// Postgres matches any term (`|`), which is what gives useful recall — but
+    /// a single common word then drags in a window that has nothing to do with
+    /// the question. Keep only what matches more than one term, unless the
+    /// question had just one to begin with.
+    static func relevant(_ observations: [ScreenObservation], for terms: [String]) -> [ScreenObservation] {
+        let required = terms.count > 1 ? 2 : 1
+        return observations.filter { observation in
+            let content = observation.content.lowercased()
+            return terms.count(where: { content.contains($0) }) >= required
         }
     }
 
