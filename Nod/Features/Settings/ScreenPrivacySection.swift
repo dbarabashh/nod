@@ -9,7 +9,7 @@ import SwiftUI
 /// exhaustive list answers that.
 struct ScreenPrivacySection: View {
     @ObservedObject var exclusions: ScreenExclusions
-    var screenContext: ScreenContextService?
+    @ObservedObject var screenContext: ScreenContextService
     @AppStorage(ScreenContextDefaults.enabledKey) private var ambientEnabled = false
     @AppStorage(ScreenContextDefaults.retentionDaysKey) private var retentionDays = ScreenContextDefaults.defaultRetentionDays
     @State private var scope: Scope = .apps
@@ -69,7 +69,19 @@ struct ScreenPrivacySection: View {
                     .toggleStyle(.switch)
                     .labelsHidden()
                     .controlSize(.small)
-                    .onChange(of: ambientEnabled) { _ in screenContext?.refresh() }
+                    .onChange(of: ambientEnabled) { _ in screenContext.refresh() }
+            }
+
+            if ambientEnabled, screenContext.needsAccessibility {
+                SettingsRowDivider()
+                SettingsRow(
+                    icon: "exclamationmark.triangle",
+                    title: "Accessibility access needed",
+                    subtitle: "macOS has to allow Nod to read window text before ambient context can run. "
+                        + "Grant it in System Settings, then switch this back on."
+                ) {
+                    Button("Open Settings") { AccessibilityAccess.openSystemSettings() }
+                }
             }
 
             if ambientEnabled {
@@ -289,7 +301,12 @@ struct ScreenPrivacySection: View {
 }
 
 #Preview {
-    ScreenPrivacySection(exclusions: ScreenExclusions(defaults: UserDefaults(suiteName: "preview") ?? .standard))
-        .padding()
-        .frame(width: 460)
+    let defaults = UserDefaults(suiteName: "preview") ?? .standard
+    let exclusions = ScreenExclusions(defaults: defaults)
+    return ScreenPrivacySection(
+        exclusions: exclusions,
+        screenContext: ScreenContextService(supabase: nil, exclusions: exclusions)
+    )
+    .padding()
+    .frame(width: 460)
 }

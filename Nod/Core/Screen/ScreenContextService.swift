@@ -19,6 +19,10 @@ import Supabase
 final class ScreenContextService: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var lastCaptureAt: Date?
+    /// Switched on but blocked on the Accessibility grant. A toggle that says
+    /// "on" while nothing happens is worse than one that refuses to move, so
+    /// the UI reads this and says what is missing.
+    @Published private(set) var needsAccessibility = false
 
     private let supabase: SupabaseClient?
     private let exclusions: ScreenExclusions
@@ -42,9 +46,14 @@ final class ScreenContextService: ObservableObject {
     func start() {
         guard !isRunning, ScreenContextDefaults.isEnabled else { return }
         guard AccessibilityAccess.isTrusted else {
+            needsAccessibility = true
+            // Asking here is the one moment the request is expected: the user
+            // just switched the feature on.
+            AccessibilityAccess.requestTrust()
             Log.screen.info("context: accessibility not granted — ambient capture stays off")
             return
         }
+        needsAccessibility = false
         isRunning = true
         Log.screen.info("context: ambient capture on (every \(Int(Self.interval))s)")
         timerTask = Task { [weak self] in
@@ -60,6 +69,7 @@ final class ScreenContextService: ObservableObject {
         timerTask?.cancel()
         timerTask = nil
         isRunning = false
+        needsAccessibility = false
         recentHashes.removeAll()
         Log.screen.info("context: ambient capture off")
     }

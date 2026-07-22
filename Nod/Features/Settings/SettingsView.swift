@@ -372,7 +372,7 @@ struct SettingsView: View {
     private var privacyPane: some View {
         if let auth, let accountExport {
             VStack(alignment: .leading, spacing: 20) {
-                if let screenExclusions {
+                if let screenExclusions, let screenContext {
                     ScreenPrivacySection(exclusions: screenExclusions, screenContext: screenContext)
                 }
                 AccountDataSection(auth: auth, export: accountExport)

@@ -15,13 +15,18 @@ final class ScreenPrivacySectionRenderTests: XCTestCase {
         host.displayIfNeeded()
     }
 
+    private func makeContext(_ exclusions: ScreenExclusions) -> ScreenContextService {
+        ScreenContextService(supabase: nil, exclusions: exclusions)
+    }
+
     private func makeExclusions() -> ScreenExclusions {
         let suite = "screen.privacy.render.\(UUID().uuidString)"
         return ScreenExclusions(defaults: UserDefaults(suiteName: suite) ?? .standard)
     }
 
     func testRendersWhenNothingIsExcluded() {
-        render(ScreenPrivacySection(exclusions: makeExclusions()))
+        let exclusions = makeExclusions()
+        render(ScreenPrivacySection(exclusions: exclusions, screenContext: makeContext(exclusions)))
     }
 
     /// Mirrors `SettingsView.detail`: the pane lives in a scroll view that
@@ -36,7 +41,7 @@ final class ScreenPrivacySectionRenderTests: XCTestCase {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Privacy")
-                    ScreenPrivacySection(exclusions: exclusions)
+                    ScreenPrivacySection(exclusions: exclusions, screenContext: makeContext(exclusions))
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -61,7 +66,7 @@ final class ScreenPrivacySectionRenderTests: XCTestCase {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Privacy")
                     VStack(alignment: .leading, spacing: 20) {
-                        ScreenPrivacySection(exclusions: exclusions)
+                        ScreenPrivacySection(exclusions: exclusions, screenContext: makeContext(exclusions))
                         AccountDataSection(auth: auth, export: export)
                     }
                     Spacer(minLength: 0)
@@ -78,6 +83,6 @@ final class ScreenPrivacySectionRenderTests: XCTestCase {
         exclusions.exclude(ExcludedApp(bundleID: "com.apple.Safari", name: "Safari"))
         exclusions.excludeWebsite("bank.com")
 
-        render(ScreenPrivacySection(exclusions: exclusions))
+        render(ScreenPrivacySection(exclusions: exclusions, screenContext: makeContext(exclusions)))
     }
 }
