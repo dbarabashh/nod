@@ -78,6 +78,11 @@ struct ChatComposerField: View {
         ScrollView(.vertical, showsIndicators: true) {
             TextField(prompt, text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
+                // A vertical ScrollView can propose an unspecified width, and a
+                // vertical-axis TextField's *ideal* width is a few characters
+                // wide — without this the field collapses and every fifth
+                // character wraps to a new line.
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .font(.system(size: Self.fontSize))
                 .foregroundStyle(Theme.Palette.ink)
                 .focused(focus)
