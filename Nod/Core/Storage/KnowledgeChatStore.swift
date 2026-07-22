@@ -239,6 +239,12 @@ final class KnowledgeChatStore: ObservableObject {
         defer { isSending = false }
         let question = Message(role: .user, content: text, mentions: pinned)
         messages.append(question)
+        #if DEBUG
+            if DemoMode.isEnabled {
+                await answerFromDemo(question: text, scope: scope)
+                return
+            }
+        #endif
         // Saved alongside the work, not before it: nothing downstream needs the
         // row, and awaiting it here put a full eu-west round trip (three, on a
         // thread's first question) in front of every answer.
@@ -394,6 +400,53 @@ final class KnowledgeChatStore: ObservableObject {
     }
 
     private static let streamFlushInterval: Duration = .milliseconds(50)
+
+    #if DEBUG
+        /// Demo-mode stand-in for the whole ask pipeline. Grounds on the demo
+        /// transcripts exactly like the real path — `gather` reads
+        /// `KnowledgeStore.search`, which serves `DemoData.knowledgeChunks`, so
+        /// the evidence rows are real passages from the sample sessions — then
+        /// fake-streams a canned cross-session answer instead of calling the
+        /// proxy. The launcher's headline feature works on camera with no login
+        /// and no network, and nothing is persisted to the thread tables.
+        private func answerFromDemo(question: String, scope: SessionLabel?) async {
+            thinkingPhase = "Searching your sessions…"
+            let demoScope: Scope = scope.map { .scoped(Array(labels.meetingIDs(withLabel: $0.id))) } ?? .all
+            let grounding = await gather(for: demoScope, query: question, embedText: nil)
+            if !grounding.sources.isEmpty {
+                thinkingPhase = grounding.sources.count == 1
+                    ? "Reading 1 session…"
+                    : "Reading \(grounding.sources.count) sessions…"
+            }
+            thinkingPhase = "Writing your answer…"
+            await streamDemoReply(
+                DemoData.knowledgeAnswer(for: question),
+                sources: grounding.sources,
+                evidence: grounding.evidence
+            )
+        }
+
+        /// Types the canned answer out in word-sized deltas so the launcher's
+        /// answer pane behaves exactly like a real stream on camera.
+        private func streamDemoReply(_ text: String, sources: [SessionRef], evidence: [Excerpt]) async {
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            let answer = Message(role: .assistant, content: "", sources: sources, evidence: evidence)
+            let id = answer.id
+            messages.append(answer)
+            isStreaming = true
+            thinkingPhase = ""
+            let words = text.split(separator: " ", omittingEmptySubsequences: false)
+            var accumulated = ""
+            for (idx, word) in words.enumerated() {
+                accumulated += idx == 0 ? String(word) : " \(word)"
+                if let index = messages.firstIndex(where: { $0.id == id }) {
+                    messages[index].content = accumulated
+                }
+                try? await Task.sleep(nanoseconds: 22_000_000)
+            }
+            isStreaming = false
+        }
+    #endif
 
     /// Grounding is billed per token on every turn, and a `.specific` route over
     /// eight sessions can hand the model eight recaps plus their excerpts. Keep

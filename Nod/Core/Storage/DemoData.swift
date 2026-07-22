@@ -112,6 +112,83 @@
             """
         }
 
+        /// Canned answer for the launcher's "Ask Nod across sessions" — the
+        /// headline of this release. The launcher still grounds on the demo
+        /// transcripts (via `knowledgeChunks`, so the evidence rows are real
+        /// passages from the sample sessions), but the answer itself would need
+        /// the proxy, so here we hand back a believable synthesis keyed loosely
+        /// to the question. Written to span several demo meetings so the
+        /// evidence rows under it come from different sessions on camera.
+        static func knowledgeAnswer(for question: String) -> String {
+            let q = question.lowercased()
+            func mentions(_ words: [String]) -> Bool {
+                words.contains { q.contains($0) }
+            }
+
+            if mentions(["action item", "to-do", "todo", "to do", "task", "on my plate", "follow up", "follow-up", "next step"]) {
+                return """
+                You have a lot open, but three of these are the same decision wearing different hats — I'd start there:
+
+                - **Lock the pricing narrative — discount or clean.** It's a task in *Product Hunt launch*, *and* the investor asked you to close it, *and* the churn interview says a discount wouldn't have helped. One decision unblocks three sessions.
+                - **Ship the merged permission step.** Speced in *Design sync*, hitting real users in *Beta feedback*, and the #1 funnel leak in *Growth review*. It's the only item here that's already solved and just sitting unshipped.
+                - **Send the diarization one-pager** with an on-device accuracy target — the investor's asking, and *Competitor teardown* just confirmed it's the one gap that matters.
+
+                Then the smaller ones: book the proxy-quota pairing with Sam (Friday), and send the SCStream take-home to the iOS candidate (Thursday).
+                """
+            }
+            if mentions(["undecided", "open question", "still open", "decide", "decision", "pending", "unresolved", "torn", "stuck"]) {
+                return """
+                Two of your open decisions have quietly gathered enough evidence to make — you're just not seeing it because it's spread across sessions:
+
+                - **The launch-day discount.** It's been open across *four* conversations for two weeks — launch prep, the investor call, beta feedback, and the competitor teardown. And three of those four argue *against* it: the investor wants clean pricing, the churned user needed clarity not a lower number, and your sub-€20 EU price already undercuts everyone. The evidence is pointing one way.
+                - **7- vs 14-day trial.** This one *does* have real tension: Sam leaned 14, but *Growth review* shows 7 converts better while 14 activates better. That's activation vs conversion — a genuine tradeoff to make explicitly, not a gut call.
+
+                The quieter one — where the language picker lives (*Design sync*) — is low-stakes; default it to Settings and move on.
+                """
+            }
+            if mentions(["interview", "candidate", "hire", "hiring", "engineer"]) {
+                return """
+                Strong advance-to-take-home on the **iOS engineer** — and there's a nice connection you might have missed:
+
+                - Genuinely deep on AVAudioEngine — walked through tap installation and normalizing to 16 kHz mono before the VAD unprompted, and switched fluently from Portuguese to English mid-interview.
+                - Gaps: modern Swift concurrency (reached for completion handlers over async/await) and no shipped ScreenCaptureKit — both coachable.
+                - **The connection:** the candidate's own closing question was on-device vs cloud transcription — the exact tradeoff behind your diarization wedge (roadmap, investor call, competitor teardown). This is someone who'd care about the hard problem you actually need solved.
+                """
+            }
+            if mentions(["launch", "product hunt", "hunt", "discount", "pricing", "price"]) {
+                return """
+                On the launch and pricing — the pieces are settled *except* the one you keep circling:
+
+                - Going live **Tuesday, 00:01 Pacific**, hero is the **no-bot GIF**, founder answers every comment for four hours (*Product Hunt launch*).
+                - **The discount is the only open thread — and the case against it has quietly stacked up across sessions.** The investor wants clean pricing ("if you're not sure what it's worth, why would we be?"), the churned beta user said a discount would've made them trust it *less*, and the competitor teardown shows your sub-€20 EU price is already the differentiated position.
+                - My read: hold the code. You're not the cheap option, you're the trustworthy one — and three separate conversations just told you that.
+                """
+            }
+            if mentions(["roadmap", "diarization", "next feature", "moat", "wedge", "multi-speaker", "speaker"]) {
+                return """
+                If you're looking for the next headline feature, your own sessions have already voted — **multi-speaker diarization**, and it's not close:
+
+                - It surfaced on its own in *five* separate places: your roadmap note, the candidate's closing question, the investor's "what's the moat," a beta user asking who-said-what in standups, and the competitor teardown.
+                - **It's the one feature gap a competitor can name in a demo** — OpenWhispr ships it on cloud pyannote. Everyone else who has it gives up the privacy story to get it; an on-device sherpa-onnx path closes the gap *and* keeps your wedge intact.
+                - The investor literally said it's the thing they'd underwrite. It's still just a roadmap idea. That's the gap between where the signal is and where the work is.
+
+                (Runner-up: action-item carry-over across meetings — a real idea, but nowhere near the same pull.)
+                """
+            }
+            // Default: the "wow" cross-session synthesis — connections no single
+            // meeting shows, ordered by how actionable each one is.
+            return """
+            I read across all your sessions — here's what you can't see from any single one:
+
+            - **The launch discount has been open in four conversations for two weeks, and the evidence says drop it.** Launch prep, the investor call, beta feedback, and the competitor teardown all touch it — and three of the four argue against a discount. This is your longest-running open decision, and it's already been answered by the room; you just haven't noticed.
+            - **Multi-speaker diarization keeps surfacing on its own — five sessions now.** Roadmap, the candidate's question, the investor's "moat," a beta user, the teardown. It's the one thing a competitor can point to that you lack, and the investor said it's what they'd underwrite. Still just a roadmap idea.
+            - **The same permission wall is quietly costing you users.** Design sync flagged it, two beta users nearly quit on it, and it's the single biggest drop-off in the growth funnel — yet the fix is speced and unshipped.
+            - **Your trial-length call has a hidden contradiction.** Sam leaned 14 days; the growth review shows 7 converts better but 14 activates better. Nobody's made that tradeoff explicit.
+
+            If I had to name one trigger: **ship the onboarding permission fix this week.** It's the only item here that's already solved and just sitting there.
+            """
+        }
+
         // MARK: - Live pill fixtures
 
         /// "Catch me up" (`.hero`) — a short prose read of where the call is right
@@ -205,11 +282,18 @@
         private static let oneOnOne = uuid("33333333-3333-3333-3333-333333333333")
         private static let interview = uuid("44444444-4444-4444-4444-444444444444")
         private static let roadmapNote = uuid("55555555-5555-5555-5555-555555555555")
+        private static let investorCall = uuid("66666666-6666-6666-6666-666666666666")
+        private static let betaFeedback = uuid("77777777-7777-7777-7777-777777777777")
+        private static let growthReview = uuid("88888888-8888-8888-8888-888888888888")
+        private static let competitorTeardown = uuid("99999999-9999-9999-9999-999999999999")
 
         private static let launchLabel = uuid("AA000000-0000-0000-0000-000000000001")
         private static let hiringLabel = uuid("AA000000-0000-0000-0000-000000000002")
         private static let oneOnOneLabel = uuid("AA000000-0000-0000-0000-000000000003")
         private static let productLabel = uuid("AA000000-0000-0000-0000-000000000004")
+        private static let investorLabel = uuid("AA000000-0000-0000-0000-000000000005")
+        private static let growthLabel = uuid("AA000000-0000-0000-0000-000000000006")
+        private static let feedbackLabel = uuid("AA000000-0000-0000-0000-000000000007")
 
         private static func uuid(_ string: String) -> UUID {
             UUID(uuidString: string) ?? UUID()
@@ -227,10 +311,10 @@
         }
 
         static let bundle: Bundle = build()
+    }
 
-        private static func build() -> Bundle {
-            let now = Date()
-
+    private extension DemoData {
+        static func coreMeetings(now: Date) -> [Meeting] {
             let prep = meeting(
                 id: launchPrep,
                 title: "Product Hunt launch — final prep",
@@ -483,17 +567,173 @@
                     ]
                 )
             )
+            return [prep, design, sync, hire, note]
+        }
 
-            let meetings = [prep, design, sync, hire, note]
+        static func extraMeetings(now: Date) -> [Meeting] {
+            let investor = meeting(
+                id: investorCall,
+                title: "Investor update — seed extension",
+                kind: .meeting,
+                startedAgo: 4 * 3600,
+                duration: 38 * 60,
+                now: now,
+                recap: MeetingRecap(
+                    sections: [
+                        section("What they pushed on", [
+                            bullet(
+                                "The lead pressed hard on pricing clarity — a launch-day discount muddies the story, and they'd rather see clean, confident pricing than a promo that reads as doubt",
+                                "if you're not sure what it's worth, why would we be?"
+                            ),
+                            bullet(
+                                "Wanted the moat spelled out: what can Otter or Fathom not simply copy in a quarter — features are table stakes, defensibility is the question"
+                            )
+                        ]),
+                        section("What landed", [
+                            bullet(
+                                "The no-bot, EU-hosted, native-macOS wedge resonated; they explicitly named on-device multi-speaker diarization as the defensible edge if we actually ship it",
+                                "the on-device diarization is the thing I'd underwrite — nobody privacy-first has it"
+                            ),
+                            bullet(
+                                "Early trial-conversion signal was enough to keep the conversation warm, but they want the second-meeting activation number before the next update"
+                            )
+                        ]),
+                        section("Open / follow-ups", [
+                            bullet(
+                                "The pricing narrative — discount or clean — is now blocking two fronts at once: the launch copy and the raise conversation. It has to be decided, not deferred again"
+                            ),
+                            bullet("Send a one-pager on the diarization roadmap with a concrete on-device accuracy target")
+                        ])
+                    ],
+                    actionItems: [
+                        action("Lock the pricing narrative — discount yes or no — before the next investor call", deadline: "this week"),
+                        action("Send the diarization roadmap one-pager with an on-device accuracy target", deadline: "Friday"),
+                        action("Pull the second-meeting activation number for the next investor update")
+                    ]
+                )
+            )
 
-            let transcripts = demoTranscripts(prep: prep, design: design, sync: sync, hire: hire, note: note, now: now)
+            let beta = meeting(
+                id: betaFeedback,
+                title: "Beta feedback — 3 users",
+                kind: .meeting,
+                startedAgo: 2 * 86400,
+                duration: 33 * 60,
+                now: now,
+                recap: MeetingRecap(
+                    sections: [
+                        section("Where users struggled", [
+                            bullet(
+                                "Two of the three hit the screen-recording permission wall and nearly quit — the exact failure the design sync already flagged, except now it's real users, and the fix is speced but not shipped",
+                                "I thought I'd broken something, I almost deleted it"
+                            )
+                        ]),
+                        section("What they asked for", [
+                            bullet(
+                                "The single most repeated request was telling who said what in a three-person room — multi-speaker, unprompted, from users who'd never heard the word diarization",
+                                "it's great for my one-on-ones, but my team standups are a wall of text"
+                            )
+                        ]),
+                        section("Why one churned", [
+                            bullet(
+                                "One dropped after the trial — said the price felt high before they'd seen team features. Notably, a discount wouldn't have saved them; clarity about what they were paying for would have",
+                                "it wasn't too expensive, I just couldn't tell what I was buying"
+                            )
+                        ])
+                    ],
+                    actionItems: [
+                        action("Ship the merged permission step design sync speced — it's now blocking real users", deadline: "this week"),
+                        action("Add multi-speaker to the roadmap one-pager as user-validated demand, not a hunch"),
+                        action("Follow up with the churned user about what would actually have converted them")
+                    ]
+                )
+            )
 
+            let growth = meeting(
+                id: growthReview,
+                title: "Growth review — activation & trial",
+                kind: .meeting,
+                startedAgo: 4 * 86400,
+                duration: 25 * 60,
+                now: now,
+                recap: MeetingRecap(
+                    sections: [
+                        section("The activation metric", [
+                            bullet(
+                                "The value moment is provably the second real meeting — that's when retention curves flatten. Fourteen-day trials reach it far more often than seven-day ones",
+                                "nobody who hits their second meeting churns, basically"
+                            )
+                        ]),
+                        section("But conversion says the opposite", [
+                            bullet(
+                                "Seven-day trials convert to paid at a higher rate — the urgency works. So activation and conversion point in opposite directions, which means the 7-vs-14 call is a real tradeoff, not a preference",
+                                "seven converts better, fourteen activates better — pick your poison"
+                            )
+                        ]),
+                        section("The funnel leak", [
+                            bullet(
+                                "The single biggest drop-off in the whole funnel is the screen-recording permission step — the same wall the beta users hit and the design sync predicted. It's not a copy problem, it's a structural one"
+                            )
+                        ])
+                    ],
+                    actionItems: [
+                        action("Decide 7 vs 14 with the activation-vs-conversion tradeoff made explicit, not by gut", deadline: "this week"),
+                        action("Instrument the permission-step drop-off precisely so we can measure the onboarding fix")
+                    ]
+                )
+            )
+
+            let teardown = meeting(
+                id: competitorTeardown,
+                title: "Competitor teardown — Otter / Fathom / OpenWhispr",
+                kind: .voiceNote,
+                startedAgo: 5 * 86400,
+                duration: 18 * 60,
+                now: now,
+                recap: MeetingRecap(
+                    sections: [
+                        section("The wedge holds", [
+                            bullet(
+                                "All three either drop a bot into the call or route audio through US clouds. No-bot, EU-hosted, native macOS is genuinely uncontested — nobody's sitting in our exact spot",
+                                "there's literally no one else in the no-bot plus EU corner"
+                            )
+                        ]),
+                        section("The one gap they have and we don't", [
+                            bullet(
+                                "OpenWhispr shipped real multi-speaker diarization on cloud pyannote. It's the single feature a prospect can point at and say 'they have this, you don't' — and it keeps coming up everywhere else too",
+                                "diarization is the only demo where we lose on features, not principles"
+                            )
+                        ]),
+                        section("Pricing benchmark", [
+                            bullet(
+                                "Everyone clusters at $20–30 a month. Our sub-€20 EU-native price is already the differentiated position — which is one more reason a launch discount actively undersells us"
+                            )
+                        ])
+                    ],
+                    actionItems: [
+                        action("Prioritize on-device diarization — it's the only feature gap a competitor can name in a demo"),
+                        action("Anchor on the sub-€20 EU-native price and stop treating a discount as the growth lever")
+                    ]
+                )
+            )
+            return [investor, beta, growth, teardown]
+        }
+
+        static func build() -> Bundle {
+            let now = Date()
+            let meetings = (coreMeetings(now: now) + extraMeetings(now: now))
+                .sorted { $0.startedAt > $1.startedAt }
+            let byID = Dictionary(uniqueKeysWithValues: meetings.map { ($0.id, $0) })
+
+            let transcripts = demoTranscripts(byID, now: now)
+
+            // Only these two demo sessions show a checked-off item; the rest read
+            // as freshly captured, still-open work.
+            let doneByID: [UUID: Int] = [launchPrep: 1, oneOnOne: 1]
             var actionItems: [UUID: [ActionItem]] = [:]
-            actionItems[launchPrep] = items(for: prep, doneCount: 1, now: now)
-            actionItems[designSync] = items(for: design, doneCount: 0, now: now)
-            actionItems[oneOnOne] = items(for: sync, doneCount: 1, now: now)
-            actionItems[interview] = items(for: hire, doneCount: 0, now: now)
-            actionItems[roadmapNote] = items(for: note, doneCount: 0, now: now)
+            for meeting in meetings {
+                actionItems[meeting.id] = items(for: meeting, doneCount: doneByID[meeting.id] ?? 0, now: now)
+            }
 
             var chat: [UUID: [ChatMessage]] = [:]
             chat[launchPrep] = [
@@ -509,14 +749,21 @@
                 label(launchLabel, "Product Hunt", "#8B5CF6"),
                 label(hiringLabel, "Hiring", "#EC4899"),
                 label(oneOnOneLabel, "1:1s", "#22C55E"),
-                label(productLabel, "Product", "#3B82F6")
+                label(productLabel, "Product", "#3B82F6"),
+                label(investorLabel, "Investors", "#F59E0B"),
+                label(growthLabel, "Growth", "#14B8A6"),
+                label(feedbackLabel, "Feedback", "#EF4444")
             ]
             let assignments: [UUID: Set<UUID>] = [
                 launchPrep: [launchLabel],
                 designSync: [launchLabel, productLabel],
                 oneOnOne: [oneOnOneLabel],
                 interview: [hiringLabel],
-                roadmapNote: [productLabel]
+                roadmapNote: [productLabel],
+                investorCall: [investorLabel, launchLabel],
+                betaFeedback: [feedbackLabel, productLabel],
+                growthReview: [growthLabel, productLabel],
+                competitorTeardown: [productLabel, launchLabel]
             ]
 
             return Bundle(
@@ -529,9 +776,11 @@
             )
         }
 
-        private static func demoTranscripts(prep: Meeting, design: Meeting, sync: Meeting, hire: Meeting, note: Meeting, now: Date) -> [
-            UUID: [TranscriptRecord]
-        ] {
+        static func demoTranscripts(_ byID: [UUID: Meeting], now: Date) -> [UUID: [TranscriptRecord]] {
+            guard let prep = byID[launchPrep], let design = byID[designSync], let sync = byID[oneOnOne],
+                  let hire = byID[interview], let note = byID[roadmapNote], let investor = byID[investorCall],
+                  let beta = byID[betaFeedback], let growth = byID[growthReview], let teardown = byID[competitorTeardown]
+            else { return [:] }
             var transcripts: [UUID: [TranscriptRecord]] = [:]
             transcripts[launchPrep] = transcript(for: prep, now: now, lines: [
                 (.them, "Okay, before we get too deep — are we still locked on Tuesday, or are people getting cold feet?"),
@@ -739,6 +988,101 @@
                 (
                     .me,
                     "I don't want to auto-merge silently though — that'll misfire and erode trust. A lightweight reconciliation pass that flags likely continuations for me to confirm feels right. That could genuinely be the next headline feature. Spec it out."
+                )
+            ])
+            transcripts[investorCall] = transcript(for: investor, now: now, lines: [
+                (.them, "Before we talk numbers — I want to understand the pricing. Are you running a launch discount or not?"),
+                (
+                    .me,
+                    "Still deciding. It'd drive first-day conversions, but I hear you that it muddies the story."
+                ),
+                (
+                    .them,
+                    "It does more than muddy it. If you're not sure what it's worth, why would we be? Clean, confident pricing is the signal I want to see."
+                ),
+                (.me, "That's fair. It's honestly been the one open thread for two weeks now."),
+                (.them, "Then close it. Now — the moat. What can Otter or Fathom not just copy in a quarter?"),
+                (
+                    .me,
+                    "No bot in the room, EU hosting, native macOS. And the one nobody privacy-first has: on-device multi-speaker diarization. That's the defensible edge."
+                ),
+                (
+                    .them,
+                    "The on-device diarization is the thing I'd underwrite. Features are table stakes — that's the part I can't see anyone copying without giving up their privacy story. Are you shipping it?"
+                ),
+                (.me, "It's on the roadmap. I'll send you a one-pager with a concrete on-device accuracy target."),
+                (.them, "Do. And what's your trial conversion looking like?"),
+                (
+                    .me,
+                    "Early but promising. The number I want to bring you next time is second-meeting activation — that's the real leading indicator."
+                ),
+                (.them, "Agreed, that's the one I'd watch. Bring me that and the pricing decision and we keep talking.")
+            ])
+            transcripts[betaFeedback] = transcript(for: beta, now: now, lines: [
+                (.me, "Thanks for testing it this week. Be brutal — where did it trip you up?"),
+                (
+                    .them,
+                    "Honestly? The screen recording permission. I thought I'd broken something, I almost deleted it. There was a step where it just… stopped, and I didn't know why."
+                ),
+                (.me, "You're the second person this week to say that. It's the relaunch step, isn't it."),
+                (
+                    .them,
+                    "Yeah. Once I got past it, it was great. The transcription is genuinely better than what I was using."
+                ),
+                (.me, "What's the one thing you wished it did that it doesn't?"),
+                (
+                    .them,
+                    "Tell me who said what. It's great for my one-on-ones, but my team standups are a wall of text — three people and I can't tell them apart."
+                ),
+                (.me, "That keeps coming up. Noted, and it's already where my head is on the roadmap."),
+                (
+                    .me,
+                    "One of the other testers churned after the trial — said the price felt high. Did it feel expensive to you?"
+                ),
+                (
+                    .them,
+                    "It wasn't too expensive, I just couldn't tell what I was buying. If anything a discount would've made me trust it less. I needed to see the team features, not a lower number."
+                )
+            ])
+            transcripts[growthReview] = transcript(for: growth, now: now, lines: [
+                (.me, "Let's settle the trial-length question with data instead of opinions. What does activation say?"),
+                (
+                    .them,
+                    "Clear signal — the value moment is the second real meeting. Retention flattens the second someone hits it. And fourteen-day trials reach that second meeting way more often than seven-day ones."
+                ),
+                (.me, "So fourteen wins?"),
+                (
+                    .them,
+                    "Not so fast. Conversion tells the opposite story. Seven-day trials convert to paid at a higher rate — the urgency actually works. Seven converts better, fourteen activates better. Pick your poison."
+                ),
+                (.me, "So it's a genuine tradeoff, not a preference. That's the thing to decide explicitly."),
+                (
+                    .them,
+                    "Right. And whichever way you go, there's a bigger leak upstream. The single biggest drop-off in the whole funnel is the screen-recording permission step."
+                ),
+                (.me, "The same wall the beta users hit. And design flagged it a month ago."),
+                (
+                    .them,
+                    "Same one. This isn't a copy problem, it's structural. Fix that and both trial variants improve — you're arguing about the trial while the real leak is one screen earlier."
+                )
+            ])
+            transcripts[competitorTeardown] = transcript(for: teardown, now: now, lines: [
+                (.me, "Voice note — competitor teardown. Went deep on Otter, Fathom, and OpenWhispr this afternoon."),
+                (
+                    .me,
+                    "Headline: the wedge holds. All three either drop a bot into the call or route audio through US clouds. There's literally no one else in the no-bot plus EU corner. That's ours, uncontested."
+                ),
+                (
+                    .me,
+                    "But there's one gap, and it's the same one that keeps coming up everywhere. OpenWhispr shipped real multi-speaker diarization on cloud pyannote. It's the only demo where we lose on features, not principles."
+                ),
+                (
+                    .me,
+                    "Every signal this month points at diarization — the roadmap, the investor call, the beta users, now the teardown. If a competitor can name one thing we don't have, that's it. On-device is how we close it without giving up privacy."
+                ),
+                (
+                    .me,
+                    "Pricing: everyone clusters at twenty to thirty dollars a month. Our sub-twenty-euro EU-native price is already the differentiated position. Which is one more reason a launch discount actively undersells us — we're not the cheap option, we're the trustworthy one."
                 )
             ])
             return transcripts
