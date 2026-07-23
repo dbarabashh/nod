@@ -28,9 +28,13 @@ final class ScreenContextService: ObservableObject {
     private let exclusions: ScreenExclusions
     private let reader: AccessibilityReader
     private var timerTask: Task<Void, Never>?
-    /// Hashes stored this launch, so an unchanged screen isn't re-sent on every
-    /// tick. The unique index is the real guarantee; this saves the round trip.
-    private var recentHashes: Set<String> = []
+    /// When each screen state was last written, so an unchanged screen isn't
+    /// re-sent on every tick. Not a plain "seen" set: the row's `observed_at` is
+    /// where the digest reads how long a window was up from, and the dedup index
+    /// means a static screen is one row — never re-sending it would leave that
+    /// column stamped with the first sighting and report a three-hour Slack
+    /// session as an instant.
+    private var lastStoredAt: [String: Date] = [:]
 
     /// Sampling interval. Tight enough to catch a screen the user only glances
     /// at, loose enough that the AX walk isn't running constantly — each tick
@@ -49,6 +53,11 @@ final class ScreenContextService: ObservableObject {
     /// Stated in `privacy.md` § 3.10(b) alongside the sampling interval.
     private static let recognitionInterval: TimeInterval = 20
     private var lastRecognitionAt: Date?
+
+    /// How often an unchanged screen is written again to move its `observed_at`
+    /// forward. Far above the sampling interval — the point is a usable span,
+    /// not a precise one, and every refresh is a round trip.
+    private static let refreshInterval: TimeInterval = 60
 
     init(supabase: SupabaseClient?, exclusions: ScreenExclusions, reader: AccessibilityReader = AccessibilityReader()) {
         self.supabase = supabase
@@ -83,7 +92,7 @@ final class ScreenContextService: ObservableObject {
         timerTask = nil
         isRunning = false
         needsAccessibility = false
-        recentHashes.removeAll()
+        lastStoredAt.removeAll()
         Log.screen.info("context: ambient capture off")
     }
 
@@ -140,17 +149,14 @@ final class ScreenContextService: ObservableObject {
         let rules = exclusions.rules
         let reader = reader
         let pid = app.processIdentifier
-        let read = await Task.detached(priority: .utility) { () -> (title: String, text: String?) in
-            var title = ""
-            let parts = reader.texts(forProcessID: pid) { windowTitle in
-                guard !rules.excludesWindow(title: windowTitle) else { return false }
-                title = windowTitle
-                return true
-            }
-            return (title, ScreenObservationBuilder.text(from: parts))
+        let read = await Task.detached(priority: .utility) { () -> (title: String, text: String?)? in
+            guard let focused = reader.focusedWindowText(forProcessID: pid),
+                  !rules.excludesWindow(title: focused.title)
+            else { return nil }
+            return (focused.title, ScreenObservationBuilder.text(from: focused.texts))
         }.value
 
-        guard let captured = await recognizedIfAccessibilityIsThin(read, pid: pid) else { return }
+        guard let read, let captured = await recognizedIfAccessibilityIsThin(read, pid: pid) else { return }
         let observation = ScreenObservation(
             userID: userID,
             sourceApp: bundleID,
@@ -164,7 +170,10 @@ final class ScreenContextService: ObservableObject {
             content: ScreenObservationBuilder.merge(title: captured.title, text: captured.text),
             retention: ScreenContextDefaults.retention
         )
-        guard recentHashes.insert(observation.contentHash).inserted else { return }
+        let hash = observation.contentHash
+        if let last = lastStoredAt[hash], Date().timeIntervalSince(last) < Self.refreshInterval { return }
+        let previous = lastStoredAt[hash]
+        lastStoredAt[hash] = observation.observedAt
 
         do {
             try await supabase
@@ -172,11 +181,13 @@ final class ScreenContextService: ObservableObject {
                 .upsert(observation, onConflict: "user_id,source_app,content_hash")
                 .execute()
             lastCaptureAt = observation.observedAt
-            Log.screen.info(
-                "context: stored \(observation.content.count) chars from \(bundleID) — \(captured.title)"
-            )
+            // Titles name the channel, the ticket, the document — the most
+            // identifying part of an ambient capture, and the unified log is
+            // persistent and collected by sysdiagnose.
+            Log.screen.info("context: stored \(observation.content.count) chars from \(bundleID)")
+            Log.screen.debug("context: window title — \(captured.title)")
         } catch {
-            recentHashes.remove(observation.contentHash)
+            lastStoredAt[hash] = previous
             Log.screen.error("context: store failed — \(error.localizedDescription)")
         }
     }
@@ -199,7 +210,10 @@ extension ScreenContextService {
                 .from("screen_observations")
                 .select()
                 .gt("expires_at", value: Date())
-                .textSearch("content", query: terms.joined(separator: " | "))
+                // `simple`, matching the GIN index: the default `english`
+                // config stems away the Ukrainian half of what people ask, and
+                // a query on another config would skip the index entirely.
+                .textSearch("content", query: terms.joined(separator: " | "), config: "simple")
                 .order("observed_at", ascending: false)
                 .limit(limit * 4)
                 .execute()

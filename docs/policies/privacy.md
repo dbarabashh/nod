@@ -263,7 +263,7 @@ the product:
 |---|---|
 | **Default** | **Off.** You enable it in Settings → Privacy. It is never switched on by an app update. |
 | **What is stored** | The window's text, the app's identifier, the window title, and a timestamp, in `screen_observations`. No images, no keystrokes, no clipboard, no password-field contents. |
-| **How often** | About every 5 seconds, and only for the window you are actually looking at. An unchanged screen is stored once, not once per sample. |
+| **How often** | About every 5 seconds, and only for the window you are actually looking at — the focused one, never the app's other windows. An unchanged screen stays a **single row**, not one per sample; its timestamp is refreshed at most once a minute, so Nod can tell how long a window was up without storing it again. |
 | **How it reads** | The accessibility interface first. When a window tells macOS almost nothing — Slack, Figma and other Electron or canvas-drawn apps — Nod converts that window's pixels to text **on your Mac**, at most once every 20 seconds, and only for a window the accessibility read came up short on. This needs the **Screen Recording** permission you already granted for meeting audio; without it, the step is skipped. It also needs macOS 14 or later. |
 | **What happens to the image** | Nothing is saved. It exists in memory for the moment recognition takes, is never written to disk and never uploaded, and is released immediately. Only the recognised text is stored. |
 | **How long** | Every row carries an expiry — 14 days by default, and you choose. A scheduled job deletes expired rows server-side, so the index shrinks on its own even if you never open Nod again. |

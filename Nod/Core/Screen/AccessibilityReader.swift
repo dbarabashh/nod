@@ -50,6 +50,32 @@ struct AccessibilityReader {
         return collected
     }
 
+    /// The text of the one window the user is actually in.
+    ///
+    /// `texts(forProcessID:)` walks *every* window an app owns, which is what a
+    /// roster needs and the opposite of what ambient capture needs: the other
+    /// windows of a browser or a chat client are ones the user is not looking
+    /// at, and merging them would both store unread windows and label the
+    /// result with whichever title came last. Accessibility names the focused
+    /// window directly, so ask for it instead of filtering after the fact.
+    ///
+    /// Blocking — call it off the main actor.
+    func focusedWindowText(forProcessID pid: pid_t) -> (title: String, texts: [String])? {
+        let application = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(application, messagingTimeout)
+
+        // A window can be main without holding focus (a sheet is up, focus is in
+        // a panel), and some apps expose only one of the two.
+        guard let window = copyElement(application, kAXFocusedWindowAttribute)
+            ?? copyElement(application, kAXMainWindowAttribute)
+        else { return nil }
+
+        var collected: [String] = []
+        var visited = 0
+        walk(window, depth: 0, visited: &visited, into: &collected)
+        return (copyString(window, kAXTitleAttribute) ?? "", collected)
+    }
+
     private func walk(_ element: AXUIElement, depth: Int, visited: inout Int, into collected: inout [String]) {
         guard depth <= maxDepth, visited < maxElements else { return }
         visited += 1
@@ -69,6 +95,13 @@ struct AccessibilityReader {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
         return (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func copyElement(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
+        guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return unsafeDowncast(value, to: AXUIElement.self)
     }
 
     private func copyElements(_ element: AXUIElement, _ attribute: String) -> [AXUIElement]? {
