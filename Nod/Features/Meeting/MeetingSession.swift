@@ -499,11 +499,13 @@ final class MeetingSession: ObservableObject {
 
             await store.flushPending()
 
-            // Clustering a long call costs minutes. It runs alongside the recap
-            // stream, and the finalize waits only `speakerJoinTimeout` for it:
-            // persistence must never be held hostage to a background pass. A
-            // result that lands late is applied afterwards, in `applyLateSpeakers`.
-            let expectedSpeakers = await self.expectedThemSpeakers()
+            // Clustering a long call costs minutes, and the recap prompt wants
+            // the labels, so the finalize does wait here — but only for
+            // `speakerJoinTimeout`. Past that the summary is generated from an
+            // unlabelled transcript rather than making the user watch
+            // "Generating…" for minutes, and a result that lands late relabels
+            // the persisted rows in `applyLateSpeakers`.
+            let expectedSpeakers = self.expectedThemSpeakers()
             let participants = self.rosterParticipants
             let speakerTask = Task { await store.resolveSpeakers(expectedSpeakerCount: expectedSpeakers) }
             let speakers = await Self.value(of: speakerTask, within: Self.speakerJoinTimeout) ?? [:]
@@ -566,8 +568,12 @@ final class MeetingSession: ObservableObject {
                 await drainOutbox()
                 meetingStore.finishFinalizing(id: updated.id)
 
+                // Detached on purpose: the relabel is best-effort, and awaiting
+                // it here would hold entity extraction and embedding indexing —
+                // what makes the meeting findable — behind the whole clustering
+                // pass on exactly the long calls that overran the join timeout.
                 if speakers.isEmpty {
-                    await applyLateSpeakers(from: speakerTask, entries: entriesSnapshot, meeting: updated)
+                    Task { await self.applyLateSpeakers(from: speakerTask, entries: entriesSnapshot, meeting: updated) }
                 }
 
                 // Enrichment (entities for "Related" + embeddings for
@@ -615,10 +621,14 @@ final class MeetingSession: ObservableObject {
                 // transcript is pinned in `entriesSnapshot`, and only the live
                 // store clear is gated so the new recording isn't wiped.
                 let fallback = draft.updating(title: nil, summary: Self.summaryFailedFallback)
-                let records = await transcriptRecords(
+                // Whatever the join timeout already produced, never
+                // `speakerTask.value`: waiting out a multi-minute clustering
+                // pass here would hold the WAL write hostage on precisely the
+                // path where the summary already failed.
+                let records = transcriptRecords(
                     from: entriesSnapshot,
                     meeting: fallback,
-                    speakers: speakerTask.value
+                    speakers: speakers
                 )
                 await outbox.complete(fallback, transcripts: records, for: draftID)
                 await drainOutbox()
@@ -1183,11 +1193,12 @@ final class MeetingSession: ObservableObject {
     /// How many distinct voices the `them` stream should contain: everyone on
     /// the call except the user, whose own voice arrives on the mic instead.
     /// Zero means "unknown" — diarization then clusters by threshold.
-    private func expectedThemSpeakers() async -> Int {
-        let rules = screenExclusions.rules
-        if let fresh = await Task.detached(priority: .utility, operation: { MeetingRosterReader(exclusions: rules).sample() }).value {
-            roster = fresh
-        }
+    ///
+    /// Reads the roster sampled while the call was live and never re-samples:
+    /// by the time a finalize runs, the user has hung up and the conferencing
+    /// window is gone, so a fresh walk finds nothing and would overwrite a good
+    /// count with none.
+    private func expectedThemSpeakers() -> Int {
         guard let roster, roster.speakerCount > 1 else { return 0 }
         return roster.speakerCount - 1
     }
