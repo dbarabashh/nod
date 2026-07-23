@@ -83,6 +83,32 @@ final class RetryClassificationTests: XCTestCase {
 }
 
 @MainActor
+final class TemperatureSupportTests: XCTestCase {
+    func testModelsThatDroppedSamplingParamsAreExcluded() {
+        for model in [
+            "anthropic/claude-sonnet-5",
+            "anthropic/claude-opus-4.8",
+            "anthropic/claude-opus-4.7",
+            "anthropic/claude-fable-5",
+            "~anthropic/claude-sonnet-latest"
+        ] {
+            XCTAssertFalse(LLMProxyClient.acceptsTemperature(model), model)
+        }
+    }
+
+    func testOlderModelsStillAcceptTemperature() {
+        for model in [
+            "anthropic/claude-sonnet-4.6",
+            "anthropic/claude-haiku-4.5",
+            "anthropic/claude-opus-4.6",
+            "google/gemini-2.5-pro"
+        ] {
+            XCTAssertTrue(LLMProxyClient.acceptsTemperature(model), model)
+        }
+    }
+}
+
+@MainActor
 final class SanitizeErrorBodyTests: XCTestCase {
     func testHTMLPageWithTitleIsReducedToTitle() {
         let html = "<html><head><title>502 Bad Gateway</title></head><body>nginx</body></html>"
