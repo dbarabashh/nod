@@ -99,7 +99,7 @@ final class ScreenExclusions: ObservableObject {
         } else {
             categories.remove(category)
         }
-        defaults.set(try? JSONEncoder().encode(Array(categories)), forKey: Self.categoriesKey)
+        persist(Array(categories), key: Self.categoriesKey)
         Log.screen.info("exclusions: category \(category.rawValue) \(excluded ? "on" : "off")")
     }
 
@@ -134,7 +134,7 @@ final class ScreenExclusions: ObservableObject {
     }
 
     func excludesApp(bundleID: String) -> Bool {
-        apps.contains { $0.bundleID.caseInsensitiveCompare(bundleID) == .orderedSame }
+        rules.excludesApp(bundleID: bundleID)
     }
 
     /// Window titles are all a browser exposes without descending into the page,
@@ -143,7 +143,7 @@ final class ScreenExclusions: ObservableObject {
     /// bank's name; a title that mentions neither is a real gap, which is why
     /// app-level exclusion stays the stronger control.
     func excludesWindow(title: String) -> Bool {
-        Self.matches(title: title, patterns: websites + WebsiteCategory.keywords(for: categories))
+        rules.excludesWindow(title: title)
     }
 
     /// A pattern containing a dot is a domain and matches anywhere in the title
@@ -152,7 +152,7 @@ final class ScreenExclusions: ObservableObject {
     /// "shop" would otherwise exclude "Workshop — Google Meet".
     nonisolated static func matches(title: String, patterns: [String]) -> Bool {
         let lowered = title.lowercased()
-        let words = Set(lowered.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
+        let words = Set(TextTokens.words(in: lowered))
         return patterns.contains { pattern in
             guard !pattern.isEmpty else { return false }
             if pattern.contains(".") { return lowered.contains(pattern) }
@@ -177,11 +177,15 @@ final class ScreenExclusions: ObservableObject {
     }
 
     private func persistApps() {
-        defaults.set(try? JSONEncoder().encode(apps), forKey: Self.appsKey)
+        persist(apps, key: Self.appsKey)
     }
 
     private func persistWebsites() {
-        defaults.set(try? JSONEncoder().encode(websites), forKey: Self.websitesKey)
+        persist(websites, key: Self.websitesKey)
+    }
+
+    private func persist(_ value: some Encodable, key: String) {
+        defaults.set(try? JSONEncoder().encode(value), forKey: key)
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, from defaults: UserDefaults, key: String) -> T? {

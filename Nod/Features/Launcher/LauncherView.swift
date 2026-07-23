@@ -238,7 +238,7 @@ struct LauncherView: View {
     /// indicator moves below them.
     private var launcherAnswerHasContent: Bool {
         guard let answer = launcherAnswer else { return false }
-        return !AnswerBlocks.complete(in: answer.content, isFinished: !chat.isStreaming).isEmpty
+        return chat.isStreaming ? AnswerBlocks.hasComplete(in: answer.content) : !answer.content.isEmpty
     }
 
     private func answerPane(_ answer: KnowledgeChatStore.Message) -> some View {

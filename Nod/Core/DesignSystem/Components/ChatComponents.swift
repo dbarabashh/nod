@@ -174,7 +174,7 @@ struct AssistantTextBubble: View {
     /// thinking indicator is carrying the wait, and an empty bubble beside it
     /// would read as a stalled answer.
     private var isAwaitingFirstBlock: Bool {
-        isStreaming && AnswerBlocks.complete(in: content, isFinished: false).isEmpty
+        isStreaming && !AnswerBlocks.hasComplete(in: content)
     }
 
     var body: some View {
@@ -226,19 +226,31 @@ private struct StreamingAnswer: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var blocks: [String] {
-        AnswerBlocks.complete(in: content, isFinished: false)
-    }
+    /// Parsed once each, in arrival order. A finished paragraph never changes,
+    /// so re-parsing the ones already on screen — twenty times a second, for the
+    /// length of the answer — is the quadratic cost the non-streaming path
+    /// avoids by parsing in `init`.
+    @State private var rendered: [AttributedString] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                Text(renderRecapMarkdown(block))
+            ForEach(Array(rendered.enumerated()), id: \.offset) { _, block in
+                Text(block)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.answerArrival(reduceMotion: reduceMotion))
             }
         }
-        .animation(.standard(reduceMotion: reduceMotion), value: blocks.count)
+        .animation(.standard(reduceMotion: reduceMotion), value: rendered.count)
+        .onAppear { absorb(content) }
+        .onChange(of: content) { absorb($0) }
+    }
+
+    /// Parses only what is newly complete. Blocks are append-only while an
+    /// answer streams, so everything already rendered is left alone.
+    private func absorb(_ text: String) {
+        let blocks = AnswerBlocks.complete(in: text, isFinished: false)
+        guard blocks.count > rendered.count else { return }
+        rendered += blocks[rendered.count...].map(renderRecapMarkdown)
     }
 }
 
@@ -251,6 +263,13 @@ enum AnswerBlocks {
     /// the lines under it, and no `**bold` is ever shown with its closing
     /// asterisks missing. While the answer is unfinished the trailing block is
     /// held back — it is, by definition, the one mid-sentence.
+    /// Whether anything is showable yet, without paying for the split. Asked on
+    /// every body pass of a view that re-renders per stream flush, where the
+    /// only question is "is there a first paragraph".
+    static func hasComplete(in text: String) -> Bool {
+        text.contains("\n\n")
+    }
+
     static func complete(in text: String, isFinished: Bool) -> [String] {
         let blocks = text
             .components(separatedBy: "\n\n")

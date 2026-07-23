@@ -11,8 +11,12 @@ struct InstalledApp: Identifiable, Equatable {
         bundleID
     }
 
-    var icon: NSImage {
-        NSWorkspace.shared.icon(forFile: path)
+    /// Cached in `AppDirectory`, not fetched here: this renders once per row in
+    /// a list of every installed app, and an uncached lookup is a disk hit per
+    /// row per body pass.
+    @MainActor
+    var icon: NSImage? {
+        AppDirectory.icon(for: AppIdentity(bundleID: bundleID, name: name, path: path))
     }
 }
 
@@ -42,19 +46,11 @@ enum InstalledApps {
                       bundleID != own,
                       seen.insert(bundleID).inserted
                 else { continue }
-                apps.append(InstalledApp(bundleID: bundleID, name: displayName(of: bundle, path: path), path: path))
+                apps.append(InstalledApp(bundleID: bundleID, name: AppDirectory.displayName(of: bundle, at: path), path: path))
             }
         }
 
         return apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    private static func displayName(of bundle: Bundle, path: String) -> String {
-        let info = bundle.localizedInfoDictionary ?? bundle.infoDictionary
-        if let name = info?["CFBundleDisplayName"] as? String ?? info?["CFBundleName"] as? String {
-            return name
-        }
-        return (path as NSString).lastPathComponent.replacingOccurrences(of: ".app", with: "")
     }
 
     /// Case- and diacritic-insensitive name match for the search field.

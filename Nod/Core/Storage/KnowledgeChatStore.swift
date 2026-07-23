@@ -601,7 +601,7 @@ extension KnowledgeChatStore {
             let blocks = digest.apps.map { app in
                 app.promptBlock(
                     appName: AppDirectory.identity(forBundleID: app.bundleID).name,
-                    formatter: Self.observationStamp
+                    formatter: PromptLibrary.observationStamp
                 )
             }
             return (blocks, digest.apps.map { Self.appSource(bundleID: $0.bundleID) })
@@ -623,17 +623,12 @@ extension KnowledgeChatStore {
     /// and when it was seen — enough for the model to attribute it, and for the
     /// user to recognise it in an answer.
     private static func labeledObservation(_ observation: ScreenObservation) -> String {
-        let stamp = observationStamp.string(from: observation.observedAt)
-        let title = observation.sourceTitle.isEmpty ? observation.sourceApp : observation.sourceTitle
-        return "[On your screen — \(title), \(stamp)]\n\(observation.content)"
+        ScreenPromptBlock.single(
+            source: observation.sourceTitle.isEmpty ? observation.sourceApp : observation.sourceTitle,
+            when: PromptLibrary.observationStamp.string(from: observation.observedAt),
+            content: observation.content
+        )
     }
-
-    private static let observationStamp: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
 
     private struct SessionRoute: Decodable {
         let scope: String
@@ -804,10 +799,13 @@ extension KnowledgeChatStore {
             // Corpus-style search (similarity + entity boost). A label scope is
             // the same path, constrained server-side to the label's sessions.
             let scopedIDs: [UUID]? = if case let .scoped(ids) = scope { ids } else { nil }
-            let chunks = await knowledge.search(query: query, meetingIDs: scopedIDs, embedText: embedText)
             // Screen observations answer the half of "what was I working on"
             // that was never said out loud. Empty unless ambient context is on.
-            let screen = await observed(for: query, aboutScreen: aboutScreen)
+            // Its own round trip, independent of the corpus search — so it runs
+            // alongside rather than after it, as in the `.specific` branch.
+            async let screening = observed(for: query, aboutScreen: aboutScreen)
+            let chunks = await knowledge.search(query: query, meetingIDs: scopedIDs, embedText: embedText)
+            let screen = await screening
             await loadPeople(for: Array(Set(chunks.map(\.meetingID))))
             let byID = meetingsByID
             return Grounding(

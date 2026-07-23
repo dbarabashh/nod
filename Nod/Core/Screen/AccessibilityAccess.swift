@@ -16,7 +16,6 @@ enum AccessibilityAccess {
     /// Asks the system to show the grant prompt. Returns the state *before* the
     /// user answers — the prompt is asynchronous, and the answer only shows up
     /// on a later `isTrusted` read.
-    @discardableResult
     static func requestTrust() -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
         return AXIsProcessTrustedWithOptions(options as CFDictionary)

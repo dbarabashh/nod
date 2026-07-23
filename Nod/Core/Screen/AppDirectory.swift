@@ -46,12 +46,18 @@ enum AppDirectory {
     }
 
     private static func displayName(at url: URL) -> String? {
-        guard let bundle = Bundle(url: url) else { return nil }
+        Bundle(url: url).map { displayName(of: $0, at: url.path) }
+    }
+
+    /// Info.plist key precedence, in one place: both the privacy list (which
+    /// enumerates bundles it already opened) and the source chips (which resolve
+    /// one id at a time) have to name the same app the same way.
+    nonisolated static func displayName(of bundle: Bundle, at path: String) -> String {
         let info = bundle.localizedInfoDictionary ?? bundle.infoDictionary
         if let name = info?["CFBundleDisplayName"] as? String ?? info?["CFBundleName"] as? String {
             return name
         }
-        return url.deletingPathExtension().lastPathComponent
+        return (path as NSString).lastPathComponent.replacingOccurrences(of: ".app", with: "")
     }
 
     /// An app that has since been uninstalled still has observations on record.

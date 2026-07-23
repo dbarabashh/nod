@@ -159,10 +159,6 @@ final class SpeakerDiarizer {
         SherpaOnnxDestroyOfflineSpeakerDiarization(diarizer)
     }
 
-    var expectedSampleRate: Int {
-        Int(SherpaOnnxOfflineSpeakerDiarizationGetSampleRate(diarizer))
-    }
-
     /// `samples` is the whole recording as 16 kHz mono Float32 in [-1, 1].
     /// The C API takes one contiguous buffer — there is no incremental entry
     /// point — so the caller must hold the full stream until the meeting ends.

@@ -121,6 +121,16 @@ enum PromptLibrary {
         localTimeFormatter.string(from: date)
     }
 
+    /// Timestamp on a screen-context block. Device locale on purpose — unlike
+    /// the session/`localTimeString` stamps it labels something the user saw
+    /// minutes ago, and it reads back to them in the answer.
+    static let observationStamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
     private static let localTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

@@ -267,10 +267,7 @@ extension ScreenContextService {
     /// Words worth matching on. Short and very common words are dropped: they
     /// match everything, which is the same as matching nothing.
     static func searchTerms(in query: String) -> [String] {
-        query
-            .lowercased()
-            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-            .map(String.init)
+        TextTokens.words(in: query)
             .filter { $0.count >= 4 && !stopWords.contains($0) }
             .prefix(6)
             .map { $0 }

@@ -48,7 +48,6 @@ final class DiarizationBuffer: @unchecked Sendable {
         TimeInterval(samples.count) / TimeInterval(sampleRate)
     }
 
-    @discardableResult
     func record(_ segment: [Float]) -> UUID? {
         guard !segment.isEmpty else { return nil }
         guard samples.count + segment.count <= maxSamples else {
@@ -67,11 +66,6 @@ final class DiarizationBuffer: @unchecked Sendable {
         })
         spans.append(Span(id: id, startSample: start, endSample: samples.count))
         return id
-    }
-
-    func reset() {
-        samples.removeAll(keepingCapacity: false)
-        spans.removeAll(keepingCapacity: false)
     }
 
     /// Cluster the retained speech and hand back one speaker per recorded span.

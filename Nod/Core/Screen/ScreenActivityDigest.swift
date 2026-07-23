@@ -125,18 +125,12 @@ enum ScreenRecall {
     /// "працював", "працюю" and "працювала", which is why those entries are
     /// written as stems.
     static func asksForRecap(_ question: String) -> Bool {
-        let words = Self.words(in: question)
+        let words = TextTokens.words(in: question)
         return phrases.contains { phrase in
-            Self.words(in: phrase).allSatisfy { stem in
+            TextTokens.words(in: phrase).allSatisfy { stem in
                 words.contains { $0.hasPrefix(stem) }
             }
         }
-    }
-
-    private static func words(in text: String) -> [String] {
-        text.lowercased()
-            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-            .map(String.init)
     }
 
     /// Deliberately phrase-matched rather than routed by the model: this runs
@@ -203,13 +197,30 @@ enum ScreenRecall {
     ]
 }
 
+/// The one shape screen context takes in a prompt.
+///
+/// Both retrieval paths — the per-app recap and the keyword match — produce a
+/// block the model is told to attribute by app and never to quote back. That
+/// instruction names this header, this time range and this bullet layout, so
+/// they are written once: a second definition means the instruction quietly
+/// describes a format that no longer exists, and the plumbing leaks into the
+/// answer, which is the exact failure the rule was written to prevent.
+enum ScreenPromptBlock {
+    static func header(source: String, when: String) -> String {
+        "[On your screen — \(source), \(when)]"
+    }
+
+    static func single(source: String, when: String, content: String) -> String {
+        "\(header(source: source, when: when))\n\(content)"
+    }
+}
+
 extension ScreenActivityDigest.App {
     /// One prompt block per app, so the model can attribute a line to the app it
     /// came from instead of to "your screen" in general.
     func promptBlock(appName: String, formatter: DateFormatter) -> String {
         let span = windows.map(\.firstSeen).min().map(formatter.string(from:)) ?? ""
         let until = windows.map(\.lastSeen).max().map(formatter.string(from:)) ?? ""
-        let header = span == until ? span : "\(span)–\(until)"
         let body = windows
             .map { window in
                 let title = window.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -217,6 +228,10 @@ extension ScreenActivityDigest.App {
                 return "• \(label) (\(formatter.string(from: window.lastSeen)))\n\(window.content)"
             }
             .joined(separator: "\n\n")
-        return "[On your screen — \(appName), \(header)]\n\(body)"
+        return ScreenPromptBlock.single(
+            source: appName,
+            when: span == until ? span : "\(span)–\(until)",
+            content: body
+        )
     }
 }

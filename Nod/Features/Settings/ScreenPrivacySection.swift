@@ -144,12 +144,16 @@ struct ScreenPrivacySection: View {
                 .font(.system(size: 12))
 
             SettingsCard {
-                if filteredApps.isEmpty {
+                // Filtered once per pass, not once per reference — and lazily
+                // rendered: the list is every app on the Mac, so an eager stack
+                // builds hundreds of rows on every keystroke in the field.
+                let apps = filteredApps
+                if apps.isEmpty {
                     SettingsRow(icon: "macwindow", title: emptyAppsTitle, subtitle: nil) { EmptyView() }
                 } else {
                     ScrollView {
-                        VStack(spacing: 0) {
-                            ForEach(Array(filteredApps.enumerated()), id: \.element.id) { index, app in
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(apps.enumerated()), id: \.element.id) { index, app in
                                 if index > 0 { SettingsRowDivider() }
                                 appRow(app)
                             }
@@ -171,9 +175,11 @@ struct ScreenPrivacySection: View {
 
     private func appRow(_ app: InstalledApp) -> some View {
         HStack(spacing: 12) {
-            Image(nsImage: app.icon)
-                .resizable()
-                .frame(width: 22, height: 22)
+            if let icon = app.icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 22, height: 22)
+            }
             Text(app.name)
                 .font(.system(size: 13))
                 .foregroundStyle(Theme.Palette.ink)
