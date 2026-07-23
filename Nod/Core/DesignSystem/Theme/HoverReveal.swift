@@ -45,6 +45,20 @@ extension AnyTransition {
             ? .opacity
             : .move(edge: edge).combined(with: .opacity)
     }
+
+    /// A finished answer taking the place of the thinking indicator.
+    ///
+    /// It rises a few points as it fades in rather than simply appearing: a
+    /// block of text that materialises out of nothing reads as a glitch, while
+    /// a short move in the direction the conversation grows reads as arrival.
+    /// Kept small — this is a frequent transition, and anything larger would
+    /// start costing reading time. Reduce Motion keeps the fade, drops the
+    /// movement.
+    static func answerArrival(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .opacity.combined(with: .offset(y: 6))
+    }
 }
 
 extension View {

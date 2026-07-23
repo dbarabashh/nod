@@ -152,6 +152,7 @@ struct AssistantTextBubble: View {
     private let content: String
     private let rendered: AttributedString
     private let showsBubble: Bool
+    private let isStreaming: Bool
     @State private var isHovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -159,18 +160,35 @@ struct AssistantTextBubble: View {
     /// where the surface itself is already the container (the launcher panel),
     /// so the markdown rendering and the copy affordance stay shared instead of
     /// being written a second time.
-    init(content: String, showsBubble: Bool = true) {
+    init(content: String, showsBubble: Bool = true, isStreaming: Bool = false) {
         self.content = content
         self.showsBubble = showsBubble
-        // Rendered once here, not in `body`: a streamed answer re-evaluates its
-        // body on every flush, and re-parsing the whole markdown each time is
-        // quadratic in the answer's length.
-        rendered = renderRecapMarkdown(content)
+        self.isStreaming = isStreaming
+        // Rendered once here, not in `body`: re-parsing the whole markdown on
+        // every body pass is quadratic in the answer's length. While streaming,
+        // `StreamingAnswer` parses per block instead — also once each.
+        rendered = isStreaming ? AttributedString() : renderRecapMarkdown(content)
+    }
+
+    /// Nothing to show yet: the turn exists but no paragraph has finished. The
+    /// thinking indicator is carrying the wait, and an empty bubble beside it
+    /// would read as a stalled answer.
+    private var isAwaitingFirstBlock: Bool {
+        isStreaming && AnswerBlocks.complete(in: content, isFinished: false).isEmpty
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(rendered)
+        if isAwaitingFirstBlock {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Group {
+                    if isStreaming {
+                        StreamingAnswer(content: content)
+                    } else {
+                        Text(rendered)
+                    }
+                }
                 .font(.system(size: 13.5))
                 .foregroundStyle(Theme.Palette.ink.opacity(0.95))
                 .textSelection(.enabled)
@@ -178,13 +196,68 @@ struct AssistantTextBubble: View {
                 .padding(.vertical, showsBubble ? 9 : 0)
                 .modifier(ChatBubbleFill(isEnabled: showsBubble))
                 .frame(maxWidth: .infinity, alignment: .leading)
-            ChatCopyButton(text: content)
-                .padding(.leading, 2)
-                .revealOnHover(isHovering, reduceMotion: reduceMotion, anchor: .leading)
+                if !isStreaming {
+                    ChatCopyButton(text: content)
+                        .padding(.leading, 2)
+                        .revealOnHover(isHovering, reduceMotion: reduceMotion, anchor: .leading)
+                }
+            }
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
+            .animation(.hoverReveal(reduceMotion: reduceMotion), value: isHovering)
         }
-        .contentShape(Rectangle())
-        .onHover { isHovering = $0 }
-        .animation(.hoverReveal(reduceMotion: reduceMotion), value: isHovering)
+    }
+}
+
+/// The answer as it is written, one finished paragraph at a time.
+///
+/// Two failure modes bracket this. Revealing character by character types the
+/// answer *at* the reader — a sentence assembling itself is slower to read than
+/// a finished one, and the motion never stops. Withholding everything until the
+/// end leaves fifteen seconds of nothing, which reads as a stall no matter what
+/// the indicator says.
+///
+/// So the unit of reveal is the paragraph: nothing appears half-written, the
+/// first one lands within a second or two of the model starting, and each
+/// arrives whole and stays still. What is on screen is always readable, and
+/// what is still being written is never on screen.
+private struct StreamingAnswer: View {
+    let content: String
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var blocks: [String] {
+        AnswerBlocks.complete(in: content, isFinished: false)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                Text(renderRecapMarkdown(block))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.answerArrival(reduceMotion: reduceMotion))
+            }
+        }
+        .animation(.standard(reduceMotion: reduceMotion), value: blocks.count)
+    }
+}
+
+/// Splits an answer into the paragraphs that are safe to show.
+enum AnswerBlocks {
+    /// Blocks separated by a blank line, minus the one still being written.
+    ///
+    /// A blank line is the one boundary that survives partial markdown: a list
+    /// stays whole (its items are single newlines), a heading stays attached to
+    /// the lines under it, and no `**bold` is ever shown with its closing
+    /// asterisks missing. While the answer is unfinished the trailing block is
+    /// held back — it is, by definition, the one mid-sentence.
+    static func complete(in text: String, isFinished: Bool) -> [String] {
+        let blocks = text
+            .components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !isFinished else { return blocks }
+        return blocks.count <= 1 ? [] : Array(blocks.dropLast())
     }
 }
 
