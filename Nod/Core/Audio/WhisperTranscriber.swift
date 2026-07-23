@@ -254,6 +254,18 @@ final class WhisperTranscriber: @unchecked Sendable {
         }
     }
 
+    /// Drop the retained speech without clustering it. A session the user
+    /// cancels or discards never reaches `detachDiarizationBuffer`, and the
+    /// buffer holds up to an hour of `Int16` samples — hundreds of megabytes
+    /// that would otherwise stay resident until the next recording starts.
+    func discardDiarizationBuffer() {
+        queue.async {
+            guard self.diarization != nil else { return }
+            self.diarization = nil
+            Log.stt.info("[\(self.source.label)] diarization buffer discarded")
+        }
+    }
+
     /// Retry every parked segment now that connectivity is back. Called by
     /// `TranscriptStore` on a network `.satisfied` edge. A no-op unless a
     /// recording is active, so a reconnect between meetings can't replay stale

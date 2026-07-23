@@ -104,6 +104,9 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     }
 
     func clear() {
+        // A cancelled or discarded session never calls `resolveSpeakers`, so the
+        // retained audio has no one left to detach it.
+        system.discardDiarizationBuffer()
         DispatchQueue.main.async {
             self.entries = []
             self.liveMe = ""
