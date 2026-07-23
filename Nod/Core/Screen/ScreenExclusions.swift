@@ -29,12 +29,50 @@ final class ScreenExclusions: ObservableObject {
     private static let appsKey = "screen.exclusions.apps"
     private static let websitesKey = "screen.exclusions.websites"
     private static let categoriesKey = "screen.exclusions.categories"
+    private static let seededMessengersKey = "screen.exclusions.seededMessengers"
 
-    init(defaults: UserDefaults = .standard) {
+    /// Personal messengers, excluded before the user has said anything.
+    ///
+    /// Ambient capture reads the window you are looking at, and the window
+    /// people look at most is a private conversation with someone who never
+    /// agreed to any of this. A blocklist that starts empty puts that text in
+    /// the index by default and asks the user to notice afterwards.
+    ///
+    /// Seeded, not hardcoded: it lands in the same list as any other exclusion,
+    /// so a user who *wants* their messenger indexed can untick it and it stays
+    /// off — see `seedDefaultsIfNeeded`.
+    static let defaultExcludedMessengers = [
+        ExcludedApp(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp"),
+        ExcludedApp(bundleID: "ru.keepcoder.Telegram", name: "Telegram"),
+        ExcludedApp(bundleID: "org.telegram.desktop", name: "Telegram Desktop"),
+        ExcludedApp(bundleID: "com.apple.MobileSMS", name: "Messages"),
+        ExcludedApp(bundleID: "com.facebook.archon", name: "Messenger"),
+        ExcludedApp(bundleID: "com.signal.Signal", name: "Signal"),
+        ExcludedApp(bundleID: "com.viber.osx", name: "Viber"),
+        ExcludedApp(bundleID: "com.hnc.Discord", name: "Discord")
+    ]
+
+    init(defaults: UserDefaults = .standard, seedDefaults: Bool = true) {
         self.defaults = defaults
         apps = Self.decode([ExcludedApp].self, from: defaults, key: Self.appsKey) ?? []
         websites = Self.decode([String].self, from: defaults, key: Self.websitesKey) ?? []
         categories = Set(Self.decode([WebsiteCategory].self, from: defaults, key: Self.categoriesKey) ?? [])
+        if seedDefaults { seedDefaultsIfNeeded() }
+    }
+
+    /// Adds the messenger defaults exactly once per install. The flag is what
+    /// makes the list a *default* rather than a rule: without it, every launch
+    /// would re-add an app the user deliberately removed.
+    private func seedDefaultsIfNeeded() {
+        guard !defaults.bool(forKey: Self.seededMessengersKey) else { return }
+        defaults.set(true, forKey: Self.seededMessengersKey)
+
+        let known = Set(apps.map(\.bundleID))
+        let added = Self.defaultExcludedMessengers.filter { !known.contains($0.bundleID) }
+        guard !added.isEmpty else { return }
+        apps.append(contentsOf: added)
+        persistApps()
+        Log.screen.info("exclusions: seeded \(added.count) messenger default(s)")
     }
 
     /// Total number of website rules in force, category keywords included —

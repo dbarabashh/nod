@@ -16,6 +16,15 @@ final class KnowledgeChatStore: ObservableObject {
     struct SessionRef: Codable, Identifiable, Equatable {
         let id: UUID
         let title: String
+        /// Set when the source is an app the answer read off the screen rather
+        /// than a session. It rides in the same `sources` jsonb column, so a
+        /// reopened thread shows the same chips without a schema change; rows
+        /// written before this existed decode with nil.
+        var bundleID: String?
+
+        var isApp: Bool {
+            bundleID != nil
+        }
     }
 
     /// A passage the answer was built on: the words from the meeting, plus
@@ -285,7 +294,7 @@ extension KnowledgeChatStore {
             personalContext: profile.promptContext
         )
 
-        let prepared: (standalone: String, hyde: String?)
+        let prepared: (standalone: String, hyde: String?, aboutScreen: Bool)
         let routing: Routing
         if priorHistory.isEmpty {
             async let routed = route(pinned: pinned, scope: scope, standalone: text)
@@ -308,18 +317,25 @@ extension KnowledgeChatStore {
         // Independent of retrieval — it only needs the resolved question — so
         // it overlaps the search instead of adding a round trip after it.
         async let tasks = outstandingTasksBlock(for: prepared.standalone)
-        let grounding = await gather(for: scope, query: prepared.standalone, embedText: prepared.hyde)
+        let grounding = await gather(
+            for: scope,
+            query: prepared.standalone,
+            embedText: prepared.hyde,
+            aboutScreen: prepared.aboutScreen
+        )
         let sources = grounding.sources
-        if !sources.isEmpty {
-            thinkingPhase = sources.count == 1
-                ? "Reading 1 session…"
-                : "Reading \(sources.count) sessions…"
+        let sessionCount = sources.filter { !$0.isApp }.count
+        if sessionCount > 0 {
+            thinkingPhase = sessionCount == 1 ? "Reading 1 session…" : "Reading \(sessionCount) sessions…"
+        } else if !grounding.observations.isEmpty {
+            thinkingPhase = "Reading what was on your screen…"
         }
         let taskBlock = await tasks
         let system = PromptLibrary.buildKnowledgeSystem(
             excerpts: Self.withinBudget(taskBlock.map { [$0] + grounding.excerpts } ?? grounding.excerpts),
             language: replyLanguage,
-            personalContext: profile.promptContext
+            personalContext: profile.promptContext,
+            observations: Self.withinBudget(grounding.observations, limit: Self.screenBudget)
         )
         let history = chatHistory
         thinkingPhase = "Writing your answer…"
@@ -359,7 +375,15 @@ extension KnowledgeChatStore {
         }
 
         do {
-            for try await delta in llm.streamChat(system: system, history: history, temperature: 0.2) {
+            // Caching off: this system prompt ends in excerpts retrieved for
+            // *this* question, so no two calls share a prefix — the cache would
+            // be written every time and read never, at 1.25× the token cost.
+            for try await delta in llm.streamChat(
+                system: system,
+                history: history,
+                temperature: 0.2,
+                cachePrompt: false
+            ) {
                 streamed += delta
                 if !appended {
                     answer.content = streamed
@@ -401,7 +425,7 @@ extension KnowledgeChatStore {
         // one-shot call, which can.
         Log.ui.info("KnowledgeChatStore stream produced nothing, falling back to one-shot")
         do {
-            let reply = try await llm.chat(system: system, history: history, temperature: 0.2)
+            let reply = try await llm.chat(system: system, history: history, temperature: 0.2, cachePrompt: false)
             let oneShot = Message(role: .assistant, content: reply, sources: sources, evidence: evidence)
             messages.append(oneShot)
             await persist(oneShot, into: thread)
@@ -486,6 +510,10 @@ extension KnowledgeChatStore {
     /// ~3k tokens of grounding — enough for eight excerpts or three recaps,
     /// well inside any model's window, and a predictable ceiling on spend.
     static let groundingBudget = 12_000
+    /// Screen context gets its own allowance rather than competing with session
+    /// excerpts: a day of captures would otherwise crowd out the transcripts on
+    /// every question, and a recap needs several apps to be worth reading.
+    static let screenBudget = 9_000
 
     // MARK: - Action items
 
@@ -549,6 +577,46 @@ extension KnowledgeChatStore {
         let excerpts: [String]
         let sources: [SessionRef]
         let evidence: [Excerpt]
+        /// Screen context, kept apart from session excerpts: the two are
+        /// grounded differently and the prompt says so.
+        var observations: [String] = []
+    }
+
+    /// Screen context for this question: a per-app recap when it asks what the
+    /// user was doing, keyword matches otherwise. The apps come back alongside
+    /// the text so the answer can be attributed to them.
+    ///
+    /// `aboutScreen` is the query-prep model's read of the question, and it is
+    /// the primary trigger. The phrase list beside it is a fast path for the
+    /// unmistakable cases, kept so an off day from the model can't take the
+    /// feature out entirely — but it is no longer what the feature rests on.
+    /// Phrase matching alone missed real questions twice ("які останні новини",
+    /// "що було за останні 20 хвилин"): the ways people ask what they were
+    /// doing don't enumerate.
+    private func observed(for query: String, aboutScreen: Bool) async -> (blocks: [String], apps: [SessionRef]) {
+        guard let screenContext else { return ([], []) }
+        let recap = ScreenRecall.window(for: query) ?? (aboutScreen ? ScreenRecall.defaultWindow() : nil)
+        if let window = recap {
+            let digest = await screenContext.activity(in: window)
+            let blocks = digest.apps.map { app in
+                app.promptBlock(
+                    appName: AppDirectory.identity(forBundleID: app.bundleID).name,
+                    formatter: Self.observationStamp
+                )
+            }
+            return (blocks, digest.apps.map { Self.appSource(bundleID: $0.bundleID) })
+        }
+        let matched = await screenContext.recentContext(matching: query)
+        var seen = Set<String>()
+        let apps = matched
+            .map(\.sourceApp)
+            .filter { seen.insert($0).inserted }
+            .map(Self.appSource(bundleID:))
+        return (matched.map(Self.labeledObservation), apps)
+    }
+
+    private static func appSource(bundleID: String) -> SessionRef {
+        SessionRef(id: UUID(), title: AppDirectory.identity(forBundleID: bundleID).name, bundleID: bundleID)
     }
 
     /// An observation carries no session to open, so it is labelled with where
@@ -703,7 +771,12 @@ extension KnowledgeChatStore {
 
         let (system, user) = PromptLibrary.buildSessionRouter(sessionList: list, query: text)
         do {
-            let route = try await llm.completeJSON(system: system, user: user, as: SessionRoute.self)
+            let route = try await llm.completeJSON(
+                system: system,
+                user: user,
+                as: SessionRoute.self,
+                primaryModel: llm.utilityModel
+            )
             guard route.scope == "specific" else { return .search(.all) }
             let ids = (route.indices ?? []).compactMap { routable.indices.contains($0) ? routable[$0].id : nil }
             return .search(ids.isEmpty ? .all : .specific(ids))
@@ -720,7 +793,12 @@ extension KnowledgeChatStore {
     /// Builds the grounding excerpts + sources for the routed scope. Specific
     /// sessions are answered from their recap (+ relevant transcript parts if
     /// indexed) so sources show only what the question is actually about.
-    private func gather(for scope: Scope, query: String, embedText: String?) async -> Grounding {
+    private func gather(
+        for scope: Scope,
+        query: String,
+        embedText: String?,
+        aboutScreen: Bool = false
+    ) async -> Grounding {
         switch scope {
         case .all, .scoped:
             // Corpus-style search (similarity + entity boost). A label scope is
@@ -729,19 +807,20 @@ extension KnowledgeChatStore {
             let chunks = await knowledge.search(query: query, meetingIDs: scopedIDs, embedText: embedText)
             // Screen observations answer the half of "what was I working on"
             // that was never said out loud. Empty unless ambient context is on.
-            let observed = await screenContext?.recentContext(matching: query) ?? []
+            let screen = await observed(for: query, aboutScreen: aboutScreen)
             await loadPeople(for: Array(Set(chunks.map(\.meetingID))))
             let byID = meetingsByID
             return Grounding(
-                excerpts: chunks.map { labeledExcerpt($0, in: byID) } + observed.map(Self.labeledObservation),
-                sources: resolveSources(chunks, in: byID),
+                excerpts: chunks.map { labeledExcerpt($0, in: byID) },
+                sources: resolveSources(chunks, in: byID) + screen.apps,
                 evidence:
                 // A row we can't name can't be opened either — "A past session"
                 // with a stray quote reads as noise, so it isn't shown.
                 Self.strongestPerSession(chunks.compactMap { chunk in
                     guard byID[chunk.meetingID] != nil else { return nil }
                     return excerpt(for: chunk.meetingID, text: chunk.content, in: byID, similarity: chunk.similarity)
-                })
+                }),
+                observations: screen.blocks
             )
         case let .specific(ids):
             // Resolve each session's static metadata up front (main-actor
@@ -750,6 +829,12 @@ extension KnowledgeChatStore {
             // serial round-trips.
             // People come from EntityStore, chunks from KnowledgeStore — two
             // independent round trips that shouldn't queue behind each other.
+            // Screen context belongs here too. Routing to a session says which
+            // *recordings* the question is about; it says nothing about whether
+            // the user was also asking what they'd been doing. Leaving it out of
+            // this branch meant "шо нового?" — which the router sends to a
+            // single session — could never see the screen record.
+            async let screening = observed(for: query, aboutScreen: aboutScreen)
             async let people: Void = loadPeople(for: ids)
             let byID = meetingsByID
             let inScope = ids.compactMap { byID[$0] }
@@ -796,7 +881,13 @@ extension KnowledgeChatStore {
                     ))
                 }
             }
-            return Grounding(excerpts: excerpts, sources: sources, evidence: evidence)
+            let screen = await screening
+            return Grounding(
+                excerpts: excerpts,
+                sources: sources + screen.apps,
+                evidence: evidence,
+                observations: screen.blocks
+            )
         }
     }
 

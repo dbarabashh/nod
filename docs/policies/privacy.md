@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-07-22_
+_Last updated: 2026-07-23_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -177,8 +177,11 @@ in the same `eu-west-1` region.
 - We do **not** track you across the web or use advertising cookies.
 - We do **not** read your calendar, email, or other Google services.
 - We do **not** collect your contacts or address book.
-- We do **not** take screenshots or record video of your screen — in any
-  mode, ever. What Nod reads from the screen, it reads as text (§ 3.10).
+- We do **not** record video of your screen, and we do **not** save an image
+  of it — ever. What Nod keeps from your screen is always **text**. With
+  ambient context on, a window whose text macOS cannot describe is read from
+  its pixels in memory and discarded in the same moment; only the recognised
+  text is stored (§ 3.10).
 - We do **not** log your keystrokes, read your clipboard, or capture password
   fields.
 - We do **not** read anything from an app, category, or site you have
@@ -210,10 +213,17 @@ into Nod.
 
 ### 3.10 What Nod reads from your screen
 
-Nod reads from the screen in two separate ways. Both read **text, not
-pixels**, through the macOS accessibility interface — the same one screen
-readers use. **No screenshots and no video are captured in either mode.** Both
-require the macOS **Accessibility** permission, which you grant explicitly.
+Nod reads from the screen in two separate ways. Both keep **text, never an
+image**, and both work primarily through the macOS accessibility interface —
+the same one screen readers use. **No video is recorded and no image of your
+screen is ever saved, in either mode.** Both require the macOS
+**Accessibility** permission, which you grant explicitly.
+
+One exception, in ambient context only, is described in (b): some apps
+(Slack, Figma and other Electron or canvas-drawn apps) tell macOS almost
+nothing about what they are showing. For those, Nod reads the window's pixels
+in memory and converts them to text on your Mac. The image is never written to
+disk, never uploaded, and is released as soon as the text is extracted.
 
 **(a) Call participants — while a session records.** To label who said what,
 Nod needs to know how many people are on the call, so it reads the
@@ -254,8 +264,11 @@ the product:
 | **Default** | **Off.** You enable it in Settings → Privacy. It is never switched on by an app update. |
 | **What is stored** | The window's text, the app's identifier, the window title, and a timestamp, in `screen_observations`. No images, no keystrokes, no clipboard, no password-field contents. |
 | **How often** | About every 5 seconds, and only for the window you are actually looking at. An unchanged screen is stored once, not once per sample. |
+| **How it reads** | The accessibility interface first. When a window tells macOS almost nothing — Slack, Figma and other Electron or canvas-drawn apps — Nod converts that window's pixels to text **on your Mac**, at most once every 20 seconds, and only for a window the accessibility read came up short on. This needs the **Screen Recording** permission you already granted for meeting audio; without it, the step is skipped. It also needs macOS 14 or later. |
+| **What happens to the image** | Nothing is saved. It exists in memory for the moment recognition takes, is never written to disk and never uploaded, and is released immediately. Only the recognised text is stored. |
 | **How long** | Every row carries an expiry — 14 days by default, and you choose. A scheduled job deletes expired rows server-side, so the index shrinks on its own even if you never open Nod again. |
-| **Exclusions** | Your blocklist is checked **before** anything is read. An excluded app or window is never traversed. |
+| **Exclusions** | Your blocklist is checked **before** anything is read — including before any pixel is read. An excluded app or window is never traversed and never recognised. |
+| **Excluded out of the box** | Personal messengers — WhatsApp, Telegram, Messages, Messenger, Signal, Viber, Discord — are on the blocklist before you touch it, so a private conversation is never the first thing captured. They are ordinary entries you can remove in Settings → Privacy if you want that app read; removing one is remembered and it is not added back. |
 | **Deletion** | Yours to delete at any time; account deletion removes all of it. |
 
 Legal basis: Consent (Art. 6(1)(a)) — this one is opt-in, and you can

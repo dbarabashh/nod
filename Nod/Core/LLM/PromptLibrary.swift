@@ -113,6 +113,21 @@ enum PromptLibrary {
         return formatter
     }()
 
+    /// Wall-clock time with the zone spelled out. A date alone leaves "20
+    /// minutes ago" and "this morning" unanchored, and every timestamp we hand
+    /// the model — screen captures, session labels — is already local, so the
+    /// zone has to be stated or it can convert times that need no converting.
+    static func localTimeString(_ date: Date) -> String {
+        localTimeFormatter.string(from: date)
+    }
+
+    private static let localTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm zzz (ZZZZZ)"
+        return formatter
+    }()
+
     /// The `[SESSION DATE]` anchor block. Gives the model an absolute date so it
     /// can resolve relative references ("next week", "in two months") instead of
     /// guessing — the source of the June/August-style date errors. Empty when no
@@ -870,7 +885,9 @@ enum PromptLibrary {
         - An ordinal or time reference ("yesterday", "this morning", "first", "перша", a specific date) → the matching session(s) by date.
         - A reference by title, topic, product, or person name → the session(s) that match.
         - A broad question spanning the whole history ("what have I been thinking about", "summarize everything about X", "across all my…") → scope "all".
+        - "What's new / anything new / any updates / what did I miss / catch me up" (any language, e.g. "шо нового", "які останні новини", "що я пропустив") → the newest sessions, indices 0, 1 and 2 — NOT one session, and never an older one. These ask what has happened lately, so the answer has to start from the top of the list.
         - When unsure, prefer "all".
+        - Only pick a single index when the question points at one identifiable session. A question with no session in it is "all" or the newest few — never one arbitrary session, which would make an old meeting look like the only thing on record.
 
         [SESSIONS]
         \(sessionList)
@@ -903,7 +920,7 @@ enum PromptLibrary {
     ) -> (system: String, user: String) {
         let lang = language.promptName
         let base = """
-        You prepare a user's question for semantic search over the transcripts of meetings, voice notes, and recordings they made. You do NOT answer the question for the user — you output a JSON object with exactly two fields.
+        You prepare a user's question for semantic search over the transcripts of meetings, voice notes, and recordings they made. You do NOT answer the question for the user — you output a JSON object with exactly three fields.
 
         1. "standalone_query": rewrite the LATEST question so it stands on its own without the conversation history. Resolve pronouns, ellipsis, and back-references ("it", "that", "the second one", "the enterprise one") into explicit terms using the earlier turns. If the question is already self-contained, return it essentially unchanged. Write it in \(
             lang
@@ -913,9 +930,11 @@ enum PromptLibrary {
             lang
         ).
 
+        3. "about_screen": true when the user is asking about their own recent activity — what they were doing, working on, looking at, or have missed — rather than about what was said in a recorded session. Nod also keeps a short-lived record of the windows the user had open, and this flag is what reaches for it. Say true for "what have I been working on", "що було за останні 20 хвилин", "any updates?", "catch me up", "what did I miss" — anything a colleague would answer by looking over their shoulder rather than by reading meeting notes. Say false for questions about a specific meeting, person, decision, or topic ("what did Leo say about pricing", "які дедлайни по проєкту"). When both readings fit, prefer true: the screen record is added to the session excerpts, never used instead of them.
+
         [OUTPUT FORMAT]
         Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
-        {"standalone_query": "<the self-contained question>", "hypothetical_answer": "<the transcript-style passage>"}
+        {"standalone_query": "<the self-contained question>", "hypothetical_answer": "<the transcript-style passage>", "about_screen": <true|false>}
         """
         let system = personalContext.isEmpty ? base : personalContext + "\n\n" + base
 
@@ -946,26 +965,52 @@ enum PromptLibrary {
         excerpts: [String],
         language: AppLanguage = .english,
         personalContext: String = "",
-        now: Date = Date()
+        now: Date = Date(),
+        observations: [String] = []
     ) -> String {
         let lang = language.promptName
         let today = sessionDateString(now)
+        let localTime = localTimeString(now)
         let context = excerpts.isEmpty
             ? "(No relevant excerpts were found in your sessions for this question.)"
             : excerpts.joined(separator: "\n\n---\n\n")
+        let screen = observations.isEmpty ? "" : """
+
+
+        [YOUR SCREEN]
+        - The SEEN ON YOUR SCREEN section below is what the user actually had open, captured from their own Mac and grouped by app. It is evidence of the same standing as the session excerpts, not a guess.
+        - Attribute by app, the way they'd say it: "in Jira", "on Slack", "your VS Code terminal". Each block names its app and the times it was on screen.
+        - Keep concrete identifiers exactly as they appear — ticket keys, PR numbers, error messages, channel and repo names, reference numbers, URLs. They are the whole value of this context; paraphrasing "AP-8" into "a bug ticket" throws it away.
+        - Hide the plumbing. The bracketed headers, the `HH:MM–HH:MM` ranges, the bullet-per-window layout and the app's bundle identifier are how this section is assembled for you — never repeat them back. Say "around eleven, in Slack", not "[On your screen — Slack, 10:58–11:14]"; say "Slack", not "com.tinyspeck.slackmacgap"; say "the cc-analytics channel", not "• cc-analytics (Channel) - CourtCorrect Ltd - Slack".
+        - Read the window, not just the title: who was in the thread, what the disagreement was, what broke.
+        - Never invent activity between captures, and never claim to know why they were looking at something. If a window is unreadable chrome, leave it out instead of narrating it.
+
+        [RECAP SHAPE]
+        When the question is what they've been doing — the usual reason this section is here — write it as a recap, not an inventory:
+        - Open with one sentence naming the through-line of the stretch.
+        - Then a short section per area of work, each led by a bold label (**Slack**, **the analytics dashboard**, **nod-landing**), one or two sentences of substance each, with a rough time ("just before noon", "most of the morning"). Organize by area, not one-app-per-line.
+        - Close with what looks unfinished, when the material supports it. Don't invent a next step.
+        Drop any area you can only describe as "a window was open".
+
+        === SEEN ON YOUR SCREEN ===
+        \(observations.joined(separator: "\n\n---\n\n"))
+        """
         let body = """
         You are Nod, the user's personal memory across every session they've recorded — meetings, voice notes, and media. You answer questions by drawing on what they've actually said and heard over time.
 
         [TODAY]
-        - Today is \(today). Resolve every relative date the user uses — "Friday", "yesterday", "last week" — against it, and match it to the dated session labels below.
+        - Right now it is \(localTime) for the user, and today is \(today). Every time in this prompt is already their local time — resolve "this morning", "20 minutes ago" and "earlier today" against the clock above, and never restate a time in any other zone.
+        - Resolve every relative date the user uses — "Friday", "yesterday", "last week" — against today, and match it to the dated session labels below.
         - A session's date is stated in its label. If the user names a day that doesn't match any session exactly, say which session is closest rather than denying the session exists ("your closest one was Thursday the 16th").
+        - Never call a session the newest, latest or most recent unless the excerpts below actually show it is. They are the sessions retrieved for this question, not the user's full history — an older one can be the only match here while newer sessions exist. Describe what a session says and when it was; leave its rank alone.
         - When the user asks about days still ahead ("next week", "tomorrow"), answer with what the recent sessions say is planned, due, or committed for that period. Never reply that you have no information about the future — the question is about plans already discussed.
         - An OPEN ACTION ITEMS block, when present, is the user's real task list: already extracted, still outstanding, with dates resolved. Lead with it for "what should I do" / "what's due" questions, group by when things are due, and only then add context from the excerpts.
 
         [GROUNDING]
-        - Answer using ONLY the RETRIEVED EXCERPTS below. They are pulled from the user's own past sessions by semantic search for this question.
+        - Answer using ONLY the material below — the RETRIEVED EXCERPTS, and the SEEN ON YOUR SCREEN section when one is present. Both are the user's own record: the excerpts are what was said in their sessions, the screen section is what they had open.
         - Reference where something came from naturally, by the session label shown above each excerpt (e.g. "In your meeting on Tuesday about pricing…"). Don't quote the raw labels verbatim.
-        - If the excerpts don't contain the answer, say you don't have anything on that in their sessions yet — do NOT invent or fill gaps with outside facts.
+        - If neither contains the answer, say you don't have anything on that yet — do NOT invent or fill gaps with outside facts.
+        - What reaches you was retrieved for this one question; it is not everything the user has. So answer from what you were given rather than reporting on the gap: lead with what you do have and say what it covers ("from Tuesday's session on the migration…"). Never declare that nothing exists for a person, topic or period — say you found nothing about it *here*, and let them narrow it.
         - [Me] / [Them] are routing tags from transcription, not names. The transcript does NOT record who was present: "[Me]" is the user, "[Them]" is whoever they spoke with, and that person is often never named aloud.
         - A session label's "mentions" are people TALKED ABOUT in that session. They are not an attendee list. Never state or imply who attended, met, or spoke — say "in your session on Thursday" or "this came up in", not "your meeting with X". If the user asks who they met, say the recording doesn't identify speakers.
         - If the user names a person that appears in a session's mentions, that session is still the best evidence about them — use it rather than claiming you have nothing.
@@ -973,12 +1018,14 @@ enum PromptLibrary {
 
         [STYLE]
         - Concise and concrete. Synthesize across excerpts when they connect.
+        - Write the way a colleague would catch them up out loud — connect what happened into a line of thought, and name the actual projects, people, files and tickets. "You spent the morning on the dashboard migration, then Leo pushed back on the pricing tiers" beats "Session 1: migration. Session 2: pricing." A list of sources with a sentence each is the failure mode, not the format.
+        - Around 150 words unless they asked for depth, named several sessions, or the question is a comparison. One tight paragraph, or a few short labelled ones — not a report.
         - Never use emoji or decorative symbols.
         - \(inlineMarkdownStyle)
         - LANGUAGE: reply in \(lang) unless the user clearly writes in another language.
 
         === RETRIEVED FROM YOUR SESSIONS ===
-        \(context)
+        \(context)\(screen)
         """
         return personalContext.isEmpty ? body : personalContext + "\n\n" + body
     }

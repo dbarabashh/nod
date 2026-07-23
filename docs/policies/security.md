@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-07-22_
+_Last updated: 2026-07-23_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company. We've made the
@@ -27,13 +27,17 @@ possible and no audio ever stored. This page documents exactly how that works.
 - **Audio is never stored.** Chunks are transcribed in ~5-second windows and
   the bytes are released as soon as the transcript returns. Only the
   transcript and your notes are persisted.
-- **No screenshots, no screen recording — ever.** What Nod reads from the
-  screen it reads as *text*, through the macOS accessibility interface. There
-  is no image captured, stored, or transmitted anywhere in the product.
+- **No screen recording, and no image ever saved.** What Nod keeps from your
+  screen is always *text*, read through the macOS accessibility interface.
+  With ambient context on, a window macOS cannot describe — Slack, Figma and
+  other Electron or canvas-drawn apps — is converted to text from its pixels
+  on your Mac; that image lives only in memory for the moment recognition
+  takes and is never written to disk or transmitted anywhere.
 - **Ambient context is off until you turn it on.** Nod can keep a
   time-limited index of text from windows you haven't excluded, so you can ask
   it about what you were working on. It ships **off**, you switch it on, you
   choose how long it is kept, and you can exclude any app, category, or site.
+  Personal messengers are excluded before you configure anything.
 - **Private by default.** No team workspaces, no shared notes, no public
   links — your meetings are visible only to you.
 - **No SOC 2 yet.** Nod is in private beta. Independent audit isn't something
@@ -96,11 +100,18 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
 
 ### Screen access
 
-Nod reads from your screen in two distinct ways. Both read **text, not
-pixels** — via the macOS accessibility interface, the same one screen readers
-use. Nod takes **no screenshots** and records **no video**, in either mode.
+Nod reads from your screen in two distinct ways. Both keep **text, never an
+image** — primarily via the macOS accessibility interface, the same one screen
+readers use. Nod records **no video** and saves **no image**, in either mode.
 Both require the macOS **Accessibility** permission, which you grant in System
 Settings; without it, neither runs.
+
+Ambient context (mode 2) has one exception: an app that tells macOS nothing
+about its contents is read from its pixels and converted to text on-device, at
+most once every 20 seconds, and only after the accessibility read came up
+short. It needs the **Screen Recording** permission and macOS 14 or later, and
+it is skipped without either. Your blocklist is checked before that read, not
+after — an excluded window is never recognised.
 
 **1. Call participants — while a session records.**
 
@@ -124,14 +135,20 @@ tightest controls:
   turn it on in Settings → Privacy.
 - **What it stores.** Every ~5 seconds it reads the text of the window you
   are actually looking at and stores it in `screen_observations`: the text,
-  the app, the window title, and a timestamp. No images, no keystrokes, no
-  clipboard, no passwords field contents.
+  the app, the window title, and a timestamp. No image is ever stored — not
+  even when the text came from recognising one — and no keystrokes, no
+  clipboard, no password-field contents.
 - **Bounded retention.** Every row carries an expiry — 14 days by default, and
   you choose. A scheduled job deletes expired rows server-side, so context
   stops existing even if you never open the app again.
 - **Deduplicated.** An unchanged screen is one row, not one row per tick.
 - **Your blocklist wins.** The exclusion check runs *before* anything is read,
   not after. An excluded app or window is never traversed at all.
+- **Messengers start excluded.** WhatsApp, Telegram, Messages, Messenger,
+  Signal, Viber and Discord are on the blocklist before you configure
+  anything — the window people look at most is a private conversation with
+  someone who never agreed to any of this. They are removable entries, not
+  fixed rules: take one off the list and it stays off.
 - **Deletable.** You can delete observations the same way you delete a
   meeting, and account deletion takes them with it.
 
@@ -302,14 +319,17 @@ No. Audio is chunked, transcribed, and discarded within seconds. Only the
 transcript is saved.
 
 **Does Nod take screenshots or watch my screen?**
-No screenshots, no video — what Nod reads, it reads as text. By default the
+No video, and no image of your screen is ever saved — what Nod keeps is
+text. By default the
 only thing it reads is the participant list of your call window, while a
 session records, to tell speakers apart. Separately, you can switch on
 **ambient context**, which keeps a time-limited index of text from windows you
-haven't excluded so you can ask Nod about what you were working on. That is
-off until you turn it on, its retention is yours to set, and Settings →
-Privacy lets you exclude any app, website category, or specific site before
-anything is read.
+haven't excluded so you can ask Nod about what you were working on. In that
+mode, a window that macOS cannot describe is converted to text from its pixels
+on your Mac — the image is never saved or sent anywhere, only the text it
+yields. Ambient context is off until you turn it on, its retention is yours to
+set, and Settings → Privacy lets you exclude any app, website category, or
+specific site before anything is read.
 
 **How do you notify other meeting participants?**
 We don't — you do. Nod runs locally and doesn't integrate with Zoom/Meet/Teams,

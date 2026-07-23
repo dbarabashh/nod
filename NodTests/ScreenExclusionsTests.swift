@@ -3,10 +3,12 @@ import XCTest
 
 @MainActor
 final class ScreenExclusionsTests: XCTestCase {
-    private func makeExclusions() -> ScreenExclusions {
+    /// Seeding off by default here so each test starts from an empty list and
+    /// asserts on what it put there; `ScreenExclusionSeedTests` covers the seed.
+    private func makeExclusions(seedDefaults: Bool = false) -> ScreenExclusions {
         let suite = "screen.exclusions.tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite) ?? .standard
-        return ScreenExclusions(defaults: defaults)
+        return ScreenExclusions(defaults: defaults, seedDefaults: seedDefaults)
     }
 
     func testNormalizesWebsiteEntries() {
@@ -78,11 +80,11 @@ final class ScreenExclusionsTests: XCTestCase {
     func testExclusionsSurviveAReload() {
         let suite = "screen.exclusions.tests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suite) else { return XCTFail("no test suite") }
-        let first = ScreenExclusions(defaults: defaults)
+        let first = ScreenExclusions(defaults: defaults, seedDefaults: false)
         first.exclude(ExcludedApp(bundleID: "us.zoom.xos", name: "Zoom"))
         first.excludeWebsite("bank.com")
 
-        let reloaded = ScreenExclusions(defaults: defaults)
+        let reloaded = ScreenExclusions(defaults: defaults, seedDefaults: false)
 
         XCTAssertEqual(reloaded.apps.map(\.bundleID), ["us.zoom.xos"])
         XCTAssertEqual(reloaded.websites, ["bank.com"])
@@ -354,5 +356,44 @@ final class ScreenObservationMergeTests: XCTestCase {
         let second = ScreenObservationBuilder.merge(title: "Iqbal (DM)", text: "Home\nDMs")
 
         XCTAssertNotEqual(ScreenObservation.hash(first), ScreenObservation.hash(second))
+    }
+}
+
+@MainActor
+final class ScreenExclusionSeedTests: XCTestCase {
+    private func freshDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "screen.exclusions.seed.\(UUID().uuidString)") ?? .standard
+    }
+
+    func testMessengersAreExcludedOnAFreshInstall() {
+        let exclusions = ScreenExclusions(defaults: freshDefaults())
+
+        XCTAssertTrue(exclusions.excludesApp(bundleID: "net.whatsapp.WhatsApp"))
+        XCTAssertTrue(exclusions.excludesApp(bundleID: "ru.keepcoder.Telegram"))
+        XCTAssertFalse(exclusions.excludesApp(bundleID: "us.zoom.xos"))
+    }
+
+    /// The seed is a default, not a rule — removing one has to stick, or the
+    /// user can never opt a messenger back in.
+    func testARemovedMessengerIsNotReAddedOnRelaunch() {
+        let defaults = freshDefaults()
+        let first = ScreenExclusions(defaults: defaults)
+        first.removeApp("net.whatsapp.WhatsApp")
+
+        let second = ScreenExclusions(defaults: defaults)
+
+        XCTAssertFalse(second.excludesApp(bundleID: "net.whatsapp.WhatsApp"))
+        XCTAssertTrue(second.excludesApp(bundleID: "com.signal.Signal"))
+    }
+
+    func testSeedingDoesNotDisturbExclusionsTheUserAlreadyHas() {
+        let defaults = freshDefaults()
+        let existing = ScreenExclusions(defaults: defaults, seedDefaults: false)
+        existing.exclude(ExcludedApp(bundleID: "us.zoom.xos", name: "Zoom"))
+
+        let seeded = ScreenExclusions(defaults: defaults)
+
+        XCTAssertTrue(seeded.excludesApp(bundleID: "us.zoom.xos"))
+        XCTAssertTrue(seeded.excludesApp(bundleID: "net.whatsapp.WhatsApp"))
     }
 }

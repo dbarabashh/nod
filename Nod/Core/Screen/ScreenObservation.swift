@@ -65,6 +65,17 @@ enum ScreenObservationBuilder {
     /// Below this, a window carries no answerable content — a toolbar, an empty
     /// panel, a loading state. Storing it costs retrieval quality.
     static let minimumCharacters = 120
+
+    /// Below this, accessibility technically returned *something* but not
+    /// enough to answer from, and the window is worth reading off the pixels
+    /// instead.
+    ///
+    /// Separate from `minimumCharacters` on purpose: 120 answers "is there
+    /// anything here at all", which a Slack channel clears with 122 characters
+    /// of its own sidebar while carrying none of the conversation. Gating the
+    /// OCR fallback on that number meant it could only fire when accessibility
+    /// returned nothing — never in the case it was written for.
+    static let thinCharacters = 600
     /// Above this, we are storing a document, not a glance. Truncation keeps a
     /// single row from dominating retrieval.
     static let maximumCharacters = 4_000

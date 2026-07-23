@@ -69,7 +69,10 @@ struct ScreenPrivacySection: View {
                     .toggleStyle(.switch)
                     .labelsHidden()
                     .controlSize(.small)
-                    .onChange(of: ambientEnabled) { _ in screenContext.refresh() }
+                    .onChange(of: ambientEnabled) { enabled in
+                        ScreenContextDefaults.setEnabled(enabled)
+                        screenContext.refresh()
+                    }
             }
 
             if ambientEnabled, screenContext.needsAccessibility {
