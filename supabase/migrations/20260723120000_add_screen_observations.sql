@@ -48,6 +48,14 @@ create index screen_observations_recent_idx
 create index screen_observations_expiry_idx
     on public.screen_observations (expires_at);
 
+-- `recentContext` runs a text search on every chat question, so the sequential
+-- to_tsvector over a user's live rows has to go. The config is `simple` on
+-- purpose: questions and screens are a Ukrainian/English mix, and the `english`
+-- stemmer drops Cyrillic terms on the floor. The client must pass the same
+-- config or Postgres will not use this index.
+create index screen_observations_content_fts_idx
+    on public.screen_observations using gin (to_tsvector('simple', content));
+
 alter table public.screen_observations enable row level security;
 
 create policy "users insert own screen observations"
