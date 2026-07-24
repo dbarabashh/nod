@@ -10,7 +10,10 @@ import SwiftUI
 struct ScreenPrivacySection: View {
     @ObservedObject var exclusions: ScreenExclusions
     @ObservedObject var screenContext: ScreenContextService
-    @AppStorage(ScreenContextDefaults.enabledKey) private var ambientEnabled = false
+    /// Seeded from the file-backed flag, not `@AppStorage`: the durable value
+    /// lives in `ScreenContextDefaults`, and binding the switch to the old
+    /// UserDefaults key would show off whenever that key was dropped on exit.
+    @State private var ambientEnabled = ScreenContextDefaults.isEnabled
     @AppStorage(ScreenContextDefaults.retentionDaysKey) private var retentionDays = ScreenContextDefaults.defaultRetentionDays
     @State private var scope: Scope = .apps
     @State private var installedApps: [InstalledApp] = []
@@ -36,6 +39,7 @@ struct ScreenPrivacySection: View {
             case .websites: websitesPane
             }
         }
+        .onAppear { ambientEnabled = ScreenContextDefaults.isEnabled }
         .task {
             guard installedApps.isEmpty else { return }
             installedApps = await Task.detached(priority: .userInitiated) { InstalledApps.load() }.value

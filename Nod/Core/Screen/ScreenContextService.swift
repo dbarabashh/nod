@@ -303,20 +303,35 @@ enum ScreenContextDefaults {
     static let defaultRetentionDays = 14
 
     static var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: enabledKey)
+        if let byte = (try? Data(contentsOf: enabledFileURL))?.first { return byte == 1 }
+        // Migration: an install that only ever wrote the old UserDefaults key.
+        return UserDefaults.standard.bool(forKey: enabledKey)
     }
 
-    /// Writes the switch through and flushes it immediately.
+    /// Writes the switch to a file, synchronously, before returning.
     ///
-    /// `@AppStorage` alone was losing this key across a rebuild: the value read
-    /// back fine while the app ran, and was simply absent from the plist on the
-    /// next launch — not `false`, gone — while keys written directly (the
-    /// messenger seed flag) survived the same restart. Whatever the mechanism,
-    /// a preference that decides whether Nod reads the screen must not depend
-    /// on a flush landing before the process dies.
+    /// `UserDefaults` is not enough here: its writes reach disk through
+    /// `cfprefsd` on its own schedule, and `synchronize()` no longer forces
+    /// that. A build stopped from Xcode (SIGKILL) or replaced by a rebuild dies
+    /// before the flush lands, and the key comes back *absent* — not `false` —
+    /// on the next launch, silently disabling capture. A one-byte file written
+    /// atomically is on disk the moment this returns, so the one switch that
+    /// decides whether Nod reads the screen survives an abrupt exit. The
+    /// `UserDefaults` write stays only to migrate installs that predate the file.
     static func setEnabled(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: enabledKey)
-        UserDefaults.standard.synchronize()
+        try? FileManager.default.createDirectory(
+            at: enabledFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? Data([enabled ? 1 : 0]).write(to: enabledFileURL, options: .atomic)
+    }
+
+    private static var enabledFileURL: URL {
+        let support = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Nod", isDirectory: true)
+        return support.appendingPathComponent("ambient-context.enabled")
     }
 
     static var retentionDays: Int {
