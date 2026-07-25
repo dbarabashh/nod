@@ -25,7 +25,10 @@ final class ChatStore: ObservableObject {
     private let supabase: SupabaseClient
     private let llm: LLMProxyClient
     private static let tableName = "chat_messages"
-    private var openMeetingID: UUID?
+    /// Which session's history is loaded. Published so a header rendered beside
+    /// the chat can tell "this session's messages" from the previous session's,
+    /// still on screen while the swap is in flight.
+    @Published private(set) var openMeetingID: UUID?
 
     init(supabase: SupabaseClient, llm: LLMProxyClient) {
         self.supabase = supabase

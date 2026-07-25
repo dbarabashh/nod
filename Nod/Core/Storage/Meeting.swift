@@ -1,7 +1,7 @@
 import Foundation
 
 /// A persisted meeting — summary + transcript pair plus the metadata you
-/// need to render a HistoryView row. Wire-compatible with the `meetings`
+/// need to render a MainWindowView row. Wire-compatible with the `meetings`
 /// table created in migration `20260523204132_meetings.sql`. Issue #14.
 struct Meeting: Codable, Identifiable {
     let id: UUID
@@ -41,6 +41,30 @@ struct Meeting: Codable, Identifiable {
     static let shortDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "d MMM"
+        return formatter
+    }()
+
+    /// Date + time, for the surfaces that list sessions or head one. Shared so
+    /// the same untitled session can't read differently in the list and in the
+    /// chat header above it.
+    static let listDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    /// "yesterday", "3d ago" — how old a session is, which is what the
+    /// attention surfaces care about. One formatter, built once: allocating a
+    /// `RelativeDateTimeFormatter` per row per render was measurable.
+    static func ago(_ date: Date, relativeTo now: Date = Date()) -> String {
+        agoFormatter.localizedString(for: date, relativeTo: now)
+    }
+
+    private static let agoFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.dateTimeStyle = .named
+        formatter.unitsStyle = .abbreviated
         return formatter
     }()
 
@@ -178,7 +202,7 @@ struct Meeting: Codable, Identifiable {
         )
     }
 
-    /// Convenience for HistoryView row rendering — finds the first line of
+    /// Convenience for MainWindowView row rendering — finds the first line of
     /// actual content (skipping section headers like `**Topics covered**`,
     /// `**Topics covered:**`, or `**Topics covered**:`) and returns it
     /// without markdown markers.
@@ -243,6 +267,15 @@ struct Meeting: Codable, Identifiable {
             return title
         }
         return "Meeting on \(dateFormatter.string(from: startedAt))"
+    }
+}
+
+extension [Meeting] {
+    /// Live sessions, newest first — the trash-visibility invariant in one
+    /// place. A copy of this that forgets `deletedAt` leaks a deleted session
+    /// into whatever surface re-rolled it.
+    func liveNewestFirst() -> [Meeting] {
+        filter { $0.deletedAt == nil }.sorted { $0.startedAt > $1.startedAt }
     }
 }
 

@@ -88,6 +88,7 @@ struct SettingsView: View {
     }
 
     @State private var tab: Tab
+    @EnvironmentObject private var focus: SettingsFocus
 
     var body: some View {
         HStack(spacing: 0) {
@@ -95,13 +96,23 @@ struct SettingsView: View {
             Divider().overlay(Theme.Palette.border)
             detail
         }
-        .frame(width: 740, height: 560)
-        .background(WindowBackdrop().ignoresSafeArea())
-        .onReceive(NotificationCenter.default.publisher(for: .nodOpenSubscription)) { _ in
-            tab = .subscription
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .nodOpenModes)) { _ in
-            tab = .modes
+        // Sized by the window it's a section of — Settings is no longer a
+        // fixed-size window of its own, and the main window draws the backdrop.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { applyPendingFocus() }
+        .onChange(of: focus.request) { _ in applyPendingFocus() }
+    }
+
+    /// A deep link ("open Settings on Subscription") is raised before this pane
+    /// mounts, so the request is read here rather than delivered as a
+    /// notification to a view that didn't exist yet.
+    private func applyPendingFocus() {
+        switch focus.consume() {
+        case .subscription: tab = .subscription
+        case .modes: tab = .modes
+        case .privacy: tab = .privacy
+        case .profile: tab = .profile
+        case nil: break
         }
     }
 
@@ -387,4 +398,6 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView(hotkey: HotkeyManager())
+        .environmentObject(SettingsFocus())
+        .frame(width: 740, height: 560)
 }

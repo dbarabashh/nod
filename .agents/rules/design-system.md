@@ -1,7 +1,7 @@
 ---
 description: UI conventions — SF Symbols only, reuse DesignSystem components, match standard macOS patterns.
 globs: '*.swift'
-alwaysApply: false
+alwaysApply: true
 ---
 
 - Use SF Symbols for every icon in the UI. Never use emoji as an icon — extend the component with a `systemImage` parameter instead of embedding a glyph in a string.

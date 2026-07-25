@@ -10,8 +10,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     private(set) var panel: NSPanel?
     private var onboardingWindow: NSWindow?
     private var signInWindow: NSWindow?
-    private var historyWindow: NSWindow?
-    private var settingsWindow: NSWindow?
+    private var mainWindow: NSWindow?
 
     init(services: AppServices) {
         self.services = services
@@ -32,15 +31,29 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             closeSignInWindow()
             closeOnboardingWindow()
             showFloatingPanel()
+            openLaunchWindow()
         }
     }
+
+    /// The main window is the home surface — landing on the panel alone hides
+    /// everything the user has recorded. Opened once per signed-in run: the
+    /// auth publisher emits on every token refresh, and a window the user
+    /// closed must stay closed.
+    private func openLaunchWindow() {
+        guard !didOpenLaunchWindow else { return }
+        didOpenLaunchWindow = true
+        showMainWindow()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private var didOpenLaunchWindow = false
 
     /// The quick panel, built on first use — most sessions never open it, and
     /// it holds a hosting controller plus an event monitor.
     private lazy var launcher = LauncherController(
         services: services,
-        openMeeting: { [weak self] id in self?.showHistoryWindow(focusing: id) },
-        openLibrary: { [weak self] in self?.showHistoryWindow() }
+        openMeeting: { [weak self] id in self?.showMainWindow(focusing: id) },
+        openLibrary: { [weak self] in self?.showMainWindow() }
     )
 
     func toggleLauncher() {
@@ -70,6 +83,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     func setPanelVisibleWhenSharing(_ visible: Bool) {
         panel?.sharingType = visible ? .readOnly : .none
+        mainWindow?.sharingType = visible ? .readOnly : .none
         // Keep the Dock icon / ⌘-Tab entry in lockstep with share visibility —
         // hiding the panel from captures is pointless if the Dock still shows
         // Nod. Only while the panel is the active surface; sign-in/onboarding
@@ -231,53 +245,34 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         panel = nil
     }
 
-    // MARK: - Settings window
-
-    func showSettingsWindow(focusSubscription: Bool = false, focusModes: Bool = false) {
-        if let existing = settingsWindow {
-            existing.makeKeyAndOrderFront(nil)
-            if focusModes { NotificationCenter.default.post(name: .nodOpenModes, object: nil) }
-            return
-        }
-        let window = makeWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 740, height: 560),
-            styleMask: [.titled, .closable, .fullSizeContentView]
+    /// Settings renders inside the main window as one of its sections, so it is
+    /// built here (where the service graph lives) and handed over as a view.
+    private var settingsPane: AnyView {
+        AnyView(
+            SettingsView(
+                hotkey: services.hotkeys,
+                profileStore: services.profileStore,
+                panelSharing: services.panelSharing,
+                billing: services.billing,
+                entitlements: services.entitlements,
+                granolaImporter: services.granolaImporter,
+                auth: services.auth,
+                accountExport: services.accountExport,
+                connections: services.connections,
+                modeStore: services.modeStore,
+                referral: services.referral,
+                screenExclusions: services.screenExclusions,
+                screenContext: services.screenContext
+            )
         )
-        window.title = "Settings"
-        // Hide the native title so the top strip is uniform glass, not a heavier
-        // title-bar band over the translucent body (matches sign-in/onboarding).
-        window.titleVisibility = .hidden
-        window.contentViewController = NSHostingController(rootView: SettingsView(
-            hotkey: services.hotkeys,
-            profileStore: services.profileStore,
-            panelSharing: services.panelSharing,
-            billing: services.billing,
-            entitlements: services.entitlements,
-            granolaImporter: services.granolaImporter,
-            auth: services.auth,
-            accountExport: services.accountExport,
-            connections: services.connections,
-            modeStore: services.modeStore,
-            referral: services.referral,
-            screenExclusions: services.screenExclusions,
-            screenContext: services.screenContext,
-            focusSubscription: focusSubscription,
-            focusModes: focusModes
-        ))
-        window.makeKeyAndOrderFront(nil)
-        settingsWindow = window
     }
 
-    func closeSettingsWindow() {
-        close(&settingsWindow)
-    }
+    // MARK: - Main window (issue #14)
 
-    // MARK: - History window (issue #14)
-
-    func showHistoryWindow(focusing meetingID: UUID? = nil) {
-        if let existing = historyWindow {
+    func showMainWindow(focusing meetingID: UUID? = nil) {
+        if let existing = mainWindow {
             existing.makeKeyAndOrderFront(nil)
-            // HistoryView is already mounted and observing the
+            // MainWindowView is already mounted and observing the
             // `.nodOpenMeetingDetail` notification — its own `.onReceive`
             // handles the navigation push.
             return
@@ -287,10 +282,15 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 1040, height: 640),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         )
-        window.title = "Library"
+        window.title = "Nod"
+        // The panel is kept out of screen captures unless the user opts in, and
+        // this window now opens by itself on launch — a window listing their
+        // meeting titles, open actions and unresolved points must follow the
+        // same preference, or the first screen-share pops it into the call.
+        window.sharingType = services.panelSharing.sharingType
 
         // First-mount focus is handed in via init — the open-detail
-        // notification fires before HistoryView's `.onReceive` subscribes
+        // notification fires before MainWindowView's `.onReceive` subscribes
         // when the window is being created fresh, so its `.task` reads
         // `initialFocusMeetingID` after the initial refresh instead.
         // No SwiftUI `minWidth/minHeight` on the root on purpose — a SwiftUI min
@@ -300,7 +300,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         // window level instead (`contentMinSize`, set after the controller is
         // attached), so the content always fills the window and the rail stays
         // pinned at the leading edge.
-        let root = HistoryView(initialFocusMeetingID: meetingID)
+        let root = MainWindowView(initialFocusMeetingID: meetingID, settings: settingsPane)
             .environmentObject(services.meetingStore)
             .environmentObject(services.chatStore)
             .environmentObject(services.profileStore)
@@ -313,6 +313,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             .environmentObject(services.languagePreference)
             .environmentObject(services.labelStore)
             .environmentObject(services.entitlements)
+            .environmentObject(services.hotkeys)
+            .environmentObject(services.settingsFocus)
+            .environmentObject(services.screenContext)
 
         let hosting = NSHostingController(rootView: root)
         // Don't let the hosting controller derive the window's min/max size from
@@ -323,18 +326,21 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         window.contentViewController = hosting
         // With the hosting controller no longer sizing the window, set the opening
         // size and the floor explicitly AFTER attaching it (assigning a
-        // contentViewController resets the window's size constraints). 1040×640
-        // opens comfortably; 860×520 keeps the rail + list/detail column + the
-        // 380pt chat dock all usable and is the hard minimum.
-        window.setContentSize(NSSize(width: 1040, height: 640))
-        window.contentMinSize = NSSize(width: 860, height: 520)
+        // contentViewController resets the window's size constraints). Three
+        // columns now: 1240×760 opens comfortably; 980×560 is where the sidebar,
+        // the centre column, and the context column all still work.
+        window.setContentSize(NSSize(width: 1240, height: 760))
+        window.contentMinSize = NSSize(width: 980, height: 560)
         window.center()
         window.makeKeyAndOrderFront(nil)
-        historyWindow = window
+        mainWindow = window
     }
 
-    func closeHistoryWindow() {
-        close(&historyWindow)
+    func closeMainWindow() {
+        close(&mainWindow)
+        // Only sign-out reaches here (a user close goes through
+        // `windowWillClose`), so the next account gets its own launch window.
+        didOpenLaunchWindow = false
     }
 
     // MARK: - NSWindowDelegate
@@ -347,8 +353,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     /// untouched. Runs on the main thread, so the isolated state is safe to read.
     nonisolated func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
         MainActor.assumeIsolated {
-            guard sender === historyWindow else { return frameSize }
-            return NSSize(width: max(frameSize.width, 860), height: max(frameSize.height, 520))
+            guard sender === mainWindow else { return frameSize }
+            return NSSize(width: max(frameSize.width, 980), height: max(frameSize.height, 560))
         }
     }
 
@@ -360,13 +366,10 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 signInWindow = nil
             } else if closed === onboardingWindow {
                 onboardingWindow = nil
-            } else if closed === historyWindow {
-                // History is auxiliary — closing it doesn't trigger any
-                // reconciliation; the floating panel keeps running.
-                historyWindow = nil
-                return
-            } else if closed === settingsWindow {
-                settingsWindow = nil
+            } else if closed === mainWindow {
+                // The main window is auxiliary to the panel — closing it
+                // doesn't trigger any reconciliation; capture keeps running.
+                mainWindow = nil
                 return
             }
             // User-initiated close of the only UI: re-open whichever window

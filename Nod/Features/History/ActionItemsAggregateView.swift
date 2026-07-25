@@ -11,6 +11,9 @@ struct ActionItemsAggregateView: View {
     /// scoping the list to live meetings.
     let meetings: [Meeting]
     let onOpenMeeting: (UUID) -> Void
+    /// It is reached from the attention column's open-actions block, never from
+    /// the sidebar, so it carries its own way back.
+    let onBack: () -> Void
 
     @EnvironmentObject private var actionItemStore: ActionItemStore
     @EnvironmentObject private var entitlements: EntitlementService
@@ -60,10 +63,12 @@ struct ActionItemsAggregateView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Header first in every state: an empty or locked checklist still
+            // needs the way back it was opened from.
+            header
             if !canUseActionItems {
                 upsell
             } else if loaded, !relevantItems.isEmpty {
-                header
                 list
             } else if loaded {
                 emptyState
@@ -168,7 +173,16 @@ struct ActionItemsAggregateView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(spacing: 10) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .iconButtonChrome()
+            }
+            .buttonStyle(.plain)
+            .help("Back")
+            .linkCursor()
             Text("Action Items")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(Theme.Palette.ink)
@@ -178,7 +192,7 @@ struct ActionItemsAggregateView: View {
                     .foregroundStyle(Theme.Palette.muted)
             }
             Spacer(minLength: 8)
-            filterControl
+            if !relevantItems.isEmpty { filterControl }
         }
         .padding(.horizontal, 16)
         .padding(.top, 18)
@@ -286,7 +300,7 @@ struct ActionItemsAggregateView: View {
     private func addRow(_ group: ItemGroup) -> some View {
         if addingMeetingID == group.meetingID {
             HStack(alignment: .firstTextBaseline, spacing: 11) {
-                checkbox(done: false)
+                ActionCheckbox(done: false)
                 TextField("New task", text: $newItemText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1 ... 6)
@@ -349,7 +363,7 @@ struct ActionItemsAggregateView: View {
 
     private func row(_ item: ActionItem) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 11) {
-            checkbox(done: item.done)
+            ActionCheckbox(done: item.done)
                 .onTapGesture { Task { await toggle(item) } }
             VStack(alignment: .leading, spacing: 5) {
                 if editingID == item.id {
@@ -472,26 +486,6 @@ struct ActionItemsAggregateView: View {
         } label: {
             Label("Delete", systemImage: "trash")
         }
-    }
-
-    private func checkbox(done: Bool) -> some View {
-        ZStack {
-            Circle()
-                .fill(done ? Theme.Palette.brand : Color.clear)
-                .overlay(Circle().stroke(done ? Theme.Palette.brand : Theme.Palette.borderStrong, lineWidth: 1.5))
-                .frame(width: 18, height: 18)
-            if done {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 9.5, weight: .bold))
-                    .foregroundStyle(Theme.Palette.bg)
-            }
-        }
-        // The circle has no text baseline, so under `.firstTextBaseline` the HStack
-        // would hang it from its bottom edge and float it above the line. Report
-        // its center (nudged to the cap height) as the baseline so it sits centered
-        // on the first line of text.
-        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-        .contentShape(Rectangle())
     }
 
     private func duplicatePill(for item: ActionItem) -> some View {

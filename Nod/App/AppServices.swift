@@ -56,6 +56,9 @@ struct AppServices {
     /// Ambient screen capture. Constructed always, running only when the user
     /// has switched it on — see `ScreenContextDefaults`.
     let screenContext: ScreenContextService
+    /// Pending "open Settings on this pane" request, shared by the deep links
+    /// that raise it and the window that renders Settings.
+    let settingsFocus: SettingsFocus
 
     /// Construction ORDER is load-bearing — Supabase before the LLM client,
     /// auth before the stores that read it, callback wiring last.
@@ -162,7 +165,8 @@ struct AppServices {
                 language: languagePreference
             ),
             screenExclusions: screenExclusions,
-            screenContext: screenContext
+            screenContext: screenContext,
+            settingsFocus: SettingsFocus()
         )
     }
 }

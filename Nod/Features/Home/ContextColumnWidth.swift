@@ -2,28 +2,27 @@ import Combine
 import CoreGraphics
 import Foundation
 
-/// Persisted width of the Library chat dock. One global width applies to every
-/// chat (so resizing in any session carries over), with an optional per-meeting
-/// override: dragging in a specific session remembers that session's width,
-/// while sessions you've never resized — and the cross-session "Ask Nod" chat —
-/// follow the global. Double-clicking the divider clears a session's override.
+/// Persisted width of the main window's context column. One global width
+/// applies everywhere (so resizing in any session carries over), with an
+/// optional per-session override: dragging in a specific session remembers that
+/// session's width, while sessions you've never resized — and the attention
+/// column — follow the global. Double-clicking the divider clears the override.
+///
+/// The UserDefaults keys still say `chat.dock` on purpose: renaming them would
+/// silently reset every user's saved width.
 ///
 /// `setWidth` only mutates in-memory state (drives the live drag); the width is
 /// flushed to disk once via `commit()` when the drag ends, so a gesture doesn't
 /// hammer `UserDefaults` every frame.
 @MainActor
-final class ChatDockWidth: ObservableObject {
+final class ContextColumnWidth: ObservableObject {
     static let minWidth: CGFloat = 240
     static let defaultWidth: CGFloat = 380
-    /// The detail pane must keep at least this much room, so the dock can't be
-    /// dragged wide enough to crush it. Reserved *on top of* the sidebar rail —
-    /// see `clampedWidth`.
+    /// The centre column must keep at least this much room, so the context
+    /// column can't be dragged wide enough to crush it. Reserved *on top of*
+    /// the sidebar — see `clampedWidth`.
     static let minDetailWidth: CGFloat = 368
-    /// Fixed width of the left sidebar rail — the single source of truth, applied
-    /// by `HistoryView.sidebarRail`. The clamp reserves it separately so the
-    /// detail pane keeps its full minimum rather than sharing with the rail.
-    static let sidebarRailWidth: CGFloat = 62
-    /// Width of the resize handle's grab strip, overlaid on the dock's leading
+    /// Width of the resize handle's grab strip, overlaid on the column's leading
     /// edge (it takes no layout space, so it isn't reserved in the clamp).
     static let handleWidth: CGFloat = 11
 
@@ -96,7 +95,7 @@ final class ChatDockWidth: ObservableObject {
     /// uses the same bounds. When the window is narrow the upper bound can fall
     /// below minWidth; keep the dock usable by clamping the bound to minWidth.
     static func clampedWidth(_ w: CGFloat, totalWidth: CGFloat) -> CGFloat {
-        let upper = max(minWidth, totalWidth - sidebarRailWidth - minDetailWidth)
+        let upper = max(minWidth, totalWidth - HomeSidebar.width - minDetailWidth)
         return min(max(w, minWidth), upper)
     }
 

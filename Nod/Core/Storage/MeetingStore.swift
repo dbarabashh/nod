@@ -9,7 +9,7 @@ import Supabase
 ///   summary is ready. Failures bubble up so the caller can surface a retry
 ///   toast; this class does NOT cache pending writes itself (v1 — add an
 ///   outbox if real losses surface).
-/// - **Read path** (`refresh`, `meetings`) — drives HistoryView. Holds the
+/// - **Read path** (`refresh`, `meetings`) — drives MainWindowView. Holds the
 ///   list of meetings sorted newest-first as an `@Published` collection so
 ///   the SwiftUI list re-renders on insert / refresh.
 ///
@@ -28,7 +28,22 @@ final class MeetingStore: ObservableObject {
     }
 
     @Published private(set) var meetings: [Meeting] = [] {
-        didSet { byID = Dictionary(meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
+        didSet {
+            byID = Dictionary(meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            digestKey = DigestKey(count: meetings.count, newest: meetings.first?.id)
+        }
+    }
+
+    /// Cheap identity of the loaded set, for the surfaces that re-derive when
+    /// sessions are added or removed. They used to join every id into a string
+    /// as a `.task(id:)` argument — evaluated on every render, allocating the
+    /// whole list to detect a change that a count and the newest id already
+    /// carry.
+    @Published private(set) var digestKey = DigestKey(count: 0, newest: nil)
+
+    struct DigestKey: Equatable {
+        let count: Int
+        let newest: UUID?
     }
 
     /// Meetings keyed by id, rebuilt with the list. Every surface that renders
@@ -38,12 +53,12 @@ final class MeetingStore: ObservableObject {
     @Published private(set) var loadState: LoadState = .idle
 
     /// Soft-deleted meetings (the "Trash") — loaded lazily by the Trash
-    /// segment of HistoryView. Empty until `refreshTrash()` runs.
+    /// segment of MainWindowView. Empty until `refreshTrash()` runs.
     @Published private(set) var trashedMeetings: [Meeting] = []
     @Published private(set) var trashState: LoadState = .idle
 
     /// Most recently soft-deleted meeting — drives the Undo toast in
-    /// HistoryView. Set by `softDelete(_:)`, cleared by `restore(_:)`,
+    /// MainWindowView. Set by `softDelete(_:)`, cleared by `restore(_:)`,
     /// `hardDelete(_:)`, `dismissUndo()`, or the 5-second auto-timer.
     /// Lives on the store so deletions triggered from MeetingDetailView's
     /// toolbar surface the same Undo affordance as right-click deletes.
@@ -54,7 +69,7 @@ final class MeetingStore: ObservableObject {
     /// True when the most recent `refresh()` attempt failed AND we kept
     /// cached `meetings` instead of flipping to `.failed`. Drives a
     /// non-blocking "couldn't sync, showing cached" warning in
-    /// HistoryView's toolbar so the user knows the list may be stale
+    /// MainWindowView's toolbar so the user knows the list may be stale
     /// without losing access to what we already have. Cleared on the
     /// next successful refresh.
     @Published private(set) var lastRefreshFailed: Bool = false
@@ -117,7 +132,7 @@ final class MeetingStore: ObservableObject {
     /// Insert-or-update on the primary key. Used by the durable `MeetingOutbox`
     /// path: a meeting may already exist server-side from an earlier streamed
     /// insert (live transcript), so a plain insert would PK-conflict. Promotes
-    /// `loadState` and updates the local cache optimistically so HistoryView
+    /// `loadState` and updates the local cache optimistically so MainWindowView
     /// reflects the new row before the next full refresh.
     func upsert(_ meeting: Meeting) async throws {
         Log.ui.info("MeetingStore.upsert id=\(meeting.id.uuidString)")
@@ -244,7 +259,7 @@ final class MeetingStore: ObservableObject {
     /// Patches `title` + `summary` for an existing meeting. Only those two
     /// fields are sent in the payload — other columns (started_at, etc.)
     /// stay untouched even though the local Meeting carries them. Local
-    /// cache is replaced on success so HistoryView re-renders without a
+    /// cache is replaced on success so MainWindowView re-renders without a
     /// full refresh.
     func update(_ meeting: Meeting) async throws {
         Log.ui.info("MeetingStore.update id=\(meeting.id.uuidString)")
@@ -719,7 +734,7 @@ final class MeetingStore: ObservableObject {
             if hadLoadedCache {
                 Log.ui.error("MeetingStore.refresh failed (keeping cache): \(error.localizedDescription)")
                 // Keep loadState = .loaded so the cached list stays
-                // rendered, but raise lastRefreshFailed so HistoryView
+                // rendered, but raise lastRefreshFailed so MainWindowView
                 // can show a small warning chip. Without that flag the
                 // user has no signal at all that data is stale.
                 lastRefreshFailed = true

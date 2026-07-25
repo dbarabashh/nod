@@ -41,7 +41,7 @@ struct ActionItemsView: View {
             Task { await toggle(item) }
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                checkbox(done: item.done)
+                ActionCheckbox(done: item.done)
                 Text(item.text)
                     .font(.system(size: 13.5, weight: .regular))
                     .foregroundStyle(item.done ? Theme.Palette.muted : Theme.Palette.ink.opacity(0.92))
@@ -68,27 +68,6 @@ struct ActionItemsView: View {
                 Label("Delete", systemImage: "trash")
             }
         }
-    }
-
-    private func checkbox(done: Bool) -> some View {
-        ZStack {
-            Circle()
-                .fill(done ? Theme.Palette.brand : Color.clear)
-                .overlay(
-                    Circle().stroke(
-                        done ? Theme.Palette.brand : Theme.Palette.borderStrong,
-                        lineWidth: 1.5
-                    )
-                )
-                .frame(width: 18, height: 18)
-            if done {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Theme.Palette.bg)
-            }
-        }
-        // Keep the control aligned with the first text line.
-        .offset(y: 1)
     }
 
     private func sectionHeader(_ text: String) -> some View {

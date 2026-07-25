@@ -69,26 +69,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let id = note.userInfo?[Notification.nodMeetingIDKey] as? UUID
             Task { @MainActor in
                 guard let windows, let id else { return }
-                windows.showHistoryWindow(focusing: id)
+                windows.showMainWindow(focusing: id)
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
 
+        // Settings is a section of the main window, not a window of its own —
+        // every entry point raises the pane request first, then brings the
+        // window up on it.
         NotificationCenter.default.addObserver(forName: .nodOpenSettings, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in
-                windows?.showSettingsWindow()
+                services.settingsFocus.open(.profile)
+                windows?.showMainWindow()
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+        NotificationCenter.default.addObserver(forName: .nodOpenPrivacySettings, object: nil, queue: nil) { [weak windows] _ in
+            Task { @MainActor in
+                services.settingsFocus.open(.privacy)
+                windows?.showMainWindow()
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
         NotificationCenter.default.addObserver(forName: .nodOpenModes, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in
-                windows?.showSettingsWindow(focusModes: true)
+                services.settingsFocus.open(.modes)
+                windows?.showMainWindow()
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
         NotificationCenter.default.addObserver(forName: .nodOpenLibrary, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in
-                windows?.showHistoryWindow(focusing: nil)
+                windows?.showMainWindow(focusing: nil)
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
@@ -96,13 +108,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Settings on the Subscription tab.
         NotificationCenter.default.addObserver(forName: .nodOpenSubscription, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in
-                windows?.showSettingsWindow(focusSubscription: true)
+                services.settingsFocus.open(.subscription)
+                windows?.showMainWindow()
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
         NotificationCenter.default.addObserver(forName: .nodHidePanel, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in
                 windows?.hidePanel()
+            }
+        }
+        // The main window's way back to the capture panel — the panel is where
+        // recording lives, and it can be hidden by hotkey or sitting on another
+        // Space. Reveal, never toggle: a button that silently hides the thing
+        // the user just asked for reads as broken.
+        NotificationCenter.default.addObserver(forName: .nodShowPanel, object: nil, queue: nil) { [weak windows] _ in
+            Task { @MainActor in
+                windows?.revealPanel()
             }
         }
         NotificationCenter.default.addObserver(forName: .nodCheckForUpdates, object: nil, queue: nil) { [weak self] _ in
@@ -173,8 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     services.chatStore.clear()
                     services.labelStore.clear()
                     services.entitlements.clear()
-                    windows.closeHistoryWindow()
-                    windows.closeSettingsWindow()
+                    windows.closeMainWindow()
                 }
                 if isSignedIn {
                     // Single-device lock: claim this device's slot now so a
@@ -300,6 +321,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         windows?.reconcile()
         windows?.revealPanel()
+        // Clicking the Dock icon means "show me the app" — the home surface,
+        // not just the panel that may already be on screen.
+        if services?.auth.session != nil, services?.onboarding.isCompleted == true {
+            windows?.showMainWindow()
+        }
         NSApp.activate(ignoringOtherApps: true)
         return true
     }
@@ -308,7 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     /// Posted by MeetingSession once a freshly-ended meeting has been
     /// summarised and persisted. AppDelegate opens/focuses the History
-    /// window; HistoryView pushes the meeting's detail view onto its
+    /// window; MainWindowView pushes the meeting's detail view onto its
     /// NavigationStack. `userInfo` carries the meeting id under
     /// `Notification.nodMeetingIDKey`.
     static let nodOpenMeetingDetail = Notification.Name("nod.history.openMeetingDetail")
@@ -322,7 +348,12 @@ extension Notification.Name {
     /// Posted by the panel's mode chip ("Manage Modes…") to open Settings on the
     /// Modes tab.
     static let nodOpenModes = Notification.Name("nod.app.openModes")
+    /// Posted by the sidebar's ambient row: switching ambient capture ON has to
+    /// happen where the disclosure is, not behind a tooltip.
+    static let nodOpenPrivacySettings = Notification.Name("nod.app.openPrivacySettings")
     static let nodHidePanel = Notification.Name("nod.app.hidePanel")
+    /// Posted from the main window to bring the floating capture panel back.
+    static let nodShowPanel = Notification.Name("nod.app.showPanel")
     /// Posted while the floating panel is being dragged. Header hover tooltips
     /// listen for this to dismiss themselves — a drag keeps the cursor "over" an
     /// icon so `.onHover` never fires its exit, leaving the tooltip pill stuck on

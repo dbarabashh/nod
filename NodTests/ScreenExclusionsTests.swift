@@ -208,10 +208,20 @@ final class ExclusionMatchingTests: XCTestCase {
 final class ScreenContextTests: XCTestCase {
     func testAmbientContextIsOffUntilTurnedOn() {
         // The legal basis for ambient capture is consent (privacy.md § 3.10(b)),
-        // which only holds while the feature is opt-in.
-        UserDefaults.standard.removeObject(forKey: ScreenContextDefaults.enabledKey)
+        // which only holds while the feature is opt-in. Asserted against the
+        // resolution rule rather than the live setting: reading the real one
+        // made this pass or fail depending on whether the person running the
+        // tests happened to have ambient on.
+        XCTAssertFalse(ScreenContextDefaults.resolveEnabled(fileByte: nil, legacyFlag: false))
+    }
 
-        XCTAssertFalse(ScreenContextDefaults.isEnabled)
+    func testAnExplicitOffSurvivesTheLegacyKey() {
+        XCTAssertFalse(ScreenContextDefaults.resolveEnabled(fileByte: 0, legacyFlag: true))
+        XCTAssertTrue(ScreenContextDefaults.resolveEnabled(fileByte: 1, legacyFlag: false))
+    }
+
+    func testAPreFileInstallFallsBackToTheOldKey() {
+        XCTAssertTrue(ScreenContextDefaults.resolveEnabled(fileByte: nil, legacyFlag: true))
     }
 
     func testRetentionFallsBackToTheDocumentedDefault() {

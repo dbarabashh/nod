@@ -148,13 +148,18 @@ struct KnowledgeChatView: View {
             Text(ChatHomeSuggestions.greeting(for: profileStore.profile?.displayName))
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
-            Text(Self.todayFormatter.string(from: Date()))
+            // What the question will actually reach. Without it an empty
+            // composer reads as a chatbot rather than as the user's own memory.
+            Text(ChatHomeSuggestions.scopeHeadline(project: scopeLabel?.name))
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.Palette.muted)
                 .padding(.bottom, 14)
 
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(ChatHomeSuggestions.build(meetings: meetingStore.meetings), id: \.self) { text in
+                ForEach(
+                    ChatHomeSuggestions.build(meetings: meetingStore.meetings, project: scopeLabel?.name),
+                    id: \.self
+                ) { text in
                     suggestion(text)
                 }
             }
@@ -162,12 +167,6 @@ struct KnowledgeChatView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 28)
     }
-
-    private static let todayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, d MMMM"
-        return formatter
-    }()
 
     private func suggestion(_ text: String) -> some View {
         ChatSuggestionChip(text: text) {
@@ -326,8 +325,8 @@ struct KnowledgeChatView: View {
     }
 
     private var composerPrompt: String {
-        if let scopeLabel { return "Ask within \(scopeLabel.name)" }
-        return "Ask across your sessions  (@ to mention a session)"
+        if let scopeLabel { return "Ask about \(scopeLabel.name)" }
+        return "Ask across all memory  (@ to mention a session)"
     }
 
     private var scopeMenu: some View {

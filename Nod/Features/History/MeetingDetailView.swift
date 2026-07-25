@@ -186,15 +186,17 @@ struct MeetingDetailView: View {
         }
     }
 
+    /// The session is presented as a sheet over the screen it was opened from,
+    /// so this closes rather than navigates back.
     private var backButton: some View {
         Button(action: onClose) {
-            Image(systemName: "chevron.backward")
-                .font(.system(size: 13, weight: .semibold))
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.Palette.muted)
                 .iconButtonChrome()
         }
         .buttonStyle(.plain)
-        .help("Back to library")
+        .help("Close (esc)")
         .linkCursor()
     }
 
@@ -1024,19 +1026,4 @@ func renderRecapMarkdown(_ source: String) -> AttributedString {
     )
     return (try? AttributedString(markdown: source, options: options))
         ?? AttributedString(source)
-}
-
-private extension View {
-    /// 30×30 surface tile with a hairline border — the detail header's icon-button chrome.
-    func iconButtonChrome() -> some View {
-        frame(width: 30, height: 30)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Theme.Palette.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Theme.Palette.border, lineWidth: 0.5)
-                    )
-            )
-    }
 }

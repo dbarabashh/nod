@@ -17,6 +17,11 @@ import Supabase
 ///    indefinitely, and a cron job deletes past it server-side.
 @MainActor
 final class ScreenContextService: ObservableObject {
+    /// The user's ambient switch, observable. The stored value lives in a file
+    /// (`ScreenContextDefaults`) that nothing can publish, so every surface
+    /// showing the switch used to keep its own `@State` mirror and re-read the
+    /// disk to stay honest. This is the one copy they all bind to.
+    @Published private(set) var isAmbientEnabled = ScreenContextDefaults.isEnabled
     @Published private(set) var isRunning = false
     @Published private(set) var lastCaptureAt: Date?
     /// Switched on but blocked on the Accessibility grant. A toggle that says
@@ -96,14 +101,23 @@ final class ScreenContextService: ObservableObject {
         Log.screen.info("context: ambient capture off")
     }
 
-    /// Re-reads the toggle and starts or stops accordingly. Called when the
-    /// user flips the switch in Settings.
+    /// Re-reads the toggle and starts or stops accordingly. Called on launch,
+    /// and whenever something outside this service wrote the switch.
     func refresh() {
-        if ScreenContextDefaults.isEnabled {
+        isAmbientEnabled = ScreenContextDefaults.isEnabled
+        if isAmbientEnabled {
             start()
         } else {
             stop()
         }
+    }
+
+    /// Flip the switch: persist it, then start or stop. Every surface that
+    /// offers the toggle goes through here, so none of them has to remember
+    /// both halves.
+    func setAmbientEnabled(_ enabled: Bool) {
+        ScreenContextDefaults.setEnabled(enabled)
+        refresh()
     }
 
     /// Accessibility describes a native window well and an Electron or
@@ -303,9 +317,19 @@ enum ScreenContextDefaults {
     static let defaultRetentionDays = 14
 
     static var isEnabled: Bool {
-        if let byte = (try? Data(contentsOf: enabledFileURL))?.first { return byte == 1 }
-        // Migration: an install that only ever wrote the old UserDefaults key.
-        return UserDefaults.standard.bool(forKey: enabledKey)
+        resolveEnabled(
+            fileByte: (try? Data(contentsOf: enabledFileURL))?.first,
+            legacyFlag: UserDefaults.standard.bool(forKey: enabledKey)
+        )
+    }
+
+    /// The resolution rule, kept pure: the file wins when it exists (an explicit
+    /// off must survive), and only an install that predates it falls back to the
+    /// old UserDefaults key. Testable without touching the real file — a test
+    /// that deleted that would switch ambient capture off for whoever ran it.
+    static func resolveEnabled(fileByte: UInt8?, legacyFlag: Bool) -> Bool {
+        if let fileByte { return fileByte == 1 }
+        return legacyFlag
     }
 
     /// Writes the switch to a file, synchronously, before returning.

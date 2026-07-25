@@ -13,20 +13,44 @@ enum ChatHomeSuggestions {
     /// a lie and the opener would return nothing.
     static let recentWindow: TimeInterval = 7 * 24 * 60 * 60
 
-    static func build(meetings: [Meeting], now: Date = Date(), titleLimit: Int = 40) -> [String] {
-        let recent = meetings
-            .filter { $0.deletedAt == nil && now.timeIntervalSince($0.startedAt) <= recentWindow }
-            .sorted { $0.startedAt > $1.startedAt }
+    /// What the chat is pointed at, spelled out above the openers. An empty
+    /// composer reads as a generic chatbot; naming the reach ("all memory", or
+    /// the folder the user scoped to) is what makes it read as *their* memory.
+    static func scopeHeadline(project: String?, titleLimit: Int = 40) -> String {
+        guard let project, !project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "Ask across all memory"
+        }
+        return "Ask about \(truncated(project, to: titleLimit))"
+    }
 
+    static func build(
+        meetings: [Meeting],
+        project: String? = nil,
+        now: Date = Date(),
+        titleLimit: Int = 40
+    ) -> [String] {
         var suggestions: [String] = []
-        if recent.count >= 2 {
-            suggestions.append("What did we decide this week?")
+        if let project, !project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let name = truncated(project, to: titleLimit)
+            suggestions = [
+                "Catch me up on \(name)",
+                "What did I promise in \(name)?",
+                "What's still unresolved in \(name)?"
+            ]
+        } else {
+            let recent = meetings
+                .liveNewestFirst()
+                .filter { now.timeIntervalSince($0.startedAt) <= recentWindow }
+
+            if recent.count >= 2 {
+                suggestions.append("What did we decide this week?")
+            }
+            if let latest = recent.first, let title = latest.title, !title.trimmingCharacters(in: .whitespaces).isEmpty {
+                suggestions.append("Catch me up on \(truncated(title, to: titleLimit))")
+            }
+            suggestions.append("What did I promise?")
+            suggestions.append("What decisions are still unresolved?")
         }
-        if let latest = recent.first, let title = latest.title, !title.trimmingCharacters(in: .whitespaces).isEmpty {
-            suggestions.append("Catch me up on \(truncated(title, to: titleLimit))")
-        }
-        suggestions.append("What did I say I'd follow up on?")
-        suggestions.append("What have I been thinking about lately?")
 
         var seen = Set<String>()
         return suggestions.filter { seen.insert($0).inserted }.prefix(maximum).map { $0 }

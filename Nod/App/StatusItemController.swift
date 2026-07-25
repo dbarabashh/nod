@@ -96,13 +96,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func showHistoryAction() {
-        windows.showHistoryWindow(focusing: nil)
+        windows.showMainWindow(focusing: nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func showSettingsAction() {
-        windows.showSettingsWindow()
-        NSApp.activate(ignoringOtherApps: true)
+        // Settings is a section of the main window now; the observer in
+        // AppDelegate raises it and brings the window up.
+        NotificationCenter.default.post(name: .nodOpenSettings, object: nil)
     }
 
     private func displayName(for user: User) -> String {
@@ -159,7 +160,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 menu.addItem(toggle)
 
                 let history = NSMenuItem(
-                    title: "Library…",
+                    title: "Open Nod…",
                     action: #selector(showHistoryAction),
                     // No keyEquivalent — `"h"` defaults to ⌘H which the
                     // system reserves for "Hide Application".

@@ -106,7 +106,7 @@ struct SessionChatView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Ask anything about this \(kindNoun)")
+            Text("Ask about this \(kindNoun)")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
             VStack(alignment: .leading, spacing: 5) {

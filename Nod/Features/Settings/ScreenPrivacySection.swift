@@ -13,7 +13,12 @@ struct ScreenPrivacySection: View {
     /// Seeded from the file-backed flag, not `@AppStorage`: the durable value
     /// lives in `ScreenContextDefaults`, and binding the switch to the old
     /// UserDefaults key would show off whenever that key was dropped on exit.
-    @State private var ambientEnabled = ScreenContextDefaults.isEnabled
+    /// Bound to the service's published switch, not a local mirror — the
+    /// sidebar offers the same toggle, and two mirrors of one file flag drift.
+    private var ambientEnabled: Bool {
+        screenContext.isAmbientEnabled
+    }
+
     @AppStorage(ScreenContextDefaults.retentionDaysKey) private var retentionDays = ScreenContextDefaults.defaultRetentionDays
     @State private var scope: Scope = .apps
     @State private var installedApps: [InstalledApp] = []
@@ -39,7 +44,6 @@ struct ScreenPrivacySection: View {
             case .websites: websitesPane
             }
         }
-        .onAppear { ambientEnabled = ScreenContextDefaults.isEnabled }
         .task {
             guard installedApps.isEmpty else { return }
             installedApps = await Task.detached(priority: .userInitiated) { InstalledApps.load() }.value
@@ -69,14 +73,13 @@ struct ScreenPrivacySection: View {
                 subtitle: "Let Nod read the window you're working in, so you can ask about what you were doing — "
                     + "not just what was said. Off by default. Excluded apps and sites are never read."
             ) {
-                Toggle("", isOn: $ambientEnabled)
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .onChange(of: ambientEnabled) { enabled in
-                        ScreenContextDefaults.setEnabled(enabled)
-                        screenContext.refresh()
-                    }
+                Toggle("", isOn: Binding(
+                    get: { screenContext.isAmbientEnabled },
+                    set: { screenContext.setAmbientEnabled($0) }
+                ))
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .controlSize(.small)
             }
 
             if ambientEnabled, screenContext.needsAccessibility {

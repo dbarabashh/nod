@@ -71,6 +71,26 @@ extension View {
             .allowsHitTesting(isVisible)
     }
 
+    /// The row-under-the-pointer highlight: one containing shape that fades in
+    /// on hover, with the timing and the Reduce Motion collapse already right.
+    /// Every list that re-rolled this drifted on the fill, so adjacent panes
+    /// highlighted at different strengths.
+    func hoverHighlight(
+        _ isHovering: Bool,
+        cornerRadius: CGFloat = 8,
+        reduceMotion: Bool,
+        inset: CGSize = .zero
+    ) -> some View {
+        background(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Theme.Palette.surfaceStrong)
+                .opacity(isHovering ? 1 : 0)
+                .padding(.horizontal, inset.width)
+                .padding(.vertical, inset.height)
+                .animation(.hoverReveal(reduceMotion: reduceMotion), value: isHovering)
+        )
+    }
+
     /// Shows the macOS link pointer (the pointing hand) over a clickable custom
     /// control. No-op before macOS 15, where `pointerStyle` is unavailable.
     @ViewBuilder func linkCursor() -> some View {
