@@ -29,15 +29,36 @@ struct MainWindowView: View {
     /// Active project filter on the sessions list; nil shows every session.
     @State private var filterLabelID: UUID?
     @State private var undoToastID: UUID = .init()
-    /// The open session. One at a time: it takes over the centre, and the right
-    /// column follows it to that session's chat.
-    @State private var openSession: Meeting?
+    /// What's open *over* the current surface. One value rather than a pair of
+    /// optionals: exclusivity is then a property of the type, instead of a
+    /// `= nil` that every navigation path has to remember.
+    @State private var focus: Focus?
+    /// Collapsed context column — the centre is the working surface, and a
+    /// 380pt panel of open work is not always what you want beside it.
+    @AppStorage("home.contextColumn.collapsed") private var contextCollapsed = false
     @State private var confirmingClearChat = false
     @StateObject private var contextWidth = ContextColumnWidth()
     @State private var windowWidth: CGFloat = 1180
 
-    /// What the centre column is showing. Sessions open *over* whichever
-    /// surface is active rather than being a surface of their own.
+    /// A session or a single task, opened on top of whichever surface is
+    /// active. The surface underneath is remembered, so closing returns to it.
+    private enum Focus: Equatable {
+        case session(Meeting)
+        case action(TodayDigest.OpenAction)
+
+        var session: Meeting? {
+            if case let .session(meeting) = self { meeting } else { nil }
+        }
+
+        var id: UUID {
+            switch self {
+            case let .session(meeting): meeting.id
+            case let .action(action): action.id
+            }
+        }
+    }
+
+    /// What the centre column is showing when nothing is focused over it.
     enum Surface: String {
         case chat
         case sessions
@@ -55,13 +76,15 @@ struct MainWindowView: View {
                     onNewChat: startNewChat,
                     onOpenProject: openProject,
                     onOpenThread: openThread,
-                    onShowPanel: { NotificationCenter.default.post(name: .nodShowPanel, object: nil) },
-                    panelShortcut: hotkeys.combo(for: .togglePanel).displayString
+                    onCapture: capture,
+                    panelShortcut: hotkeys.combo(for: .togglePanel).displayString,
+                    contextCollapsed: $contextCollapsed
                 )
                 centreColumn
                     .frame(maxWidth: .infinity)
                 if showsContextColumn {
                     contextColumn(width: contextW)
+                        .transition(.edgeSlide(.trailing, reduceMotion: reduceMotion))
                 }
             }
 
@@ -77,6 +100,7 @@ struct MainWindowView: View {
                 )
             }
         }
+        .animation(.standard(reduceMotion: reduceMotion), value: showsContextColumn)
         .readingWidth(into: $windowWidth)
         .tooltipContainer()
         .background(WindowBackdrop().ignoresSafeArea())
@@ -93,7 +117,7 @@ struct MainWindowView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .nodOpenKnowledgeChats)) { _ in
-            openSession = nil
+            focus = nil
             surface = .chat
         }
         .onReceive(NotificationCenter.default.publisher(for: .nodOpenMeetingDetail)) { note in
@@ -129,14 +153,37 @@ struct MainWindowView: View {
                 }
             }
         }
-        .onChange(of: openSession?.id) { _ in confirmingClearChat = false }
+        .onChange(of: focus?.id) { _ in confirmingClearChat = false }
     }
 
     /// Settings already has a sidebar and a detail pane of its own — a third
     /// column beside them is four columns of chrome for one form, and what
     /// needs the user isn't actionable while they're changing a setting.
     private var showsContextColumn: Bool {
-        openSession != nil || surface != .settings
+        if openSession != nil { return true }
+        return surface != .settings && !contextCollapsed
+    }
+
+    private var openSession: Meeting? {
+        focus?.session
+    }
+
+    /// Hides the attention column. The counterpart lives in the sidebar footer,
+    /// so a collapsed column is never a dead end.
+    private var collapseButton: some View {
+        Button {
+            withAnimation(.standard(reduceMotion: reduceMotion)) { contextCollapsed = true }
+        } label: {
+            Image(systemName: "sidebar.right")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.Palette.muted)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 12)
+        .padding(.trailing, 10)
+        .help("Hide what needs your attention")
     }
 
     // MARK: - Centre column
@@ -145,12 +192,22 @@ struct MainWindowView: View {
     /// reading, where the detail replaces the list rather than floating over it.
     private var centreColumn: some View {
         ZStack(alignment: .bottom) {
-            if let meeting = openSession {
-                MeetingDetailView(meeting: meeting, onClose: closeSession)
+            switch focus {
+            case let .session(meeting):
+                MeetingDetailView(meeting: meeting, onClose: closeFocus)
                     .id(meeting.id)
                     .transition(.opacity)
-                    .onExitCommand(perform: closeSession)
-            } else {
+                    .onExitCommand(perform: closeFocus)
+            case let .action(action):
+                ActionDetailView(
+                    item: action.item,
+                    meeting: action.meeting,
+                    onClose: closeFocus,
+                    onOpenSession: openMeeting
+                )
+                .id(action.id)
+                .transition(.opacity)
+            case nil:
                 surfaceContent
             }
             if let pending = meetingStore.pendingUndo {
@@ -163,7 +220,7 @@ struct MainWindowView: View {
                 .transition(.edgeSlide(.bottom, reduceMotion: reduceMotion))
             }
         }
-        .animation(.standard(reduceMotion: reduceMotion), value: openSession?.id)
+        .animation(.standard(reduceMotion: reduceMotion), value: focus?.id)
         .animation(.standard(reduceMotion: reduceMotion), value: surface)
         .animation(.momentum(reduceMotion: reduceMotion), value: meetingStore.pendingUndo?.id)
     }
@@ -174,7 +231,7 @@ struct MainWindowView: View {
         case .chat:
             chatHome.transition(.opacity)
         case .sessions:
-            SessionsListView(filterLabelID: $filterLabelID, onOpen: { openSession = $0 })
+            SessionsListView(filterLabelID: $filterLabelID, onOpen: { focus = .session($0) })
                 .transition(.opacity)
         case .actionItems:
             ActionItemsAggregateView(
@@ -191,9 +248,14 @@ struct MainWindowView: View {
     /// The cross-session chat, held to a reading width rather than stretched
     /// across the whole window — a composer 900pt wide is a worse composer.
     private var chatHome: some View {
-        KnowledgeChatView(onOpenMeeting: openMeeting)
-            .frame(maxWidth: 780)
-            .frame(maxWidth: .infinity)
+        KnowledgeChatView(
+            onOpenMeeting: openMeeting,
+            onOpenAttention: {
+                withAnimation(.standard(reduceMotion: reduceMotion)) { contextCollapsed = false }
+            }
+        )
+        .frame(maxWidth: 780)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Context column (right)
@@ -210,9 +272,11 @@ struct MainWindowView: View {
             } else {
                 AttentionColumn(
                     onOpenMeeting: openMeeting,
+                    onOpenAction: { focus = .action($0) },
                     onOpenActionItems: { show(.actionItems) },
                     onOpenSessions: { show(.sessions) }
                 )
+                .overlay(alignment: .topTrailing) { collapseButton }
             }
         }
         .frame(width: width)
@@ -275,28 +339,28 @@ struct MainWindowView: View {
     // MARK: - Navigation
 
     private func show(_ target: Surface) {
-        guard surface != target || openSession != nil || filterLabelID != nil else { return }
+        guard surface != target || focus != nil || filterLabelID != nil else { return }
         // Sessions from the sidebar's own row means all of them; a project keeps
         // its filter because `openProject` sets it after this.
         if target == .sessions { filterLabelID = nil }
         surface = target
-        openSession = nil
+        focus = nil
     }
 
     /// Open a session over whatever is in the centre. The context column
     /// follows it to that session's chat.
     private func openMeeting(_ id: UUID) {
         guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else { return }
-        openSession = meeting
+        focus = .session(meeting)
     }
 
-    private func closeSession() {
-        openSession = nil
+    private func closeFocus() {
+        focus = nil
     }
 
     private func openProject(_ label: SessionLabel) {
         surface = .sessions
-        openSession = nil
+        focus = nil
         filterLabelID = label.id
     }
 
@@ -305,8 +369,18 @@ struct MainWindowView: View {
         show(.chat)
     }
 
+    /// Ask for a capture of this kind. The window coordinator owns the panel
+    /// and its session, so it decides what "capture" means from here.
+    private func capture(_ kind: SessionKind) {
+        NotificationCenter.default.post(
+            name: .nodSelectCaptureKind,
+            object: nil,
+            userInfo: [Notification.nodCaptureKindKey: kind.rawValue]
+        )
+    }
+
     private func openThread(_ id: UUID) {
-        openSession = nil
+        focus = nil
         surface = .chat
         Task { await knowledgeChat.open(threadID: id) }
     }
@@ -318,7 +392,7 @@ struct MainWindowView: View {
             Log.ui.info("MainWindowView.focus skipped — meeting not in cache: \(id.uuidString)")
             return
         }
-        openSession = meeting
+        focus = .session(meeting)
     }
 }
 

@@ -9,6 +9,9 @@ import SwiftUI
 /// column never asks the model anything.
 struct AttentionColumn: View {
     let onOpenMeeting: (UUID) -> Void
+    /// Open one task as its own surface — what it is, when it's due, and where
+    /// it came from. A task the user can't trace is a task they won't trust.
+    let onOpenAction: (TodayDigest.OpenAction) -> Void
     /// Open the full cross-session checklist from the block header.
     let onOpenActionItems: () -> Void
     let onOpenSessions: () -> Void
@@ -18,15 +21,33 @@ struct AttentionColumn: View {
     @EnvironmentObject private var entitlements: EntitlementService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Snapshot taken when the column loads. Ticking a box flips `done` in
-    /// place rather than re-deriving the list, so the row stays put (and stays
-    /// un-tickable) instead of vanishing under the pointer.
+    /// The ranked top few, re-derived when the store or the session set
+    /// changes. Ticking a box rewrites the row in place instead of re-deriving,
+    /// so a task doesn't vanish from under the pointer mid-click.
     @State private var actions: [TodayDigest.OpenAction] = []
     @State private var points: [TodayDigest.OpenPoint] = []
     @State private var recentSessions: [Meeting] = []
-    @State private var inFlight: Set<UUID> = []
+    /// Totals, not the length of the truncated lists below — the brief on the
+    /// home screen counts the same way, and a header that said 8 while the card
+    /// said 12 would make both numbers worthless.
+    @State private var openActionCount = 0
+    @State private var unresolvedCount = 0
     @State private var loaded = false
     @State private var hoveredRow: String?
+    @State private var filter: Filter = .all
+
+    /// The column is a list of things to do something about, so it filters by
+    /// what kind of thing — otherwise it reads as one undifferentiated feed
+    /// that only ever grows.
+    enum Filter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case actions = "Actions"
+        case unresolved = "Unresolved"
+        case sessions = "Sessions"
+        var id: String {
+            rawValue
+        }
+    }
 
     /// Fail OPEN on an unresolved entitlement, like every other Pro gate: a Pro
     /// user whose entitlement fetch transiently failed still sees their tasks.
@@ -46,13 +67,12 @@ struct AttentionColumn: View {
         }
         .scrollContentBackground(.hidden)
         .tooltipContainer()
-        // Two triggers, because they cost differently: the local derivations
-        // re-run whenever any session changes (a recap landing after generation
-        // rewrites the row in place, which the count-based key can't see), while
-        // the network fetch only re-runs when the set itself changes.
-        .task(id: meetingStore.digestKey) { await loadActions() }
-        .onChange(of: meetingStore.meetings) { _ in deriveLocal() }
-        .onAppear(perform: deriveLocal)
+        // The store holds the rows; this only re-derives what it shows — the
+        // ranked top five, the counts, and the session-derived blocks.
+        .task { await actionItemStore.refresh() }
+        .onChange(of: actionItemStore.revision) { _ in deriveActions() }
+        .onChange(of: meetingStore.meetings) { _ in derive() }
+        .onAppear(perform: derive)
     }
 
     @ViewBuilder
@@ -60,13 +80,15 @@ struct AttentionColumn: View {
         if isEmpty {
             if loaded { emptyState } else { loadingState }
         } else {
-            if canUseActionItems {
-                openActionsBlock
-            } else {
-                actionsUpsellBlock
+            if shows(.actions) {
+                if canUseActionItems {
+                    openActionsBlock
+                } else {
+                    actionsUpsellBlock
+                }
             }
-            if !points.isEmpty { unresolvedBlock }
-            if !recentSessions.isEmpty { recentBlock }
+            if shows(.unresolved), !points.isEmpty { unresolvedBlock }
+            if shows(.sessions), !recentSessions.isEmpty { recentBlock }
         }
     }
 
@@ -77,31 +99,80 @@ struct AttentionColumn: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Needs your attention")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.Palette.muted)
-            Text(Self.dayFormatter.string(from: Date()))
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Theme.Palette.ink)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("Needs your attention")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                countBadge(attentionCount)
+                Spacer(minLength: 0)
+            }
+            filterBar
         }
         .padding(.horizontal, 4)
     }
 
+    /// Open work only — recent sessions are context, not something to act on.
+    private var attentionCount: Int {
+        openActionCount + unresolvedCount
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 4) {
+            ForEach(Filter.allCases) { option in
+                let selected = filter == option
+                Button {
+                    withAnimation(.standard(reduceMotion: reduceMotion)) { filter = option }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(option.rawValue)
+                        if let count = count(for: option) {
+                            Text("\(count)")
+                                .opacity(0.65)
+                        }
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(selected ? Theme.Palette.ink : Theme.Palette.muted)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(selected ? Theme.Palette.surfaceStrong : Color.clear))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private func countBadge(_ count: Int) -> some View {
+        if count > 0 {
+            Text("\(count)")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(Theme.Palette.muted)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Capsule().fill(Theme.Palette.surface))
+        }
+    }
+
+    private func count(for option: Filter) -> Int? {
+        switch option {
+        case .all: nil
+        case .actions: openActionCount
+        case .unresolved: unresolvedCount
+        case .sessions: recentSessions.count
+        }
+    }
+
+    private func shows(_ option: Filter) -> Bool {
+        filter == .all || filter == option
+    }
+
     private func blockHeader(_ title: String, count: Int, action: (() -> Void)?) -> some View {
         HStack(spacing: 6) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(Theme.Palette.muted)
-            if count > 0 {
-                Text("\(count)")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(Theme.Palette.surface))
-            }
+            SectionLabel(title)
+            countBadge(count)
             Spacer(minLength: 0)
             if let action {
                 Button(action: action) {
@@ -122,7 +193,7 @@ struct AttentionColumn: View {
 
     private var openActionsBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
-            blockHeader("Open actions", count: actions.filter { !$0.item.done }.count, action: onOpenActionItems)
+            blockHeader("Open actions", count: openActionCount, action: onOpenActionItems)
             card {
                 if actions.isEmpty {
                     // The chevron beside the header is the only way into the full
@@ -143,30 +214,36 @@ struct AttentionColumn: View {
         }
     }
 
+    /// Two lines, never more: the task, then where it came from and when it's
+    /// due on one quiet line. The full sentence lives in the item's own screen —
+    /// a column where every row is a paragraph is a column nobody scans.
     private func actionRow(_ action: TodayDigest.OpenAction) -> some View {
-        rowShell(id: action.id.uuidString, open: { onOpenMeeting(action.meeting.id) }) {
+        rowShell(id: action.id.uuidString, open: { onOpenAction(action) }) {
             HStack(alignment: .firstTextBaseline, spacing: 9) {
                 ActionCheckbox(done: action.item.done)
                     .onTapGesture { Task { await toggle(action) } }
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(action.item.text)
-                        .font(.system(size: 12.5))
+                        .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(action.item.done ? Theme.Palette.muted : Theme.Palette.ink)
                         .strikethrough(action.item.done, color: Theme.Palette.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                    sourceLabel(action.meeting)
-                    if let deadline = action.deadline {
-                        DeadlinePill(
-                            display: deadline,
-                            spokenAt: action.meeting.startedAt,
-                            meetingTitle: title(of: action.meeting),
-                            compact: true
-                        )
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    HStack(spacing: 5) {
+                        Text(title(of: action.meeting))
+                            .lineLimit(1)
+                        if let deadline = action.deadline {
+                            Text("·")
+                            Text(deadline.text)
+                                .foregroundStyle(deadline.urgency.tint)
+                                .lineLimit(1)
+                        }
                     }
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.muted)
                 }
                 Spacer(minLength: 0)
             }
-            .opacity(inFlight.contains(action.item.id) ? 0.5 : 1)
         }
     }
 
@@ -203,7 +280,7 @@ struct AttentionColumn: View {
 
     private var unresolvedBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
-            blockHeader("Unresolved", count: points.count, action: nil)
+            blockHeader("Unresolved", count: unresolvedCount, action: nil)
             card {
                 ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
                     pointRow(point)
@@ -221,12 +298,16 @@ struct AttentionColumn: View {
                     .foregroundStyle(Theme.Palette.warning)
                     .frame(width: 16)
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(point.text)
-                        .font(.system(size: 12.5))
+                        .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(Theme.Palette.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                    sourceLabel(point.meeting)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Text(title(of: point.meeting))
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
@@ -290,23 +371,6 @@ struct AttentionColumn: View {
             .padding(.leading, leading)
     }
 
-    /// Where this line came from. Not a control of its own: the whole row opens
-    /// the session, so the row reads as one target that highlights as a unit.
-    private func sourceLabel(_ meeting: Meeting) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: meeting.kind.icon)
-                .font(.system(size: 8.5, weight: .semibold))
-            Text(title(of: meeting))
-                .font(.system(size: 11, weight: .medium))
-                .lineLimit(1)
-            Text("·")
-                .font(.system(size: 11))
-            Text(Meeting.ago(meeting.startedAt))
-                .font(.system(size: 11))
-        }
-        .foregroundStyle(Theme.Palette.muted)
-    }
-
     /// One row = one interactive lock-up: a single containing shape that
     /// highlights on hover, inset inside the card so neighbouring highlights
     /// never touch, with a radius concentric to the card's (12 − 4 inset = 8).
@@ -363,51 +427,45 @@ struct AttentionColumn: View {
         meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter)
     }
 
-    private func deriveLocal() {
-        points = TodayDigest.openPoints(meetings: meetingStore.meetings, limit: 3)
-        recentSessions = TodayDigest.recentSessions(meetingStore.meetings, limit: 4)
+    private func derive() {
+        deriveLocal()
+        deriveActions()
     }
 
-    private func loadActions() async {
-        deriveLocal()
-        if canUseActionItems {
-            do {
-                let items = try await actionItemStore.openItems(limit: 40)
-                actions = TodayDigest.openActions(items: items, meetings: meetingStore.meetings, limit: 5)
-            } catch {
-                Log.ui.error("AttentionColumn.loadActions failed: \(error.localizedDescription)")
-            }
-        }
+    private func deriveActions() {
+        guard canUseActionItems else { loaded = true; return }
+        actions = TodayDigest.openActions(
+            items: actionItemStore.items,
+            meetings: meetingStore.meetings,
+            limit: 5
+        )
+        openActionCount = actionItemStore.openItems.count
         loaded = true
     }
 
-    private func toggle(_ action: TodayDigest.OpenAction) async {
-        let id = action.item.id
-        guard let index = actions.firstIndex(where: { $0.id == id }), !inFlight.contains(id) else { return }
-        let previous = actions[index].item
-        let target = !previous.done
-        inFlight.insert(id)
-        defer { inFlight.remove(id) }
-        withAnimation(.standard(reduceMotion: reduceMotion)) {
-            actions[index] = TodayDigest.OpenAction(
-                item: previous.marked(done: target, at: Date()),
-                meeting: actions[index].meeting,
-                deadline: actions[index].deadline
-            )
-        }
-        do {
-            try await actionItemStore.setDone(target, itemID: id)
-        } catch {
-            if let i = actions.firstIndex(where: { $0.id == id }) {
-                actions[i] = TodayDigest.OpenAction(item: previous, meeting: actions[i].meeting, deadline: actions[i].deadline)
-            }
-            Log.ui.error("AttentionColumn.toggle failed: \(error.localizedDescription)")
-        }
+    private func deriveLocal() {
+        points = TodayDigest.openPoints(meetings: meetingStore.meetings, limit: 3)
+        unresolvedCount = TodayDigest.openPointCount(meetings: meetingStore.meetings)
+        recentSessions = TodayDigest.recentSessions(meetingStore.meetings, limit: 4)
     }
 
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, d MMMM"
-        return formatter
-    }()
+    /// The store owns the flip and its rollback. The row is only rewritten in
+    /// place here so a ticked task doesn't vanish from under the pointer —
+    /// re-deriving would drop it out of the open list mid-click.
+    private func toggle(_ action: TodayDigest.OpenAction) async {
+        await actionItemStore.setDone(!action.item.done, itemID: action.item.id)
+        guard let index = actions.firstIndex(where: { $0.id == action.id }),
+              let updated = actionItemStore.items.first(where: { $0.id == action.id }) else {
+            openActionCount = actionItemStore.openItems.count
+            return
+        }
+        withAnimation(.standard(reduceMotion: reduceMotion)) {
+            actions[index] = TodayDigest.OpenAction(
+                item: updated,
+                meeting: action.meeting,
+                deadline: action.deadline
+            )
+        }
+        openActionCount = actionItemStore.openItems.count
+    }
 }

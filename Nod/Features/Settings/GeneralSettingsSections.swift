@@ -45,6 +45,31 @@ struct GranolaImportSection: View {
     }
 }
 
+/// What Nod puts on screen at launch. Default is the main window alone: the
+/// floating panel arriving by itself, over whatever the user was doing, reads
+/// as "I've already started recording".
+struct LaunchBehaviorSection: View {
+    @ObservedObject var behavior: LaunchBehavior
+
+    var body: some View {
+        SettingsCard {
+            SettingsRow(
+                icon: "macwindow.on.rectangle",
+                title: "When Nod starts",
+                subtitle: behavior.mode.detail
+            ) {
+                Picker("", selection: $behavior.mode) {
+                    ForEach(LaunchBehavior.Mode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 210)
+            }
+        }
+    }
+}
+
 struct ScreenShareSettingsSection: View {
     @ObservedObject var pref: PanelSharingPreference
 

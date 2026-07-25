@@ -9,8 +9,12 @@ struct HomeSidebar: View {
     let onNewChat: () -> Void
     let onOpenProject: (SessionLabel) -> Void
     let onOpenThread: (UUID) -> Void
-    let onShowPanel: () -> Void
+    /// Bring the panel up with a kind already chosen. It stops at the panel
+    /// rather than starting: consent, permissions and the language prompt live
+    /// there, and a sidebar button must not skip them.
+    let onCapture: (SessionKind) -> Void
     let panelShortcut: String
+    @Binding var contextCollapsed: Bool
 
     @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var meetingStore: MeetingStore
@@ -19,16 +23,22 @@ struct HomeSidebar: View {
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var screenContext: ScreenContextService
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var isAddingProject = false
     @State private var newProjectName = ""
     @State private var newProjectColor = LabelPalette.default
     @State private var editingLabel: SessionLabel?
     @State private var confirmingDeleteThread: UUID?
-    /// Sessions per project, counted over LIVE sessions only — the raw link
-    /// tally includes rows pointing at trashed sessions, so the badge said 5
-    /// while opening the project showed 4.
-    @State private var projectCounts: [UUID: Int] = [:]
+    /// "3 sessions · 2h ago" per project, counted over LIVE sessions only — the
+    /// raw link tally includes rows pointing at trashed sessions, which reads as
+    /// "5 sessions" on a project that opens showing four.
+    @State private var projectSubtitles: [UUID: String] = [:]
+    /// Shown once: the panel no longer appears by itself at launch, so the
+    /// shortcut that summons it has to be said out loud somewhere.
+    @AppStorage("home.captureHintSeen") private var captureHintSeen = false
+    @State private var isCaptureOpen = false
+    @State private var hoveredCaptureKind: SessionKind?
 
     static let width: CGFloat = 232
     /// Clear band at the top for the window's traffic lights — the window has no
@@ -40,8 +50,12 @@ struct HomeSidebar: View {
             Color.clear.frame(height: Self.topBand)
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
-                    recordButton
-                        .padding(.bottom, 10)
+                    captureButton
+                    captureHint
+                    // The gap is the point: an action and a list of places are
+                    // not three peers. Without it the white primary button reads
+                    // as "the section you're in".
+                    Color.clear.frame(height: 14)
                     chatRow
                     navRow(
                         "Sessions",
@@ -75,36 +89,152 @@ struct HomeSidebar: View {
 
     private func recountProjects() {
         var tally: [UUID: Int] = [:]
+        var latest: [UUID: Date] = [:]
         for meeting in meetingStore.meetings {
             for labelID in labelStore.assignments[meeting.id] ?? [] {
                 tally[labelID, default: 0] += 1
+                if meeting.startedAt > (latest[labelID] ?? .distantPast) {
+                    latest[labelID] = meeting.startedAt
+                }
             }
         }
-        projectCounts = tally
+        projectSubtitles = tally.reduce(into: [:]) { result, entry in
+            let (labelID, count) = entry
+            var parts = ["\(count) \(count == 1 ? "session" : "sessions")"]
+            if let date = latest[labelID] { parts.append(Meeting.ago(date)) }
+            result[labelID] = parts.joined(separator: " · ")
+        }
     }
 
     // MARK: - Primary action
 
-    /// Recording lives in the floating panel, not in this window — this is how
-    /// you get back to it when it's hidden or on another Space. It's the app's
-    /// main verb, so it sits above the navigation rather than under it.
-    private var recordButton: some View {
-        Button(action: onShowPanel) {
-            HStack(spacing: 7) {
-                Image(systemName: "record.circle")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("Record")
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer(minLength: 0)
+    /// Capture, not Record: the panel this opens takes a meeting, a voice note
+    /// or media, and "record" names only the first of the three.
+    ///
+    /// A menu, not a plain button: the three kinds are the reason the word is
+    /// "capture", and a chevron says so before the click. The ＋ and the chevron
+    /// together also stop the white pill from reading as a selected nav row —
+    /// this is the app's main verb, not the section you're in.
+    private var captureButton: some View {
+        Button {
+            withAnimation(.standard(reduceMotion: reduceMotion)) {
+                isCaptureOpen.toggle()
+                // Opening it is the lesson learned; no need to keep the hint.
+                captureHintSeen = true
             }
-            .foregroundStyle(Theme.GlassButton.text)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .bold))
+                Text("Capture")
+                    .font(.system(size: 13.5, weight: .semibold))
+                Spacer(minLength: 0)
+                // One symbol rotated, not two swapped: swapping `chevron.down`
+                // for `chevron.up` is a cut, and every other state change in the
+                // app moves.
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .rotationEffect(.degrees(isCaptureOpen ? 180 : 0))
+            }
+            .foregroundStyle(Theme.Palette.ink)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .frame(height: 38)
             .frame(maxWidth: .infinity)
-            .glassButtonSurface(RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous))
+            // Filled and bordered, so it reads as a control rather than a
+            // heading — but neutral, not the white pill, which made the main
+            // action look like the section the user is currently in.
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isCaptureOpen ? Theme.Palette.surfaceStrong : Theme.Palette.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Theme.Palette.borderStrong, lineWidth: 0.5)
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help("Bring up the Nod panel to record  ·  \(panelShortcut)")
+        .help("Capture a meeting, voice note, or media  ·  \(panelShortcut)")
+        .popover(isPresented: $isCaptureOpen, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+            captureMenu
+        }
+    }
+
+    @ViewBuilder
+    private var captureHint: some View {
+        if !captureHintSeen {
+            HStack(alignment: .top, spacing: 6) {
+                Text("Press \(panelShortcut) any time to capture — Nod stays out of the way until you do.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { captureHintSeen = true } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Got it")
+            }
+            .padding(.horizontal, 4)
+            .padding(.top, 6)
+            .transition(.opacity)
+        }
+    }
+
+    /// The kinds, drawn by us rather than as an `NSMenu`: a native menu can't be
+    /// held to the trigger's width, can't carry the row hover, and floated at
+    /// its own size beside a 232pt sidebar it read as unrelated to the button
+    /// that opened it.
+    private var captureMenu: some View {
+        VStack(spacing: 2) {
+            ForEach(SessionKind.allCases) { kind in
+                captureRow(kind)
+            }
+        }
+        .padding(6)
+        .frame(width: Self.width - 20)
+        // No palette fill: the popover already draws the system's vibrancy, and
+        // painting `bgSoft` over it put a flat navy slab in a window made of
+        // warm grey glass. A thin white lift is all it needs to sit above the
+        // sidebar without leaving the material.
+        .background(Color.white.opacity(0.04))
+    }
+
+    private func captureRow(_ kind: SessionKind) -> some View {
+        Button {
+            withAnimation(.standard(reduceMotion: reduceMotion)) { isCaptureOpen = false }
+            onCapture(kind)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: kind.icon)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(Theme.Palette.ink.opacity(0.72))
+                    .frame(width: 16)
+                Text(kind.captureMenuTitle)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.Palette.ink.opacity(0.9))
+                Spacer(minLength: 0)
+            }
+            // Same row metrics as the navigation rows below it — the menu is
+            // part of the sidebar's language, not a control from another app.
+            .padding(.horizontal, 9)
+            .frame(height: 30)
+            .frame(maxWidth: .infinity)
+            .hoverHighlight(
+                hoveredCaptureKind == kind,
+                cornerRadius: Theme.Radii.chip,
+                reduceMotion: reduceMotion
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering { hoveredCaptureKind = kind } else if hoveredCaptureKind == kind { hoveredCaptureKind = nil }
+        }
     }
 
     // MARK: - Navigation rows
@@ -114,8 +244,10 @@ struct HomeSidebar: View {
     /// you had, the ＋ opens an empty one.
     private var chatRow: some View {
         HStack(spacing: 0) {
+            // "Chat" names the interface; "Ask Nod" names the job — and it's
+            // the phrase the composer already uses ("Ask across all memory").
             navRow(
-                "Chat",
+                "Ask NOD",
                 icon: "sparkles",
                 isSelected: surface == .chat,
                 action: { onSelect(.chat) }
@@ -162,10 +294,7 @@ struct HomeSidebar: View {
     }
 
     private func sectionHeader(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.system(size: 10, weight: .bold))
-            .tracking(0.7)
-            .foregroundStyle(Theme.Palette.muted)
+        SectionLabel(title)
             .padding(.horizontal, 9)
             .padding(.top, 16)
             .padding(.bottom, 4)
@@ -190,17 +319,24 @@ struct HomeSidebar: View {
                     .fill(label.swatchColor)
                     .frame(width: 8, height: 8)
                     .frame(width: 16)
-                Text(label.name)
-                    .font(.system(size: 13))
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(label.name)
+                        .font(.system(size: 13))
+                        .lineLimit(1)
+                    // A project is a live context, not a folder — say how much
+                    // is in it and when it last moved.
+                    if let subtitle = projectSubtitles[label.id] {
+                        Text(subtitle)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(Theme.Palette.muted)
+                            .lineLimit(1)
+                    }
+                }
                 Spacer(minLength: 0)
-                Text("\(projectCounts[label.id] ?? 0)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.Palette.muted)
             }
             .foregroundStyle(Theme.Palette.ink.opacity(0.72))
             .padding(.horizontal, 9)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -337,6 +473,17 @@ struct HomeSidebar: View {
             Divider()
                 .overlay(Theme.Palette.border)
                 .padding(.bottom, 6)
+            if contextCollapsed {
+                navRow(
+                    "Needs your attention",
+                    icon: "sidebar.right",
+                    isSelected: false,
+                    action: {
+                        withAnimation(.standard(reduceMotion: reduceMotion)) { contextCollapsed = false }
+                    }
+                )
+                .transition(.opacity)
+            }
             ambientRow
             navRow(
                 "Settings",

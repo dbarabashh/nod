@@ -69,6 +69,18 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// Label in the main window's Capture menu. Says what the kind IS, since
+    /// the menu's own title already carries the verb.
+    var captureMenuTitle: String {
+        switch self {
+        case .meeting: "Meeting"
+        case .voiceNote: "Voice note"
+        // The other two name what you're capturing; this one has to name the
+        // verb, because you don't record media — you bring it in.
+        case .media: "Import media"
+        }
+    }
+
     /// Status word shown in the panel header while capturing — framed as what
     /// Nod is doing for the user, varying by what's actually captured so it
     /// never reads as a stark "recording them" light.

@@ -17,7 +17,7 @@ import Foundation
 @MainActor
 final class ContextColumnWidth: ObservableObject {
     static let minWidth: CGFloat = 240
-    static let defaultWidth: CGFloat = 380
+    static let defaultWidth: CGFloat = 320
     /// The centre column must keep at least this much room, so the context
     /// column can't be dragged wide enough to crush it. Reserved *on top of*
     /// the sidebar — see `clampedWidth`.

@@ -127,6 +127,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 windows?.revealPanel()
             }
         }
+        NotificationCenter.default.addObserver(forName: .nodSelectCaptureKind, object: nil, queue: nil) { [weak windows] note in
+            let raw = note.userInfo?[Notification.nodCaptureKindKey] as? String
+            Task { @MainActor in
+                guard let kind = raw.flatMap(SessionKind.init(rawValue:)) else { return }
+                windows?.capture(kind)
+            }
+        }
         NotificationCenter.default.addObserver(forName: .nodCheckForUpdates, object: nil, queue: nil) { [weak self] _ in
             Task { @MainActor in
                 self?.updaterController.checkForUpdates(nil)
@@ -193,6 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     services.meetingStore.clear()
                     services.profileStore.clear()
                     services.chatStore.clear()
+                    services.actionItemStore.clear()
                     services.labelStore.clear()
                     services.entitlements.clear()
                     windows.closeMainWindow()
@@ -320,9 +328,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// back a panel that was hidden via the toggle hotkey.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         windows?.reconcile()
-        windows?.revealPanel()
-        // Clicking the Dock icon means "show me the app" — the home surface,
-        // not just the panel that may already be on screen.
+        // Clicking the Dock icon means "show me the app" — the home surface.
+        // Not the capture panel: that stays something the user summons.
         if services?.auth.session != nil, services?.onboarding.isCompleted == true {
             windows?.showMainWindow()
         }
@@ -354,6 +361,9 @@ extension Notification.Name {
     static let nodHidePanel = Notification.Name("nod.app.hidePanel")
     /// Posted from the main window to bring the floating capture panel back.
     static let nodShowPanel = Notification.Name("nod.app.showPanel")
+    /// Posted by the main window's Capture menu — carries the chosen
+    /// `SessionKind` under `Notification.nodCaptureKindKey`.
+    static let nodSelectCaptureKind = Notification.Name("nod.app.selectCaptureKind")
     /// Posted while the floating panel is being dragged. Header hover tooltips
     /// listen for this to dismiss themselves — a drag keeps the cursor "over" an
     /// icon so `.onHover` never fires its exit, leaving the tooltip pill stuck on
@@ -366,4 +376,5 @@ extension Notification.Name {
 
 extension Notification {
     static let nodMeetingIDKey = "meetingID"
+    static let nodCaptureKindKey = "captureKind"
 }

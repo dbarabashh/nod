@@ -9,6 +9,10 @@ struct KnowledgeChatView: View {
     /// Navigate the host (the Meetings window's left column) to a session —
     /// used when a mention or source is clicked.
     let onOpenMeeting: (UUID) -> Void
+    /// Set by the main window: the home state then carries the memory brief
+    /// under its openers, and tapping it opens what needs attention. nil where
+    /// the chat has no attention column beside it.
+    var onOpenAttention: (() -> Void)?
 
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var profileStore: ProfileStore
@@ -162,6 +166,10 @@ struct KnowledgeChatView: View {
                 ) { text in
                     suggestion(text)
                 }
+            }
+            if let onOpenAttention {
+                MemoryBriefCard(onOpenAttention: onOpenAttention)
+                    .padding(.top, 18)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

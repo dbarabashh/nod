@@ -8,6 +8,10 @@ import SwiftUI
 final class WindowCoordinator: NSObject, NSWindowDelegate {
     private let services: AppServices
     private(set) var panel: NSPanel?
+    /// The panel's session. Held so the window can hand it a capture kind —
+    /// the alternative was routing that through the panel's *view*, which made
+    /// a view the app's intent router.
+    private var meetingSession: MeetingSession?
     private var onboardingWindow: NSWindow?
     private var signInWindow: NSWindow?
     private var mainWindow: NSWindow?
@@ -30,23 +34,32 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         } else {
             closeSignInWindow()
             closeOnboardingWindow()
-            showFloatingPanel()
-            openLaunchWindow()
+            buildFloatingPanel()
+            applyLaunchBehavior()
         }
     }
 
-    /// The main window is the home surface — landing on the panel alone hides
-    /// everything the user has recorded. Opened once per signed-in run: the
-    /// auth publisher emits on every token refresh, and a window the user
-    /// closed must stay closed.
-    private func openLaunchWindow() {
-        guard !didOpenLaunchWindow else { return }
-        didOpenLaunchWindow = true
-        showMainWindow()
-        NSApp.activate(ignoringOtherApps: true)
+    /// What launch puts on screen. Opening the app is not the same as asking to
+    /// capture, so the panel only arrives when the user chose that — or asks for
+    /// it later by hotkey, menu bar, or the Capture button.
+    ///
+    /// Runs once per signed-in run: the auth publisher emits on every token
+    /// refresh, and a window the user closed must stay closed.
+    private func applyLaunchBehavior() {
+        guard !didApplyLaunchBehavior else { return }
+        didApplyLaunchBehavior = true
+        switch services.launchBehavior.mode {
+        case .mainWindow:
+            showMainWindow()
+            NSApp.activate(ignoringOtherApps: true)
+        case .capturePanel:
+            revealPanel()
+        case .menuBarOnly:
+            break
+        }
     }
 
-    private var didOpenLaunchWindow = false
+    private var didApplyLaunchBehavior = false
 
     /// The quick panel, built on first use — most sessions never open it, and
     /// it holds a hosting controller plus an event monitor.
@@ -181,7 +194,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     // MARK: - Floating panel
 
-    private func showFloatingPanel() {
+    /// Builds the panel without putting it on screen. It has to exist — it owns
+    /// the `MeetingSession` and the whole recording surface — but showing it is
+    /// a separate decision (`applyLaunchBehavior`, the hotkey, the menu bar, or
+    /// the Capture button).
+    private func buildFloatingPanel() {
         // Idempotent — re-entrant from the auth observer is normal.
         guard panel == nil else { return }
 
@@ -213,6 +230,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             screenExclusions: services.screenExclusions
         )
 
+        self.meetingSession = meetingSession
+
         let content = ContentView(
             onPreferredWidthChange: { [weak self] width in self?.panel?.setWidth(to: width) },
             onRedrawNeeded: { [weak self] in self?.panel?.forceRedraw() }
@@ -236,13 +255,24 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         )
         panel.sharingType = services.panelSharing.sharingType
         panel.positionOnLeftCenter()
-        panel.orderFrontRegardless()
         self.panel = panel
     }
 
     private func closeFloatingPanel() {
         panel?.close()
         panel = nil
+        meetingSession = nil
+    }
+
+    /// Pick what the next capture is and bring the panel forward. It stops
+    /// there on purpose: consent, the permission prompts and the language check
+    /// live in the panel, and no shortcut into recording may skip them. A kind
+    /// arriving mid-recording is ignored — the streams are already chosen.
+    func capture(_ kind: SessionKind) {
+        if meetingSession?.meeting == .idle {
+            meetingSession?.selectedKind = kind
+        }
+        revealPanel()
     }
 
     /// Settings renders inside the main window as one of its sections, so it is
@@ -253,6 +283,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 hotkey: services.hotkeys,
                 profileStore: services.profileStore,
                 panelSharing: services.panelSharing,
+                launchBehavior: services.launchBehavior,
                 billing: services.billing,
                 entitlements: services.entitlements,
                 granolaImporter: services.granolaImporter,
@@ -339,8 +370,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     func closeMainWindow() {
         close(&mainWindow)
         // Only sign-out reaches here (a user close goes through
-        // `windowWillClose`), so the next account gets its own launch window.
-        didOpenLaunchWindow = false
+        // `windowWillClose`), so the next account gets its own launch surface.
+        didApplyLaunchBehavior = false
     }
 
     // MARK: - NSWindowDelegate

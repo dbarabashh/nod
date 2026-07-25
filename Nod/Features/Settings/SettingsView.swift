@@ -9,6 +9,7 @@ struct SettingsView: View {
     /// live Supabase-backed store. nil → the profile section is omitted.
     private let profileStore: ProfileStore?
     private let panelSharing: PanelSharingPreference?
+    private let launchBehavior: LaunchBehavior?
     private let billing: BillingService?
     private let entitlements: EntitlementService?
     private let granolaImporter: GranolaImporter?
@@ -24,6 +25,7 @@ struct SettingsView: View {
         hotkey: HotkeyManager,
         profileStore: ProfileStore? = nil,
         panelSharing: PanelSharingPreference? = nil,
+        launchBehavior: LaunchBehavior? = nil,
         billing: BillingService? = nil,
         entitlements: EntitlementService? = nil,
         granolaImporter: GranolaImporter? = nil,
@@ -40,6 +42,7 @@ struct SettingsView: View {
         _hotkey = ObservedObject(wrappedValue: hotkey)
         self.profileStore = profileStore
         self.panelSharing = panelSharing
+        self.launchBehavior = launchBehavior
         self.billing = billing
         self.entitlements = entitlements
         self.granolaImporter = granolaImporter
@@ -223,6 +226,9 @@ struct SettingsView: View {
 
     private var generalPane: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let launchBehavior {
+                LaunchBehaviorSection(behavior: launchBehavior)
+            }
             SettingsCard {
                 SettingsRow(
                     icon: "globe",
