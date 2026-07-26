@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Owns every window the app can show — sign-in, onboarding, the floating
@@ -12,6 +13,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     /// the alternative was routing that through the panel's *view*, which made
     /// a view the app's intent router.
     private var meetingSession: MeetingSession?
+    /// Watches for a call starting and ending. Lives with the panel's session,
+    /// which is the thing it can act on.
+    private var detector: MeetingDetector?
+    private var detectionCard: FloatingPanel<MeetingDetectedCard>?
+    private var detectionObserver: AnyCancellable?
     private var onboardingWindow: NSWindow?
     private var signInWindow: NSWindow?
     private var mainWindow: NSWindow?
@@ -256,12 +262,71 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         panel.sharingType = services.panelSharing.sharingType
         panel.positionOnLeftCenter()
         self.panel = panel
+
+        startDetecting(for: meetingSession)
     }
 
     private func closeFloatingPanel() {
         panel?.close()
         panel = nil
+        stopDetecting()
         meetingSession = nil
+    }
+
+    // MARK: - Meeting detection
+
+    private func startDetecting(for session: MeetingSession) {
+        let detector = MeetingDetector(
+            session: session,
+            exclusions: services.screenExclusions,
+            preference: services.meetingDetection
+        )
+        self.detector = detector
+        detectionObserver = detector.$invitation.sink { [weak self] app in
+            guard let app else { return self?.closeDetectionCard() ?? () }
+            self?.showDetectionCard(for: app)
+        }
+        detector.start()
+    }
+
+    private func stopDetecting() {
+        detectionObserver = nil
+        detector?.stop()
+        detector = nil
+        closeDetectionCard()
+    }
+
+    private func closeDetectionCard() {
+        detectionCard?.close()
+        detectionCard = nil
+    }
+
+    /// The card is rebuilt per call rather than kept around and re-bound: it
+    /// appears a few times a day at most, and a window held open all day to
+    /// save one allocation is the wrong trade.
+    private func showDetectionCard(for app: ConferencingApp) {
+        closeDetectionCard()
+        guard let detector else { return }
+
+        let card = FloatingPanel(
+            contentRect: NSRect(origin: .zero, size: MeetingDetectedCard.initialWindowSize),
+            content: MeetingDetectedCard(
+                app: app,
+                onStart: { [weak detector] in detector?.accept() },
+                onDismiss: { [weak detector] in detector?.decline() },
+                onMute: { [weak detector] in detector?.mute(app) }
+            ),
+            sizesToContent: true
+        )
+        // Never in a screen share, whatever the panel's own preference is: this
+        // window names the call the user is in, on top of that same call.
+        card.sharingType = .none
+        // Lay the content out before anchoring: the panel is created at a
+        // placeholder height and only takes its real one once hosted.
+        card.contentViewController?.view.layoutSubtreeIfNeeded()
+        card.positionOnTopRight()
+        card.orderFrontRegardless()
+        detectionCard = card
     }
 
     /// Pick what the next capture is and bring the panel forward. It stops
@@ -293,7 +358,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 modeStore: services.modeStore,
                 referral: services.referral,
                 screenExclusions: services.screenExclusions,
-                screenContext: services.screenContext
+                screenContext: services.screenContext,
+                meetingDetection: services.meetingDetection
             )
         )
     }

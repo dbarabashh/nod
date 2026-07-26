@@ -2,15 +2,6 @@ import AppKit
 import Supabase
 import SwiftUI
 
-// MARK: - State
-
-/// Compact vs wide panel footprint. Shared by `ContentView` (layout) and
-/// `AppDelegate` (initial NSPanel size) so the two can't drift out of sync.
-enum PanelWidth {
-    static let compact: CGFloat = 320
-    static let wide: CGFloat = 640
-}
-
 // MARK: - Root
 
 struct ContentView: View {
@@ -167,7 +158,7 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
                     InactivityPrompt(
-                        secondsRemaining: prompt.secondsRemaining,
+                        prompt: prompt,
                         keepTitle: session.selectedKind.continueActionTitle,
                         onKeep: session.keepRecording,
                         onEnd: session.endMeeting
@@ -190,6 +181,12 @@ struct ContentView: View {
         // is covered without a per-feature hook.
         .onPreferenceChange(PanelContentHeightKey.self) { _ in onRedrawNeeded?() }
         .task { await session.runSecondsTimer() }
+        // Both, and not just the change: the auto-detect card can be clicked
+        // while this view has never been mounted (the panel is built at launch
+        // but only shown on request), so the request is picked up on whichever
+        // of the two happens second.
+        .onAppear(perform: consumeAutoStart)
+        .onChange(of: session.wantsAutoStart) { _ in consumeAutoStart() }
         .onReceive(NotificationCenter.default.publisher(for: .nodSuggestHotkey)) { _ in
             // Global hotkey fired. Only act if a meeting is recording and we
             // aren't already generating a Suggest reply (debounce duplicate
@@ -401,6 +398,20 @@ struct ContentView: View {
 
     private func setLanguagePrompt(_ shown: Bool) {
         withAnimation(.standard(reduceMotion: reduceMotion)) { showLanguagePrompt = shown }
+    }
+
+    /// Something outside the panel — the auto-detect card — asked to record.
+    /// It takes the same route as the Start button, language confirm included:
+    /// a detected meeting is still a meeting the user has to be told about
+    /// before Nod listens to it.
+    private func consumeAutoStart() {
+        guard session.wantsAutoStart, session.meeting == .idle else { return }
+        session.clearAutoStartRequest()
+        if confirmLanguageBeforeMeeting {
+            setLanguagePrompt(true)
+        } else {
+            startMeeting()
+        }
     }
 
     private func startMeeting() {

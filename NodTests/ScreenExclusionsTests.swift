@@ -406,4 +406,48 @@ final class ScreenExclusionSeedTests: XCTestCase {
         XCTAssertTrue(seeded.excludesApp(bundleID: "us.zoom.xos"))
         XCTAssertTrue(seeded.excludesApp(bundleID: "net.whatsapp.WhatsApp"))
     }
+
+    /// Every Telegram build is its own bundle id, and the one most people run
+    /// was missing — which meant private chats were readable by default.
+    func testEveryTelegramBuildIsExcluded() {
+        let exclusions = ScreenExclusions(defaults: freshDefaults())
+
+        XCTAssertTrue(exclusions.excludesApp(bundleID: "com.tdesktop.Telegram"))
+        XCTAssertTrue(exclusions.excludesApp(bundleID: "ru.keepcoder.Telegram"))
+        XCTAssertTrue(exclusions.excludesApp(bundleID: "org.telegram.desktop"))
+    }
+
+    /// An install that had already been seeded under the old boolean flag has
+    /// to receive defaults added afterwards — that gap is what left existing
+    /// users without the Telegram build they actually have.
+    func testADefaultAddedLaterReachesAnAlreadySeededInstall() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: "screen.exclusions.seededMessengers")
+
+        let exclusions = ScreenExclusions(defaults: defaults)
+
+        XCTAssertTrue(exclusions.excludesApp(bundleID: "com.tdesktop.Telegram"))
+    }
+
+    /// …but only the ones it never saw. A messenger removed before the list
+    /// grew must stay removed.
+    func testTheMigrationDoesNotResurrectARemovedMessenger() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: "screen.exclusions.seededMessengers")
+
+        let exclusions = ScreenExclusions(defaults: defaults)
+
+        XCTAssertFalse(exclusions.excludesApp(bundleID: "net.whatsapp.WhatsApp"))
+        XCTAssertFalse(exclusions.excludesApp(bundleID: "com.hnc.Discord"))
+    }
+
+    func testANewDefaultIsOnlyOfferedOnce() {
+        let defaults = freshDefaults()
+        let first = ScreenExclusions(defaults: defaults)
+        first.removeApp("com.tdesktop.Telegram")
+
+        let second = ScreenExclusions(defaults: defaults)
+
+        XCTAssertFalse(second.excludesApp(bundleID: "com.tdesktop.Telegram"))
+    }
 }

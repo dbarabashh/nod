@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-07-23_
+_Last updated: 2026-07-26_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company. We've made the
@@ -100,11 +100,13 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
 
 ### Screen access
 
-Nod reads from your screen in two distinct ways. Both keep **text, never an
-image** — primarily via the macOS accessibility interface, the same one screen
-readers use. Nod records **no video** and saves **no image**, in either mode.
-Both require the macOS **Accessibility** permission, which you grant in System
-Settings; without it, neither runs.
+Nod reads from your screen in three distinct ways. All three keep **text, never
+an image** — primarily via the macOS accessibility interface, the same one
+screen readers use. Nod records **no video** and saves **no image**, in any of
+them. Modes 1 and 2 require the macOS **Accessibility** permission, which you
+grant in System Settings; without it, neither runs. Mode 3 reads only window
+*titles*, through the **Screen Recording** permission Nod already needs to hear
+a meeting.
 
 Ambient context (mode 2) has one exception: an app that tells macOS nothing
 about its contents is read from its pixels and converted to text on-device, at
@@ -115,8 +117,8 @@ after — an excluded window is never recognised.
 
 **1. Call participants — while a session records.**
 
-- **One window.** A running conferencing app (Zoom, Teams, Webex, Slack), or —
-  for a browser — only a window whose title names a call. Other windows and
+- **One window.** A running conferencing app (Zoom, Teams, Webex, Slack,
+  Discord), or — for a browser — only a window whose title names a call. Other windows and
   tabs are skipped without being read.
 - **A couple of samples per session**, not a loop. A participant list changes
   rarely.
@@ -156,6 +158,22 @@ We are stating the trade plainly: with ambient context on, Nod holds a
 time-limited record of text you had on screen. That is more than a meeting
 recorder holds. It is off unless you decide otherwise, it is bounded, and it
 is yours to delete.
+
+**3. Meeting detection — noticing a call has started.**
+
+- **Titles, not contents.** Which apps are running, which app holds the
+  microphone (macOS names it; no audio is read), and the window titles of
+  conferencing apps. No window's contents
+  are read, in any app, and the accessibility interface is not used at all.
+- **Nothing is stored.** A title is matched in memory and dropped: no row, no
+  file, nothing transmitted.
+- **It cannot start a recording.** It raises a card. Clicking it goes through
+  the same consent and language steps as pressing Start yourself.
+- **It wraps up after the call.** A recording Nod started for a detected call
+  finishes and summarises about 30 seconds after that call disappears, with a
+  visible countdown and a keep-recording button.
+- **Off in one click.** Settings → General disables it; the card offers "Never
+  for <app>"; a blocklisted app is never detected.
 
 ### What we do store
 

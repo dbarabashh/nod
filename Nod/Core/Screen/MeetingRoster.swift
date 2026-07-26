@@ -24,23 +24,30 @@ struct MeetingRoster: Equatable {
 enum ConferencingApp: String, CaseIterable, Equatable {
     case zoom = "us.zoom.xos"
     case teams = "com.microsoft.teams2"
+    case teamsClassic = "com.microsoft.teams"
     case webex = "Cisco-Systems.Spark"
     case slack = "com.tinyspeck.slackmacgap"
+    case discord = "com.hnc.Discord"
     case chrome = "com.google.Chrome"
     case safari = "com.apple.Safari"
     case arc = "company.thebrowser.Browser"
     case edge = "com.microsoft.edgemac"
+    case firefox = "org.mozilla.firefox"
+    case brave = "com.brave.Browser"
 
     var displayName: String {
         switch self {
         case .zoom: "Zoom"
-        case .teams: "Microsoft Teams"
+        case .teams, .teamsClassic: "Microsoft Teams"
         case .webex: "Webex"
         case .slack: "Slack"
+        case .discord: "Discord"
         case .chrome: "Chrome"
         case .safari: "Safari"
         case .arc: "Arc"
         case .edge: "Edge"
+        case .firefox: "Firefox"
+        case .brave: "Brave"
         }
     }
 
@@ -49,9 +56,57 @@ enum ConferencingApp: String, CaseIterable, Equatable {
     /// is only ever read through a window whose title names a call.
     var isBrowser: Bool {
         switch self {
-        case .chrome, .safari, .arc, .edge: true
-        case .zoom, .teams, .webex, .slack: false
+        case .chrome, .safari, .arc, .edge, .firefox, .brave: true
+        case .zoom, .teams, .teamsClassic, .webex, .slack, .discord: false
         }
+    }
+
+    /// Bundle identifiers of helper processes that exist *only* while a call is
+    /// up, mapped back to the app that owns them.
+    ///
+    /// Zoom is the case worth special-casing: the main app sits in the menu bar
+    /// all day, while `CptHost` is spawned for the meeting window and dies when
+    /// the meeting does. It costs no permission at all — a process list, not a
+    /// window read — and it is the one signal that survives a user who joined
+    /// muted with the meeting window behind something else.
+    static func owner(ofCallHelper bundleID: String) -> ConferencingApp? {
+        bundleID == "us.zoom.CptHost" ? .zoom : nil
+    }
+
+    /// Whether this app's windows may be walked for a participant list.
+    ///
+    /// Not the same question as "can it host a call", and the two must not share
+    /// an answer: Discord hosts calls, but a non-browser app is walked *whole*
+    /// (there is no title to narrow it to the call), and Discord's windows are
+    /// DMs and server channels. Reading them harvests person-shaped strings from
+    /// private conversation and feeds them to the recap as participants.
+    var exposesParticipantList: Bool {
+        self != .discord
+    }
+
+    /// Every conferencing app running now, native before browser — a native app
+    /// *is* the call, while a browser merely contains one — together with the
+    /// apps a meeting-only helper process places in a call.
+    ///
+    /// Shared because both readers ask the same question of the same process
+    /// list and must apply the blocklist the same way; two copies drifted within
+    /// a day of the second one existing.
+    static func running(excluding rules: ScreenExclusionRules = .none) -> (apps: [(ConferencingApp, pid_t)], inCall: Set<ConferencingApp>) {
+        var byApp: [ConferencingApp: pid_t] = [:]
+        var inCall: Set<ConferencingApp> = []
+        for application in NSWorkspace.shared.runningApplications {
+            guard let bundleID = application.bundleIdentifier else { continue }
+            if let owner = owner(ofCallHelper: bundleID) { inCall.insert(owner) }
+            guard let app = ConferencingApp(rawValue: bundleID),
+                  !rules.excludesApp(bundleID: bundleID),
+                  byApp[app] == nil
+            else { continue }
+            byApp[app] = application.processIdentifier
+        }
+        let ordered = allCases.filter { byApp[$0] != nil }
+        let apps = (ordered.filter { !$0.isBrowser } + ordered.filter(\.isBrowser))
+            .compactMap { app in byApp[app].map { (app, $0) } }
+        return (apps, inCall.intersection(byApp.keys))
     }
 }
 
@@ -110,21 +165,11 @@ struct MeetingRosterReader {
 
     /// Prefers a native conferencing app over a browser: if Zoom is running, its
     /// window is unambiguously the call, while a browser needs the title to
-    /// agree first.
+    /// agree first. Apps whose windows aren't a roster are skipped — see
+    /// `exposesParticipantList`.
     static func runningConferencingApp(excluding exclusions: ScreenExclusionRules = .none) -> (ConferencingApp, pid_t)? {
-        var browser: (ConferencingApp, pid_t)?
-        for application in NSWorkspace.shared.runningApplications {
-            guard let identifier = application.bundleIdentifier,
-                  let known = ConferencingApp(rawValue: identifier),
-                  !exclusions.excludesApp(bundleID: identifier)
-            else { continue }
-            if known.isBrowser {
-                browser = browser ?? (known, application.processIdentifier)
-            } else {
-                return (known, application.processIdentifier)
-            }
-        }
-        return browser
+        ConferencingApp.running(excluding: exclusions).apps
+            .first { $0.0.exposesParticipantList }
     }
 
     /// Whether a browser window title names a video call.
@@ -152,7 +197,12 @@ struct MeetingRosterReader {
         "jitsi meet"
     ]
 
-    private static let meetLeadingTokens = ["meet – ", "meet - ", "meet — "]
+    /// Google Meet's bare tab title, in the three dash variants it ships with.
+    /// Shared with `MeetingDetection.namesActiveCall`: the two predicates ask
+    /// different questions — may this window be read, versus is a call live —
+    /// but they recognise Meet by the same three strings, and a fourth added to
+    /// one copy and not the other would fail silently in whichever it missed.
+    static let meetLeadingTokens = ["meet – ", "meet - ", "meet — "]
 
     /// Person-shaped strings from a window's text, deduplicated, order kept.
     ///

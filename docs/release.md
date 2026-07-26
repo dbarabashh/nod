@@ -81,6 +81,22 @@ DMG binaries are still hosted on GitHub Releases (free, supports the
 "Download for Mac" button relies on). The appcast just references those
 absolute URLs.
 
+## Before cutting a release
+
+```sh
+./scripts/check-app-identifiers.sh
+```
+
+Both bundle-identifier lists — the messengers excluded from ambient capture
+(`ScreenExclusions.defaultExcludedMessengers`) and the apps meeting detection
+watches (`ConferencingApp`) — match by identifier, so an app that ships under a
+second one is silently uncovered. That is how `com.tdesktop.Telegram`, the
+Telegram build most people run, stayed readable by ambient capture while two
+other Telegram identifiers sat in the list. The script flags any installed app
+whose name says we cover it while its identifier says we don't. It reports on
+the machine it runs on, so it catches what *you* have installed, not
+everything that exists — run it on a Mac with the usual apps on it.
+
 ## Cutting a release
 
 ```sh

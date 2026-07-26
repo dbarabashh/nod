@@ -3,7 +3,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject private var hotkey: HotkeyManager
-    @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting: Bool = MeetingLanguagePromptDefaults.defaultValue
 
     /// Optional so previews (and any future env-free mount) work without a
     /// live Supabase-backed store. nil → the profile section is omitted.
@@ -20,6 +19,7 @@ struct SettingsView: View {
     private let referral: ReferralService?
     private let screenExclusions: ScreenExclusions?
     private let screenContext: ScreenContextService?
+    private let meetingDetection: MeetingDetectionPreference?
 
     init(
         hotkey: HotkeyManager,
@@ -36,6 +36,7 @@ struct SettingsView: View {
         referral: ReferralService? = nil,
         screenExclusions: ScreenExclusions? = nil,
         screenContext: ScreenContextService? = nil,
+        meetingDetection: MeetingDetectionPreference? = nil,
         focusSubscription: Bool = false,
         focusModes: Bool = false
     ) {
@@ -53,6 +54,7 @@ struct SettingsView: View {
         self.referral = referral
         self.screenExclusions = screenExclusions
         self.screenContext = screenContext
+        self.meetingDetection = meetingDetection
         _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .profile))
     }
 
@@ -225,82 +227,13 @@ struct SettingsView: View {
     }
 
     private var generalPane: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if let launchBehavior {
-                LaunchBehaviorSection(behavior: launchBehavior)
-            }
-            SettingsCard {
-                SettingsRow(
-                    icon: "globe",
-                    title: "Confirm Nod language before each meeting",
-                    subtitle: "Show a quick check for the language Nod uses in summaries and answers. Turn off to start straight away."
-                ) {
-                    Toggle("", isOn: $confirmLanguageBeforeMeeting)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(Theme.Palette.violet)
-                }
-            }
-
-            if let panelSharing {
-                ScreenShareSettingsSection(pref: panelSharing)
-            }
-
-            if let granolaImporter, granolaImporter.isGranolaInstalled {
-                GranolaImportSection(importer: granolaImporter)
-            }
-
-            #if DEBUG
-                demoModeCard
-            #endif
-        }
+        GeneralSettingsPane(
+            meetingDetection: meetingDetection,
+            launchBehavior: launchBehavior,
+            panelSharing: panelSharing,
+            granolaImporter: granolaImporter
+        )
     }
-
-    #if DEBUG
-        /// Recording aid — fills the app with sample meetings and swallows every
-        /// DB read/write, so the whole workflow can be filmed without touching
-        /// Supabase. DEBUG-only: neither this card nor `DemoData` compile into
-        /// Release, so it can never reach the App Store build. Relaunches so the
-        /// stores reseed cleanly regardless of what's cached.
-        private var demoModeCard: some View {
-            SettingsCard {
-                SettingsRow(
-                    icon: "wand.and.stars",
-                    title: "Demo mode",
-                    subtitle: "Fill Nod with sample meetings for a recording. Nothing is read from or written to the database. Toggling relaunches Nod."
-                ) {
-                    Toggle("", isOn: demoBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(Theme.Palette.violet)
-                }
-            }
-        }
-
-        private var demoBinding: Binding<Bool> {
-            Binding(
-                get: { DemoMode.isEnabled },
-                set: { newValue in
-                    DemoMode.set(newValue)
-                    Self.relaunch()
-                }
-            )
-        }
-
-        private static func relaunch() {
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.createsNewApplicationInstance = true
-            NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, error in
-                DispatchQueue.main.async {
-                    if let error {
-                        Log.ui.error("demo relaunch failed: \(error.localizedDescription)")
-                        return
-                    }
-                    NSApp.terminate(nil)
-                }
-            }
-        }
-    #endif
 
     @ViewBuilder
     private var modesPane: some View {

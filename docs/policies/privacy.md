@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-07-23_
+_Last updated: 2026-07-26_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -213,11 +213,13 @@ into Nod.
 
 ### 3.10 What Nod reads from your screen
 
-Nod reads from the screen in two separate ways. Both keep **text, never an
-image**, and both work primarily through the macOS accessibility interface —
+Nod reads from the screen in three separate ways. All three keep **text, never
+an image**, and they work primarily through the macOS accessibility interface —
 the same one screen readers use. **No video is recorded and no image of your
-screen is ever saved, in either mode.** Both require the macOS
-**Accessibility** permission, which you grant explicitly.
+screen is ever saved, in any of them.** (a) and (b) require the macOS
+**Accessibility** permission, which you grant explicitly; (c) reads only a
+window's title, through the same **Screen Recording** permission you already
+granted so Nod can hear a meeting.
 
 One exception, in ambient context only, is described in (b): some apps
 (Slack, Figma and other Electron or canvas-drawn apps) tell macOS almost
@@ -234,7 +236,7 @@ Nod needs to know how many people are on the call, so it reads the
   exposes. It takes **no screenshots** and records **no video** of your
   screen.
 - It looks at **one app**: a running conferencing app (Zoom, Teams, Webex,
-  Slack). For a **browser**, it reads only a window whose title names a call
+  Slack, Discord). For a **browser**, it reads only a window whose title names a call
   (for example "Meet – abc-defg-hij"); every other window and tab is skipped
   without being read.
 - It runs **a couple of times per session**, not continuously — a participant
@@ -280,10 +282,42 @@ holds a time-limited record of text you had on screen. That is more than a
 meeting recorder holds. It is off unless you choose otherwise, it is bounded,
 and it is yours to delete.
 
-- You can exclude any app, whole categories of website, or specific sites in
-  **Settings → Privacy**, and the exclusions apply to **both** modes above.
+**(c) Meeting detection — noticing that a call has started.**
 
-Legal basis: Legitimate interest (Art. 6(1)(f)) — attributing speech to
+So that you don't have to remember to press record, Nod can notice when a video
+call begins and offer to record it. It never starts on its own: the offer is a
+card you click, and clicking it takes you through the same consent and language
+steps as pressing Start yourself.
+
+- **What it reads.** Which apps are running, **which** app is using your
+  microphone (macOS names the app; Nod never hears what it is recording), and
+  the **window titles** of conferencing apps only — never the contents of any
+  window, in any app. It does not use the accessibility
+  interface at all; window titles come from the same **Screen Recording**
+  permission Nod already needs to hear a meeting.
+- **What it stores.** Nothing. A title is matched in memory and dropped. There
+  is no row, no file, and nothing leaves your Mac.
+- **Which apps.** Zoom, Microsoft Teams, Webex, Slack and Discord, plus a
+  browser window whose title names a call (for example "Meet – abc-defg-hij").
+  Windows belonging to any other app are not looked at.
+- **How often.** Every few seconds while no recording is running, and while one
+  is, to notice that the call has ended.
+- **When the call ends.** If Nod is recording a call it detected, it wraps up
+  and summarises about half a minute after that call disappears — with a
+  visible countdown and a button to keep recording. This exists so a meeting
+  you forgot to stop doesn't become forty minutes of an empty room.
+- **Off in one click.** Settings → General turns detection off entirely, and
+  the card itself offers "Never for <app>" for a single app. An app on your
+  screen-reading blocklist is never detected either.
+
+Legal basis: Legitimate interest (Art. 6(1)(f)) — offering to record the
+meeting you are in is the product's core purpose, and it is served by reading a
+window title and nothing more. You can switch it off at any time.
+
+- You can exclude any app, whole categories of website, or specific sites in
+  **Settings → Privacy**, and the exclusions apply to **all three** modes above.
+
+Legal basis for (a): Legitimate interest (Art. 6(1)(f)) — attributing speech to
 speakers is the feature you are using Nod for. Participants' names are read
 locally, used transiently, and travel no further than the summarising model
 already handling the transcript of the same conversation.

@@ -45,6 +45,9 @@ struct AppServices {
     let panelSharing: PanelSharingPreference
     /// What launch puts on screen — main window, capture panel, or nothing.
     let launchBehavior: LaunchBehavior
+    /// Whether Nod offers to record a call it sees starting, and which apps it
+    /// stays quiet about. The detector itself lives with the panel's session.
+    let meetingDetection: MeetingDetectionPreference
     let updateGate: UpdateGate
     let hotkeys: HotkeyManager
     /// User's meeting modes (recap/reply/kind presets), shared by the panel chip
@@ -159,6 +162,7 @@ struct AppServices {
             connections: ConnectionService(supabase: supabase),
             panelSharing: PanelSharingPreference(),
             launchBehavior: LaunchBehavior(),
+            meetingDetection: MeetingDetectionPreference(),
             updateGate: UpdateGate(supabase: supabase),
             hotkeys: hotkeys,
             modeStore: ModeStore(),

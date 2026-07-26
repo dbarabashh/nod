@@ -56,11 +56,57 @@ enum AIResponse: Equatable {
     case ready(kind: GenerationKind, text: String)
 }
 
-/// Non-nil while the "still recording?" prompt is showing after a stretch of
-/// silence. `secondsRemaining` counts down to an automatic, silence-trimmed end
-/// unless the user keeps recording or ends it themselves.
+/// Non-nil while the "still recording?" prompt is showing. `secondsRemaining`
+/// counts down to an automatic, silence-trimmed end unless the user keeps
+/// recording or ends it themselves.
 struct AutoEndPrompt: Equatable {
+    /// Why the meeting is about to end on its own. Both paths land on the same
+    /// countdown and the same card — there is one way a recording auto-ends,
+    /// and the user is told which of the two raised it.
+    enum Reason: Equatable {
+        /// Nothing has been said for a long stretch.
+        case silence
+        /// The conferencing app's call disappeared.
+        case callEnded(app: String)
+
+        /// Whether new speech takes the prompt back down. Silence is a guess —
+        /// somebody talking disproves it. A call that ended is a fact, and two
+        /// people still talking in the room afterwards are no longer in the
+        /// meeting Nod was asked to record; they have the card and its keep
+        /// button right in front of them.
+        var dismissesOnSpeech: Bool {
+            self == .silence
+        }
+    }
+
     var secondsRemaining: Int
+    var reason: Reason = .silence
+
+    var title: String {
+        switch reason {
+        case .silence: "Still there?"
+        case let .callEnded(app): "\(app) call ended"
+        }
+    }
+
+    var icon: String {
+        switch reason {
+        case .silence: "moon.zzz.fill"
+        case .callEnded: "phone.down.fill"
+        }
+    }
+
+    var detail: String {
+        switch reason {
+        case .silence: "No audio for a while — ending in \(clock)"
+        case .callEnded: "Wrapping up and summarising in \(clock)"
+        }
+    }
+
+    private var clock: String {
+        let seconds = max(0, secondsRemaining)
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
 }
 
 /// Owns the recording lifecycle, mid-call generation, and end-of-meeting
@@ -86,6 +132,15 @@ final class MeetingSession: ObservableObject {
     @Published private(set) var saveErrorToast: String?
     /// Drives the forgot-to-stop prompt; nil when no prompt is showing.
     @Published private(set) var autoEndPrompt: AutoEndPrompt?
+    /// Non-nil when something outside the panel asked to start a meeting — the
+    /// auto-detect card.
+    ///
+    /// Held as state rather than posted as a notification because the panel's
+    /// SwiftUI content is not necessarily mounted at the moment the card is
+    /// clicked (the panel is built at launch but only shown on request), and a
+    /// notification posted then reaches nobody. `ContentView` consumes it
+    /// whenever it next appears, so the request survives that gap.
+    @Published private(set) var wantsAutoStart = false
 
     /// Inactivity-watchdog state. Silence is measured from the latest of
     /// `store.lastSpeechAt`, `inactivityResetAt` (a resume or a "keep recording"
@@ -94,12 +149,16 @@ final class MeetingSession: ObservableObject {
     /// is its wall-clock auto-end time and `speechAtPromptRaise` is the speech
     /// marker captured when it was raised — any change to it dismisses the prompt.
     private var inactivityResetAt: Date?
-    private var promptRaisedAt: Date?
     private var promptDeadline: Date?
     private var speechAtPromptRaise: Date?
     /// Backoff factor on the silence threshold; doubles on each "keep recording"
     /// so repeat prompts get progressively rarer.
     private var silenceBackoffMultiplier: Double = 1
+    /// Set when the user keeps a recording the *call* was said to have ended.
+    /// Detection can flap — a conferencing window that reappears and goes again
+    /// would otherwise re-raise the countdown every couple of minutes for the
+    /// rest of the meeting. Cleared with the recording.
+    private var autoFinishDeclined = false
     /// Silence needed to prompt when the user seems present (base) vs when
     /// they're idle at the keyboard/mouse — a strong "walked away" hint. A
     /// locked screen also stops delivering HID events, so idle subsumes lock;
@@ -110,6 +169,10 @@ final class MeetingSession: ObservableObject {
     private static let hidIdleAwaySeconds: TimeInterval = 300
     private static let maxSilenceBackoff: Double = 8
     private static let autoEndCountdownSeconds = 120
+    /// Shorter than the silence countdown because the evidence is better: the
+    /// call is demonstrably over, and the two minutes a silent stretch earns
+    /// would just be two minutes of an empty room in the transcript.
+    private static let callEndedCountdownSeconds = 30
 
     /// Wall-clock start of the current recording. Captured in beginRecording
     /// so we can stamp `started_at` accurately when we persist on summary.
@@ -253,13 +316,13 @@ final class MeetingSession: ObservableObject {
         }
         let now = Date()
 
-        if autoEndPrompt != nil {
+        if let prompt = autoEndPrompt {
             // Any new confirmed speech since the prompt was raised means the
             // meeting is still live — dismiss. Comparing the whole timestamp
             // (not onset-vs-raise) catches a chunk that finalizes during the
             // countdown even though its speech started just before the prompt,
             // so a continuous talker can't be auto-ended mid-sentence.
-            if store.lastSpeechAt != speechAtPromptRaise {
+            if prompt.reason.dismissesOnSpeech, store.lastSpeechAt != speechAtPromptRaise {
                 clearAutoEndPrompt()
                 return
             }
@@ -273,7 +336,7 @@ final class MeetingSession: ObservableObject {
             } else {
                 let secs = Int(remaining.rounded(.up))
                 if autoEndPrompt?.secondsRemaining != secs {
-                    autoEndPrompt = AutoEndPrompt(secondsRemaining: secs)
+                    autoEndPrompt?.secondsRemaining = secs
                 }
             }
             return
@@ -287,19 +350,41 @@ final class MeetingSession: ObservableObject {
         let base = away ? Self.autoEndAwaySilenceSeconds : Self.autoEndBaseSilenceSeconds
         let threshold = min(base * silenceBackoffMultiplier, Self.autoEndMaxSilenceSeconds)
         if silence >= threshold {
-            promptRaisedAt = now
             promptDeadline = now.addingTimeInterval(TimeInterval(Self.autoEndCountdownSeconds))
             speechAtPromptRaise = store.lastSpeechAt
             autoEndPrompt = AutoEndPrompt(secondsRemaining: Self.autoEndCountdownSeconds)
+            UISound.actionRequired.play(recording: true)
             Log.ui.info("inactivity prompt raised (silence \(Int(silence))s, away=\(away))")
         }
     }
 
     private func clearAutoEndPrompt() {
         autoEndPrompt = nil
-        promptRaisedAt = nil
         promptDeadline = nil
         speechAtPromptRaise = nil
+    }
+
+    /// The call this recording was following has ended, per `MeetingDetector`.
+    ///
+    /// Raises the same countdown the silence watchdog uses rather than ending
+    /// outright: the detector reads window titles, and a title can lie. Thirty
+    /// seconds with a keep button is the difference between "Nod wrapped up
+    /// after the call" and "Nod cut me off".
+    ///
+    /// Only for `meeting` — a voice note that happened to be running while a
+    /// call ended has nothing to do with that call.
+    func callEnded(app: String) {
+        guard meeting == .recording, selectedKind == .meeting, !autoFinishDeclined else { return }
+        if case .callEnded = autoEndPrompt?.reason { return }
+        let now = Date()
+        promptDeadline = now.addingTimeInterval(TimeInterval(Self.callEndedCountdownSeconds))
+        speechAtPromptRaise = store.lastSpeechAt
+        autoEndPrompt = AutoEndPrompt(
+            secondsRemaining: Self.callEndedCountdownSeconds,
+            reason: .callEnded(app: app)
+        )
+        UISound.actionRequired.play(recording: true)
+        Log.ui.info("\(app) call ended — finishing in \(Self.callEndedCountdownSeconds)s")
     }
 
     /// Seconds since the last keyboard/mouse event. A locked screen or a user
@@ -312,6 +397,21 @@ final class MeetingSession: ObservableObject {
 
     // MARK: - Recording lifecycle
 
+    /// Ask the panel to start a meeting — the auto-detect card's only power.
+    ///
+    /// It deliberately stops one step short of recording: the subscription
+    /// check, the consent disclaimer and the language confirm all live on the
+    /// panel's Start path, and nothing may reach `beginRecording` around them.
+    func requestAutoStart() {
+        guard meeting == .idle else { return }
+        selectedKind = .meeting
+        wantsAutoStart = true
+    }
+
+    func clearAutoStartRequest() {
+        wantsAutoStart = false
+    }
+
     func beginRecording() {
         Log.ui.info("Start Meeting")
         sessionGeneration += 1
@@ -319,6 +419,8 @@ final class MeetingSession: ObservableObject {
         elapsed = 0
         response = .none
         clearAutoEndPrompt()
+        wantsAutoStart = false
+        autoFinishDeclined = false
         inactivityResetAt = nil
         silenceBackoffMultiplier = 1
         // Stamp the wall-clock so the persisted row carries an accurate
@@ -567,6 +669,11 @@ final class MeetingSession: ObservableObject {
                 await outbox.complete(updated, transcripts: records, for: updated.id)
                 await drainOutbox()
                 meetingStore.finishFinalizing(id: updated.id)
+                // The recap can land a minute after the user stopped and walked
+                // off. Only on the path where one was actually written — the
+                // fallback below saves the transcript under a "summary failed"
+                // note, which is not something to chime about.
+                UISound.summaryReady.play(recording: meeting != .idle)
 
                 // Detached on purpose: the relabel is best-effort, and awaiting
                 // it here would hold entity extraction and embedding indexing —
@@ -656,6 +763,8 @@ final class MeetingSession: ObservableObject {
         streamTask?.cancel()
         streamTask = nil
         recordingDraft = nil
+        wantsAutoStart = false
+        autoFinishDeclined = false
         // Participant names are session-scoped by policy (privacy.md § 3.10):
         // they exist to size the clustering pass and must not outlive it.
         roster = nil
@@ -685,6 +794,11 @@ final class MeetingSession: ObservableObject {
     /// the silence threshold (doubling, capped) so we don't nag on the next
     /// quiet stretch.
     func keepRecording() {
+        if case .callEnded = autoEndPrompt?.reason {
+            // They've told us the conversation outlived the call; a flapping
+            // window title must not raise this again for this recording.
+            autoFinishDeclined = true
+        }
         clearAutoEndPrompt()
         inactivityResetAt = Date()
         silenceBackoffMultiplier = min(silenceBackoffMultiplier * 2, Self.maxSilenceBackoff)

@@ -29,7 +29,14 @@ final class ScreenExclusions: ObservableObject {
     private static let appsKey = "screen.exclusions.apps"
     private static let websitesKey = "screen.exclusions.websites"
     private static let categoriesKey = "screen.exclusions.categories"
+    /// Legacy flag: "the messenger defaults have been seeded". Read only, to
+    /// migrate an install that predates `offeredMessengersKey`.
     private static let seededMessengersKey = "screen.exclusions.seededMessengers"
+    /// Every default that has ever been *offered* to this install, whether or
+    /// not it is still excluded. A plain "already seeded" flag couldn't tell a
+    /// list that had grown from one that hadn't, so a messenger added to the
+    /// defaults later never reached anyone who had already run Nod once.
+    private static let offeredMessengersKey = "screen.exclusions.offeredMessengers"
 
     /// Personal messengers, excluded before the user has said anything.
     ///
@@ -41,15 +48,36 @@ final class ScreenExclusions: ObservableObject {
     /// Seeded, not hardcoded: it lands in the same list as any other exclusion,
     /// so a user who *wants* their messenger indexed can untick it and it stays
     /// off — see `seedDefaultsIfNeeded`.
+    /// Telegram ships under three different identifiers and each one is a
+    /// separate entry: matching is by bundle id, so the two that were listed
+    /// here left the build most people actually run — `com.tdesktop.Telegram` —
+    /// readable by default. A messenger missing from this list is not a
+    /// cosmetic gap; it is private conversation in the index.
     static let defaultExcludedMessengers = [
         ExcludedApp(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp"),
+        ExcludedApp(bundleID: "com.tdesktop.Telegram", name: "Telegram"),
         ExcludedApp(bundleID: "ru.keepcoder.Telegram", name: "Telegram"),
         ExcludedApp(bundleID: "org.telegram.desktop", name: "Telegram Desktop"),
         ExcludedApp(bundleID: "com.apple.MobileSMS", name: "Messages"),
         ExcludedApp(bundleID: "com.facebook.archon", name: "Messenger"),
         ExcludedApp(bundleID: "com.signal.Signal", name: "Signal"),
+        ExcludedApp(bundleID: "org.whispersystems.signal-desktop", name: "Signal"),
         ExcludedApp(bundleID: "com.viber.osx", name: "Viber"),
         ExcludedApp(bundleID: "com.hnc.Discord", name: "Discord")
+    ]
+
+    /// What the first version of the list contained. Used only to migrate an
+    /// install carrying the old boolean flag: those ids were already offered
+    /// once, so one the user removed back then must not come back now.
+    private static let firstSeededBundleIDs: Set<String> = [
+        "net.whatsapp.WhatsApp",
+        "ru.keepcoder.Telegram",
+        "org.telegram.desktop",
+        "com.apple.MobileSMS",
+        "com.facebook.archon",
+        "com.signal.Signal",
+        "com.viber.osx",
+        "com.hnc.Discord"
     ]
 
     init(defaults: UserDefaults = .standard, seedDefaults: Bool = true) {
@@ -60,15 +88,27 @@ final class ScreenExclusions: ObservableObject {
         if seedDefaults { seedDefaultsIfNeeded() }
     }
 
-    /// Adds the messenger defaults exactly once per install. The flag is what
-    /// makes the list a *default* rather than a rule: without it, every launch
-    /// would re-add an app the user deliberately removed.
+    /// Offers each messenger default exactly once, ever.
+    ///
+    /// Once, so an app the user deliberately removed never comes back. Each,
+    /// so a default added in a later version still reaches installs that have
+    /// already run — which is what a single "seeded" flag got wrong, leaving
+    /// every existing install without the Telegram build most people have.
     private func seedDefaultsIfNeeded() {
-        guard !defaults.bool(forKey: Self.seededMessengersKey) else { return }
-        defaults.set(true, forKey: Self.seededMessengersKey)
+        var offered = Set(defaults.stringArray(forKey: Self.offeredMessengersKey) ?? [])
+        if offered.isEmpty, defaults.bool(forKey: Self.seededMessengersKey) {
+            offered = Self.firstSeededBundleIDs
+        }
 
         let known = Set(apps.map(\.bundleID))
-        let added = Self.defaultExcludedMessengers.filter { !known.contains($0.bundleID) }
+        let added = Self.defaultExcludedMessengers.filter {
+            !offered.contains($0.bundleID) && !known.contains($0.bundleID)
+        }
+        defaults.set(
+            offered.union(Self.defaultExcludedMessengers.map(\.bundleID)).sorted(),
+            forKey: Self.offeredMessengersKey
+        )
+
         guard !added.isEmpty else { return }
         apps.append(contentsOf: added)
         persistApps()
