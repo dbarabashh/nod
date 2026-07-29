@@ -235,7 +235,7 @@ struct AttentionColumn: View {
                         if let deadline = action.deadline {
                             Text("·")
                             Text(deadline.text)
-                                .foregroundStyle(deadline.urgency.tint)
+                                .foregroundStyle(action.item.done ? Theme.Palette.muted : deadline.urgency.tint)
                                 .lineLimit(1)
                         }
                     }

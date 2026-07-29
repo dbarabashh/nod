@@ -17,6 +17,25 @@ struct MeetingRoster: Equatable {
     var speakerCount: Int {
         participants.count
     }
+
+    /// Folds a later sample of the same call into this one.
+    ///
+    /// A union, not a replacement, because the number the clustering pass needs
+    /// is how many distinct voices the *recording* holds — everyone who was ever
+    /// on the call. Someone who joins late is missing from an early sample, and
+    /// someone who drops off early is missing from a late one while their voice
+    /// is still in the audio. Taking the newest snapshot loses one of those two
+    /// every time.
+    ///
+    /// A different app means a different call, so it replaces rather than merges
+    /// — the earlier names belong to something else.
+    func merging(_ later: MeetingRoster) -> MeetingRoster {
+        guard later.app == app else { return later }
+        var seen = Set(participants.map { $0.lowercased() })
+        let added = later.participants.filter { seen.insert($0.lowercased()).inserted }
+        guard !added.isEmpty else { return self }
+        return MeetingRoster(app: app, participants: participants + added)
+    }
 }
 
 /// Apps that can be hosting a call. Matching is by bundle identifier: process
@@ -140,11 +159,14 @@ struct MeetingRosterReader {
             return app.isBrowser ? Self.isMeetingWindowTitle(title) : true
         }
         let names = Self.participantNames(in: texts)
+        // Per-sample, so `.debug`: sampling repeats for the whole call, and the
+        // event worth an `.info` line is the accumulated count changing, which
+        // the caller logs.
         guard !names.isEmpty else {
-            Log.screen.info("roster: \(app.displayName) running, no participants readable")
+            Log.screen.debug("roster: \(app.displayName) running, no participants readable")
             return nil
         }
-        Log.screen.info("roster: \(app.displayName) — \(names.count) participant(s)")
+        Log.screen.debug("roster: \(app.displayName) — \(names.count) participant(s) this sample")
         return MeetingRoster(app: app, participants: names)
     }
 

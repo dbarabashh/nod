@@ -11,12 +11,17 @@ final class FloatingPanel<Content: View>: NSPanel {
     /// Set by `positionOnTopRight`. While it holds, every resize re-anchors to
     /// that corner instead of growing downward from a stale origin.
     private var topRightMargin: CGFloat?
+    /// Whether the hosting controller drives this window's size. Only such a
+    /// window resizes behind the caller's back, and only it needs the repaint
+    /// in `setFrame`.
+    private let sizesToContent: Bool
 
     /// `sizesToContent` hands the height to SwiftUI. The capture panel does the
     /// opposite — it drives its own width through `animateWidth`, and a hosting
     /// controller pushing sizes back would fight that — but a card whose height
     /// depends on how its text wraps has no size the caller can know in advance.
     init(contentRect: NSRect, content: Content, sizesToContent: Bool = false) {
+        self.sizesToContent = sizesToContent
         super.init(
             contentRect: contentRect,
             styleMask: [.nonactivatingPanel, .borderless, .fullSizeContentView],
@@ -139,7 +144,18 @@ final class FloatingPanel<Content: View>: NSPanel {
     /// `setFrame` from the existing origin — which grows the card downward off
     /// its corner. Rewriting the origin here keeps it anchored within the same
     /// layout pass, with no second pass and no visible jump.
+    ///
+    /// Every size change also forces a repaint. The card is created at a
+    /// placeholder height and resized once the content lays out — and this
+    /// window is transparent, `buffered`, and draws its own drop shadow rather
+    /// than the window server's (`hasShadow = false`). The area the content no
+    /// longer covers keeps the pixels it had, which puts a hard-edged copy of
+    /// that shadow beside the button it came from. Not gated on the anchoring
+    /// branch below: the first resize arrives before `positionOnTopRight`, and
+    /// that is precisely the one that leaves the ghost.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        let resized = sizesToContent && frameRect.size != frame.size
+        defer { if resized { forceRedraw() } }
         guard let topRightMargin, let visible = (screen ?? NSScreen.main)?.visibleFrame else {
             super.setFrame(frameRect, display: flag)
             return

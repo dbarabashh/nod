@@ -9,10 +9,15 @@ struct CallSignals: Equatable {
     /// the call, a browser merely contains one.
     var running: [ConferencingApp] = []
     /// Apps a strong signal puts in a call right now: a window titled like one,
-    /// or a helper process that exists only while a call is up. "Strong" means
-    /// it also goes away when the call does, which is what makes the same signal
-    /// usable to decide the call is over.
+    /// or a helper process that exists only while a call is up.
     var inCall: Set<ConferencingApp> = []
+    /// Apps whose call is held up by a process that exists *only* while the call
+    /// does. Narrower than `inCall` on purpose: a window title disappears for
+    /// reasons that have nothing to do with the call ending — the user switched
+    /// browser tab, minimised the window, or moved it to another Space — so it
+    /// can start a recording but must never finish one. A process that is gone
+    /// is gone.
+    var helperBacked: Set<ConferencingApp> = []
     /// Candidate apps that are holding the microphone themselves, by name of the
     /// process — not "somebody on this Mac is recording".
     ///
@@ -42,8 +47,7 @@ enum MeetingDetection {
     /// Deliberately stricter than `MeetingRosterReader.isMeetingWindowTitle`,
     /// which only decides whether a window is safe to read: "Chat | Microsoft
     /// Teams" is a Teams window worth reading a roster from and is plainly not a
-    /// call. A marker here has to be absent once the call ends, because this
-    /// same list is what stops the recording.
+    /// call.
     static func namesActiveCall(_ title: String) -> Bool {
         let lowered = title.lowercased()
         if substringMarkers.contains(where: { lowered.contains($0) }) { return true }
@@ -67,9 +71,8 @@ enum MeetingDetection {
     /// reader rather than re-typed.
     ///
     /// Slack huddles have no marker here on purpose: "Huddle" is as much a
-    /// Notion document as a Slack window, and a marker that can't be trusted
-    /// can't be allowed to decide when to *stop* recording. A huddle is still
-    /// offered — Slack plus a busy microphone — it just doesn't auto-finish.
+    /// Notion document as a Slack window. A huddle is still offered — Slack plus
+    /// a busy microphone — it just isn't confirmed by a title.
     private static let leadingMarkers = MeetingRosterReader.meetLeadingTokens
 }
 
@@ -100,13 +103,14 @@ struct MeetingDetectionState: Equatable {
     private var misses = 0
     private var invited = false
     private var handled = false
-    /// The call the current recording is following, set only while a *strong*
-    /// signal holds it up. A call inferred from the microphone alone can never
-    /// be seen to end — our own recording holds that same microphone — so it
-    /// must not arm an automatic finish.
+    /// The call the current recording is following, set only while a signal that
+    /// *dies with the call* holds it up. The microphone can't: our own recording
+    /// holds it too. A window title can't either: it goes away when the user
+    /// switches tab or Space, and a recording finished mid-conversation is a far
+    /// worse outcome than one the user has to stop by hand.
     private var armed: ConferencingApp?
 
-    mutating func advance(call: ConferencingApp?, isStrong: Bool, isRecording: Bool) -> Event? {
+    mutating func advance(call: ConferencingApp?, armsAutoFinish: Bool, isRecording: Bool) -> Event? {
         guard let call else { return advanceWithoutCall(isRecording: isRecording) }
 
         if tracked != call {
@@ -117,7 +121,7 @@ struct MeetingDetectionState: Equatable {
         sightings += 1
 
         guard !isRecording else {
-            if isStrong { armed = call }
+            if armsAutoFinish { armed = call }
             // A recording under way is an answer, however it was started: the
             // user is not asked about this call again if they stop mid-way.
             handled = true
@@ -335,16 +339,24 @@ final class MeetingDetector: ObservableObject {
         let isRecording = session.meeting != .idle
         let signals = signals()
         let call = MeetingDetection.call(in: signals)
-        // Only a window or a helper process arms the automatic finish. The
-        // microphone does not: an app that releases it when the user mutes
-        // themselves would read as a call that ended, and cut the meeting short.
-        let isStrong = call.map(signals.inCall.contains) ?? false
+        // Only a call-only helper process arms the automatic finish. Neither the
+        // microphone nor a window title can: the mic is held by our own
+        // recording, and a title vanishes on a tab switch, a minimise or a Space
+        // change — all of which happen mid-meeting, and all of which used to cut
+        // the recording short.
+        let armsAutoFinish = call.map(signals.helperBacked.contains) ?? false
+        // Names the signal that actually confirmed the call, `helperBacked`
+        // first: this is the one line covering the rule above, and "window" for
+        // a call only a process proves is the answer to the wrong question when
+        // someone reports that Nod didn't wrap up after their call.
+        let evidence = call.map { app in
+            if signals.helperBacked.contains(app) { return "helper" }
+            return signals.inCall.contains(app) ? "window" : "microphone"
+        } ?? "none"
 
-        switch state.advance(call: call, isStrong: isStrong, isRecording: isRecording) {
+        switch state.advance(call: call, armsAutoFinish: armsAutoFinish, isRecording: isRecording) {
         case let .invite(app):
-            Log.screen.info(
-                "detect: \(app.displayName) call in progress (\(isStrong ? "window" : "microphone")) — offering to record"
-            )
+            Log.screen.info("detect: \(app.displayName) call in progress (\(evidence)) — offering to record")
             // The card sits in a screen corner while the user is looking at the
             // call — unheard, it is only found by accident.
             UISound.meetingDetected.play(recording: isRecording)
@@ -378,9 +390,11 @@ final class MeetingDetector: ObservableObject {
 
         let present = Set(candidates.map(\.0))
         let pids = Dictionary(candidates, uniquingKeysWith: { first, _ in first })
+        let helperBacked = helpers.intersection(present)
         return CallSignals(
             running: candidates.map(\.0),
-            inCall: helpers.intersection(present).union(Self.appsShowingACall(pids: pids, rules: rules)),
+            inCall: helperBacked.union(Self.appsShowingACall(pids: pids, rules: rules)),
+            helperBacked: helperBacked,
             micUsers: micUsers(among: present)
         )
     }

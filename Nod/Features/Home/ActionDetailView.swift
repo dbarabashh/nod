@@ -141,7 +141,8 @@ struct ActionDetailView: View {
                 DeadlinePill(
                     display: display,
                     spokenAt: meeting.startedAt,
-                    meetingTitle: meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter)
+                    meetingTitle: meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter),
+                    done: current.done
                 )
                 // The pill rewrites "end of week" into what's true today; this
                 // keeps what was actually said next to it, so the rewrite is

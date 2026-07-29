@@ -16,21 +16,26 @@ struct MeetingDetectedCard: View {
     @State private var isHoveringClose = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 11) {
-            icon
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(app.displayName) call detected")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                Text("Record it and Nod will transcribe and summarise it.")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                actions
-                    .padding(.top, 9)
+        // The actions sit outside the text column, spanning the card: indented
+        // under the copy they had 239pt to share, and "Start recording" next to
+        // "Never for <app>" does not fit in that — the primary label wrapped
+        // mid-pill for an app named as short as Chrome.
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .top, spacing: 11) {
+                icon
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(app.displayName) call detected")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.ink)
+                    Text("Record it and Nod will transcribe and summarise it.")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                closeButton
             }
-            Spacer(minLength: 0)
-            closeButton
+            actions
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 12)
@@ -77,6 +82,11 @@ struct MeetingDetectedCard: View {
                 Text("Start recording")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.GlassButton.text)
+                    // A wrapped label turns the pill into a two-line block, and
+                    // a Capsule that tall reads as a rounded rectangle. The
+                    // primary action keeps its width; the secondary gives way.
+                    .lineLimit(1)
+                    .fixedSize()
                     .padding(.horizontal, 12)
                     .padding(.vertical, 5)
                     .glassButtonSurface(Capsule(style: .continuous))
@@ -88,6 +98,8 @@ struct MeetingDetectedCard: View {
                 Text("Never for \(app.displayName)")
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(Theme.Palette.muted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
             .buttonStyle(.plain)
             .linkCursor()

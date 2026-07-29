@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-07-26_
+_Last updated: 2026-07-29_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -239,8 +239,11 @@ Nod needs to know how many people are on the call, so it reads the
   Slack, Discord). For a **browser**, it reads only a window whose title names a call
   (for example "Meet – abc-defg-hij"); every other window and tab is skipped
   without being read.
-- It runs **a couple of times per session**, not continuously — a participant
-  list changes rarely, so there is nothing to gain from polling.
+- It runs **only while a recording is running**, and re-reads the list about
+  every 15 seconds for as long as it lasts. Reading it once at the start missed
+  everyone who had not joined yet, and the participant *count* is what makes
+  speaker separation accurate, so the readings are merged as the call goes on.
+  It never runs when nothing is being recorded.
 - Nod uses the **number** of participants for on-device speaker clustering,
   and the **names** to put a name to a voice in your summary. The name list is
   sent once, with the transcript, to the summarising model through our EU proxy
@@ -302,10 +305,13 @@ steps as pressing Start yourself.
   Windows belonging to any other app are not looked at.
 - **How often.** Every few seconds while no recording is running, and while one
   is, to notice that the call has ended.
-- **When the call ends.** If Nod is recording a call it detected, it wraps up
-  and summarises about half a minute after that call disappears — with a
-  visible countdown and a button to keep recording. This exists so a meeting
-  you forgot to stop doesn't become forty minutes of an empty room.
+- **When the call ends.** If Nod is recording a Zoom call, it wraps up and
+  summarises about half a minute after Zoom's meeting process exits — with the
+  panel raised, a visible countdown, and a button to keep recording; anyone
+  still speaking cancels it. This exists so a meeting you forgot to stop doesn't
+  become forty minutes of an empty room. A window title is never used to end a
+  recording: it disappears when you switch tab or Space, not only when the call
+  is over.
 - **Off in one click.** Settings → General turns detection off entirely, and
   the card itself offers "Never for <app>" for a single app. An app on your
   screen-reading blocklist is never detected either.

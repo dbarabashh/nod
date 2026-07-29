@@ -68,15 +68,6 @@ struct AutoEndPrompt: Equatable {
         case silence
         /// The conferencing app's call disappeared.
         case callEnded(app: String)
-
-        /// Whether new speech takes the prompt back down. Silence is a guess —
-        /// somebody talking disproves it. A call that ended is a fact, and two
-        /// people still talking in the room afterwards are no longer in the
-        /// meeting Nod was asked to record; they have the card and its keep
-        /// button right in front of them.
-        var dismissesOnSpeech: Bool {
-            self == .silence
-        }
     }
 
     var secondsRemaining: Int
@@ -258,11 +249,25 @@ final class MeetingSession: ObservableObject {
         // A sign-out drops the session mid-recording; stop the streaming loop so
         // it doesn't outlive the panel. The WAL on disk keeps whatever streamed.
         streamTask?.cancel()
+        rosterTask?.cancel()
     }
 
-    /// Last roster read from a conferencing app during this session, used to
-    /// tell diarization how many people to expect.
+    /// Everyone a conferencing app has named on this call so far, used to tell
+    /// diarization how many voices to expect. Accumulated across samples — see
+    /// `MeetingRoster.merging`.
     private var roster: MeetingRoster?
+
+    private var rosterTask: Task<Void, Never>?
+
+    /// How often the participant list is re-read while recording.
+    ///
+    /// Sampling once at the start read the roster at the worst possible moment:
+    /// recording begins as people are still joining and before anyone has opened
+    /// the participant panel, so a five-person call routinely produced no count
+    /// at all and clustering fell back to its length-sensitive threshold. Loose
+    /// on purpose — a participant list changes a handful of times per call, and
+    /// each sample is an accessibility walk of the app's windows.
+    private static let rosterSampleInterval: TimeInterval = 15
 
     /// `media` stays opt-in until music-heavy audio is validated — soundtracks
     /// cluster into speakers that don't exist.
@@ -316,13 +321,18 @@ final class MeetingSession: ObservableObject {
         }
         let now = Date()
 
-        if let prompt = autoEndPrompt {
+        if autoEndPrompt != nil {
             // Any new confirmed speech since the prompt was raised means the
-            // meeting is still live — dismiss. Comparing the whole timestamp
-            // (not onset-vs-raise) catches a chunk that finalizes during the
-            // countdown even though its speech started just before the prompt,
-            // so a continuous talker can't be auto-ended mid-sentence.
-            if prompt.reason.dismissesOnSpeech, store.lastSpeechAt != speechAtPromptRaise {
+            // meeting is still live — dismiss, whichever reason raised it.
+            // Comparing the whole timestamp (not onset-vs-raise) catches a chunk
+            // that finalizes during the countdown even though its speech started
+            // just before the prompt, so a continuous talker can't be auto-ended
+            // mid-sentence. That looseness also lets a chunk from *during* the
+            // call cancel a `.callEnded` countdown, which is the trade taken
+            // deliberately: it costs a recording that runs to the silence
+            // watchdog instead, where an onset-vs-raise comparison would cost a
+            // meeting cut off in the middle of a sentence.
+            if store.lastSpeechAt != speechAtPromptRaise {
                 clearAutoEndPrompt()
                 return
             }
@@ -353,9 +363,18 @@ final class MeetingSession: ObservableObject {
             promptDeadline = now.addingTimeInterval(TimeInterval(Self.autoEndCountdownSeconds))
             speechAtPromptRaise = store.lastSpeechAt
             autoEndPrompt = AutoEndPrompt(secondsRemaining: Self.autoEndCountdownSeconds)
-            UISound.actionRequired.play(recording: true)
+            raisePanelForPrompt()
             Log.ui.info("inactivity prompt raised (silence \(Int(silence))s, away=\(away))")
         }
+    }
+
+    /// The countdown card lives inside the panel, and a hidden panel keeps its
+    /// SwiftUI content mounted — so without this the clock runs, the recording
+    /// ends, and the user is shown nothing but a sound they may not connect to
+    /// anything. Nothing that can stop a recording may count down out of sight.
+    private func raisePanelForPrompt() {
+        UISound.actionRequired.play(recording: true)
+        NotificationCenter.default.post(name: .nodShowPanel, object: nil)
     }
 
     private func clearAutoEndPrompt() {
@@ -367,9 +386,10 @@ final class MeetingSession: ObservableObject {
     /// The call this recording was following has ended, per `MeetingDetector`.
     ///
     /// Raises the same countdown the silence watchdog uses rather than ending
-    /// outright: the detector reads window titles, and a title can lie. Thirty
-    /// seconds with a keep button is the difference between "Nod wrapped up
-    /// after the call" and "Nod cut me off".
+    /// outright, and the countdown dies the moment anyone speaks: a call whose
+    /// process is gone is still only evidence that the *call* ended, not that
+    /// the conversation did. Thirty seconds with a keep button is the difference
+    /// between "Nod wrapped up after the call" and "Nod cut me off".
     ///
     /// Only for `meeting` — a voice note that happened to be running while a
     /// call ended has nothing to do with that call.
@@ -383,7 +403,7 @@ final class MeetingSession: ObservableObject {
             secondsRemaining: Self.callEndedCountdownSeconds,
             reason: .callEnded(app: app)
         )
-        UISound.actionRequired.play(recording: true)
+        raisePanelForPrompt()
         Log.ui.info("\(app) call ended — finishing in \(Self.callEndedCountdownSeconds)s")
     }
 
@@ -456,7 +476,7 @@ final class MeetingSession: ObservableObject {
         }
 
         if shouldDiarize {
-            sampleRoster()
+            startRosterSampling()
         }
         Task {
             await store.start(diarizing: shouldDiarize)
@@ -525,6 +545,10 @@ final class MeetingSession: ObservableObject {
         Task { await audioCapture.stop() }
         streamTask?.cancel()
         streamTask = nil
+        // Before the finalize below reads the count: the call is over, so no
+        // later sample can add anything, and one landing mid-finalize would
+        // race the read.
+        stopRosterSampling()
 
         let recordingDraftID = recordingDraft?.id
         recordingDraft = nil
@@ -762,6 +786,7 @@ final class MeetingSession: ObservableObject {
     private func cleanupToIdle() {
         streamTask?.cancel()
         streamTask = nil
+        stopRosterSampling()
         recordingDraft = nil
         wantsAutoStart = false
         autoFinishDeclined = false
@@ -795,8 +820,8 @@ final class MeetingSession: ObservableObject {
     /// quiet stretch.
     func keepRecording() {
         if case .callEnded = autoEndPrompt?.reason {
-            // They've told us the conversation outlived the call; a flapping
-            // window title must not raise this again for this recording.
+            // They've told us the conversation outlived the call; rejoining and
+            // leaving again must not raise this a second time for this recording.
             autoFinishDeclined = true
         }
         clearAutoEndPrompt()
@@ -1290,28 +1315,48 @@ final class MeetingSession: ObservableObject {
         }
     }
 
-    /// Reads the conferencing app's participant list off the main actor. Purely
-    /// additive: no roster simply means diarization falls back to its distance
-    /// threshold.
-    private func sampleRoster() {
-        Task {
-            let rules = screenExclusions.rules
-            let sampled = await Task.detached(priority: .utility) {
-                MeetingRosterReader(exclusions: rules).sample()
-            }.value
-            guard let sampled else { return }
-            self.roster = sampled
+    /// Re-reads the conferencing app's participant list off the main actor for
+    /// as long as the recording runs, accumulating what it finds. Purely
+    /// additive: no roster at all simply means diarization falls back to its
+    /// distance threshold.
+    private func startRosterSampling() {
+        rosterTask?.cancel()
+        rosterTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let rules = screenExclusions.rules
+                let sampled = await Task.detached(priority: .utility) {
+                    MeetingRosterReader(exclusions: rules).sample()
+                }.value
+                // A walk in flight when the meeting ended must not resurrect a
+                // roster the finalize has already consumed.
+                guard !Task.isCancelled else { return }
+                if let sampled {
+                    let before = roster?.speakerCount ?? 0
+                    let merged = roster?.merging(sampled) ?? sampled
+                    roster = merged
+                    if merged.speakerCount != before {
+                        Log.screen.info("roster: \(merged.app.displayName) — \(merged.speakerCount) participant(s) so far")
+                    }
+                }
+                try? await Task.sleep(nanoseconds: UInt64(Self.rosterSampleInterval * 1_000_000_000))
+            }
         }
+    }
+
+    private func stopRosterSampling() {
+        rosterTask?.cancel()
+        rosterTask = nil
     }
 
     /// How many distinct voices the `them` stream should contain: everyone on
     /// the call except the user, whose own voice arrives on the mic instead.
     /// Zero means "unknown" — diarization then clusters by threshold.
     ///
-    /// Reads the roster sampled while the call was live and never re-samples:
-    /// by the time a finalize runs, the user has hung up and the conferencing
-    /// window is gone, so a fresh walk finds nothing and would overwrite a good
-    /// count with none.
+    /// Reads what sampling accumulated while the call was live, and never walks
+    /// again here: by the time a finalize runs, the user has hung up and the
+    /// conferencing window is gone, so a fresh walk finds nothing and would
+    /// overwrite a good count with none.
     private func expectedThemSpeakers() -> Int {
         guard let roster, roster.speakerCount > 1 else { return 0 }
         return roster.speakerCount - 1

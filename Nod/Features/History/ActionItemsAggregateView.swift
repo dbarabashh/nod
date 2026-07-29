@@ -408,7 +408,8 @@ struct ActionItemsAggregateView: View {
                                     display: ActionItemDeadline.display(phrase: deadline, spokenAt: spoken),
                                     spokenAt: spoken,
                                     meetingTitle: meetingTitle(item.meetingID),
-                                    compact: true
+                                    compact: true,
+                                    done: item.done
                                 )
                             }
                             if flagged[item.id] != nil {

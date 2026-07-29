@@ -27,9 +27,13 @@ struct DeadlinePill: View {
     /// the source is never in question.
     var meetingTitle: String?
     var compact = false
+    /// A ticked task is not overdue. Without this the row keeps its alarm colour
+    /// after the user has already dealt with it — and every list here keeps
+    /// showing done items rather than removing them.
+    var done = false
 
     private var tint: Color {
-        display.urgency.tint
+        done ? Theme.Palette.muted : display.urgency.tint
     }
 
     var body: some View {

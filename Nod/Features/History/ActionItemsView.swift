@@ -50,7 +50,8 @@ struct ActionItemsView: View {
                 if let deadline = item.deadline, !deadline.isEmpty {
                     DeadlinePill(
                         display: ActionItemDeadline.display(phrase: deadline, spokenAt: meeting.startedAt),
-                        spokenAt: meeting.startedAt
+                        spokenAt: meeting.startedAt,
+                        done: item.done
                     )
                 }
             }

@@ -76,4 +76,38 @@ final class MeetingRosterTests: XCTestCase {
 
         XCTAssertEqual(roster.speakerCount, 3)
     }
+
+    /// The case the whole re-sampling loop exists for: the first walk lands
+    /// before everyone has joined.
+    func testMergingKeepsLateJoiners() {
+        let early = MeetingRoster(app: .zoom, participants: ["Dima"])
+        let later = MeetingRoster(app: .zoom, participants: ["Dima", "Vlad", "Pasha"])
+
+        XCTAssertEqual(early.merging(later).participants, ["Dima", "Vlad", "Pasha"])
+    }
+
+    /// Someone who drops off early is still in the audio, so a later, shorter
+    /// sample must not shrink the count the clustering pass is given.
+    func testMergingKeepsParticipantsWhoLeft() {
+        let full = MeetingRoster(app: .zoom, participants: ["Dima", "Vlad", "Pasha"])
+        let afterOneLeft = MeetingRoster(app: .zoom, participants: ["Dima", "Vlad"])
+
+        XCTAssertEqual(full.merging(afterOneLeft).speakerCount, 3)
+    }
+
+    func testMergingIsCaseInsensitiveAndKeepsFirstSeenOrder() {
+        let first = MeetingRoster(app: .teams, participants: ["Dima", "Vlad"])
+        let second = MeetingRoster(app: .teams, participants: ["VLAD", "Pasha", "dima"])
+
+        XCTAssertEqual(first.merging(second).participants, ["Dima", "Vlad", "Pasha"])
+    }
+
+    /// A different app is a different call — the earlier names belong to it, not
+    /// to this one.
+    func testMergingADifferentAppReplacesRatherThanUnions() {
+        let zoom = MeetingRoster(app: .zoom, participants: ["Dima", "Vlad"])
+        let teams = MeetingRoster(app: .teams, participants: ["Mike"])
+
+        XCTAssertEqual(zoom.merging(teams), teams)
+    }
 }

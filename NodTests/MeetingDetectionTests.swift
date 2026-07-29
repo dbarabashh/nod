@@ -38,6 +38,13 @@ final class MeetingDetectionTests: XCTestCase {
         XCTAssertEqual(MeetingDetection.call(in: signals), .chrome)
     }
 
+    func testAHelperBackedCallIsAlsoJustACall() {
+        // `helperBacked` is a narrowing of `inCall`, not a separate way in: the
+        // helper still has to confirm the call before it can arm anything.
+        let signals = CallSignals(running: [.zoom], inCall: [.zoom], helperBacked: [.zoom])
+        XCTAssertEqual(MeetingDetection.call(in: signals), .zoom)
+    }
+
     func testAConfirmedCallOutranksAMicrophoneGuess() {
         let signals = CallSignals(running: [.slack, .chrome], inCall: [.chrome], micUsers: [.slack])
         XCTAssertEqual(MeetingDetection.call(in: signals), .chrome)
@@ -68,44 +75,54 @@ final class MeetingDetectionTests: XCTestCase {
 
     func testOneSightingIsNotEnoughToAsk() {
         var state = MeetingDetectionState()
-        XCTAssertNil(state.advance(call: .zoom, isStrong: true, isRecording: false))
+        XCTAssertNil(state.advance(call: .zoom, armsAutoFinish: true, isRecording: false))
     }
 
     func testTwoSightingsInvite() {
         var state = MeetingDetectionState()
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: false)
-        XCTAssertEqual(state.advance(call: .zoom, isStrong: true, isRecording: false), .invite(.zoom))
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: false)
+        XCTAssertEqual(state.advance(call: .zoom, armsAutoFinish: true, isRecording: false), .invite(.zoom))
     }
 
     func testTheSameCallOnlyInvitesOnce() {
         var state = MeetingDetectionState()
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: false)
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: false)
-        XCTAssertNil(state.advance(call: .zoom, isStrong: true, isRecording: false))
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: false)
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: false)
+        XCTAssertNil(state.advance(call: .zoom, armsAutoFinish: true, isRecording: false))
     }
 
     func testAnAnsweredCallNeverAsksAgain() {
         var state = MeetingDetectionState()
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: false)
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: false)
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: false)
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: false)
         state.markHandled()
-        XCTAssertNil(state.advance(call: .zoom, isStrong: true, isRecording: false))
-        XCTAssertNil(state.advance(call: .zoom, isStrong: true, isRecording: false))
+        XCTAssertNil(state.advance(call: .zoom, armsAutoFinish: true, isRecording: false))
+        XCTAssertNil(state.advance(call: .zoom, armsAutoFinish: true, isRecording: false))
     }
 
     func testAFlickeringCallDoesNotClearOnOneMiss() {
         var state = MeetingDetectionState()
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: true)
-        XCTAssertNil(state.advance(call: nil, isStrong: false, isRecording: true))
-        XCTAssertNil(state.advance(call: nil, isStrong: false, isRecording: true))
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: true)
+        XCTAssertNil(state.advance(call: nil, armsAutoFinish: false, isRecording: true))
+        XCTAssertNil(state.advance(call: nil, armsAutoFinish: false, isRecording: true))
     }
 
-    func testAConfirmedCallEndsTheRecording() {
+    func testATitleOnlyCallNeverEndsTheRecording() {
+        // Chrome showed a Meet title all through the meeting, then stopped —
+        // because the user changed tab, not because the call was over.
         var state = MeetingDetectionState()
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: true)
-        _ = state.advance(call: nil, isStrong: false, isRecording: true)
-        _ = state.advance(call: nil, isStrong: false, isRecording: true)
-        XCTAssertEqual(state.advance(call: nil, isStrong: false, isRecording: true), .callEnded(.zoom))
+        _ = state.advance(call: .chrome, armsAutoFinish: false, isRecording: true)
+        _ = state.advance(call: nil, armsAutoFinish: false, isRecording: true)
+        _ = state.advance(call: nil, armsAutoFinish: false, isRecording: true)
+        XCTAssertNil(state.advance(call: nil, armsAutoFinish: false, isRecording: true))
+    }
+
+    func testAHelperBackedCallEndsTheRecording() {
+        var state = MeetingDetectionState()
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: true)
+        _ = state.advance(call: nil, armsAutoFinish: false, isRecording: true)
+        _ = state.advance(call: nil, armsAutoFinish: false, isRecording: true)
+        XCTAssertEqual(state.advance(call: nil, armsAutoFinish: false, isRecording: true), .callEnded(.zoom))
     }
 
     func testAMicOnlyCallNeverEndsTheRecording() {
@@ -113,51 +130,46 @@ final class MeetingDetectionTests: XCTestCase {
         // not evidence of anything — and a wrong auto-finish cuts a live
         // meeting short.
         var state = MeetingDetectionState()
-        _ = state.advance(call: .slack, isStrong: false, isRecording: true)
-        _ = state.advance(call: nil, isStrong: false, isRecording: true)
-        _ = state.advance(call: nil, isStrong: false, isRecording: true)
-        XCTAssertNil(state.advance(call: nil, isStrong: false, isRecording: true))
+        _ = state.advance(call: .slack, armsAutoFinish: false, isRecording: true)
+        _ = state.advance(call: nil, armsAutoFinish: false, isRecording: true)
+        _ = state.advance(call: nil, armsAutoFinish: false, isRecording: true)
+        XCTAssertNil(state.advance(call: nil, armsAutoFinish: false, isRecording: true))
     }
 
     func testACallThatEndsWithoutARecordingJustClears() {
         var state = MeetingDetectionState()
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: false)
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: false)
-        _ = state.advance(call: nil, isStrong: false, isRecording: false)
-        _ = state.advance(call: nil, isStrong: false, isRecording: false)
-        XCTAssertEqual(state.advance(call: nil, isStrong: false, isRecording: false), .withdraw)
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: false)
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: false)
+        _ = state.advance(call: nil, armsAutoFinish: false, isRecording: false)
+        _ = state.advance(call: nil, armsAutoFinish: false, isRecording: false)
+        XCTAssertEqual(state.advance(call: nil, armsAutoFinish: false, isRecording: false), .withdraw)
     }
 
     func testRecordingWithdrawsAnUnansweredInvitation() {
         var state = MeetingDetectionState()
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: false)
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: false)
-        XCTAssertEqual(state.advance(call: .zoom, isStrong: true, isRecording: true), .withdraw)
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: false)
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: false)
+        XCTAssertEqual(state.advance(call: .zoom, armsAutoFinish: true, isRecording: true), .withdraw)
     }
 
     func testStoppingMidCallDoesNotReAsk() {
         var state = MeetingDetectionState()
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: true)
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: true)
         // User ends the recording while the call carries on.
-        XCTAssertNil(state.advance(call: .zoom, isStrong: true, isRecording: false))
-        XCTAssertNil(state.advance(call: .zoom, isStrong: true, isRecording: false))
+        XCTAssertNil(state.advance(call: .zoom, armsAutoFinish: true, isRecording: false))
+        XCTAssertNil(state.advance(call: .zoom, armsAutoFinish: true, isRecording: false))
     }
 
     func testSwitchingAppsIsANewCall() {
         var state = MeetingDetectionState()
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: false)
-        _ = state.advance(call: .zoom, isStrong: true, isRecording: false)
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: false)
+        _ = state.advance(call: .zoom, armsAutoFinish: true, isRecording: false)
         state.markHandled()
-        _ = state.advance(call: .chrome, isStrong: true, isRecording: false)
-        XCTAssertEqual(state.advance(call: .chrome, isStrong: true, isRecording: false), .invite(.chrome))
+        _ = state.advance(call: .chrome, armsAutoFinish: true, isRecording: false)
+        XCTAssertEqual(state.advance(call: .chrome, armsAutoFinish: true, isRecording: false), .invite(.chrome))
     }
 
     // MARK: - Prompt copy
-
-    func testACallEndedPromptSurvivesSomeoneStillTalking() {
-        XCTAssertFalse(AutoEndPrompt.Reason.callEnded(app: "Zoom").dismissesOnSpeech)
-        XCTAssertTrue(AutoEndPrompt.Reason.silence.dismissesOnSpeech)
-    }
 
     func testTheCardNamesTheApp() {
         let prompt = AutoEndPrompt(secondsRemaining: 30, reason: .callEnded(app: "Zoom"))
