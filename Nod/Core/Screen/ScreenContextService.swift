@@ -64,6 +64,20 @@ final class ScreenContextService: ObservableObject {
     /// not a precise one, and every refresh is a round trip.
     private static let refreshInterval: TimeInterval = 60
 
+    /// One page of the index read. Must stay at or below the project's
+    /// PostgREST `max-rows`: a page trimmed server-side comes back short, and a
+    /// short page is how the loop below decides it has reached the end.
+    private static let indexPageSize = 1000
+
+    /// Where the index read gives up. A busy day of a dozen apps lands well
+    /// inside this; past it the oldest part of the window is dropped, and
+    /// `observationIndex` says so rather than returning a quietly short answer.
+    private static let maximumIndexRows = 6000
+
+    /// Content hashes per body request. They go in the query string — 64 hex
+    /// characters each — so the chunk keeps the URL clear of proxy limits.
+    private static let bodyChunkSize = 48
+
     init(supabase: SupabaseClient?, exclusions: ScreenExclusions, reader: AccessibilityReader = AccessibilityReader()) {
         self.supabase = supabase
         self.exclusions = exclusions
@@ -247,26 +261,92 @@ extension ScreenContextService {
     /// the words in that question ("working", "recently") appear on the screen
     /// it is asking about, so the match is always empty. A recap is a time
     /// query, not a text query — the window is the whole filter.
-    func activity(in window: DateInterval, limit: Int = 240) async -> ScreenActivityDigest {
+    ///
+    /// Read in two passes, index then bodies. One pass of whole rows ordered
+    /// newest-first had to be capped to keep the payload sane, and the cap made
+    /// "my day" a query about the last couple of hours: a day generates far more
+    /// screen states than the cap allowed, so the morning fell off the end
+    /// silently. The index is small enough to cover the whole window, and only
+    /// the windows that survive the fold are read in full.
+    func activity(in window: DateInterval) async -> ScreenActivityDigest {
         guard ScreenContextDefaults.isEnabled, let supabase else { return ScreenActivityDigest(apps: []) }
         do {
-            let rows: [ScreenObservation] = try await supabase
-                .from("screen_observations")
-                .select()
-                .gt("expires_at", value: Date())
-                .gte("observed_at", value: window.start)
-                .lte("observed_at", value: window.end)
-                .order("observed_at", ascending: false)
-                .limit(limit)
-                .execute()
-                .value
-            let digest = ScreenActivityDigest.build(from: rows)
-            Log.screen.info("context: \(rows.count) observation(s) folded into \(digest.apps.count) app(s)")
+            let index = try await observationIndex(in: window, from: supabase)
+            guard !index.isEmpty else {
+                Log.screen.info("context: no observations in the requested window")
+                return ScreenActivityDigest(apps: [])
+            }
+            let plan = ScreenActivityDigest.plan(from: index)
+            let wanted = plan.hashesToRead
+            let bodies = try await observationBodies(for: wanted, from: supabase)
+            let digest = ScreenActivityDigest.build(plan: plan, bodies: bodies)
+            Log.screen.info(
+                "context: \(index.count) observation(s) folded into \(digest.apps.count) app(s), "
+                    + "\(bodies.count)/\(wanted.count) window text(s) read"
+            )
             return digest
         } catch {
             Log.screen.error("context: activity lookup failed — \(error.localizedDescription)")
             return ScreenActivityDigest(apps: [])
         }
+    }
+
+    /// Every observation in the window, text excluded.
+    ///
+    /// Paged rather than one big `limit`: PostgREST trims a response to its
+    /// `max-rows` setting without saying so, so a limit above it doesn't fetch
+    /// more rows — it just hides that it didn't.
+    private func observationIndex(
+        in window: DateInterval,
+        from supabase: SupabaseClient
+    ) async throws -> [ScreenObservationIndex] {
+        var index: [ScreenObservationIndex] = []
+        while index.count < Self.maximumIndexRows {
+            let page: [ScreenObservationIndex] = try await supabase
+                .from("screen_observations")
+                .select(ScreenObservationIndex.columns)
+                .gt("expires_at", value: Date())
+                .gte("observed_at", value: window.start)
+                .lte("observed_at", value: window.end)
+                .order("observed_at", ascending: false)
+                .range(from: index.count, to: index.count + Self.indexPageSize - 1)
+                .execute()
+                .value
+            index.append(contentsOf: page)
+            if page.count < Self.indexPageSize { return index }
+        }
+        if let oldest = index.last?.observedAt {
+            Log.screen.error(
+                "context: activity index hit its \(Self.maximumIndexRows)-row cap — "
+                    + "nothing before \(ISO8601DateFormatter().string(from: oldest)) was considered"
+            )
+        }
+        return index
+    }
+
+    /// The text behind the screen states a plan named, longest read per state.
+    ///
+    /// Chunked because the hashes travel in the URL and a plan can name well
+    /// over a hundred of them.
+    private func observationBodies(
+        for hashes: [String],
+        from supabase: SupabaseClient
+    ) async throws -> [String: String] {
+        var bodies: [String: String] = [:]
+        for start in stride(from: 0, to: hashes.count, by: Self.bodyChunkSize) {
+            let chunk = Array(hashes[start ..< min(start + Self.bodyChunkSize, hashes.count)])
+            let rows: [ScreenObservation] = try await supabase
+                .from("screen_observations")
+                .select()
+                .gt("expires_at", value: Date())
+                .in("content_hash", values: chunk)
+                .execute()
+                .value
+            for row in rows where (bodies[row.contentHash]?.count ?? 0) < row.content.count {
+                bodies[row.contentHash] = row.content
+            }
+        }
+        return bodies
     }
 
     /// Postgres matches any term (`|`), which is what gives useful recall — but

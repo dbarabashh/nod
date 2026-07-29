@@ -20,8 +20,30 @@ final class ScreenActivityDigestTests: XCTestCase {
         )
     }
 
+    /// The two-phase read, collapsed: production fetches the index and the
+    /// bodies from separate queries, and a test has both in hand already.
+    private func digest(from observations: [ScreenObservation]) -> ScreenActivityDigest {
+        var bodies: [String: String] = [:]
+        for observation in observations
+            where (bodies[observation.contentHash]?.count ?? 0) < observation.content.count {
+            bodies[observation.contentHash] = observation.content
+        }
+        return ScreenActivityDigest.build(plan: plan(from: observations), bodies: bodies)
+    }
+
+    private func plan(from observations: [ScreenObservation]) -> ScreenActivityPlan {
+        ScreenActivityDigest.plan(from: observations.map {
+            ScreenObservationIndex(
+                observedAt: $0.observedAt,
+                sourceApp: $0.sourceApp,
+                sourceTitle: $0.sourceTitle,
+                contentHash: $0.contentHash
+            )
+        })
+    }
+
     func testFoldsRepeatedCapturesOfOneWindowIntoOne() {
-        let digest = ScreenActivityDigest.build(from: [
+        let digest = digest(from: [
             observation(app: "com.jira", title: "AP-8 icon colours", content: "short", minutesAgo: 5),
             observation(app: "com.jira", title: "AP-8 icon colours", content: "the fuller body", minutesAgo: 9),
             observation(app: "com.jira", title: "AP-8 icon colours", content: "mid", minutesAgo: 7)
@@ -36,7 +58,7 @@ final class ScreenActivityDigestTests: XCTestCase {
     }
 
     func testKeepsWindowSpan() {
-        let digest = ScreenActivityDigest.build(from: [
+        let digest = digest(from: [
             observation(app: "com.slack", title: "#eng", content: "a", minutesAgo: 30),
             observation(app: "com.slack", title: "#eng", content: "b", minutesAgo: 2)
         ])
@@ -46,7 +68,7 @@ final class ScreenActivityDigestTests: XCTestCase {
     }
 
     func testTitleGroupsAreCaseInsensitiveButDistinctWindowsStaySeparate() {
-        let digest = ScreenActivityDigest.build(from: [
+        let digest = digest(from: [
             observation(app: "com.slack", title: "#eng", content: "a", minutesAgo: 4),
             observation(app: "com.slack", title: "#ENG", content: "b", minutesAgo: 3),
             observation(app: "com.slack", title: "#design", content: "c", minutesAgo: 2)
@@ -56,7 +78,7 @@ final class ScreenActivityDigestTests: XCTestCase {
     }
 
     func testUntitledWindowsDoNotCollapseIntoEachOther() {
-        let digest = ScreenActivityDigest.build(from: [
+        let digest = digest(from: [
             observation(app: "com.editor", title: "", content: "one thing", minutesAgo: 4),
             observation(app: "com.editor", title: "", content: "another thing entirely", minutesAgo: 3)
         ])
@@ -70,7 +92,7 @@ final class ScreenActivityDigestTests: XCTestCase {
             rows.append(observation(app: "com.main", title: "work \(minute)", content: "x", minutesAgo: minute))
         }
 
-        let digest = ScreenActivityDigest.build(from: rows)
+        let digest = digest(from: rows)
 
         XCTAssertEqual(digest.apps.first?.bundleID, "com.main")
     }
@@ -83,7 +105,7 @@ final class ScreenActivityDigestTests: XCTestCase {
             }
         }
 
-        let digest = ScreenActivityDigest.build(from: rows)
+        let digest = digest(from: rows)
 
         XCTAssertEqual(digest.apps.count, ScreenActivityDigest.maximumApps)
         XCTAssertTrue(digest.apps.allSatisfy { $0.windows.count == ScreenActivityDigest.maximumWindowsPerApp })
@@ -91,7 +113,7 @@ final class ScreenActivityDigestTests: XCTestCase {
 
     func testTruncatesAWindowToTheCharacterCap() {
         let long = String(repeating: "a", count: ScreenActivityDigest.maximumWindowCharacters + 500)
-        let digest = ScreenActivityDigest.build(from: [
+        let digest = digest(from: [
             observation(app: "com.doc", title: "spec", content: long, minutesAgo: 1)
         ])
 
@@ -99,11 +121,59 @@ final class ScreenActivityDigestTests: XCTestCase {
     }
 
     func testEmptyInputIsEmptyDigest() {
-        XCTAssertTrue(ScreenActivityDigest.build(from: []).isEmpty)
+        XCTAssertTrue(digest(from: []).isEmpty)
+    }
+
+    /// The whole point of planning from an index: a window seen in the morning
+    /// has to survive into the plan, whatever happened all afternoon.
+    func testMorningWindowsSurviveAnAfternoonOfOtherApps() {
+        var rows = [observation(app: "com.figma", title: "Onboarding flow", content: "frames", minutesAgo: 540)]
+        for minute in 1 ... 400 {
+            rows.append(observation(app: "com.slack", title: "#eng \(minute)", content: "chatter", minutesAgo: minute))
+        }
+
+        let plan = plan(from: rows)
+
+        XCTAssertTrue(plan.apps.contains { $0.bundleID == "com.figma" })
+    }
+
+    func testPlanNamesEveryScreenStateOfAWindowUpToTheCandidateCap() {
+        let rows = (1 ... ScreenActivityDigest.maximumCandidatesPerWindow + 4).map {
+            observation(app: "com.editor", title: "main.swift", content: "state \($0)", minutesAgo: $0)
+        }
+
+        let plan = plan(from: rows)
+
+        XCTAssertEqual(plan.apps[0].windows[0].candidateHashes.count, ScreenActivityDigest.maximumCandidatesPerWindow)
+        XCTAssertEqual(plan.apps[0].windows[0].captures, rows.count)
+    }
+
+    func testHashesToReadAreDeduplicated() {
+        let rows = [
+            observation(app: "com.slack", title: "#eng", content: "identical", minutesAgo: 4),
+            observation(app: "com.slack", title: "#design", content: "identical", minutesAgo: 3)
+        ]
+
+        let plan = plan(from: rows)
+
+        XCTAssertEqual(plan.apps[0].windows.count, 2)
+        XCTAssertEqual(plan.hashesToRead.count, 1)
+    }
+
+    /// A body that never arrived is a window we cannot report, not an empty one.
+    func testWindowsWithoutABodyAreDropped() {
+        let seen = observation(app: "com.jira", title: "AP-8", content: "the ticket body", minutesAgo: 5)
+        let missing = observation(app: "com.figma", title: "Onboarding flow", content: "frames", minutesAgo: 6)
+        let plan = plan(from: [seen, missing])
+
+        let digest = ScreenActivityDigest.build(plan: plan, bodies: [seen.contentHash: seen.content])
+
+        XCTAssertEqual(digest.apps.count, 1)
+        XCTAssertEqual(digest.apps[0].bundleID, "com.jira")
     }
 
     func testPromptBlockNamesTheAppAndItsWindows() {
-        let digest = ScreenActivityDigest.build(from: [
+        let digest = digest(from: [
             observation(app: "com.jira", title: "AP-8 icon colours", content: "grey icons", minutesAgo: 5)
         ])
         let formatter = DateFormatter()

@@ -40,19 +40,29 @@ struct ScreenActivityDigest: Equatable {
     /// thread, short of a whole document.
     static let maximumWindowCharacters = 700
 
-    static func build(from observations: [ScreenObservation]) -> ScreenActivityDigest {
-        var byApp: [String: [String: [ScreenObservation]]] = [:]
-        for observation in observations {
-            byApp[observation.sourceApp, default: [:]][windowKey(for: observation), default: []].append(observation)
+    /// How many of a window's screen states are worth fetching text for.
+    ///
+    /// The fullest of them becomes the window's line, and which one that is
+    /// can't be known from the index — length lives in the body. Six covers a
+    /// window that loaded progressively; beyond that they are the same screen
+    /// scrolled, and each one costs a row in the hydrate query.
+    static let maximumCandidatesPerWindow = 6
+
+    /// Folds an index into the shape of a digest, without any text: which apps
+    /// and windows made the cut, and which screen states to read them from.
+    static func plan(from index: [ScreenObservationIndex]) -> ScreenActivityPlan {
+        var byApp: [String: [String: [ScreenObservationIndex]]] = [:]
+        for entry in index {
+            byApp[entry.sourceApp, default: [:]][windowKey(for: entry), default: []].append(entry)
         }
 
-        var apps: [App] = []
+        var apps: [ScreenActivityPlan.App] = []
         for (bundleID, groups) in byApp {
-            var folded: [Window] = groups.values.compactMap(window(from:))
+            var folded = groups.values.compactMap(plannedWindow(from:))
             guard !folded.isEmpty else { continue }
             folded.sort { $0.lastSeen > $1.lastSeen }
             let captures = groups.values.reduce(0) { $0 + $1.count }
-            apps.append(App(
+            apps.append(ScreenActivityPlan.App(
                 bundleID: bundleID,
                 windows: Array(folded.prefix(maximumWindowsPerApp)),
                 captures: captures
@@ -64,31 +74,91 @@ struct ScreenActivityDigest: Equatable {
                 : left.captures > right.captures
         }
 
-        return ScreenActivityDigest(apps: Array(apps.prefix(maximumApps)))
+        return ScreenActivityPlan(apps: Array(apps.prefix(maximumApps)))
+    }
+
+    /// Puts the text back on a plan. A window whose body never arrived — expired
+    /// between the two queries, or dropped by the row cap — is left out rather
+    /// than reported as an empty screen.
+    static func build(plan: ScreenActivityPlan, bodies: [String: String]) -> ScreenActivityDigest {
+        let apps: [App] = plan.apps.compactMap { app in
+            let windows: [Window] = app.windows.compactMap { window in
+                guard let fullest = fullestBody(among: window.candidateHashes, in: bodies) else { return nil }
+                return Window(
+                    title: window.title,
+                    content: String(fullest.prefix(maximumWindowCharacters)),
+                    firstSeen: window.firstSeen,
+                    lastSeen: window.lastSeen,
+                    captures: window.captures
+                )
+            }
+            guard !windows.isEmpty else { return nil }
+            return App(bundleID: app.bundleID, windows: windows, captures: app.captures)
+        }
+        return ScreenActivityDigest(apps: apps)
+    }
+
+    /// The longest capture wins: the same window read twice differs by how much
+    /// of it had loaded, and the fuller read is the one worth keeping.
+    private static func fullestBody(among hashes: [String], in bodies: [String: String]) -> String? {
+        hashes.compactMap { bodies[$0] }.max { $0.count < $1.count }
     }
 
     /// An untitled window is still a window — grouping every one of them
     /// together would merge unrelated screens, so they fall back to their
     /// content hash.
-    private static func windowKey(for observation: ScreenObservation) -> String {
-        let title = observation.sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return title.isEmpty ? observation.contentHash : title
+    private static func windowKey(for entry: ScreenObservationIndex) -> String {
+        let title = entry.sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return title.isEmpty ? entry.contentHash : title
     }
 
-    /// The longest capture wins: the same window read twice differs by how much
-    /// of it had loaded, and the fuller read is the one worth keeping.
-    private static func window(from group: [ScreenObservation]) -> Window? {
-        guard let fullest = group.max(by: { $0.content.count < $1.content.count }),
-              let first = group.min(by: { $0.observedAt < $1.observedAt }),
+    private static func plannedWindow(from group: [ScreenObservationIndex]) -> ScreenActivityPlan.Window? {
+        guard let first = group.min(by: { $0.observedAt < $1.observedAt }),
               let last = group.max(by: { $0.observedAt < $1.observedAt })
         else { return nil }
-        return Window(
-            title: fullest.sourceTitle,
-            content: String(fullest.content.prefix(maximumWindowCharacters)),
+        var seen = Set<String>()
+        let candidates = group
+            .sorted { $0.observedAt > $1.observedAt }
+            .filter { seen.insert($0.contentHash).inserted }
+            .prefix(maximumCandidatesPerWindow)
+            .map(\.contentHash)
+        return ScreenActivityPlan.Window(
+            title: last.sourceTitle,
             firstSeen: first.observedAt,
             lastSeen: last.observedAt,
-            captures: group.count
+            captures: group.count,
+            candidateHashes: candidates
         )
+    }
+}
+
+/// A digest decided but not yet read: the apps and windows worth showing, and
+/// the screen states whose text would fill them in.
+struct ScreenActivityPlan: Equatable {
+    struct Window: Equatable {
+        let title: String
+        let firstSeen: Date
+        let lastSeen: Date
+        let captures: Int
+        /// Newest first, capped — the fullest of these becomes the window's text.
+        let candidateHashes: [String]
+    }
+
+    struct App: Equatable {
+        let bundleID: String
+        let windows: [Window]
+        let captures: Int
+    }
+
+    let apps: [App]
+
+    /// Every screen state the digest needs the text of, deduplicated: the same
+    /// content can front two windows.
+    var hashesToRead: [String] {
+        var seen = Set<String>()
+        return apps
+            .flatMap { $0.windows.flatMap(\.candidateHashes) }
+            .filter { seen.insert($0).inserted }
     }
 }
 

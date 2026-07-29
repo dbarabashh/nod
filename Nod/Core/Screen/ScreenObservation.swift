@@ -59,6 +59,30 @@ struct ScreenObservation: Codable, Equatable, Identifiable {
     }
 }
 
+/// The metadata half of an observation — everything the activity fold needs
+/// except the text itself.
+///
+/// A recap has to see the whole window it was asked about, and the bodies are
+/// what make that expensive: up to 4000 characters a row, nearly all of them
+/// folded away unread. Reading the index first decides which windows matter for
+/// a fraction of the payload, so the row budget is spent on coverage instead of
+/// on text nobody sees.
+struct ScreenObservationIndex: Decodable, Equatable {
+    let observedAt: Date
+    let sourceApp: String
+    let sourceTitle: String
+    let contentHash: String
+
+    enum CodingKeys: String, CodingKey {
+        case observedAt = "observed_at"
+        case sourceApp = "source_app"
+        case sourceTitle = "source_title"
+        case contentHash = "content_hash"
+    }
+
+    static let columns = "observed_at,source_app,source_title,content_hash"
+}
+
 /// Turns the strings an accessibility walk returns into something worth
 /// storing, or into nothing at all.
 enum ScreenObservationBuilder {
