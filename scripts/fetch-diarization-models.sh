@@ -9,9 +9,14 @@
 #     same reproducibility a commit would.
 #
 # Unlike the VAD xcframework, these are NOT build-time only: they are bundled
-# resources and ship inside the app. A build without them still succeeds —
-# `SpeakerDiarizer.bundled()` returns nil and transcripts fall back to
-# source-based Me/Them labels.
+# resources and ship inside the app, so the build needs them present — the
+# project lists them in Copy Bundle Resources and a `Check diarization models`
+# pre-build phase fails with a pointer back here if they're absent.
+#
+# At *runtime* their absence is survivable: `SpeakerDiarizer.bundled()` returns
+# nil and transcripts fall back to source-based Me/Them labels. That is the
+# degradation path for a build that dropped them (an `xcodegen generate` run
+# with the files missing), not a licence to skip this script.
 #
 # Licences: pyannote segmentation-3.0 is MIT (CNRS), wespeaker CAM++ is
 # Apache 2.0. Both are redistributable inside a commercial app.

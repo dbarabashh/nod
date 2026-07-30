@@ -922,6 +922,7 @@
 			buildConfigurationList = FC60EBF79D4B761A1027E0B3 /* Build configuration list for PBXNativeTarget "Nod" */;
 			buildPhases = (
 				863D4A8DA6A2D9EB60144A31 /* Check VAD xcframework */,
+				D6CF3A2C9FB434BE7EBFB489 /* Check diarization models */,
 				C4D5F23A89D1DE2A7F4CD050 /* SwiftLint */,
 				FDFF5A63D590AF4AE52380C1 /* Sources */,
 				6C8A778669B440CB7E785C72 /* Resources */,
@@ -1056,6 +1057,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "export PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin\"\nif which swiftlint >/dev/null; then\n  swiftlint lint --quiet\nelse\n  echo \"warning: swiftlint not installed — run 'brew install swiftlint'\"\nfi\n";
+		};
+		D6CF3A2C9FB434BE7EBFB489 /* Check diarization models */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Check diarization models";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "for model in pyannote_segmentation.onnx speaker_embedding.onnx; do\n  if [ ! -f \"$SRCROOT/Nod/Core/Resources/$model\" ]; then\n    echo \"error: Nod/Core/Resources/$model is missing — run ./scripts/fetch-diarization-models.sh once, then build again.\" >&2\n    exit 1\n  fi\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

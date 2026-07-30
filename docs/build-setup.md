@@ -44,6 +44,29 @@ xcodegen generate                    # then build / open Nod.xcodeproj as usual
 - To bump sherpa-onnx: edit `SHERPA_VERSION` + `SHA256` in the script, re-run
   with `--force`.
 
+## First-time setup — diarization models (required before the first build)
+
+Speaker diarization loads two ONNX models from the app bundle. Together they are
+~35 MB, so they are fetched rather than committed (checksum-pinned, which gives
+the same reproducibility):
+
+```sh
+./scripts/fetch-diarization-models.sh   # pyannote segmentation-3.0 + wespeaker CAM++ → Nod/Core/Resources/
+```
+
+- **Required to build**, unlike the VAD xcframework's build-time-only role: both
+  files are listed in Copy Bundle Resources, and a `Check diarization models`
+  pre-build phase fails with a pointer to this script when either is missing.
+  Without that phase a fresh clone died on `Build input file cannot be found`.
+- **CI fetches them too** (cached on the script's hash), before `xcodegen
+  generate` — xcodegen only lists resources that exist on disk, so fetching
+  later would leave CI building an app whose diarization can never load a model.
+- At runtime their absence is survivable: `SpeakerDiarizer.bundled()` returns nil
+  and transcripts fall back to source-based `Me` / `Them` labels.
+- Licences: pyannote segmentation-3.0 is MIT (CNRS), wespeaker CAM++ is Apache
+  2.0 — both redistributable inside a commercial app.
+- To bump either: edit the URL + SHA-256 in the script, re-run with `--force`.
+
 ## Lint, format, and git hooks
 
 ```sh

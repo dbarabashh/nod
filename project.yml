@@ -90,6 +90,18 @@ targets:
             echo "error: Vendor/sherpa-onnx.xcframework is missing — run ./scripts/fetch-vad-xcframework.sh once, then build again." >&2
             exit 1
           fi
+      # The two diarization models are gitignored but listed in Copy Bundle
+      # Resources, so a fresh clone otherwise fails deep in the build phase with
+      # "Build input file cannot be found" and no hint about the script.
+      - name: Check diarization models
+        basedOnDependencyAnalysis: false
+        script: |
+          for model in pyannote_segmentation.onnx speaker_embedding.onnx; do
+            if [ ! -f "$SRCROOT/Nod/Core/Resources/$model" ]; then
+              echo "error: Nod/Core/Resources/$model is missing — run ./scripts/fetch-diarization-models.sh once, then build again." >&2
+              exit 1
+            fi
+          done
       - name: SwiftLint
         basedOnDependencyAnalysis: false
         script: |
