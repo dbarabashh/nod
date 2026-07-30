@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-07-26_
+_Last updated: 2026-07-30_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company. We've made the
@@ -57,6 +57,11 @@ record. While a meeting is running, Nod captures two audio streams locally:
 
 An on-device voice-activity model (Silero VAD) decides where each utterance
 starts and ends, so the streams are cut into complete chunks on real pauses.
+Telling voices apart afterwards also happens on your Mac, on a speaker model
+(pyannote, via Argmax SpeakerKit) that Nod downloads once from Hugging Face on
+first use and keeps on disk. That download sends nothing but the request itself
+— no audio, no transcript, no account — and every diarised meeting after it
+works offline.
 Each chunk is sent to Whisper in the cloud — routed through our EU proxy under
 Zero Data Retention — and the audio bytes are discarded immediately after the
 transcript comes back. Transcription and summarization are not on-device. The
@@ -123,7 +128,8 @@ after — an excluded window is never recognised.
 - **A couple of samples per session**, not a loop. A participant list changes
   rarely.
 - **Count on-device, names once to the summariser.** The participant count
-  drives on-device speaker clustering and never leaves your Mac. The names go
+  drives on-device speaker clustering — the model runs on your Mac's Neural
+  Engine, and the audio it clusters never leaves your machine. The names go
   once, alongside the transcript, to the summarising model through our EU proxy
   under Zero Data Retention, so a summary can say "Alina" instead of
   "Speaker 2". The list itself is not stored — it is dropped with the session.

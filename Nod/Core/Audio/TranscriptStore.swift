@@ -57,6 +57,11 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     /// Reconnect trigger for the transcribers' retry queues (NOD-29).
     private let pathMonitor = NetworkPathMonitor()
 
+    /// Diarizer built at record time so the finalize doesn't pay for the model
+    /// download and Core ML compile inside its clustering budget. Handed to the
+    /// clustering pass and released with it.
+    private var warmDiarizer: SpeakerDiarizer?
+
     init(client: LLMProxyClient) {
         mic = WhisperTranscriber(source: .me, client: client)
         system = WhisperTranscriber(source: .them, client: client)
@@ -82,6 +87,17 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
 
     func start(diarizing: Bool = false) async {
         Log.stt.info("TranscriptStore.start() — Whisper (mic + system)")
+        // Built now, used at End: the models download on first ever use and
+        // then compile, and the finalize only waits `speakerJoinTimeout` for
+        // clustering — paying either cost from inside that budget ships the
+        // meeting unlabelled.
+        if diarizing {
+            warmDiarizer = nil
+            Task { [weak self] in
+                let diarizer = await SpeakerDiarizer.make(loadModels: true)
+                await MainActor.run { self?.warmDiarizer = diarizer }
+            }
+        }
         DispatchQueue.main.async {
             self.entries = []
             self.liveMe = ""
@@ -134,16 +150,18 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     /// diarized, produced no speech, or the models aren't bundled.
     func resolveSpeakers(expectedSpeakerCount: Int = 0) async -> [UUID: Int] {
         guard let buffer = await system.detachDiarizationBuffer() else { return [:] }
+        let warm = warmDiarizer
+        warmDiarizer = nil
         return await Task.detached(priority: .utility) {
-            guard let diarizer = SpeakerDiarizer.bundled(speakerCount: expectedSpeakerCount) else { return [:] }
-            Log.stt.info(
-                "diarization: clustering \(Int(buffer.retainedSeconds))s of speech (threshold \(SpeakerDiarizer.Configuration.defaultClusteringThreshold))…"
-            )
+            var resolved = warm
+            if resolved == nil { resolved = await SpeakerDiarizer.make() }
+            guard let diarizer = resolved else { return [:] }
+            Log.stt.info("diarization: clustering \(Int(buffer.retainedSeconds))s of speech…")
             let started = Date()
-            let speakers = buffer.resolveSpeakers(using: diarizer)
+            let speakers = await buffer.resolveSpeakers(using: diarizer, speakerCount: expectedSpeakerCount)
             let distinct = Set(speakers.values).count
             Log.stt.info(
-                "diarization: \(distinct) speaker(s) over \(Int(buffer.retainedSeconds))s of speech in \(String(format: "%.1f", Date().timeIntervalSince(started)))s"
+                "diarization: \(distinct) speaker(s) over \(Int(buffer.retainedSeconds))s of speech in \(String(format: "%.1f", Date().timeIntervalSince(started)))s — labelled \(speakers.count)/\(buffer.spanCount) lines"
             )
             return speakers
         }.value

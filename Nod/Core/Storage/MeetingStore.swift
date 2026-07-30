@@ -87,6 +87,13 @@ final class MeetingStore: ObservableObject {
     /// affordances still need the meeting row and transcript records to exist.
     @Published private(set) var finalizingMeetingIDs: Set<UUID> = []
 
+    /// Meetings whose speaker labels are still being decided — clustering at
+    /// finalize, then the pass that puts names to the clusters. A row's label
+    /// changes twice in that window (`Them` → `Speaker 2` → `Eric`), so the
+    /// transcript shows a placeholder rather than an answer it is about to
+    /// overwrite while the user is reading it.
+    @Published private(set) var resolvingSpeakerIDs: Set<UUID> = []
+
     /// Meeting IDs that finished generating but haven't fully reached the server
     /// — they still sit in the durable `MeetingOutbox`. Mirrored from the
     /// session's drain (`setUnsyncedMeetings`). Two jobs:
@@ -211,6 +218,14 @@ final class MeetingStore: ObservableObject {
         streamingSummaries[meeting.id] = nil
     }
 
+    func beginResolvingSpeakers(id: UUID) {
+        resolvingSpeakerIDs.insert(id)
+    }
+
+    func finishResolvingSpeakers(id: UUID) {
+        resolvingSpeakerIDs.remove(id)
+    }
+
     /// Marks the end-of-meeting persistence path complete for a local draft.
     func finishFinalizing(id: UUID) {
         Log.ui.info("MeetingStore.finishFinalizing id=\(id.uuidString)")
@@ -310,6 +325,34 @@ final class MeetingStore: ObservableObject {
 
         if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
             meetings[idx] = meeting
+        }
+    }
+
+    /// Patches only `speaker_names`. Written by the post-meeting extraction pass
+    /// once the row is on the server, so it never rides the insert payload and
+    /// can't be lost to an outbox re-push that predates it.
+    func updateSpeakerNames(_ names: [String: String], for meetingID: UUID) async throws {
+        guard !names.isEmpty else { return }
+        Log.ui.info("MeetingStore.updateSpeakerNames id=\(meetingID.uuidString) count=\(names.count)")
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+
+        struct Patch: Encodable {
+            let speakerNames: [String: String]
+
+            enum CodingKeys: String, CodingKey {
+                case speakerNames = "speaker_names"
+            }
+        }
+        try await supabase
+            .from(Self.tableName)
+            .update(Patch(speakerNames: names))
+            .eq("id", value: meetingID.uuidString)
+            .execute()
+
+        if let idx = meetings.firstIndex(where: { $0.id == meetingID }) {
+            meetings[idx] = meetings[idx].updating(speakerNames: names)
         }
     }
 

@@ -54,12 +54,11 @@ xcodebuild -project Nod.xcodeproj -scheme Nod build        # CLI build
 xcodebuild -project Nod.xcodeproj -scheme Nod -destination 'platform=macOS' test
 ```
 
-**First clone:** run both fetch scripts before the first build — neither payload
-is committed, and the build fails without them:
+**First clone:** fetch the VAD payload before the first build — it is not
+committed, and the build fails without it:
 
 ```sh
 ./scripts/fetch-vad-xcframework.sh     # sherpa-onnx VAD xcframework → Vendor/
-./scripts/fetch-diarization-models.sh  # the two diarization ONNX models → Nod/Core/Resources/
 ```
 
 Full build, lint/format, git-hook, and CI-pin details: `docs/build-setup.md`.

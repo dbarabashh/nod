@@ -32,21 +32,6 @@ jobs:
       - name: Fetch VAD xcframework
         run: ./scripts/fetch-vad-xcframework.sh
 
-      # Must precede "Generate project": xcodegen only lists resources that
-      # exist on disk, so without these the generated project silently drops
-      # them and CI builds an app whose diarization can never load a model —
-      # green on a feature it never compiled against.
-      - name: Cache diarization models
-        uses: actions/cache@v6
-        with:
-          path: |
-            Nod/Core/Resources/pyannote_segmentation.onnx
-            Nod/Core/Resources/speaker_embedding.onnx
-          key: diarization-${{ hashFiles('scripts/fetch-diarization-models.sh') }}
-
-      - name: Fetch diarization models
-        run: ./scripts/fetch-diarization-models.sh
-
       - name: Install tooling
         run: brew install xcodegen
 

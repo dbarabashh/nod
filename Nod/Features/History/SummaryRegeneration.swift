@@ -145,7 +145,7 @@ final class SummaryRegeneration: ObservableObject {
     private func regenerate(_ meeting: Meeting, streaming: Bool) async throws -> Meeting {
         let records = try await meetingStore.fetchTranscript(meetingID: meeting.id)
         let transcript = records
-            .map { "[\($0.displayLabel())]: \($0.text)" }
+            .map { "[\($0.promptLabel(names: meeting.speakerNames))]: \($0.text)" }
             .joined(separator: "\n")
         guard !transcript.isEmpty else { throw Failure.noTranscript }
 

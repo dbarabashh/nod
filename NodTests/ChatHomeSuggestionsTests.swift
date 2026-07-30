@@ -16,6 +16,7 @@ final class ChatHomeSuggestionsTests: XCTestCase {
             summary: "",
             recap: nil,
             language: "en",
+            speakerNames: nil,
             deletedAt: deleted ? now : nil
         )
     }

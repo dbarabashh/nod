@@ -48,6 +48,10 @@ final class DiarizationBuffer: @unchecked Sendable {
         TimeInterval(samples.count) / TimeInterval(sampleRate)
     }
 
+    var spanCount: Int {
+        spans.count
+    }
+
     func record(_ segment: [Float]) -> UUID? {
         guard !segment.isEmpty else { return nil }
         guard samples.count + segment.count <= maxSamples else {
@@ -71,9 +75,10 @@ final class DiarizationBuffer: @unchecked Sendable {
     /// Cluster the retained speech and hand back one speaker per recorded span.
     /// Spans the diarizer could not attribute are absent from the result rather
     /// than guessed at.
-    func resolveSpeakers(using diarizer: SpeakerDiarizer) -> [UUID: Int] {
+    func resolveSpeakers(using diarizer: SpeakerDiarizer, speakerCount: Int) async -> [UUID: Int] {
         guard !spans.isEmpty else { return [:] }
-        let turns = SpeakerAssignment.normalized(diarizer.diarize(samples.map { Float($0) / 32_767 }))
+        let samples = samples.map { Float($0) / 32_767 }
+        let turns = await SpeakerAssignment.normalized(diarizer.diarize(samples, speakerCount: speakerCount))
         guard !turns.isEmpty else { return [:] }
         return Self.speakers(for: spans, in: turns, sampleRate: sampleRate)
     }

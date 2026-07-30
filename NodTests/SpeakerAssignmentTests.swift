@@ -35,8 +35,8 @@ final class SpeakerAssignmentTests: XCTestCase {
     }
 
     func testOverlappingSpeechResolvesToTheGreaterOverlap() {
-        // sherpa-onnx expresses simultaneous speech as intersecting turns
-        // rather than a flag, so a chunk can match two speakers at once.
+        // Simultaneous speech surfaces as intersecting turns rather than a
+        // flag, so a chunk can match two speakers at once.
         let turns = [turn(11.46, 12.97, 1), turn(12.67, 13.77, 2)]
 
         XCTAssertEqual(SpeakerAssignment.speaker(from: 12.6, to: 13.6, in: turns), 2)
@@ -168,5 +168,44 @@ final class TranscriptLabelTests: XCTestCase {
 
     func testDroppingSpeakerFallsBackToThePlainLabel() {
         XCTAssertEqual(record(source: "them", speaker: 3).droppingSpeaker().displayLabel(), "Them")
+    }
+
+    func testANamedClusterRendersAsThePersonAlone() {
+        XCTAssertEqual(
+            record(source: "them", speaker: 2).displayLabel(names: ["2": "Eric Johnson"]),
+            "Eric Johnson"
+        )
+    }
+
+    /// `[Them]` is a routing hint every playbook rule keys on, so the prompt
+    /// label narrows it with the name instead of dropping it.
+    func testThePromptLabelKeepsTheRoutingTag() {
+        XCTAssertEqual(
+            record(source: "them", speaker: 2).promptLabel(names: ["2": "Eric Johnson"]),
+            "Them · Eric Johnson"
+        )
+        XCTAssertEqual(record(source: "them", speaker: 2).promptLabel(), "Them · Speaker 2")
+        XCTAssertEqual(record(source: "me", speaker: nil).promptLabel(names: ["1": "Eric"]), "Me")
+    }
+
+    /// Naming is sparse by design — the extraction pass only maps clusters the
+    /// transcript identifies outright, so the rest must keep their number.
+    func testAnUnnamedClusterKeepsItsNumber() {
+        XCTAssertEqual(
+            record(source: "them", speaker: 3).displayLabel(names: ["2": "Eric Johnson"]),
+            "Them · Speaker 3"
+        )
+    }
+
+    /// A model that answers `{"2": ""}` must not produce a dangling "Them · ".
+    func testABlankNameFallsBackToTheNumber() {
+        XCTAssertEqual(
+            record(source: "them", speaker: 2).displayLabel(names: ["2": "   "]),
+            "Them · Speaker 2"
+        )
+    }
+
+    func testNamesNeverApplyToTheUsersOwnSide() {
+        XCTAssertEqual(record(source: "me", speaker: 1).displayLabel(names: ["1": "Eric"]), "Me")
     }
 }

@@ -95,7 +95,7 @@ struct MeetingDetailView: View {
     /// returns. Falls back to the captured `meeting` value when the store
     /// hasn't loaded yet (deep-link or refresh race).
     private var current: Meeting {
-        meetingStore.meetings.first(where: { $0.id == meeting.id }) ?? meeting
+        meetingStore.byID[meeting.id] ?? meeting
     }
 
     /// True while ContentView's post-meeting Task is still waiting on the
@@ -108,6 +108,14 @@ struct MeetingDetailView: View {
     /// first persistence pass.
     private var isFinalizing: Bool {
         meetingStore.finalizingMeetingIDs.contains(meeting.id)
+    }
+
+    /// True while this line's speaker is still being decided. Scoped to the
+    /// remote side: the user's own mic is a single known voice and is never
+    /// clustered, so its chip is final the moment the line exists.
+    private func isResolvingSpeakers(_ record: TranscriptRecord) -> Bool {
+        TranscriptSource(rawValue: record.source) == .them
+            && meetingStore.resolvingSpeakerIDs.contains(meeting.id)
     }
 
     /// Finished generating but still waiting on the server (durable outbox).
@@ -724,7 +732,7 @@ struct MeetingDetailView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
             } else {
-                VStack(alignment: .leading, spacing: 14) {
+                LazyVStack(alignment: .leading, spacing: 14) {
                     ForEach(records) { record in
                         transcriptRow(record)
                     }
@@ -755,16 +763,11 @@ struct MeetingDetailView: View {
     private func transcriptRow(_ record: TranscriptRecord) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(record.displayLabel().uppercased())
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .tracking(0.4)
-                    .foregroundStyle(Theme.Palette.ink.opacity(0.85))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(speakerBackground(record))
-                    )
+                SpeakerChip(
+                    label: record.displayLabel(names: current.speakerNames),
+                    tint: speakerBackground(record),
+                    isResolving: isResolvingSpeakers(record)
+                )
                 Text(Self.timeFormatter.string(from: record.ts))
                     .font(.system(size: 10.5))
                     .foregroundStyle(Theme.Palette.muted)
@@ -961,7 +964,7 @@ struct MeetingDetailView: View {
         guard case let .loaded(records) = transcriptLoad, !records.isEmpty else { return }
         let payload = records
             .map { record in
-                "[\(Self.timeFormatter.string(from: record.ts))] \(record.displayLabel()): \(record.text)"
+                "[\(Self.timeFormatter.string(from: record.ts))] \(record.displayLabel(names: current.speakerNames)): \(record.text)"
             }
             .joined(separator: "\n")
         copyAndFlash(payload)

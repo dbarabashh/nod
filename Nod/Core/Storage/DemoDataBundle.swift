@@ -73,6 +73,7 @@
                 summary: fixture.recap.toMarkdown(),
                 recap: fixture.recap,
                 language: "en",
+                speakerNames: nil,
                 deletedAt: nil
             )
         }

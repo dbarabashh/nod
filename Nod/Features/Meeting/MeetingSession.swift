@@ -604,6 +604,7 @@ final class MeetingSession: ObservableObject {
             summary: "",
             recap: nil,
             language: langCode,
+            speakerNames: nil,
             deletedAt: nil
         )
         meetingStore.beginGenerating(draft)
@@ -626,7 +627,15 @@ final class MeetingSession: ObservableObject {
         // an inflated speaker count here, and its participants' names in this
         // meeting's recap prompt.
         let pinnedRoster = consumeRoster()
+        if shouldDiarize { meetingStore.beginResolvingSpeakers(id: draft.id) }
         Task {
+            // Every exit of this Task clears the "labels still resolving" flag —
+            // unless clustering overran and `applyLateSpeakers` took ownership,
+            // because that pass is what rewrites the labels next.
+            var lateRelabelOwnsFlag = false
+            defer {
+                if !lateRelabelOwnsFlag { meetingStore.finishResolvingSpeakers(id: draftID) }
+            }
             // Ensure a WAL entry exists even on the fallback path — idempotent,
             // so a streamed meeting keeps its progress.
             await outbox.begin(draft)
@@ -713,6 +722,7 @@ final class MeetingSession: ObservableObject {
                 // what makes the meeting findable — behind the whole clustering
                 // pass on exactly the long calls that overran the join timeout.
                 if speakers.isEmpty {
+                    lateRelabelOwnsFlag = true
                     Task { await self.applyLateSpeakers(from: speakerTask, entries: entriesSnapshot, meeting: updated) }
                 }
 
@@ -730,26 +740,13 @@ final class MeetingSession: ObservableObject {
                 // background, so the extra latency is invisible to the user.
                 let landed = await outbox.isPending(updated.id) == false
                 if landed {
-                    // Promote the recap's extracted actions to first-class rows,
-                    // but only for kinds that carry personal to-dos (meeting /
-                    // voice note) — passive media has none. After the parent
-                    // meeting landed so the FK resolves.
-                    if updated.kind.extractsActionItems {
-                        await actionItemStore.saveExtracted(
-                            recap.actionItems,
-                            meetingID: updated.id,
-                            userID: userID
-                        )
-                    }
-                    await extractEntities(
-                        meetingID: updated.id,
+                    await enrich(
+                        updated,
                         userID: userID,
                         transcript: context,
-                        summary: text
-                    )
-                    await knowledgeStore.index(
-                        meetingID: updated.id,
-                        transcript: context
+                        recap: recap,
+                        participants: participants,
+                        speakersLabelled: !speakers.isEmpty
                     )
                 }
             } catch {
@@ -1176,6 +1173,7 @@ final class MeetingSession: ObservableObject {
         entries: [TranscriptEntry],
         meeting: Meeting
     ) async {
+        defer { meetingStore.finishResolvingSpeakers(id: meeting.id) }
         let speakers = await task.value
         guard !speakers.isEmpty else { return }
 
@@ -1250,20 +1248,88 @@ final class MeetingSession: ObservableObject {
     /// Best-effort entity extraction — links the saved session to the
     /// people / projects / topics it mentions so "Related sessions" can find
     /// it. Runs after persistence; a failure here never affects the meeting.
+    /// Everything a meeting gets once it has durably landed: to-dos, entities,
+    /// speaker names, and the embeddings that make it searchable. All
+    /// best-effort — the meeting is already saved, and none of this can change
+    /// what the user sees in the recap.
+    private func enrich(
+        _ meeting: Meeting,
+        userID: UUID,
+        transcript: String,
+        recap: MeetingRecap,
+        participants: [String],
+        speakersLabelled: Bool
+    ) async {
+        // Only kinds that carry personal to-dos (meeting / voice note) —
+        // passive media has none.
+        if meeting.kind.extractsActionItems {
+            await actionItemStore.saveExtracted(recap.actionItems, meetingID: meeting.id, userID: userID)
+        }
+        await extractEntities(
+            meetingID: meeting.id,
+            userID: userID,
+            transcript: transcript,
+            summary: meeting.summary,
+            participants: participants,
+            speakersLabelled: speakersLabelled
+        )
+        // Detached, and only after entities: indexing runs gte-small embeddings
+        // inside the edge worker and is CPU-heavy enough to trip
+        // WORKER_RESOURCE_LIMIT (HTTP 546) when it shares a worker instance with
+        // the entity call. Nothing waits on it — least of all the transcript's
+        // speaker chips, which are final by now.
+        Task { await knowledgeStore.index(meetingID: meeting.id, transcript: transcript) }
+    }
+
     private func extractEntities(
         meetingID: UUID,
         userID: UUID,
         transcript: String,
-        summary: String
+        summary: String,
+        participants: [String],
+        speakersLabelled: Bool
     ) async {
         guard !transcript.isEmpty else { return }
-        let (system, user) = PromptLibrary.buildEntityExtraction(transcript: transcript, summary: summary)
+        let (system, user) = PromptLibrary.buildEntityExtraction(
+            transcript: transcript,
+            summary: summary,
+            participants: participants,
+            speakersLabelled: speakersLabelled
+        )
+        let extracted: ExtractedEntities
         do {
-            let extracted = try await llm.completeJSON(system: system, user: user, as: ExtractedEntities.self)
-            guard !extracted.isEmpty else { return }
-            try await entityStore.saveExtraction(extracted, meetingID: meetingID, userID: userID)
+            extracted = try await llm.completeJSON(system: system, user: user, as: ExtractedEntities.self)
+            if !extracted.isEmpty {
+                try await entityStore.saveExtraction(extracted, meetingID: meetingID, userID: userID)
+            }
         } catch {
             Log.ui.error("entity extraction failed (non-fatal): \(error.localizedDescription)")
+            return
+        }
+
+        // The same call also names the diarized clusters it can tie to a person,
+        // so a named speaker costs no extra request. Written in its own attempt:
+        // this column is newer than the rest of the row, and a client running
+        // ahead of the deployed schema must not take entity extraction down with
+        // it.
+        guard speakersLabelled else { return }
+        let speakers = Self.namedSpeakers(in: extracted)
+        do {
+            try await meetingStore.updateSpeakerNames(speakers, for: meetingID)
+        } catch {
+            Log.ui.error("speaker naming failed (non-fatal): \(error.localizedDescription)")
+        }
+    }
+
+    /// Cluster→name pairs worth persisting: a positive cluster number and a
+    /// non-empty name. Models occasionally answer with `{"1": ""}` or key the
+    /// map by a person's name instead of the number, and neither can render.
+    private static func namedSpeakers(in extracted: ExtractedEntities) -> [String: String] {
+        guard let speakers = extracted.speakers else { return [:] }
+        return speakers.reduce(into: [String: String]()) { result, pair in
+            let name = pair.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let cluster = Int(pair.key), cluster > 0, !name.isEmpty else { return }
+            result["\(cluster)"] = name
         }
     }
 

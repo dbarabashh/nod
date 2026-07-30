@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-07-29_
+_Last updated: 2026-07-30_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -373,6 +373,15 @@ third parties only when one of the following applies:
 - As part of a business transfer (merger, acquisition, asset sale). We
   will notify you with at least 30 days' notice and you can delete your
   data before any transfer.
+
+One outbound connection is not a data share at all, and we list it here so
+the picture is complete: the first time Nod separates speakers on a recording,
+it downloads the speaker model from **Hugging Face** (`argmaxinc/speakerkit-coreml`,
+a public repository). Like any download, that request discloses your IP address
+and app version to them — and nothing else. No audio, no transcript, no account
+data is involved, the model is cached on disk afterwards, and Hugging Face
+processes no personal data on our behalf, so they are not a subprocessor
+(see [Subprocessors](./subprocessors.md)).
 
 ---
 

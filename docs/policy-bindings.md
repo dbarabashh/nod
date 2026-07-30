@@ -21,6 +21,8 @@ set. All contact emails resolve to `dbarabashdev@gmail.com`.
 | Audio is ever persisted (today: never; `WhisperTranscriber` discards chunks) | `security.md` "Audio recordings", `privacy.md` § 3.2 |
 | OpenRouter privacy toggles flipped (ZDR off, "may train on request data" enabled, first-party endpoints re-enabled) | `security.md` § Model training, `privacy.md` § 4 |
 | New table in `public.*` schema, or RLS dropped on any table | `security.md` "Infrastructure", `privacy.md` § 3 |
+| Where the on-device speaker model comes from (`SpeakerDiarizer` / `PyannoteConfig` — today a first-use download from the public `argmaxinc/speakerkit-coreml` Hugging Face repo) | `security.md` "How Nod works", `privacy.md` § 5, `subprocessors.md` "What we do not use" |
+| Diarization stops being on-device (any cloud diarization API) | `security.md` "How Nod works" + "Trust at a glance", `privacy.md` § 3.2/§ 5, `subprocessors.md` table — this would add a real subprocessor |
 | SSL enforcement disabled (`supabase --experimental ssl-enforcement get`), TLS version downgraded | `security.md` "Trust at a glance" + "Infrastructure" |
 | Soft-delete window changed from 30 days, or the `purge-trashed-meetings` pg_cron job removed | `security.md` "Access control", `privacy.md` § 7 |
 | Backup retention changes (Supabase plan upgrade, PITR enabled) | `security.md` "Infrastructure", `privacy.md` § 7 |

@@ -19,6 +19,7 @@ final class MeetingStoreMergeTests: XCTestCase {
             summary: summary,
             recap: nil,
             language: "en",
+            speakerNames: nil,
             deletedAt: nil
         )
     }
@@ -122,7 +123,7 @@ final class MeetingStoreMergeTests: XCTestCase {
             id: id, userID: UUID(), createdAt: nil,
             startedAt: start, endedAt: start,
             title: nil, kind: .meeting, summary: "final", recap: nil,
-            language: "en", deletedAt: nil
+            language: "en", speakerNames: nil, deletedAt: nil
         )
         let draft = makeMeeting(id: id, startedAt: start, summary: "")
 

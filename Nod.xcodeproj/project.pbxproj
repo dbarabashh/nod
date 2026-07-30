@@ -97,7 +97,7 @@
 		82ED5BC1553793F6FABF5282 /* OnboardingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736C5AC42FF7736D5C14B5C5 /* OnboardingState.swift */; };
 		834414C40C726C27DD930F17 /* PanelSharingPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8913CBB534D73BFB85E27C /* PanelSharingPreference.swift */; };
 		83821160F8F05670D3D9A61B /* DemoDataTranscripts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45080A85A0F92C993BBB77C8 /* DemoDataTranscripts.swift */; };
-		876E76FC26A918A975EA76FF /* pyannote_segmentation.onnx in Resources */ = {isa = PBXBuildFile; fileRef = 8EB59266EA18109DFEA0350D /* pyannote_segmentation.onnx */; };
+		869D621D2D080A416C7516FB /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = B6B05AD5320B14CDB0588C6D /* SpeakerKit */; };
 		87D0FC8D4B6AFBEEC273EB12 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F013A91B9B2024056289FF /* AppLanguage.swift */; };
 		8950400000488AF416E4BB65 /* GranolaCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B3C74B36E44417C932ED13 /* GranolaCacheTests.swift */; };
 		89598505C0948AFF427CB0D3 /* AccountExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C330DD6CB3A6C8BE0237DA52 /* AccountExportService.swift */; };
@@ -159,7 +159,6 @@
 		C7B524DC6679D9B4A217462F /* NodApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 649AEFDC67FDD49A98A082B0 /* NodApp.swift */; };
 		C7DC3B75FAF006CB40497191 /* SessionsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 770362DCD474A56B51F13FDB /* SessionsListView.swift */; };
 		C7E6963ED271DFA9E3C6564F /* ActionItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF895B234715E259A07D54C2 /* ActionItem.swift */; };
-		CA793057333A60A52171E63D /* speaker_embedding.onnx in Resources */ = {isa = PBXBuildFile; fileRef = 81805488C6D18F65239B694E /* speaker_embedding.onnx */; };
 		CB22421ABBB8513D756EB51F /* PermissionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD57C019704F863EC8C5B2F0 /* PermissionRow.swift */; };
 		CD7F9A13DBA845613B7E9FDE /* MemoryBriefCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 405ED6A9159A14F002B80591 /* MemoryBriefCard.swift */; };
 		CFA2B96601FD4DA01A194F01 /* SherpaVAD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B5A4CF334DEA263E622B3EA /* SherpaVAD.swift */; };
@@ -195,6 +194,7 @@
 		F09818235C96441C84276517 /* RelatedSessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 438C6F8FA28CE63D1A26A83B /* RelatedSessionsView.swift */; };
 		F34B96F0A027E9E2BEB74ECF /* MeetingRecap.swift in Sources */ = {isa = PBXBuildFile; fileRef = D451590C6B2056FD38F117E1 /* MeetingRecap.swift */; };
 		F441DCCD8CA78C019E38645E /* TextSnippet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9496A244C92728C9DE194FC3 /* TextSnippet.swift */; };
+		F46A457B34071124B2A0447C /* SpeakerChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BA796C49C289C2CF32FF050 /* SpeakerChip.swift */; };
 		F4EDE7F6FB207812CFB364D6 /* AppDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB5379DE1E28C742E5B7166 /* AppDirectory.swift */; };
 		F52EC575F3AAFEE5D886BA3B /* TutorialStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9FD93CE00C0BC2F40FD790 /* TutorialStep.swift */; };
 		F7F367F64B52C2F0A77A817B /* ScreenExclusionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FBB0F30D26A43870912AA61 /* ScreenExclusionsTests.swift */; };
@@ -300,6 +300,7 @@
 		67DDBDD797F6A8BF565DE446 /* ActionItemsAggregateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemsAggregateView.swift; sourceTree = "<group>"; };
 		6A72B7EB0EE1F3C1A24066C8 /* MeetingDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingDetector.swift; sourceTree = "<group>"; };
 		6B2A641B99F14EED7AFA428B /* SessionControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionControls.swift; sourceTree = "<group>"; };
+		6BA796C49C289C2CF32FF050 /* SpeakerChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerChip.swift; sourceTree = "<group>"; };
 		6C5D8109B9D3813E03034E16 /* LLMProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProxyClient.swift; sourceTree = "<group>"; };
 		6D976F928680016234925545 /* KnowledgeThreadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeThreadStore.swift; sourceTree = "<group>"; };
 		6FBF8024188E6DB586248C75 /* RecapGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecapGenerator.swift; sourceTree = "<group>"; };
@@ -320,7 +321,6 @@
 		7D82F8FE76B3B1E83391FD34 /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
 		7F896F2D2B496CCF0E5E2051 /* UpdateGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateGate.swift; sourceTree = "<group>"; };
 		7FBD041EB6A785A14202E1A8 /* StatusRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusRow.swift; sourceTree = "<group>"; };
-		81805488C6D18F65239B694E /* speaker_embedding.onnx */ = {isa = PBXFileReference; path = speaker_embedding.onnx; sourceTree = "<group>"; };
 		8218A4D4A8BE7FB051C4A81D /* PromptLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptLibrary.swift; sourceTree = "<group>"; };
 		86B3C74B36E44417C932ED13 /* GranolaCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GranolaCacheTests.swift; sourceTree = "<group>"; };
 		86B747E569AB1981D6B8212A /* EntitlementService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntitlementService.swift; sourceTree = "<group>"; };
@@ -328,7 +328,6 @@
 		8832BAD2DAAE05BEC82F0569 /* ChatHomeSuggestionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHomeSuggestionsTests.swift; sourceTree = "<group>"; };
 		8B1D47F66DD22DC2CF18750D /* InlineConfirmButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineConfirmButtons.swift; sourceTree = "<group>"; };
 		8B876E78544D08B58FB9C93D /* HallucinationFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HallucinationFilter.swift; sourceTree = "<group>"; };
-		8EB59266EA18109DFEA0350D /* pyannote_segmentation.onnx */ = {isa = PBXFileReference; path = pyannote_segmentation.onnx; sourceTree = "<group>"; };
 		90B9A0E58621C399E4C8BE89 /* SampleBufferConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleBufferConverter.swift; sourceTree = "<group>"; };
 		92F3B81F02B25F8E53733099 /* ConsentStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsentStrings.swift; sourceTree = "<group>"; };
 		9304B4FAD03EB638DDBAD2E7 /* ActionCheckbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionCheckbox.swift; sourceTree = "<group>"; };
@@ -427,6 +426,7 @@
 				4D748B69654415EB99DB7D33 /* IOKit.framework in Frameworks */,
 				2484EA93E6A4F4DC7305E7BE /* Supabase in Frameworks */,
 				AFEE441085ADE17C5D17D3B5 /* Sparkle in Frameworks */,
+				869D621D2D080A416C7516FB /* SpeakerKit in Frameworks */,
 				502B52A47B55266A19FD9D06 /* sherpa-onnx.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -504,9 +504,7 @@
 				41F895A1C06E3C025B3A7EB2 /* action-required.wav */,
 				D37A065AD7206583757F3498 /* Assets.xcassets */,
 				75B5AB742ECAD7314EFED914 /* meeting-detected.wav */,
-				8EB59266EA18109DFEA0350D /* pyannote_segmentation.onnx */,
 				35C3AE41335A1F54ABE41B4F /* silero_vad.onnx */,
-				81805488C6D18F65239B694E /* speaker_embedding.onnx */,
 				9C45FB108E26DA2679FB4DDF /* summary-ready.wav */,
 			);
 			path = Resources;
@@ -521,6 +519,7 @@
 				7A96C62A8360FEBFC26D813F /* MeetingDetailView.swift */,
 				438C6F8FA28CE63D1A26A83B /* RelatedSessionsView.swift */,
 				06312CCFA4904884915A5C08 /* SessionChatView.swift */,
+				6BA796C49C289C2CF32FF050 /* SpeakerChip.swift */,
 				2E53EA694ABAEA48678031E9 /* SummaryRegeneration.swift */,
 			);
 			path = History;
@@ -928,7 +927,6 @@
 			buildConfigurationList = FC60EBF79D4B761A1027E0B3 /* Build configuration list for PBXNativeTarget "Nod" */;
 			buildPhases = (
 				863D4A8DA6A2D9EB60144A31 /* Check VAD xcframework */,
-				D6CF3A2C9FB434BE7EBFB489 /* Check diarization models */,
 				C4D5F23A89D1DE2A7F4CD050 /* SwiftLint */,
 				FDFF5A63D590AF4AE52380C1 /* Sources */,
 				6C8A778669B440CB7E785C72 /* Resources */,
@@ -942,6 +940,7 @@
 			packageProductDependencies = (
 				FD9425C84A5944FADFEE1DC0 /* Supabase */,
 				F9647C7A89FF4FDC6C10C454 /* Sparkle */,
+				B6B05AD5320B14CDB0588C6D /* SpeakerKit */,
 			);
 			productName = Nod;
 			productReference = 4940AE0F466E23E8BD4994BD /* Nod.app */;
@@ -994,6 +993,7 @@
 			mainGroup = 84359F757DDBC745C733240B;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				A57E7F81B6614A46E663563C /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
 				BF172EF072AE5B2CA2452C86 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				014C2426E033A6DB50C0D0FD /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
@@ -1016,9 +1016,7 @@
 				B64A9EF519A1A8E5ECE5C5BE /* Assets.xcassets in Resources */,
 				D4C81808CD23332E5CBABC6A /* action-required.wav in Resources */,
 				12D375BB8C7D8FC8E847B167 /* meeting-detected.wav in Resources */,
-				876E76FC26A918A975EA76FF /* pyannote_segmentation.onnx in Resources */,
 				E3CEF731AC1DF0B81198058A /* silero_vad.onnx in Resources */,
-				CA793057333A60A52171E63D /* speaker_embedding.onnx in Resources */,
 				548017E6681D209482506359 /* summary-ready.wav in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1063,25 +1061,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "export PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin\"\nif which swiftlint >/dev/null; then\n  swiftlint lint --quiet\nelse\n  echo \"warning: swiftlint not installed — run 'brew install swiftlint'\"\nfi\n";
-		};
-		D6CF3A2C9FB434BE7EBFB489 /* Check diarization models */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Check diarization models";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "for model in pyannote_segmentation.onnx speaker_embedding.onnx; do\n  if [ ! -f \"$SRCROOT/Nod/Core/Resources/$model\" ]; then\n    echo \"error: Nod/Core/Resources/$model is missing — run ./scripts/fetch-diarization-models.sh once, then build again.\" >&2\n    exit 1\n  fi\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -1260,6 +1239,7 @@
 				820142D0EED8AF1AF4D42CE0 /* SettingsView.swift in Sources */,
 				CFA2B96601FD4DA01A194F01 /* SherpaVAD.swift in Sources */,
 				42E5EF53F1F6A8E9A4C85672 /* SignInView.swift in Sources */,
+				F46A457B34071124B2A0447C /* SpeakerChip.swift in Sources */,
 				4B1E37BFE3154EBD0DBCB8C7 /* SpeakerDiarizer.swift in Sources */,
 				721EA9A78CA0C206854C67BD /* StatusHeader.swift in Sources */,
 				94F80C21C1573FE94A8EC5AD /* StatusItemController.swift in Sources */,
@@ -1555,6 +1535,14 @@
 				minimumVersion = 2.0.0;
 			};
 		};
+		A57E7F81B6614A46E663563C /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
 		BF172EF072AE5B2CA2452C86 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle.git";
@@ -1566,6 +1554,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		B6B05AD5320B14CDB0588C6D /* SpeakerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A57E7F81B6614A46E663563C /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
+			productName = SpeakerKit;
+		};
 		F9647C7A89FF4FDC6C10C454 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = BF172EF072AE5B2CA2452C86 /* XCRemoteSwiftPackageReference "Sparkle" */;

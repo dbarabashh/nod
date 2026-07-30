@@ -1,4 +1,5 @@
 import Foundation
+import SpeakerKit
 
 /// One diarized turn: a contiguous stretch of speech attributed to one cluster.
 /// `speaker` is a cluster index local to a single `diarize` call, not a stable
@@ -25,8 +26,8 @@ enum DiarizationDefaults {
 /// Maps raw diarization output onto transcript chunks.
 enum SpeakerAssignment {
     /// Relabels cluster ids into a dense `1...N` in order of first appearance.
-    /// sherpa-onnx returns whatever indices clustering happened to leave behind
-    /// — a five-speaker result can come back as `[0, 1, 2, 3, 8]` — so the raw
+    /// Cluster ids are whatever clustering happened to leave behind — a
+    /// five-speaker result can come back as `[0, 1, 2, 3, 8]` — so the raw
     /// values must never reach the UI or the recap prompt.
     static func normalized(_ turns: [DiarizedTurn]) -> [DiarizedTurn] {
         var labels: [Int: Int] = [:]
@@ -39,9 +40,9 @@ enum SpeakerAssignment {
 
     /// The speaker of the turn covering most of `start ..< end`.
     ///
-    /// Overlapping speech is not flagged by the C API — it surfaces as turns
-    /// whose time ranges intersect — so a chunk can legitimately match several
-    /// speakers. Greatest overlap wins; ties go to the earlier turn.
+    /// Turns can still intersect after overlapped speech is dropped, so a chunk
+    /// can legitimately match several speakers. Greatest overlap wins; ties go
+    /// to the earlier turn.
     static func speaker(from start: TimeInterval, to end: TimeInterval, in turns: [DiarizedTurn]) -> Int? {
         guard end > start else { return nil }
 
@@ -56,136 +57,88 @@ enum SpeakerAssignment {
     }
 }
 
-/// Offline (whole-recording) speaker diarization over sherpa-onnx's C API:
-/// pyannote segmentation-3.0 for turn boundaries, a speaker-embedding model per
-/// turn, then agglomerative clustering. Runs on the `them` stream only — the
+/// Offline (whole-recording) speaker diarization over Argmax SpeakerKit —
+/// pyannote on Core ML / the Neural Engine. Runs on the `them` stream only: the
 /// `me` stream is already a single known speaker.
+///
+/// Models are pulled from Hugging Face on first use and cached on disk, so the
+/// first diarized meeting after a fresh install needs the network; every later
+/// one is fully offline. No audio leaves the device either way.
 final class SpeakerDiarizer {
-    enum Failure: Error {
-        case modelsMissing
-        case initializationFailed
+    private let speakerKit: SpeakerKit
+
+    /// Distance threshold used when the speaker count is unknown. Nil hands the
+    /// decision to SpeakerKit; the override is a field escape hatch:
+    /// `defaults write com.example.nod diarization.threshold 0.55`.
+    static var clusteringThresholdOverride: Float? {
+        (UserDefaults.standard.object(forKey: "diarization.threshold") as? Double).map(Float.init)
     }
 
-    struct Configuration {
-        /// Known number of speakers. When > 0 the distance threshold is ignored
-        /// entirely, and clustering is markedly more accurate — set it whenever
-        /// the participant count is known.
-        var speakerCount: Int = 0
-        /// Distance threshold used when the speaker count is unknown — higher
-        /// merges more eagerly.
-        ///
-        /// The optimum moves with recording length, because a longer recording
-        /// spreads each voice's embeddings wider and needs a more permissive
-        /// threshold to keep one person in one cluster. Measured: a 9.5-minute
-        /// four-speaker reference needed 0.8 (0.5 gave nine clusters), while a
-        /// 100-second three-speaker meeting collapsed to two at 0.7. Hence the
-        /// compromise default, overridable while we gather more real audio:
-        /// `defaults write com.example.nod diarization.threshold 0.55`.
-        var clusteringThreshold: Float = Self.defaultClusteringThreshold
-        var minDurationOn: Float = 0.3
-        var minDurationOff: Float = 0.5
-        var threadCount: Int = 2
-
-        static var defaultClusteringThreshold: Float {
-            if let override = UserDefaults.standard.object(forKey: "diarization.threshold") as? Double {
-                return Float(override)
-            }
-            return 0.6
-        }
+    /// Where the Core ML models are cached. Explicit because the SDK otherwise
+    /// defaults to `~/Documents/huggingface`, and Nod is not sandboxed — the
+    /// models would land in the user's own Documents folder.
+    private static var modelCacheDirectory: String? {
+        try? FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        .appendingPathComponent("Nod/models", isDirectory: true)
+        .path
     }
 
-    private let diarizer: OpaquePointer
-
-    /// Builds a diarizer from the models shipped in the app bundle, or `nil`
-    /// when they are absent — the feature degrades to source-based labels
-    /// rather than failing the meeting.
-    static func bundled(speakerCount: Int = 0) -> SpeakerDiarizer? {
-        guard let segmentation = Bundle.main.url(forResource: "pyannote_segmentation", withExtension: "onnx"),
-              let embedding = Bundle.main.url(forResource: "speaker_embedding", withExtension: "onnx")
-        else {
-            Log.audio.error("diarization models missing from the bundle")
-            return nil
-        }
-        var configuration = Configuration()
-        configuration.speakerCount = speakerCount
+    /// `loadModels` compiles the Core ML models and makes them resident. The
+    /// finalize path leaves it off (they load lazily on the first `diarize`);
+    /// the prewarm turns it on, because that compile is the slow half and the
+    /// point of prewarming is to keep it out of the clustering budget.
+    static func make(loadModels: Bool = false) async -> SpeakerDiarizer? {
         do {
-            return try SpeakerDiarizer(
-                segmentationModelPath: segmentation.path,
-                embeddingModelPath: embedding.path,
-                configuration: configuration
+            // SpeakerKit logs to stdout; ours goes through `Log`, and `print` is
+            // banned, so keep the SDK quiet.
+            let config = PyannoteConfig(
+                downloadBase: Self.modelCacheDirectory,
+                download: true,
+                load: loadModels,
+                verbose: false
             )
+            return try await SpeakerDiarizer(speakerKit: SpeakerKit(config))
         } catch {
-            Log.audio.error("diarizer init failed: \(error)")
+            Log.audio.error("diarizer init failed: \(error.localizedDescription)")
             return nil
         }
     }
 
-    init(
-        segmentationModelPath: String,
-        embeddingModelPath: String,
-        configuration: Configuration = Configuration()
-    ) throws {
-        let files = FileManager.default
-        guard files.fileExists(atPath: segmentationModelPath),
-              files.fileExists(atPath: embeddingModelPath)
-        else {
-            throw Failure.modelsMissing
-        }
-
-        let created = segmentationModelPath.withCString { segmentation in
-            embeddingModelPath.withCString { embedding in
-                "cpu".withCString { provider -> OpaquePointer? in
-                    var config = SherpaOnnxOfflineSpeakerDiarizationConfig()
-                    config.segmentation.pyannote.model = segmentation
-                    config.segmentation.num_threads = Int32(configuration.threadCount)
-                    config.segmentation.provider = provider
-                    config.embedding.model = embedding
-                    config.embedding.num_threads = Int32(configuration.threadCount)
-                    config.embedding.provider = provider
-                    config.clustering.num_clusters = Int32(configuration.speakerCount)
-                    config.clustering.threshold = configuration.clusteringThreshold
-                    config.min_duration_on = configuration.minDurationOn
-                    config.min_duration_off = configuration.minDurationOff
-                    return SherpaOnnxCreateOfflineSpeakerDiarization(&config)
-                }
-            }
-        }
-
-        guard let created else { throw Failure.initializationFailed }
-        diarizer = created
+    private init(speakerKit: SpeakerKit) {
+        self.speakerKit = speakerKit
     }
 
-    deinit {
-        SherpaOnnxDestroyOfflineSpeakerDiarization(diarizer)
-    }
-
-    /// `samples` is the whole recording as 16 kHz mono Float32 in [-1, 1].
-    /// The C API takes one contiguous buffer — there is no incremental entry
-    /// point — so the caller must hold the full stream until the meeting ends.
-    func diarize(_ samples: [Float]) -> [DiarizedTurn] {
+    /// `samples` is the whole retained speech as 16 kHz mono Float32 in [-1, 1].
+    /// `speakerCount > 0` pins the number of clusters — markedly more accurate
+    /// than distance-thresholded clustering, so pass it whenever the roster
+    /// knows how many people are on the call.
+    func diarize(_ samples: [Float], speakerCount: Int = 0) async -> [DiarizedTurn] {
         guard !samples.isEmpty else { return [] }
-
-        let result = samples.withUnsafeBufferPointer { buffer in
-            SherpaOnnxOfflineSpeakerDiarizationProcess(diarizer, buffer.baseAddress, Int32(buffer.count))
-        }
-        guard let result else { return [] }
-        defer { SherpaOnnxOfflineSpeakerDiarizationDestroyResult(result) }
-
-        let count = Int(SherpaOnnxOfflineSpeakerDiarizationResultGetNumSegments(result))
-        guard count > 0,
-              let segments = SherpaOnnxOfflineSpeakerDiarizationResultSortByStartTime(result)
-        else {
+        let options = PyannoteDiarizationOptions(
+            numberOfSpeakers: speakerCount > 0 ? speakerCount : nil,
+            clusterDistanceThreshold: Self.clusteringThresholdOverride
+        )
+        do {
+            let result = try await speakerKit.diarize(audioArray: samples, options: options)
+            return result.segments.compactMap { segment in
+                // `.multiple` marks overlapped speech: two people at once has no
+                // single right answer, so the span stays unlabelled rather than
+                // being attributed to whichever id sorts first.
+                guard let speaker = segment.speaker.speakerId else { return nil }
+                return DiarizedTurn(
+                    start: TimeInterval(segment.startTime),
+                    end: TimeInterval(segment.endTime),
+                    speaker: speaker
+                )
+            }
+        } catch {
+            Log.audio.error("diarization failed: \(error.localizedDescription)")
             return []
-        }
-        defer { SherpaOnnxOfflineSpeakerDiarizationDestroySegment(segments) }
-
-        return (0 ..< count).map { index in
-            let segment = segments[index]
-            return DiarizedTurn(
-                start: TimeInterval(segment.start),
-                end: TimeInterval(segment.end),
-                speaker: Int(segment.speaker)
-            )
         }
     }
 }

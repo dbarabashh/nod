@@ -23,6 +23,10 @@ struct Meeting: Codable, Identifiable {
     /// generated before the `recap_json` column existed.
     let recap: MeetingRecap?
     let language: String
+    /// Name per diarized speaker cluster, keyed by the number the transcript
+    /// rows carry (`{"1": "Eric"}`). Sparse: only clusters the transcript itself
+    /// identified are named, the rest keep rendering as "Speaker N".
+    let speakerNames: [String: String]?
     /// Soft-delete timestamp — non-nil when the meeting lives in the Trash
     /// segment (#16). Nil for active rows. Server-driven; the client only
     /// reads this (mutations go via `MeetingStore.softDelete` / `.restore`).
@@ -88,6 +92,7 @@ struct Meeting: Codable, Identifiable {
         case summary
         case recap = "recap_json"
         case language
+        case speakerNames = "speaker_names"
         case deletedAt = "deleted_at"
     }
 
@@ -108,6 +113,9 @@ struct Meeting: Codable, Identifiable {
         try c.encode(summary, forKey: .summary)
         try c.encodeIfPresent(recap, forKey: .recap)
         try c.encode(language, forKey: .language)
+        // Omitted when absent so an upsert from the outbox can't wipe names a
+        // later extraction pass already wrote.
+        try c.encodeIfPresent(speakerNames, forKey: .speakerNames)
         try c.encodeIfPresent(deletedAt, forKey: .deletedAt)
     }
 
@@ -136,6 +144,7 @@ struct Meeting: Codable, Identifiable {
             summary: summary,
             recap: recap,
             language: language,
+            speakerNames: nil,
             deletedAt: nil
         )
     }
@@ -183,6 +192,26 @@ struct Meeting: Codable, Identifiable {
             summary: summary,
             recap: recap ?? self.recap,
             language: language,
+            speakerNames: speakerNames,
+            deletedAt: deletedAt
+        )
+    }
+
+    /// Returns a copy carrying the named speaker clusters — the local mirror of
+    /// the `speaker_names` patch the extraction pass writes.
+    func updating(speakerNames: [String: String]) -> Meeting {
+        Meeting(
+            id: id,
+            userID: userID,
+            createdAt: createdAt,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            title: title,
+            kind: kind,
+            summary: summary,
+            recap: recap,
+            language: language,
+            speakerNames: speakerNames,
             deletedAt: deletedAt
         )
     }
@@ -204,6 +233,7 @@ struct Meeting: Codable, Identifiable {
             summary: summary,
             recap: recap,
             language: language,
+            speakerNames: speakerNames,
             deletedAt: deletedAt
         )
     }
@@ -223,6 +253,7 @@ struct Meeting: Codable, Identifiable {
             summary: summary,
             recap: recap,
             language: language,
+            speakerNames: speakerNames,
             deletedAt: deletedAt
         )
     }

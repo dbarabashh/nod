@@ -226,8 +226,9 @@ struct SessionsListView: View {
                 meetings,
                 transcript: { id in
                     let records = try await meetingStore.fetchTranscript(meetingID: id)
+                    let names = meetingStore.byID[id]?.speakerNames
                     return records.map { record in
-                        "[\(record.displayLabel())] \(record.text)"
+                        "[\(record.promptLabel(names: names))] \(record.text)"
                     }.joined(separator: "\n")
                 },
                 progress: { done, total in

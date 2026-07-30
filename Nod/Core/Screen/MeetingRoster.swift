@@ -7,9 +7,8 @@ import os
 ///
 /// Two things come out of a roster, and the second matters more: the names, and
 /// the *count*. Clustering with a known speaker count is markedly more accurate
-/// than clustering against a distance threshold, and the threshold's optimum
-/// moves with recording length (see `SpeakerDiarizer.Configuration`), so a
-/// roster is the difference between guessing and knowing.
+/// than leaving the SDK to pick a distance threshold, so a roster is the
+/// difference between guessing and knowing.
 struct MeetingRoster: Equatable {
     let app: ConferencingApp
     let participants: [String]

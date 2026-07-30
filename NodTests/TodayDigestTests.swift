@@ -21,6 +21,7 @@ final class TodayDigestTests: XCTestCase {
             summary: "",
             recap: sections.isEmpty ? nil : MeetingRecap(sections: sections),
             language: "en",
+            speakerNames: nil,
             deletedAt: deleted ? now : nil
         )
     }

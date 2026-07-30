@@ -55,6 +55,7 @@ final class MeetingOutboxTests: XCTestCase {
             summary: summary,
             recap: nil,
             language: "en",
+            speakerNames: nil,
             deletedAt: nil
         )
     }
@@ -94,6 +95,50 @@ final class MeetingOutboxTests: XCTestCase {
         XCTAssertEqual(writer.uniqueTranscriptIDs, Set(records.map(\.id)))
         let pending = await outbox.isPending(meeting.id)
         XCTAssertFalse(pending, "fully-synced completed entry must be removed")
+    }
+
+    /// Diarization only resolves at End, so a row streamed mid-recording is
+    /// already marked synced by the time it gains a speaker. Without re-sending
+    /// it the labels never leave the Mac — and every meeting long enough to
+    /// stream is affected, which is nearly all of them.
+    func testStreamedRowsAreRePushedOnceDiarizationLabelsThem() async {
+        let user = UUID()
+        let outbox = MeetingOutbox(directory: tempDir)
+        let writer = FakeRemoteWriter()
+        let meeting = makeMeeting(userID: user, summary: "recap")
+        let streamed = [
+            makeRecord(0, meetingID: meeting.id, userID: user),
+            makeRecord(1, meetingID: meeting.id, userID: user)
+        ]
+
+        await outbox.begin(makeMeeting(id: meeting.id, userID: user))
+        await outbox.record(streamed, for: meeting.id)
+        await outbox.flush(using: writer, userID: user)
+        XCTAssertTrue(writer.upsertedTranscripts.allSatisfy { $0.speaker == nil })
+
+        // Same rows, same ids — this is the finalize snapshot, not new lines.
+        let labelled = streamed.enumerated().map { offset, record in
+            TranscriptRecord(
+                id: record.id,
+                meetingID: record.meetingID,
+                userID: record.userID,
+                createdAt: record.createdAt,
+                source: record.source,
+                text: record.text,
+                ts: record.ts,
+                idx: record.idx,
+                speaker: offset + 1
+            )
+        }
+        await outbox.complete(meeting, transcripts: labelled, for: meeting.id)
+        await outbox.flush(using: writer, userID: user)
+
+        let final = Dictionary(
+            writer.upsertedTranscripts.map { ($0.idx, $0.speaker) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        XCTAssertEqual(final[0], 1)
+        XCTAssertEqual(final[1], 2)
     }
 
     func testEmptyRecordingProducesNoServerRow() async {

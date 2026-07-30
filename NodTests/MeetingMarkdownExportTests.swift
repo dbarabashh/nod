@@ -19,6 +19,7 @@ final class MeetingMarkdownExportTests: XCTestCase {
             summary: summary,
             recap: nil,
             language: "uk",
+            speakerNames: nil,
             deletedAt: nil
         )
     }

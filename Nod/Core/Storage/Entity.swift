@@ -37,6 +37,10 @@ struct ExtractedEntities: Codable {
     var people: [String]
     var projects: [String]
     var topics: [String]
+    /// Diarized cluster number → the person speaking it, for the clusters the
+    /// transcript names outright. Optional so a response from before this
+    /// existed (or a model that omits it) still decodes.
+    var speakers: [String: String]?
 
     var isEmpty: Bool {
         people.isEmpty && projects.isEmpty && topics.isEmpty

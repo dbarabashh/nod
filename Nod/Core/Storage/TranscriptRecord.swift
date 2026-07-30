@@ -4,7 +4,7 @@ import Foundation
 /// `meeting_transcripts` table; one row per `TranscriptEntry` produced
 /// during a meeting. `idx` is the position within the meeting so the
 /// detail view can order entries without trusting `ts` for ties.
-struct TranscriptRecord: Codable, Identifiable {
+struct TranscriptRecord: Codable, Identifiable, Equatable {
     let id: UUID
     let meetingID: UUID
     let userID: UUID
@@ -46,14 +46,41 @@ struct TranscriptRecord: Codable, Identifiable {
 }
 
 extension TranscriptRecord {
-    /// `Me`, or `Them` narrowed to the clustered voice when diarization
-    /// attributed the line — `Them · Speaker 2`. The source prefix stays so
-    /// every existing surface (and every prompt rule keyed on `[Them]`) keeps
-    /// reading the same way whether or not speakers were resolved.
-    func displayLabel() -> String {
-        let base = TranscriptSource(rawValue: source)?.label ?? source
-        guard let speaker, TranscriptSource(rawValue: source) == .them else { return base }
-        return "\(base) · Speaker \(speaker)"
+    /// What a person reads on the row: the speaker's name once we know it,
+    /// otherwise the routing tag — `Me`, `Them`, or `Them · Speaker 2`. A name
+    /// replaces `Them` rather than narrowing it; "Them · Eric" reads as two
+    /// people to everyone but us.
+    func displayLabel(names: [String: String]? = nil) -> String {
+        guard let speaker = themSpeaker else { return sourceLabel }
+        return name(for: speaker, in: names) ?? "\(sourceLabel) · Speaker \(speaker)"
+    }
+
+    /// The label a prompt sees. `[Me]` / `[Them]` are routing hints every
+    /// playbook rule in `PromptLibrary` keys on, so here a name NARROWS the tag
+    /// instead of replacing it — dropping `Them` would silently disable those
+    /// rules for exactly the meetings we managed to name.
+    func promptLabel(names: [String: String]? = nil) -> String {
+        guard let speaker = themSpeaker else { return sourceLabel }
+        let narrowed = name(for: speaker, in: names) ?? "Speaker \(speaker)"
+        return "\(sourceLabel) · \(narrowed)"
+    }
+
+    private var sourceLabel: String {
+        TranscriptSource(rawValue: source)?.label ?? source
+    }
+
+    /// The clustered voice on the remote stream, or nil — the user's own mic is
+    /// one known speaker and is never clustered.
+    private var themSpeaker: Int? {
+        TranscriptSource(rawValue: source) == .them ? speaker : nil
+    }
+
+    /// Trimmed at the read boundary too, not only before writing: the map is
+    /// server state, so a row written by another build is not ours to trust.
+    private func name(for speaker: Int, in names: [String: String]?) -> String? {
+        guard let raw = names?["\(speaker)"] else { return nil }
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
     }
 
     /// A copy with the diarized speaker stripped — used to retry an insert
