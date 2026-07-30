@@ -209,3 +209,35 @@ final class TranscriptLabelTests: XCTestCase {
         XCTAssertEqual(record(source: "me", speaker: 1).displayLabel(names: ["1": "Eric"]), "Me")
     }
 }
+
+final class TranscriptPromptContextTests: XCTestCase {
+    private func record(_ idx: Int, source: String, speaker: Int?, text: String) -> TranscriptRecord {
+        TranscriptRecord(
+            id: UUID(),
+            meetingID: UUID(),
+            userID: UUID(),
+            createdAt: nil,
+            source: source,
+            text: text,
+            ts: Date(timeIntervalSince1970: Double(idx)),
+            idx: idx,
+            speaker: speaker
+        )
+    }
+
+    /// Every surface that grounds a model in a saved meeting must hand it the
+    /// same shape, or a playbook rule keyed on `[Them]` fires on one and not
+    /// the other.
+    func testContextTagsEveryLineTheSameWay() {
+        let records = [
+            record(0, source: "me", speaker: nil, text: "hi"),
+            record(1, source: "them", speaker: 2, text: "hello"),
+            record(2, source: "them", speaker: 3, text: "morning")
+        ]
+
+        XCTAssertEqual(
+            records.promptContext(names: ["2": "Eric"]),
+            "[Me]: hi\n[Them · Eric]: hello\n[Them · Speaker 3]: morning"
+        )
+    }
+}

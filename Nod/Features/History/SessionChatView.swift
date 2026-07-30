@@ -272,9 +272,7 @@ struct SessionChatView: View {
     private func loadTranscript() async {
         do {
             let records = try await meetingStore.fetchTranscript(meetingID: meeting.id)
-            transcriptText = records.map { record in
-                "[\(record.promptLabel(names: meeting.speakerNames))] \(record.text)"
-            }.joined(separator: "\n")
+            transcriptText = records.promptContext(names: meeting.speakerNames)
         } catch {
             Log.ui.error("SessionChatView transcript load failed: \(error.localizedDescription)")
             // Empty (not nil) so chat still works off the recap alone.

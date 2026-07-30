@@ -48,14 +48,7 @@
             }
 
             do {
-                let directory = try FileManager.default.url(
-                    for: .applicationSupportDirectory,
-                    in: .userDomainMask,
-                    appropriateFor: nil,
-                    create: true
-                )
-                .appendingPathComponent("Nod/debug-audio", isDirectory: true)
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let directory = AppSupport.directory("debug-audio")
 
                 let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
                 let url = directory.appendingPathComponent("\(stamp)-\(label).wav")

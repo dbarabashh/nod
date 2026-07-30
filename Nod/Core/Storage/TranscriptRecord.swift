@@ -17,7 +17,7 @@ struct TranscriptRecord: Codable, Identifiable, Equatable {
     /// first appearance. Nil when the session wasn't diarized, when clustering
     /// couldn't attribute the line, or on the `me` stream — the user's own mic
     /// is a single known speaker and is never clustered.
-    let speaker: Int?
+    var speaker: Int?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -87,16 +87,20 @@ extension TranscriptRecord {
     /// against a database where the `speaker` column hasn't been applied yet,
     /// so a not-yet-migrated environment never costs the whole transcript.
     func droppingSpeaker() -> TranscriptRecord {
-        TranscriptRecord(
-            id: id,
-            meetingID: meetingID,
-            userID: userID,
-            createdAt: createdAt,
-            source: source,
-            text: text,
-            ts: ts,
-            idx: idx,
-            speaker: nil
-        )
+        var copy = self
+        copy.speaker = nil
+        return copy
+    }
+}
+
+extension [TranscriptRecord] {
+    /// The transcript in the shape every prompt expects: one tagged line per
+    /// record. The `[Me]` / `[Them]` tag is load-bearing — the playbook rules in
+    /// `PromptLibrary` key on it — so each surface that grounds a model in a
+    /// saved meeting has to hand it the same shape, or a rule fires on one
+    /// surface and not another.
+    func promptContext(names: [String: String]?) -> String {
+        map { "[\($0.promptLabel(names: names))]: \($0.text)" }
+            .joined(separator: "\n")
     }
 }

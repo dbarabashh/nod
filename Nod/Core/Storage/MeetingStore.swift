@@ -328,6 +328,20 @@ final class MeetingStore: ObservableObject {
         }
     }
 
+    /// Local mirrors of a soft delete / restore, until the next refresh brings
+    /// the server-stamped timestamp.
+    private func trashed(_ meeting: Meeting) -> Meeting {
+        var copy = meeting
+        copy.deletedAt = Date()
+        return copy
+    }
+
+    private func restored(_ meeting: Meeting) -> Meeting {
+        var copy = meeting
+        copy.deletedAt = nil
+        return copy
+    }
+
     /// Patches only `speaker_names`. Written by the post-meeting extraction pass
     /// once the row is on the server, so it never rides the insert payload and
     /// can't be lost to an outbox re-push that predates it.
@@ -352,7 +366,7 @@ final class MeetingStore: ObservableObject {
             .execute()
 
         if let idx = meetings.firstIndex(where: { $0.id == meetingID }) {
-            meetings[idx] = meetings[idx].updating(speakerNames: names)
+            meetings[idx].speakerNames = names
         }
     }
 
@@ -522,7 +536,7 @@ final class MeetingStore: ObservableObject {
             if DemoMode.isEnabled {
                 meetings.removeAll { $0.id == meeting.id }
                 if case .loaded = trashState {
-                    trashedMeetings.insert(meeting.updating(deletedAt: Date()), at: 0)
+                    trashedMeetings.insert(trashed(meeting), at: 0)
                 }
                 pendingUndo = meeting
                 return
@@ -540,7 +554,7 @@ final class MeetingStore: ObservableObject {
             // The trash-list copy carries a client-side `deletedAt` for
             // the "trashed Xd ago" badge until the next refreshTrash
             // overwrites with the server-stamped value.
-            trashedMeetings.insert(meeting.updating(deletedAt: Date()), at: 0)
+            trashedMeetings.insert(trashed(meeting), at: 0)
         }
         pendingUndo = meeting
     }
@@ -556,7 +570,7 @@ final class MeetingStore: ObservableObject {
             if DemoMode.isEnabled {
                 if let idx = trashedMeetings.firstIndex(where: { $0.id == id }) {
                     let row = trashedMeetings.remove(at: idx)
-                    meetings.insert(row.updating(deletedAt: nil), at: 0)
+                    meetings.insert(restored(row), at: 0)
                     meetings.sort { $0.startedAt > $1.startedAt }
                 }
                 if pendingUndo?.id == id { pendingUndo = nil }
@@ -573,7 +587,7 @@ final class MeetingStore: ObservableObject {
         if let idx = trashedMeetings.firstIndex(where: { $0.id == id }) {
             let row = trashedMeetings.remove(at: idx)
             if case .loaded = loadState {
-                meetings.insert(row.updating(deletedAt: nil), at: 0)
+                meetings.insert(restored(row), at: 0)
                 meetings.sort { $0.startedAt > $1.startedAt }
             }
         }

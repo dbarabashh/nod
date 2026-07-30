@@ -10,27 +10,27 @@ struct Meeting: Codable, Identifiable {
     /// before INSERT — the custom encoder omits it from the payload so the
     /// DB default kicks in instead of trusting the client's wall-clock.
     let createdAt: Date?
-    let startedAt: Date
-    let endedAt: Date
-    let title: String?
+    var startedAt: Date
+    var endedAt: Date
+    var title: String?
     /// What this recording is — drives audio capture + recap framing. Every
     /// legacy row defaults to `.meeting` server-side.
     let kind: SessionKind
-    let summary: String
+    var summary: String
     /// Structured recap — same content as `summary` (which is the rendered
     /// markdown view) but as typed JSON: topics / decisions / actions /
     /// open_questions. Nullable for backward compatibility with rows
     /// generated before the `recap_json` column existed.
-    let recap: MeetingRecap?
+    var recap: MeetingRecap?
     let language: String
     /// Name per diarized speaker cluster, keyed by the number the transcript
     /// rows carry (`{"1": "Eric"}`). Sparse: only clusters the transcript itself
     /// identified are named, the rest keep rendering as "Speaker N".
-    let speakerNames: [String: String]?
+    var speakerNames: [String: String]?
     /// Soft-delete timestamp — non-nil when the meeting lives in the Trash
     /// segment (#16). Nil for active rows. Server-driven; the client only
     /// reads this (mutations go via `MeetingStore.softDelete` / `.restore`).
-    let deletedAt: Date?
+    var deletedAt: Date?
 
     // The transcript itself lives in a sibling table — `meeting_transcripts`
     // (migration `20260527093241_meeting_transcripts.sql`) — one row per
@@ -176,44 +176,15 @@ struct Meeting: Codable, Identifiable {
 
     /// Returns a copy with the title, summary, and recap replaced. Used by
     /// MeetingDetailView's autosave and by the end-of-meeting generation
-    /// path — Meeting's properties are all `let`, so updates flow as new
-    /// value instances. `recap` defaults to the existing value so callers
+    /// path. `recap` defaults to the existing value so callers
     /// that only touch text (manual edits) don't have to thread the JSON
     /// through; pass `recap: .some(newRecap)` to refresh structured state.
     func updating(title: String?, summary: String, recap: MeetingRecap? = nil) -> Meeting {
-        Meeting(
-            id: id,
-            userID: userID,
-            createdAt: createdAt,
-            startedAt: startedAt,
-            endedAt: endedAt,
-            title: title,
-            kind: kind,
-            summary: summary,
-            recap: recap ?? self.recap,
-            language: language,
-            speakerNames: speakerNames,
-            deletedAt: deletedAt
-        )
-    }
-
-    /// Returns a copy carrying the named speaker clusters — the local mirror of
-    /// the `speaker_names` patch the extraction pass writes.
-    func updating(speakerNames: [String: String]) -> Meeting {
-        Meeting(
-            id: id,
-            userID: userID,
-            createdAt: createdAt,
-            startedAt: startedAt,
-            endedAt: endedAt,
-            title: title,
-            kind: kind,
-            summary: summary,
-            recap: recap,
-            language: language,
-            speakerNames: speakerNames,
-            deletedAt: deletedAt
-        )
+        var copy = self
+        copy.title = title
+        copy.summary = summary
+        copy.recap = recap ?? self.recap
+        return copy
     }
 
     /// Returns a copy with the recording bookends taken from `draft`, keeping
@@ -222,40 +193,10 @@ struct Meeting: Codable, Identifiable {
     /// generating draft holds the real stop time — so the duration stays
     /// accurate during generation without clobbering the server row's content.
     func withBookends(from draft: Meeting) -> Meeting {
-        Meeting(
-            id: id,
-            userID: userID,
-            createdAt: createdAt,
-            startedAt: draft.startedAt,
-            endedAt: draft.endedAt,
-            title: title,
-            kind: kind,
-            summary: summary,
-            recap: recap,
-            language: language,
-            speakerNames: speakerNames,
-            deletedAt: deletedAt
-        )
-    }
-
-    /// Returns a copy with only `deletedAt` replaced — the local-cache mirror
-    /// of a soft delete / restore while the next refresh fetches the
-    /// server-stamped value.
-    func updating(deletedAt: Date?) -> Meeting {
-        Meeting(
-            id: id,
-            userID: userID,
-            createdAt: createdAt,
-            startedAt: startedAt,
-            endedAt: endedAt,
-            title: title,
-            kind: kind,
-            summary: summary,
-            recap: recap,
-            language: language,
-            speakerNames: speakerNames,
-            deletedAt: deletedAt
-        )
+        var copy = self
+        copy.startedAt = draft.startedAt
+        copy.endedAt = draft.endedAt
+        return copy
     }
 
     /// Convenience for MainWindowView row rendering — finds the first line of

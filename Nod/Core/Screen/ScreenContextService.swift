@@ -424,19 +424,10 @@ enum ScreenContextDefaults {
     /// `UserDefaults` write stays only to migrate installs that predate the file.
     static func setEnabled(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: enabledKey)
-        try? FileManager.default.createDirectory(
-            at: enabledFileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
         try? Data([enabled ? 1 : 0]).write(to: enabledFileURL, options: .atomic)
     }
 
-    private static var enabledFileURL: URL {
-        let support = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Nod", isDirectory: true)
-        return support.appendingPathComponent("ambient-context.enabled")
-    }
+    private static let enabledFileURL = AppSupport.root.appendingPathComponent("ambient-context.enabled")
 
     static var retentionDays: Int {
         let stored = UserDefaults.standard.integer(forKey: retentionDaysKey)

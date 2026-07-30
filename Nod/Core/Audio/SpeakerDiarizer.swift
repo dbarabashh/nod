@@ -77,15 +77,8 @@ final class SpeakerDiarizer {
     /// Where the Core ML models are cached. Explicit because the SDK otherwise
     /// defaults to `~/Documents/huggingface`, and Nod is not sandboxed — the
     /// models would land in the user's own Documents folder.
-    private static var modelCacheDirectory: String? {
-        try? FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        .appendingPathComponent("Nod/models", isDirectory: true)
-        .path
+    private static var modelCacheDirectory: String {
+        AppSupport.directory("models").path
     }
 
     /// `loadModels` compiles the Core ML models and makes them resident. The

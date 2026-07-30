@@ -72,20 +72,16 @@ actor MeetingOutbox {
     /// `directory` is injectable so tests run against a temp dir, not the real
     /// Application Support location.
     init(directory: URL? = nil) {
-        let resolved: URL
+        // `AppSupport` creates what it hands back; an injected test directory is
+        // ours to create. Note the fallback there lands the WAL in the temp
+        // directory when Application Support is unavailable — the one consumer
+        // for which that is a real loss, since a reboot purges it.
         if let directory {
-            resolved = directory
+            dir = directory
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         } else {
-            let base = (try? FileManager.default.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            )) ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            resolved = base.appendingPathComponent("Nod/outbox", isDirectory: true)
+            dir = AppSupport.directory("outbox")
         }
-        dir = resolved
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let loaded = Self.load(from: dir)
         entries = loaded.entries
         recordingIDsAtLaunch = loaded.recordingIDs
@@ -199,7 +195,7 @@ actor MeetingOutbox {
                 continue
             }
             var recovered = entry
-            recovered.meeting = entry.meeting.updating(title: entry.meeting.title, summary: Meeting.recoveredPlaceholder)
+            recovered.meeting.summary = Meeting.recoveredPlaceholder
             recovered.state = .completed
             recovered.meetingSynced = false // force a re-push so the placeholder lands
             entries[id] = recovered
