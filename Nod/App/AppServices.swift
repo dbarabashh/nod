@@ -56,6 +56,8 @@ struct AppServices {
     /// Offline transcript import from Granola's local cache — a low-cost
     /// migration path off a direct competitor.
     let granolaImporter: GranolaImporter
+    /// Rebuilds recaps for meetings whose generation never landed.
+    let summaryRegeneration: SummaryRegeneration
     /// Apps and websites the user has put off-limits to screen reading.
     let screenExclusions: ScreenExclusions
     /// Ambient screen capture. Constructed always, running only when the user
@@ -121,6 +123,8 @@ struct AppServices {
         let actionItemStore = ActionItemStore(supabase: supabase)
         let knowledgeThreads = KnowledgeThreadStore(supabase: supabase)
         let retrievalFeedback = RetrievalFeedbackStore(supabase: supabase)
+        let entitlements = EntitlementService(supabase: supabase)
+        let modeStore = ModeStore()
 
         return AppServices(
             permissions: permissions,
@@ -155,7 +159,7 @@ struct AppServices {
             ),
             knowledgeThreads: knowledgeThreads,
             labelStore: labelStore,
-            entitlements: EntitlementService(supabase: supabase),
+            entitlements: entitlements,
             billing: BillingService(supabase: supabase),
             referral: ReferralService(supabase: supabase),
             accountExport: AccountExportService(supabase: supabase),
@@ -165,11 +169,20 @@ struct AppServices {
             meetingDetection: MeetingDetectionPreference(),
             updateGate: UpdateGate(supabase: supabase),
             hotkeys: hotkeys,
-            modeStore: ModeStore(),
+            modeStore: modeStore,
             granolaImporter: GranolaImporter(
                 meetingStore: meetingStore,
                 auth: auth,
                 language: languagePreference
+            ),
+            summaryRegeneration: SummaryRegeneration(
+                llm: llmClient,
+                meetingStore: meetingStore,
+                actionItemStore: actionItemStore,
+                knowledgeStore: knowledgeStore,
+                profileStore: profileStore,
+                modeStore: modeStore,
+                entitlements: entitlements
             ),
             screenExclusions: screenExclusions,
             screenContext: screenContext,

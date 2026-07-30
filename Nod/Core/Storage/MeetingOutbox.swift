@@ -69,12 +69,6 @@ actor MeetingOutbox {
     /// fresh `beginRecording` can't promote a live recording to `.completed`.
     private var recordingIDsAtLaunch: Set<UUID> = []
 
-    /// Shown in place of a real recap when an interrupted (never-ended) meeting
-    /// is recovered on launch — the transcript is preserved even though the
-    /// summary was never generated.
-    static let recoveredPlaceholder =
-        "⏳ Recovered from an interrupted session — the transcript was preserved, but a summary was never generated for it."
-
     /// `directory` is injectable so tests run against a temp dir, not the real
     /// Application Support location.
     init(directory: URL? = nil) {
@@ -203,7 +197,7 @@ actor MeetingOutbox {
                 continue
             }
             var recovered = entry
-            recovered.meeting = entry.meeting.updating(title: entry.meeting.title, summary: Self.recoveredPlaceholder)
+            recovered.meeting = entry.meeting.updating(title: entry.meeting.title, summary: Meeting.recoveredPlaceholder)
             recovered.state = .completed
             recovered.meetingSynced = false // force a re-push so the placeholder lands
             entries[id] = recovered

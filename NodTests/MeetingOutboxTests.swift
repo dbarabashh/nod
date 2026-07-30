@@ -218,7 +218,7 @@ final class MeetingOutboxTests: XCTestCase {
         await second.flush(using: writer, userID: user)
 
         XCTAssertEqual(writer.upsertedMeetings.map(\.id), [meeting.id])
-        XCTAssertEqual(writer.upsertedMeetings.last?.summary, MeetingOutbox.recoveredPlaceholder)
+        XCTAssertEqual(writer.upsertedMeetings.last?.summary, Meeting.recoveredPlaceholder)
         XCTAssertEqual(writer.uniqueTranscriptIDs, Set(records.map(\.id)), "the interrupted transcript is preserved")
         let pending = await second.isPending(meeting.id)
         XCTAssertFalse(pending, "a recovered meeting reaches a terminal, drainable state")
@@ -256,6 +256,6 @@ final class MeetingOutboxTests: XCTestCase {
         await outbox.flush(using: writer, userID: user)
         // Still .recording → flush pushes the row + transcript (streaming), but
         // the summary must NOT be the recovery placeholder.
-        XCTAssertNotEqual(writer.upsertedMeetings.last?.summary, MeetingOutbox.recoveredPlaceholder)
+        XCTAssertNotEqual(writer.upsertedMeetings.last?.summary, Meeting.recoveredPlaceholder)
     }
 }

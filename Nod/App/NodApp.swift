@@ -223,11 +223,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // to THIS user so another account's rows aren't pushed under
                     // this session (they'd RLS-reject and loop forever).
                     if let userID = services.auth.currentSupabaseSession?.user.id {
+                        // `$session` republishes on every token refresh too, so
+                        // the recap retry below is scoped to the sign-in
+                        // transition — it is a once-per-launch sweep, not an
+                        // hourly one.
+                        let isFirstSignIn = !wasSignedIn
                         Task {
                             await services.meetingOutbox.recoverInterruptedMeetings()
                             await services.meetingOutbox.flush(using: services.meetingStore, userID: userID)
                             let pending = await services.meetingOutbox.pendingCompletedMeetings(for: userID)
                             await MainActor.run { services.meetingStore.setUnsyncedMeetings(pending) }
+                            // After the drain on purpose: a row still queued
+                            // would have the new recap overwritten by it.
+                            if isFirstSignIn {
+                                await services.summaryRegeneration.retryFailedSummaries()
+                            }
                         }
                     }
                     // Warm the profile so its prompt context is ready before

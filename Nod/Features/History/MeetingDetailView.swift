@@ -11,6 +11,7 @@ struct MeetingDetailView: View {
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var actionItemStore: ActionItemStore
+    @EnvironmentObject private var summaryRegeneration: SummaryRegeneration
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var editableTitle: String = ""
@@ -585,6 +586,14 @@ struct MeetingDetailView: View {
             } else {
                 generatingSummaryPlaceholder
             }
+        } else if case let .running(partial) = summaryRegeneration.state(for: meeting.id) {
+            if let partial {
+                streamingSummaryView(partial)
+            } else {
+                generatingSummaryPlaceholder
+            }
+        } else if !isEditingSummary, current.lacksRecap {
+            missingSummaryState
         } else if isEditingSummary {
             TextEditor(text: $editableSummary)
                 .font(.system(size: 14, weight: .regular))
@@ -625,6 +634,35 @@ struct MeetingDetailView: View {
                 "Capturing decisions & action items…",
                 "Almost there…"
             ])
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Shown when the meeting kept its transcript but never got a recap — the
+    /// recap is the only thing missing, so the offer is to rebuild it.
+    private var missingSummaryState: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(current.summary)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(Theme.Palette.ink.opacity(0.92))
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: regenerateSummary) {
+                subToolbarLabel(systemImage: "arrow.clockwise", text: "Generate summary")
+            }
+            .buttonStyle(.plain)
+            // A meeting still queued in the outbox would have the regenerated
+            // recap overwritten by the next drain — the WAL copy still holds the
+            // note, and it wins over the cache until the push lands.
+            .disabled(isFinalizing || isUnsynced)
+            .opacity(isFinalizing || isUnsynced ? 0.4 : 1)
+            .help(isUnsynced ? "Available once the meeting finishes syncing" : "Rebuild the summary from the saved transcript")
+            .linkCursor()
+            if case let .failed(message) = summaryRegeneration.state(for: meeting.id) {
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -768,6 +806,14 @@ struct MeetingDetailView: View {
         }
     }
 
+    private func regenerateSummary() {
+        Task {
+            guard let updated = await summaryRegeneration.run(for: current) else { return }
+            editableSummary = updated.summary
+            editableTitle = updated.title ?? ""
+        }
+    }
+
     // MARK: - Save indicator
 
     @ViewBuilder
@@ -845,7 +891,11 @@ struct MeetingDetailView: View {
     private func performSave() async {
         guard !isFinalizing else { return }
         let titleTrimmed = editableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let updated = meeting.updating(
+        // From `current`, not the captured `meeting`: the latter is a snapshot
+        // from when the view opened, so saving an edit after a generation (or a
+        // manual regeneration) would write its stale nil recap back over the
+        // structured state in the cache.
+        let updated = current.updating(
             title: titleTrimmed.isEmpty ? nil : titleTrimmed,
             summary: editableSummary
         )

@@ -313,6 +313,26 @@ final class MeetingStore: ObservableObject {
         }
     }
 
+    /// Recently-ended meetings whose recap never landed, for the launch retry.
+    /// `recap_json IS NULL` narrows the scan server-side; the caller still has
+    /// to match the placeholder summaries, because a meeting streamed
+    /// mid-recording is also recap-less and must be left alone.
+    func fetchMeetingsMissingRecap(since: Date, limit: Int) async throws -> [Meeting] {
+        #if DEBUG
+            if DemoMode.isEnabled { return [] }
+        #endif
+        return try await supabase
+            .from(Self.tableName)
+            .select()
+            .is("recap_json", value: nil)
+            .is("deleted_at", value: nil)
+            .gte("ended_at", value: ISO8601DateFormatter().string(from: since))
+            .order("ended_at", ascending: false)
+            .limit(limit)
+            .execute()
+            .value
+    }
+
     // MARK: - Transcripts
 
     /// Insert-or-update transcript rows. The streaming / outbox path re-sends a

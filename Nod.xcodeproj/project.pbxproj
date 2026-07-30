@@ -24,6 +24,7 @@
 		1E3D72CB5610AB5F53E39D7D /* HoverReveal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DA886D2817AD3AB74DCB17E /* HoverReveal.swift */; };
 		1F45BA70770FE697298E92FD /* TodayDigest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 531422E6C157CC203D4130DB /* TodayDigest.swift */; };
 		216A59639956435390A597C8 /* ConsentStrings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92F3B81F02B25F8E53733099 /* ConsentStrings.swift */; };
+		23B87F84A2006DB9E18B935B /* SummaryRegeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E53EA694ABAEA48678031E9 /* SummaryRegeneration.swift */; };
 		242E6BD730B2E423DD1C52B7 /* MemoryBriefTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60511176F41896651AE272A7 /* MemoryBriefTests.swift */; };
 		2484EA93E6A4F4DC7305E7BE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = FD9425C84A5944FADFEE1DC0 /* Supabase */; };
 		25AA8363BBE0F648DDEA2961 /* MeetingMarkdownExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA341E6ABEA9C4EA628AE20 /* MeetingMarkdownExport.swift */; };
@@ -112,6 +113,7 @@
 		91DC427877C7EA4716432AEF /* LauncherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0E039B88FF651AC638BD9D8 /* LauncherView.swift */; };
 		91E4FEA96D1E44DF3308F3B4 /* SessionTimeRangeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E77989069E4DBC555BF97D2 /* SessionTimeRangeTests.swift */; };
 		921AB0781D2B00B456FD7F89 /* LLMProxyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C5D8109B9D3813E03034E16 /* LLMProxyClient.swift */; };
+		9300D28E87AE6BBE659DFEE4 /* RecapGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FBF8024188E6DB586248C75 /* RecapGenerator.swift */; };
 		9323C40CF643A7389AC19D3D /* ActionItemDedup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A6B0DBE04D9DFBA1BC41959 /* ActionItemDedup.swift */; };
 		936CF73C58DF2FC40716B593 /* AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA929108D42FD58B667EE2A8 /* AppVersion.swift */; };
 		945DADFE2F34D1D030698608 /* LabelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC7E0FBEE7DB2CA591D487B6 /* LabelStore.swift */; };
@@ -246,6 +248,7 @@
 		241530087759F1D90D827E1E /* FloatingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingPanel.swift; sourceTree = "<group>"; };
 		26C2F0C168453EB37A49F876 /* LauncherPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LauncherPanel.swift; sourceTree = "<group>"; };
 		2917098F221A8A8743FE1BF8 /* MeetingOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingOutbox.swift; sourceTree = "<group>"; };
+		2E53EA694ABAEA48678031E9 /* SummaryRegeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryRegeneration.swift; sourceTree = "<group>"; };
 		2F6977F26E80D48858FF9640 /* WhisperTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperTranscriber.swift; sourceTree = "<group>"; };
 		2FB84BC7E57730D3FE5A29F7 /* PanelChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelChrome.swift; sourceTree = "<group>"; };
 		302A5E12715CDE29B4EE792C /* AccessibilityAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAccess.swift; sourceTree = "<group>"; };
@@ -299,6 +302,7 @@
 		6B2A641B99F14EED7AFA428B /* SessionControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionControls.swift; sourceTree = "<group>"; };
 		6C5D8109B9D3813E03034E16 /* LLMProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProxyClient.swift; sourceTree = "<group>"; };
 		6D976F928680016234925545 /* KnowledgeThreadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeThreadStore.swift; sourceTree = "<group>"; };
+		6FBF8024188E6DB586248C75 /* RecapGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecapGenerator.swift; sourceTree = "<group>"; };
 		70E6D976B12EB435E3C24123 /* MemoryBrief.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryBrief.swift; sourceTree = "<group>"; };
 		71C5FAD49FF9308677FC7A15 /* MeetingRosterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRosterTests.swift; sourceTree = "<group>"; };
 		7240D0FAF24D64F78E681ED6 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
@@ -517,6 +521,7 @@
 				7A96C62A8360FEBFC26D813F /* MeetingDetailView.swift */,
 				438C6F8FA28CE63D1A26A83B /* RelatedSessionsView.swift */,
 				06312CCFA4904884915A5C08 /* SessionChatView.swift */,
+				2E53EA694ABAEA48678031E9 /* SummaryRegeneration.swift */,
 			);
 			path = History;
 			sourceTree = "<group>";
@@ -708,6 +713,7 @@
 				6C5D8109B9D3813E03034E16 /* LLMProxyClient.swift */,
 				D451590C6B2056FD38F117E1 /* MeetingRecap.swift */,
 				8218A4D4A8BE7FB051C4A81D /* PromptLibrary.swift */,
+				6FBF8024188E6DB586248C75 /* RecapGenerator.swift */,
 				35348C3F9BB8FF60D9B2FC58 /* ReplyContext.swift */,
 				9B6FA69328C6F9B9E12ED22D /* SummaryTemplate.swift */,
 			);
@@ -1228,6 +1234,7 @@
 				64D623942FA002EFD75D37D1 /* ProfileStore.swift in Sources */,
 				7B0C0A97E5703B316B12DA4D /* PromptLibrary.swift in Sources */,
 				D7A8D9C1BA0D2ECA21AADFA3 /* QuestionIntent.swift in Sources */,
+				9300D28E87AE6BBE659DFEE4 /* RecapGenerator.swift in Sources */,
 				76C5B9AAAD207777B6E4B6CF /* ReferralService.swift in Sources */,
 				F09818235C96441C84276517 /* RelatedSessionsView.swift in Sources */,
 				553AC6852BD76A8D49402BD2 /* ReplyContext.swift in Sources */,
@@ -1257,6 +1264,7 @@
 				721EA9A78CA0C206854C67BD /* StatusHeader.swift in Sources */,
 				94F80C21C1573FE94A8EC5AD /* StatusItemController.swift in Sources */,
 				A5CB68ED67ABD67E8E115646 /* StatusRow.swift in Sources */,
+				23B87F84A2006DB9E18B935B /* SummaryRegeneration.swift in Sources */,
 				6E4264D8ABCC6B7EEB3EA9A8 /* SummaryTemplate.swift in Sources */,
 				50A2FBCED7FD216A15E8AA6E /* SupabaseConfig.swift in Sources */,
 				F441DCCD8CA78C019E38645E /* TextSnippet.swift in Sources */,

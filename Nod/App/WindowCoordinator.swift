@@ -428,6 +428,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             .environmentObject(services.hotkeys)
             .environmentObject(services.settingsFocus)
             .environmentObject(services.screenContext)
+            .environmentObject(services.summaryRegeneration)
 
         let hosting = NSHostingController(rootView: root)
         // Don't let the hosting controller derive the window's min/max size from

@@ -140,6 +140,31 @@ struct Meeting: Codable, Identifiable {
         )
     }
 
+    /// Stamped into `summary` when generation failed outright — it keeps the
+    /// meeting a terminal, drainable row instead of a phantom one that re-pushes
+    /// forever. **Do not reword:** persisted rows are matched against this
+    /// literal by `lacksRecap`, so an edit here orphans every meeting already
+    /// carrying it.
+    static let summaryUnavailableNote =
+        "A summary couldn't be generated automatically for this meeting. The transcript was saved."
+
+    /// The same fact for a session interrupted before End and recovered on the
+    /// next launch by `MeetingOutbox`. Same "do not reword" rule.
+    static let recoveredPlaceholder =
+        "⏳ Recovered from an interrupted session — the transcript was preserved, but a summary was never generated for it."
+
+    /// True when the meeting ended with a transcript but no recap — generation
+    /// failed, or an interrupted session was recovered. Matched against the two
+    /// known placeholders rather than "summary is empty": a meeting still
+    /// recording is already on the server with an empty summary, and so is one
+    /// the user deliberately cleared. The length guard keeps a real recap from
+    /// being copied on every render just to be compared with two short strings.
+    var lacksRecap: Bool {
+        guard summary.count <= 200 else { return false }
+        let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed == Self.summaryUnavailableNote || trimmed == Self.recoveredPlaceholder
+    }
+
     /// Returns a copy with the title, summary, and recap replaced. Used by
     /// MeetingDetailView's autosave and by the end-of-meeting generation
     /// path — Meeting's properties are all `let`, so updates flow as new
