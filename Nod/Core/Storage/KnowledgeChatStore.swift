@@ -938,16 +938,37 @@ extension KnowledgeChatStore {
     /// `[Me]` / `[Them]` are transcription routing tags, not speaker names. The
     /// prompt already forbids echoing them; showing them raw in the UI is the
     /// same leak.
+    ///
+    /// Since diarization the tag can carry a speaker — `[Them · Eric]`,
+    /// `[Them · Speaker 2]` — so matching the two bare forms no longer catches
+    /// it. A person's name survives (it is the answer to "who said this", which
+    /// is the opposite of a leak); a cluster number does not, being the same
+    /// kind of internal artefact as the tag around it.
     static func readable(_ text: String) -> String {
         text
-            .replacingOccurrences(of: "[Me]:", with: "")
-            .replacingOccurrences(of: "[Them]:", with: "")
-            .replacingOccurrences(of: "[Me]", with: "")
-            .replacingOccurrences(of: "[Them]", with: "")
             .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { stripRoutingTag(String($0)).trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
             .joined(separator: " ")
+    }
+
+    private static let routingTag = try? NSRegularExpression(
+        pattern: #"^\[(?:Me|Them)(?: · ([^\]]+))?\]:?[ \t]*"#
+    )
+
+    private static let clusterName = try? NSRegularExpression(pattern: #"^Speaker \d+$"#)
+
+    private static func stripRoutingTag(_ line: String) -> String {
+        guard let routingTag,
+              let match = routingTag.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+              let tag = Range(match.range, in: line)
+        else { return line }
+
+        let body = String(line[tag.upperBound...])
+        guard let nameRange = Range(match.range(at: 1), in: line) else { return body }
+        let name = String(line[nameRange])
+        let isCluster = clusterName?.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) != nil
+        return isCluster ? body : "\(name): \(body)"
     }
 
     /// Prefix each excerpt with a human source label so the model can cite it.
