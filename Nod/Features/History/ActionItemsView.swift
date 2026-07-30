@@ -11,8 +11,12 @@ struct ActionItemsView: View {
     @EnvironmentObject private var entitlements: EntitlementService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Empty unless the checklist is this user's to see. The store is shared and
+    /// other surfaces populate it unconditionally, so gating only the loader
+    /// below left a Starter user with a fully interactive Pro checklist.
     private var items: [ActionItem] {
-        actionItemStore.items(forMeeting: meeting.id)
+        guard entitlements.mayUse(.actionItems) else { return [] }
+        return actionItemStore.items(forMeeting: meeting.id)
     }
 
     var body: some View {
@@ -77,10 +81,7 @@ struct ActionItemsView: View {
     }
 
     private func load() async {
-        // Pro-gated, fail-open like the cross-meeting upsell: a Starter / locked
-        // user doesn't get the checklist, but an unresolved entitlement still
-        // loads so a Pro user with a transient fetch failure isn't blocked.
-        guard entitlements.entitlement == nil || entitlements.can(.actionItems) else { return }
+        guard entitlements.mayUse(.actionItems) else { return }
         // Promotes from the recap when the finalize-time save was skipped
         // (offline) or hadn't committed yet, so the checklist never stays
         // falsely empty.

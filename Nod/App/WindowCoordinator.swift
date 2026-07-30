@@ -103,12 +103,27 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     func setPanelVisibleWhenSharing(_ visible: Bool) {
         panel?.sharingType = visible ? .readOnly : .none
         mainWindow?.sharingType = visible ? .readOnly : .none
-        // Keep the Dock icon / ⌘-Tab entry in lockstep with share visibility —
-        // hiding the panel from captures is pointless if the Dock still shows
-        // Nod. Only while the panel is the active surface; sign-in/onboarding
-        // force .regular regardless.
-        if panel != nil {
-            NSApp.setActivationPolicy(visible ? .regular : .accessory)
+        syncActivationPolicy()
+    }
+
+    /// Dock icon and ⌘-Tab entry follow whichever surface is actually up.
+    ///
+    /// A panel-only session in stealth stays `.accessory`: excluding the panel
+    /// from captures is pointless if the Dock still announces Nod. A main window
+    /// the user opened is not stealth — without `.regular` it has no Dock tile
+    /// and no ⌘-Tab entry, so clicking any other app leaves the menu-bar item as
+    /// the only way back, and `applicationShouldHandleReopen` can never fire.
+    ///
+    /// The old check was `if panel != nil`, which read as "while the panel is the
+    /// active surface" but means "while the panel exists" — and it is built at
+    /// launch regardless of which surface the user chose.
+    ///
+    /// Sign-in / onboarding set `.regular` directly and are not routed here.
+    private func syncActivationPolicy() {
+        if mainWindow != nil {
+            NSApp.setActivationPolicy(.regular)
+        } else if panel != nil {
+            NSApp.setActivationPolicy(services.panelSharing.visibleWhenSharing ? .regular : .accessory)
         }
     }
 
@@ -214,7 +229,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         // AppDelegate.applicationShouldHandleReopen). In stealth mode the panel
         // is excluded from screen captures, so a Dock icon (and ⌘-Tab entry)
         // would leak Nod's presence anyway — go accessory to match.
-        NSApp.setActivationPolicy(services.panelSharing.visibleWhenSharing ? .regular : .accessory)
+        syncActivationPolicy()
 
         // One session per panel — its lifetime matches the old view-local
         // @State (created with the panel, dropped on sign-out teardown), so
@@ -431,10 +446,12 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         window.center()
         window.makeKeyAndOrderFront(nil)
         mainWindow = window
+        syncActivationPolicy()
     }
 
     func closeMainWindow() {
         close(&mainWindow)
+        syncActivationPolicy()
         // Only sign-out reaches here (a user close goes through
         // `windowWillClose`), so the next account gets its own launch surface.
         didApplyLaunchBehavior = false
@@ -467,6 +484,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 // The main window is auxiliary to the panel — closing it
                 // doesn't trigger any reconciliation; capture keeps running.
                 mainWindow = nil
+                // Back to whatever the panel alone warrants — a stealth session
+                // must not keep the Dock tile the main window earned.
+                syncActivationPolicy()
                 return
             }
             // User-initiated close of the only UI: re-open whichever window

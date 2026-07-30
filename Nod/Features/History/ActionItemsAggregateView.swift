@@ -60,7 +60,7 @@ struct ActionItemsAggregateView: View {
     /// other Pro gates: the feature is granted on trial/Pro, and a Pro user whose
     /// entitlement fetch transiently failed shouldn't be shown the upsell.
     private var canUseActionItems: Bool {
-        entitlements.entitlement == nil || entitlements.can(.actionItems)
+        entitlements.mayUse(.actionItems)
     }
 
     var body: some View {
@@ -233,6 +233,11 @@ struct ActionItemsAggregateView: View {
             .padding(.horizontal, 16)
             .padding(.top, 2)
             .padding(.bottom, 24)
+            // Declarative, because checking a row off is an `await` on the store:
+            // an imperative `withAnimation` around that call wraps the creation
+            // of the Task, and the published change lands a main-actor turn later
+            // — outside the transaction, animating nothing.
+            .animation(.standard(reduceMotion: reduceMotion), value: visibleItems)
         }
         .scrollContentBackground(.hidden)
         .tooltipContainer()
@@ -710,9 +715,7 @@ struct ActionItemsAggregateView: View {
             // Manually unchecking is itself the undo — drop any stale toast.
             clearUndo()
         }
-        withAnimation(.standard(reduceMotion: reduceMotion)) {
-            Task { await actionItemStore.setDone(target, itemID: item.id) }
-        }
+        Task { await actionItemStore.setDone(target, itemID: item.id) }
     }
 
     private func presentUndo(_ item: ActionItem) {
@@ -745,9 +748,7 @@ struct ActionItemsAggregateView: View {
         // Drop a pending "Marked done" toast for this row — otherwise Undo would
         // fire against a now soft-deleted item (a no-op write + a stale toast).
         if undoItem?.id == item.id { clearUndo() }
-        withAnimation(.standard(reduceMotion: reduceMotion)) {
-            Task { await actionItemStore.softDelete(itemID: item.id) }
-        }
+        await actionItemStore.softDelete(itemID: item.id)
     }
 
     private func dismissDuplicate(_ a: UUID, _ b: UUID) {

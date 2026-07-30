@@ -82,15 +82,30 @@ final class FloatingPanel<Content: View>: NSPanel {
         // onto the window — with flexible-width content that size is undefined
         // and would fight the resize animation.
         // Sized by the content, or by the caller — never half of each.
-        if sizesToContent, #available(macOS 13.3, *) {
-            hostingController.sizingOptions = [.preferredContentSize]
+        var initialSize = contentRect.size
+        if sizesToContent {
+            if #available(macOS 13.3, *) {
+                hostingController.sizingOptions = [.preferredContentSize]
+            } else {
+                // `sizingOptions` is 13.3+ and the deployment target is 13.0, so
+                // on 13.0–13.2 the window kept `contentRect`'s placeholder height
+                // and a card whose text wrapped clipped its own buttons — with
+                // dragging off (`isMovableByWindowBackground` follows
+                // `sizesToContent`), leaving no way to reach them. Measured once
+                // instead of tracked: the same number `.preferredContentSize`
+                // would push, and these cards don't reflow after they appear.
+                hostingController.sizingOptions = []
+                hostingController.view.layoutSubtreeIfNeeded()
+                let fitting = hostingController.view.fittingSize
+                if fitting.width > 0, fitting.height > 0 { initialSize = fitting }
+            }
         } else {
             hostingController.sizingOptions = []
         }
-        hostingController.view.frame = NSRect(origin: .zero, size: contentRect.size)
+        hostingController.view.frame = NSRect(origin: .zero, size: initialSize)
         hostingController.view.autoresizingMask = [.width, .height]
         contentViewController = hostingController
-        setContentSize(contentRect.size)
+        setContentSize(initialSize)
 
         let center = NotificationCenter.default
         center.addObserver(

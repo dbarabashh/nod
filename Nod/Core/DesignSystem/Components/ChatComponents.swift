@@ -266,8 +266,15 @@ enum AnswerBlocks {
     /// Whether anything is showable yet, without paying for the split. Asked on
     /// every body pass of a view that re-renders per stream flush, where the
     /// only question is "is there a first paragraph".
+    /// Whether `complete(in:isFinished:)` would hand the renderer anything yet.
+    ///
+    /// Defined in terms of that call rather than re-deriving the rule: as
+    /// `text.contains("\n\n")` this was true the instant the model emitted the
+    /// blank line, while the renderer holds a paragraph back until a *second*
+    /// one has started. The two disagreed for exactly as long as the next token
+    /// took to arrive, and the bubble drew its chrome around nothing.
     static func hasComplete(in text: String) -> Bool {
-        text.contains("\n\n")
+        !complete(in: text, isFinished: false).isEmpty
     }
 
     static func complete(in text: String, isFinished: Bool) -> [String] {

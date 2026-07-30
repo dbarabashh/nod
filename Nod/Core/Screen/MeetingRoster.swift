@@ -252,6 +252,13 @@ struct MeetingRosterReader {
         guard candidate.count >= 2, candidate.count <= 48 else { return false }
         guard !controlLabels.contains(candidate.lowercased()) else { return false }
         guard candidate.rangeOfCharacter(from: .decimalDigits) == nil else { return false }
+        // Punctuation on its own clears the per-word shape test below — that test
+        // admits a word starting with a non-letter, and `.`, `'` and `-` are all
+        // allowed characters, so "..", "--" and "''" every one of them read as a
+        // name. Conferencing trees are full of separator and ellipsis labels, and
+        // each one that gets through becomes a phantom participant, inflating the
+        // speaker count handed to clustering.
+        guard candidate.contains(where: \.isLetter) else { return false }
 
         let words = candidate.split(separator: " ")
         guard (1 ... 4).contains(words.count) else { return false }

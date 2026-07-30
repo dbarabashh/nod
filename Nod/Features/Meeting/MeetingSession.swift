@@ -618,6 +618,12 @@ final class MeetingSession: ObservableObject {
         // meeting started while this one summarises (the recap stream takes many
         // seconds) would reset them out from under the finalize.
         let pinnedEntries = store.entries
+        // Pinned for the same reason as the entries, and it was missed: the
+        // roster field is shared with the next recording too. Read inside the
+        // Task it would be whatever *that* meeting had accumulated by then —
+        // an inflated speaker count here, and its participants' names in this
+        // meeting's recap prompt.
+        let pinnedRoster = consumeRoster()
         Task {
             // Ensure a WAL entry exists even on the fallback path — idempotent,
             // so a streamed meeting keeps its progress.
@@ -631,8 +637,8 @@ final class MeetingSession: ObservableObject {
             // unlabelled transcript rather than making the user watch
             // "Generating…" for minutes, and a result that lands late relabels
             // the persisted rows in `applyLateSpeakers`.
-            let expectedSpeakers = self.expectedThemSpeakers()
-            let participants = self.rosterParticipants
+            let expectedSpeakers = Self.expectedThemSpeakers(in: pinnedRoster)
+            let participants = pinnedRoster?.participants ?? []
             let speakerTask = Task { await store.resolveSpeakers(expectedSpeakerCount: expectedSpeakers) }
             let speakers = await Self.value(of: speakerTask, within: Self.speakerJoinTimeout) ?? [:]
 
@@ -1353,20 +1359,23 @@ final class MeetingSession: ObservableObject {
     /// the call except the user, whose own voice arrives on the mic instead.
     /// Zero means "unknown" — diarization then clusters by threshold.
     ///
-    /// Reads what sampling accumulated while the call was live, and never walks
-    /// again here: by the time a finalize runs, the user has hung up and the
+    /// Takes what sampling accumulated while the call was live, rather than
+    /// walking again: by the time a finalize runs, the user has hung up and the
     /// conferencing window is gone, so a fresh walk finds nothing and would
     /// overwrite a good count with none.
-    private func expectedThemSpeakers() -> Int {
+    nonisolated static func expectedThemSpeakers(in roster: MeetingRoster?) -> Int {
         guard let roster, roster.speakerCount > 1 else { return 0 }
         return roster.speakerCount - 1
     }
 
-    /// Participant names for the recap prompt, taken once and dropped — they
-    /// are session-scoped by policy (privacy.md § 3.10).
-    private var rosterParticipants: [String] {
+    /// Hands this session's roster to its finalize and clears the field.
+    ///
+    /// Taken once and dropped: the names are session-scoped by policy
+    /// (privacy.md § 3.10), and the next recording must start from nothing
+    /// rather than merge into what this one left behind.
+    private func consumeRoster() -> MeetingRoster? {
         defer { roster = nil }
-        return roster?.participants ?? []
+        return roster
     }
 
     /// Best-effort entity extraction — links the saved session to the

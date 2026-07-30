@@ -151,6 +151,19 @@ final class EntitlementService: ObservableObject {
         entitlement?.isActive == true && entitlement?.can(feature) == true
     }
 
+    /// Whether a *UI surface* for the feature should be shown. Fails OPEN on an
+    /// unresolved entitlement, the opposite of `can`: a subscriber whose
+    /// entitlement fetch transiently failed must keep seeing their own data, and
+    /// real limits are enforced server-side regardless.
+    ///
+    /// Lives here because it was written out longhand at every call site
+    /// instead, and a gate copied per-view is a gate the next view forgets —
+    /// which is how the per-meeting action-item checklist came to render for
+    /// Starter users.
+    func mayUse(_ feature: Feature) -> Bool {
+        entitlement == nil || can(feature)
+    }
+
     func clear() {
         entitlement = nil
         loadFailed = false

@@ -15,7 +15,7 @@ struct MemoryBriefCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var canUseActionItems: Bool {
-        entitlements.entitlement == nil || entitlements.can(.actionItems)
+        entitlements.mayUse(.actionItems)
     }
 
     var body: some View {

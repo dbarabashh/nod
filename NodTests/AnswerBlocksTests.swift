@@ -49,4 +49,22 @@ final class AnswerBlocksTests: XCTestCase {
 
         XCTAssertEqual(AnswerBlocks.complete(in: messy, isFinished: true), ["One.", "Two."])
     }
+
+    /// The bubble decides whether to appear from `hasComplete` and then renders
+    /// from `complete`. A blank line with nothing after it used to satisfy the
+    /// first and not the second, so the bubble drew its chrome around nothing.
+    func testHasCompleteAgreesWithWhatTheRendererWouldShow() {
+        for text in ["First paragraph.\n\n", "Still one paragraph.", "", "Trailing blanks.\n\n\n\n"] {
+            XCTAssertEqual(
+                AnswerBlocks.hasComplete(in: text),
+                !AnswerBlocks.complete(in: text, isFinished: false).isEmpty,
+                "disagreed on \(text.debugDescription)"
+            )
+        }
+    }
+
+    func testHasCompleteWaitsForASecondParagraphToStart() {
+        XCTAssertFalse(AnswerBlocks.hasComplete(in: "First paragraph.\n\n"))
+        XCTAssertTrue(AnswerBlocks.hasComplete(in: "First paragraph.\n\nSecond starts"))
+    }
 }

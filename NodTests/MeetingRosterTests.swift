@@ -20,6 +20,15 @@ final class MeetingRosterTests: XCTestCase {
         }
     }
 
+    /// Separator and ellipsis labels are everywhere in a conferencing window's
+    /// accessibility tree, and each one that reads as a name inflates the
+    /// speaker count clustering is handed.
+    func testRejectsPunctuationOnlyCandidates() {
+        for label in ["..", "...", "''", "--", ".'-", "-.-"] {
+            XCTAssertFalse(MeetingRosterReader.isPersonName(label), "\(label) should not read as a person")
+        }
+    }
+
     func testRejectsStringsWithDigitsOrSentenceShape() {
         XCTAssertFalse(MeetingRosterReader.isPersonName("Meeting 4821"))
         XCTAssertFalse(MeetingRosterReader.isPersonName("recording in progress"))
@@ -100,6 +109,24 @@ final class MeetingRosterTests: XCTestCase {
         let second = MeetingRoster(app: .teams, participants: ["VLAD", "Pasha", "dima"])
 
         XCTAssertEqual(first.merging(second).participants, ["Dima", "Vlad", "Pasha"])
+    }
+
+    /// The user's own voice arrives on the mic, so the `them` stream holds one
+    /// fewer voice than the roster names.
+    func testExpectedThemSpeakersExcludesTheUser() {
+        let roster = MeetingRoster(app: .zoom, participants: ["Dima", "Vlad", "Pasha", "Sergiy"])
+
+        XCTAssertEqual(MeetingSession.expectedThemSpeakers(in: roster), 3)
+    }
+
+    /// Zero means "unknown" and sends clustering to its threshold — a one-person
+    /// roster is no more informative than none.
+    func testExpectedThemSpeakersIsZeroWhenTheRosterCannotInform() {
+        XCTAssertEqual(MeetingSession.expectedThemSpeakers(in: nil), 0)
+        XCTAssertEqual(
+            MeetingSession.expectedThemSpeakers(in: MeetingRoster(app: .zoom, participants: ["Dima"])),
+            0
+        )
     }
 
     /// A different app is a different call — the earlier names belong to it, not

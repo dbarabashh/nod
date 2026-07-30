@@ -49,10 +49,8 @@ struct AttentionColumn: View {
         }
     }
 
-    /// Fail OPEN on an unresolved entitlement, like every other Pro gate: a Pro
-    /// user whose entitlement fetch transiently failed still sees their tasks.
     private var canUseActionItems: Bool {
-        entitlements.entitlement == nil || entitlements.can(.actionItems)
+        entitlements.mayUse(.actionItems)
     }
 
     var body: some View {
