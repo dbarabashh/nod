@@ -24,7 +24,7 @@ final class ChatHomeSuggestionsTests: XCTestCase {
     func testFirstRunFallsBackToGenericOpeners() {
         let suggestions = ChatHomeSuggestions.build(meetings: [], now: now)
 
-        XCTAssertEqual(suggestions, [
+        XCTAssertEqual(suggestions.map(\.question), [
             "What did I promise?",
             "What decisions are still unresolved?"
         ])
@@ -38,8 +38,8 @@ final class ChatHomeSuggestionsTests: XCTestCase {
         )
 
         XCTAssertFalse(suggestions.isEmpty)
-        XCTAssertTrue(suggestions.allSatisfy { $0.contains("Hiring") })
-        XCTAssertFalse(suggestions.contains { $0.contains("Standup") })
+        XCTAssertTrue(suggestions.allSatisfy { $0.label.contains("Hiring") })
+        XCTAssertFalse(suggestions.contains { $0.label.contains("Standup") })
     }
 
     func testScopeHeadlineNamesTheReach() {
@@ -51,7 +51,7 @@ final class ChatHomeSuggestionsTests: XCTestCase {
     func testRecentMeetingIsNamedInAnOpener() {
         let suggestions = ChatHomeSuggestions.build(meetings: [meeting(title: "Pricing review", daysAgo: 1)], now: now)
 
-        XCTAssertTrue(suggestions.contains("Catch me up on Pricing review"))
+        XCTAssertTrue(suggestions.map(\.question).contains("Catch me up on Pricing review"))
     }
 
     func testWeeklyOpenerNeedsMoreThanOneMeeting() {
@@ -61,8 +61,8 @@ final class ChatHomeSuggestionsTests: XCTestCase {
             now: now
         )
 
-        XCTAssertFalse(one.contains("What did we decide this week?"))
-        XCTAssertTrue(two.contains("What did we decide this week?"))
+        XCTAssertFalse(one.map(\.question).contains("What did we decide this week?"))
+        XCTAssertTrue(two.map(\.question).contains("What did we decide this week?"))
     }
 
     func testStaleMeetingsAreNotCalledThisWeek() {
@@ -71,8 +71,8 @@ final class ChatHomeSuggestionsTests: XCTestCase {
             now: now
         )
 
-        XCTAssertFalse(suggestions.contains("What did we decide this week?"))
-        XCTAssertFalse(suggestions.contains { $0.hasPrefix("Catch me up") })
+        XCTAssertFalse(suggestions.map(\.question).contains("What did we decide this week?"))
+        XCTAssertFalse(suggestions.contains { $0.question.hasPrefix("Catch me up") })
     }
 
     func testDeletedMeetingsAreNeverSuggested() {
@@ -81,13 +81,13 @@ final class ChatHomeSuggestionsTests: XCTestCase {
             now: now
         )
 
-        XCTAssertFalse(suggestions.contains { $0.contains("Deleted one") })
+        XCTAssertFalse(suggestions.contains { $0.question.contains("Deleted one") })
     }
 
     func testUntitledMeetingsDoNotProduceAnOpener() {
         let suggestions = ChatHomeSuggestions.build(meetings: [meeting(title: "   ", daysAgo: 1)], now: now)
 
-        XCTAssertFalse(suggestions.contains { $0.hasPrefix("Catch me up") })
+        XCTAssertFalse(suggestions.contains { $0.question.hasPrefix("Catch me up") })
     }
 
     func testSuggestionsAreCapped() {
@@ -102,6 +102,31 @@ final class ChatHomeSuggestionsTests: XCTestCase {
         XCTAssertTrue(cut.hasSuffix("…"))
         XCTAssertFalse(cut.contains("  "))
         XCTAssertLessThanOrEqual(cut.count, 31)
+    }
+
+    /// The chip is cut to fit; the question must not be. Asking about a title
+    /// that ends in an ellipsis matches no session — the retrieval is looking
+    /// for a name nothing has.
+    func testLongTitleIsCutOnTheChipButNotInTheQuestion() {
+        let title = "Деплой LiveKit агента та усунення проблем із підключенням"
+        let suggestions = ChatHomeSuggestions.build(meetings: [meeting(title: title, daysAgo: 1)], now: now)
+        let opener = suggestions.first { $0.question.hasPrefix("Catch me up") }
+
+        XCTAssertEqual(opener?.question, "Catch me up on \(title)")
+        XCTAssertFalse(opener?.question.contains("…") ?? true)
+        XCTAssertTrue(opener?.label.hasSuffix("…") ?? false, "the chip should still be cut")
+    }
+
+    /// Long project names go through the same template, so the same trap is one
+    /// scope away.
+    func testProjectQuestionsCarryTheWholeName() {
+        let project = "Платформа рекомендацій та персоналізації стрічки"
+        let suggestions = ChatHomeSuggestions.build(meetings: [], project: project, now: now)
+
+        XCTAssertFalse(suggestions.isEmpty)
+        XCTAssertTrue(suggestions.allSatisfy { $0.question.contains(project) })
+        XCTAssertTrue(suggestions.allSatisfy { !$0.question.contains("…") })
+        XCTAssertTrue(suggestions.allSatisfy { $0.label.contains("…") })
     }
 
     func testGreetingUsesTheFirstNameOnly() {

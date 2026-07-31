@@ -9,6 +9,32 @@ import Foundation
 enum ChatHomeSuggestions {
     static let maximum = 4
 
+    /// An opener: what the chip reads, and what actually gets asked.
+    ///
+    /// Two fields rather than one, because a long meeting title has to be cut to
+    /// fit the chip — and the cut version used to be the question too. Tapping
+    /// "Catch me up on Деплой LiveKit агента та усунення…" asked the model about
+    /// a title ending in an ellipsis, so retrieval was matching against a name
+    /// no session has.
+    struct Opener: Identifiable, Equatable {
+        let label: String
+        let question: String
+
+        var id: String {
+            question
+        }
+
+        init(_ text: String) {
+            label = text
+            question = text
+        }
+
+        init(label: String, question: String) {
+            self.label = label
+            self.question = question
+        }
+    }
+
     /// A meeting counts as "recent" for a week; past that, "this week" would be
     /// a lie and the opener would return nothing.
     static let recentWindow: TimeInterval = 7 * 24 * 60 * 60
@@ -28,14 +54,15 @@ enum ChatHomeSuggestions {
         project: String? = nil,
         now: Date = Date(),
         titleLimit: Int = 40
-    ) -> [String] {
-        var suggestions: [String] = []
+    ) -> [Opener] {
+        var suggestions: [Opener] = []
         if let project, !project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let name = truncated(project, to: titleLimit)
+            let full = project.trimmingCharacters(in: .whitespacesAndNewlines)
+            let short = truncated(full, to: titleLimit)
             suggestions = [
-                "Catch me up on \(name)",
-                "What did I promise in \(name)?",
-                "What's still unresolved in \(name)?"
+                naming("Catch me up on %@", short: short, full: full),
+                naming("What did I promise in %@?", short: short, full: full),
+                naming("What's still unresolved in %@?", short: short, full: full)
             ]
         } else {
             let recent = meetings
@@ -43,17 +70,28 @@ enum ChatHomeSuggestions {
                 .filter { now.timeIntervalSince($0.startedAt) <= recentWindow }
 
             if recent.count >= 2 {
-                suggestions.append("What did we decide this week?")
+                suggestions.append(Opener("What did we decide this week?"))
             }
             if let latest = recent.first, let title = latest.title, !title.trimmingCharacters(in: .whitespaces).isEmpty {
-                suggestions.append("Catch me up on \(truncated(title, to: titleLimit))")
+                let full = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                suggestions.append(
+                    naming("Catch me up on %@", short: truncated(full, to: titleLimit), full: full)
+                )
             }
-            suggestions.append("What did I promise?")
-            suggestions.append("What decisions are still unresolved?")
+            suggestions.append(Opener("What did I promise?"))
+            suggestions.append(Opener("What decisions are still unresolved?"))
         }
 
         var seen = Set<String>()
-        return suggestions.filter { seen.insert($0).inserted }.prefix(maximum).map { $0 }
+        return suggestions.filter { seen.insert($0.question).inserted }.prefix(maximum).map { $0 }
+    }
+
+    /// One opener built from a template, cut for the chip and whole for the ask.
+    private static func naming(_ template: String, short: String, full: String) -> Opener {
+        Opener(
+            label: template.replacingOccurrences(of: "%@", with: short),
+            question: template.replacingOccurrences(of: "%@", with: full)
+        )
     }
 
     /// A long meeting title would push the chip past the composer's width;

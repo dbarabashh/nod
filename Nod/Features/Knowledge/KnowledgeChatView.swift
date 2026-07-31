@@ -160,11 +160,8 @@ struct KnowledgeChatView: View {
                 .padding(.bottom, 14)
 
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(
-                    ChatHomeSuggestions.build(meetings: meetingStore.meetings, project: scopeLabel?.name),
-                    id: \.self
-                ) { text in
-                    suggestion(text)
+                ForEach(ChatHomeSuggestions.build(meetings: meetingStore.meetings, project: scopeLabel?.name)) { opener in
+                    suggestion(opener)
                 }
             }
             if let onOpenAttention {
@@ -176,10 +173,18 @@ struct KnowledgeChatView: View {
         .padding(.vertical, 28)
     }
 
-    private func suggestion(_ text: String) -> some View {
-        ChatSuggestionChip(text: text) {
-            draft = text
-            inputFocused = true
+    /// Tapping an opener asks it, rather than typing it into the composer for
+    /// the user to press send on. The chip already *is* the question — a
+    /// pre-filled field asks them to confirm a choice they just made.
+    ///
+    /// The composer is filled too, and then cleared by `send()`, so the question
+    /// travels the same path a typed one does and lands in the transcript the
+    /// same way.
+    private func suggestion(_ opener: ChatHomeSuggestions.Opener) -> some View {
+        ChatSuggestionChip(text: opener.label) {
+            guard !chat.isSending else { return }
+            draft = opener.question
+            send()
         }
     }
 
