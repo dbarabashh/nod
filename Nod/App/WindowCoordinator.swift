@@ -202,6 +202,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         .environmentObject(services.profileStore)
         .environmentObject(services.auth)
         .environmentObject(services.onboardingTelemetry)
+        .environmentObject(services.modeStore)
 
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)

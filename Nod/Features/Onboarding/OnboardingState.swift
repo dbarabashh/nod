@@ -92,10 +92,13 @@ final class OnboardingState: ObservableObject {
         save()
     }
 
-    func reset() {
-        status = OnboardingStatus()
-        save()
-    }
+    #if DEBUG
+        /// Clears the persisted first-run flag so the next launch replays
+        /// onboarding. Local only — no account or meeting data is touched.
+        static func resetPersistedStatus() {
+            UserDefaults.standard.removeObject(forKey: storageKey)
+        }
+    #endif
 
     private func save() {
         status.lastUpdated = Date()

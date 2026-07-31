@@ -86,7 +86,7 @@ extension OnboardingStrings {
         actionEnable: "Enable",
         actionOpenSettings: "Open Settings",
         actionRelaunch: "Quit & Relaunch Nod",
-        actionRelaunchHint: "Screen Recording is granted. Relaunch Nod so it can capture system audio.",
+        actionRelaunchHint: "Allowed Screen Recording? macOS only hands it to Nod after a restart — relaunch to finish capturing system audio.",
         actionSkip: "Skip for now",
         actionContinue: "Continue",
         actionContinueAnyway: "Continue Anyway",

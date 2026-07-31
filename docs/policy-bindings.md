@@ -28,6 +28,7 @@ set. All contact emails resolve to `dbarabashdev@gmail.com`.
 | Backup retention changes (Supabase plan upgrade, PITR enabled) | `security.md` "Infrastructure", `privacy.md` § 7 |
 | Analytics SDK added (PostHog, Sentry, Amplitude, etc.) | `privacy.md` § 3.8 "What we do not collect" (this list must stay accurate), `subprocessors.md` |
 | New first-party telemetry event or table (e.g. `onboarding_events`) | `privacy.md` § 3.5 + § 3.8 — the "we do not track" list must stay true |
+| A new field on `profiles` (`WorkRole`, `AcquisitionSource`, anything asked in `ProfileStep`) | `privacy.md` § 3.2 — each field is its own row with its own purpose and legal basis, and a field collected for *us* (attribution, segmentation) is not the contract basis the assistant-context fields sit on |
 | OpenRouter key path changes (any client-side fallback, alternative proxy, new edge function) | `security.md` "Infrastructure" last bullet |
 | Google OAuth scopes expanded beyond openid/email/profile (in `AuthService.signInWithGoogle`) | `privacy.md` § 3.1 |
 | Consent disclaimer body changes (`ConsentStrings.swift`) | `consent.md`, `privacy.md` § 3.3; also bump `ConsentPreference.disclaimerVersion` |

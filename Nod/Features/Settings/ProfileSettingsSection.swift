@@ -127,7 +127,10 @@ struct ProfileSettingsSection: View {
         saveState = .saving
         Task {
             do {
-                try await store.save(displayName: name, preferences: preferences)
+                try await store.update {
+                    $0.displayName = name
+                    $0.preferences = preferences
+                }
                 withAnimation { saveState = .saved }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 if saveState == .saved { withAnimation { saveState = .idle } }

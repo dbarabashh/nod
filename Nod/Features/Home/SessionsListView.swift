@@ -8,6 +8,10 @@ struct SessionsListView: View {
     /// navigates here with it already applied.
     @Binding var filterLabelID: UUID?
     let onOpen: (Meeting) -> Void
+    /// Same intent the sidebar's Capture button dispatches, minus the kind
+    /// picker: the empty state offers one thing, and it's a meeting.
+    let onStartCapture: () -> Void
+    let panelShortcut: String
 
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
@@ -326,6 +330,9 @@ struct SessionsListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Carries the action, not directions to it: the panel this used to point
+    /// at isn't on screen at launch, so "hit record on the floating panel" was
+    /// an instruction with nothing to follow it.
     private var emptyAllState: some View {
         VStack(spacing: 14) {
             Image(systemName: "tray")
@@ -334,10 +341,30 @@ struct SessionsListView: View {
             Text("No sessions yet.")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
-            Text("Hit record on the floating panel to start your first.")
+            Text("Start one and Nod listens, then hands you a recap when you're done.")
                 .font(.system(size: 12.5, weight: .regular))
                 .foregroundStyle(Theme.Palette.graphite)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 320)
+
+            Button(action: onStartCapture) {
+                Text("Start your first session")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.GlassButton.text)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 9)
+                    .glassButtonSurface(Capsule(style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
+
+            Text("Opens the capture panel — meeting, voice note or media. \(panelShortcut) brings it up any time.")
+                .font(.system(size: 11.5, weight: .regular))
+                .foregroundStyle(Theme.Palette.muted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 320)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 40)

@@ -69,7 +69,9 @@ Calendar, Drive, or contacts.
 | **Cross-session chats** (`knowledge_threads`, `knowledge_messages`) — your questions, the answers, and the sessions/excerpts each answer used | To let you reopen and continue an "Ask Nod" conversation instead of losing it on quit | Contract (Art. 6(1)(b)) |
 | **Source clicks** (`retrieval_feedback`) — the question asked, the session opened from the answer, and its position in the list | To improve which sessions search returns for a question | Legitimate interest (Art. 6(1)(f)): improving the product you're using, on your own content |
 | **Entities** (people / projects / topics extracted from a session) | To link related sessions and power scoped search | Contract (Art. 6(1)(b)) |
-| Your optional **profile** (name, role, current focus) | To give the assistant context about you | Contract (Art. 6(1)(b)); you may leave it blank or clear it anytime |
+| Your optional **profile** (name, what you want Nod to focus on) | To give the assistant context about you | Contract (Art. 6(1)(b)); you may leave it blank or clear it anytime |
+| Your optional **role** (founder, recruiter, sales, …), asked once during setup | To pick a sensible default meeting mode for you, and to understand who Nod is for. It is **not** sent to the assistant | Legitimate interest (Art. 6(1)(f)): setting the product up for you and knowing who uses it; you may leave it blank |
+| Your optional answer to **"how did you hear about us?"** | To know which channels bring people to Nod, so we know where to spend | Legitimate interest (Art. 6(1)(f)): running the business; you may leave it blank |
 
 The embeddings, chat messages, and entities are derived from transcript
 content you already chose to record; they are stored in the same
@@ -117,6 +119,10 @@ and whether the app needed to restart to pick up a screen-recording grant.
 Each row holds your user ID, a timestamp, the event name, and the app
 version — no meeting content, no screen contents, and nothing about what you
 do in the app after setup finishes.
+
+Two rows carry one extra detail: which permission an event refers to, and — if
+you answered it — the role you picked on the setup screen, so we can see which
+kinds of users finish setup and which get stuck.
 
 We need this because setup progress is otherwise stored only on your own Mac,
 which left us unable to tell whether new users were getting stuck on the macOS

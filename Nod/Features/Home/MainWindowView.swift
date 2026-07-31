@@ -231,8 +231,13 @@ struct MainWindowView: View {
         case .chat:
             chatHome.transition(.opacity)
         case .sessions:
-            SessionsListView(filterLabelID: $filterLabelID, onOpen: { focus = .session($0) })
-                .transition(.opacity)
+            SessionsListView(
+                filterLabelID: $filterLabelID,
+                onOpen: { focus = .session($0) },
+                onStartCapture: { capture(.meeting) },
+                panelShortcut: hotkeys.combo(for: .togglePanel).displayString
+            )
+            .transition(.opacity)
         case .actionItems:
             ActionItemsAggregateView(
                 meetings: meetingStore.meetings,

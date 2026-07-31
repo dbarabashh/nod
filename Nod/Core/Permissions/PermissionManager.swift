@@ -64,34 +64,61 @@ final class PermissionManager: ObservableObject {
 
     // MARK: - Screen Recording
 
+    /// What asking for Screen Recording could establish. There is deliberately
+    /// no `denied` case: once the user answers the TCC prompt, this process
+    /// keeps seeing the access it started with, so a grant and a refusal are
+    /// indistinguishable until a fresh process asks. Reporting `denied` there
+    /// was a guess, and it read as a failure to users who had just said yes.
+    enum ScreenRecordingRequest {
+        case authorized
+        case pendingRelaunch
+    }
+
     // CGRequestScreenCaptureAccess returns the *current* state and triggers the TCC
     // prompt only on the first call. The user's response is asynchronous — Meetily
     // mirrors this by re-checking after the prompt and routing to System Settings
     // on subsequent attempts.
-    func requestScreenRecording() async -> Bool {
-        if screenRecording == .authorized { return true }
+    func requestScreenRecording() async -> ScreenRecordingRequest {
+        if screenRecording == .authorized { return .authorized }
 
         requestedScreenRecordingThisSession = true
         UserDefaults.standard.set(true, forKey: Self.screenPromptedKey)
 
         if CGRequestScreenCaptureAccess() {
             screenRecording = .authorized
-            return true
+            return .authorized
         }
 
         try? await Task.sleep(nanoseconds: 800_000_000)
         if CGPreflightScreenCaptureAccess() {
             screenRecording = .authorized
-            return true
+            return .authorized
         }
 
+        // Not "no" — "not yet visible here". The row switches to Open Settings,
+        // which is the right next step whether they refused or granted in a
+        // pane this process can't see.
         screenRecording = .denied
-        return false
+        return .pendingRelaunch
     }
 
+    /// Counts as asking. On the second launch the row already reads `.denied`,
+    /// so this — not `requestScreenRecording()` — is the button the user
+    /// presses; without the flag they grant access in System Settings, come
+    /// back, and are never told a restart is what's still missing.
     func openScreenRecordingSettings() {
+        requestedScreenRecordingThisSession = true
         open("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
     }
+
+    #if DEBUG
+        /// Forgets that we ever prompted for Screen Recording, so the row reads
+        /// `notDetermined` again. Pair it with `tccutil reset ScreenCapture
+        /// com.example.nod` — this clears our synthesized flag, not the OS grant.
+        static func resetPersistedScreenPrompt() {
+            UserDefaults.standard.removeObject(forKey: screenPromptedKey)
+        }
+    #endif
 
     // MARK: - Relaunch
 

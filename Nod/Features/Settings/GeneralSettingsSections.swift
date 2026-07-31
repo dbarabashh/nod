@@ -189,9 +189,44 @@ struct GeneralSettingsPane: View {
 
             #if DEBUG
                 demoModeCard
+                resetFirstRunCard
             #endif
         }
     }
+
+    #if DEBUG
+        /// Replays the first-run experience without touching the account: the
+        /// onboarding flag, the consent gate and our "we've prompted for Screen
+        /// Recording" flag are all device-local. Meetings, profile and
+        /// subscription live on the server and are untouched.
+        ///
+        /// The OS grants themselves are not ours to revoke — `tccutil reset
+        /// ScreenCapture com.example.nod` does that, with Nod quit.
+        private var resetFirstRunCard: some View {
+            SettingsCard {
+                SettingsRow(
+                    icon: "arrow.counterclockwise",
+                    title: "Reset first run",
+                    subtitle: "Replay onboarding and the consent disclaimer on the next launch. Local flags only — no meetings, profile or subscription data is touched. Relaunches Nod."
+                ) {
+                    Button {
+                        OnboardingState.resetPersistedStatus()
+                        ConsentPreference.resetPersistedGate()
+                        PermissionManager.resetPersistedScreenPrompt()
+                        Self.relaunch()
+                    } label: {
+                        Text("Reset")
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundColor(Theme.GlassButton.text)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 7)
+                            .glassButtonSurface(Capsule(style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    #endif
 
     #if DEBUG
         /// Recording aid — fills the app with sample meetings and swallows every

@@ -54,6 +54,15 @@ final class ConsentPreference: ObservableObject {
         }
     }
 
+    #if DEBUG
+        /// Clears the device-side UX gate so the disclaimer shows again on the
+        /// next recording. The Supabase audit rows are untouched — they are the
+        /// legal record, not a cache.
+        static func resetPersistedGate() {
+            UserDefaults.standard.removeObject(forKey: storageKey)
+        }
+    #endif
+
     private func writeAuditRow() {
         // Snapshot values that need MainActor isolation before crossing
         // into a detached Task. The disclaimer body is English-only, so

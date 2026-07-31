@@ -13,6 +13,7 @@ final class ProfileStore: ObservableObject {
 
     private let supabase: SupabaseClient
     private let auth: AuthService
+    private var inFlight: Task<Void, Never>?
     private static let tableName = "profiles"
 
     init(supabase: SupabaseClient, auth: AuthService) {
@@ -29,9 +30,22 @@ final class ProfileStore: ObservableObject {
     /// Fetches the current user's row. No-op if the cache is already
     /// populated for the signed-in user. Failures are logged, not surfaced —
     /// a missing profile just means no extra context, never a blocked flow.
+    ///
+    /// Concurrent callers join the fetch already running instead of starting
+    /// their own: at sign-in the auth observer and onboarding both ask on the
+    /// same turn, and the cache guard can't help while `profile` is still nil.
     func load(force: Bool = false) async {
         guard let userID = auth.currentSupabaseSession?.user.id else { return }
         if !force, profile?.userID == userID { return }
+        if let inFlight { return await inFlight.value }
+
+        let fetch = Task { await self.fetch(userID: userID) }
+        inFlight = fetch
+        await fetch.value
+        inFlight = nil
+    }
+
+    private func fetch(userID: UUID) async {
         do {
             let rows: [Profile] = try await supabase
                 .from(Self.tableName)
@@ -46,24 +60,42 @@ final class ProfileStore: ObservableObject {
         }
     }
 
-    /// Upserts the editable fields for the signed-in user. Throws on network /
-    /// RLS error so the caller can surface a retry affordance.
-    func save(displayName: String, preferences: String) async throws {
+    /// Edits the stored row: the closure receives the current profile and
+    /// changes only what it cares about.
+    ///
+    /// Read-modify-write rather than a field list, because the write is a
+    /// whole-row upsert — a caller passing only the fields it edits would
+    /// silently clear the rest, and no doc comment survives the third caller.
+    /// Refuses rather than guesses when the row can't be read: writing a
+    /// merge onto a profile we failed to fetch is how columns get wiped.
+    func update(_ mutate: (inout Profile) -> Void) async throws {
         guard let userID = auth.currentSupabaseSession?.user.id else {
             throw ProfileError.notSignedIn
         }
-        Log.ui.info("ProfileStore.save user=\(userID.uuidString)")
+        await load()
+        guard var merged = profile, merged.userID == userID else {
+            throw ProfileError.unavailable
+        }
+        mutate(&merged)
+        Log.ui.info("ProfileStore.update user=\(userID.uuidString)")
 
         struct Upsert: Encodable {
             let user_id: UUID
             let display_name: String
             let preferences: String
+            let role: String?
+            let heard_from: String?
             let updated_at: Date
         }
+        merged.displayName = merged.displayName.trimmedOrEmpty
+        merged.preferences = merged.preferences.trimmedOrEmpty
+
         let payload = Upsert(
             user_id: userID,
-            display_name: displayName.trimmedOrEmpty,
-            preferences: preferences.trimmedOrEmpty,
+            display_name: merged.displayName,
+            preferences: merged.preferences,
+            role: merged.role?.rawValue,
+            heard_from: merged.heardFrom?.rawValue,
             updated_at: Date()
         )
         try await supabase
@@ -71,11 +103,7 @@ final class ProfileStore: ObservableObject {
             .upsert(payload, onConflict: "user_id")
             .execute()
 
-        profile = Profile(
-            userID: userID,
-            displayName: payload.display_name,
-            preferences: payload.preferences
-        )
+        profile = merged
     }
 
     /// Drops the cached profile on sign-out so the next user can't inherit
@@ -86,9 +114,11 @@ final class ProfileStore: ObservableObject {
 
     enum ProfileError: LocalizedError {
         case notSignedIn
+        case unavailable
         var errorDescription: String? {
             switch self {
             case .notSignedIn: "You're signed out — sign in to save your profile."
+            case .unavailable: "Couldn't load your profile — check your connection and try again."
             }
         }
     }

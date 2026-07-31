@@ -72,6 +72,20 @@ final class ModeStore: ObservableObject {
         writeSelection()
     }
 
+    /// Points a new user at the mode their role usually needs, so the first
+    /// recap is already framed before they've opened Settings.
+    ///
+    /// Only while the selection is untouched: onboarding can run again on a
+    /// reinstall or a second Mac, and answering "Manager" a second time must
+    /// not overwrite the mode someone deliberately chose in between.
+    func selectPreset(for role: WorkRole) {
+        guard selectedID == modes.first?.id,
+              let name = role.presetModeName,
+              let match = modes.first(where: { $0.name == name })
+        else { return }
+        select(match.id)
+    }
+
     @discardableResult
     func addMode() -> UUID {
         let mode = MeetingMode(name: "New mode", icon: "star", summary: .auto, reply: .auto)
