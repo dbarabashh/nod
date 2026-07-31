@@ -24,11 +24,20 @@ final class ScreenExclusions: ObservableObject {
     @Published private(set) var apps: [ExcludedApp] = []
     @Published private(set) var websites: [String] = []
     @Published private(set) var categories: Set<WebsiteCategory> = []
+    /// Domains captured even when an excluded category matches them. See
+    /// `ScreenExclusionRules.excludesWindow` for why it cannot overrule an
+    /// explicitly excluded site.
+    @Published private(set) var alwaysIncluded: [String] = []
 
     private let defaults: UserDefaults
     private static let appsKey = "screen.exclusions.apps"
     private static let websitesKey = "screen.exclusions.websites"
     private static let categoriesKey = "screen.exclusions.categories"
+    private static let alwaysIncludedKey = "screen.exclusions.alwaysIncluded"
+    /// Every website default ever *offered* to this install, on the same
+    /// once-only contract as the app list: a default the user deleted must not
+    /// reappear, while one added in a later version still reaches them.
+    private static let offeredWebsitesKey = "screen.exclusions.offeredWebsites"
     /// Legacy flag: "the messenger defaults have been seeded". Read only, to
     /// migrate an install that predates `offeredMessengersKey`.
     private static let seededMessengersKey = "screen.exclusions.seededMessengers"
@@ -38,22 +47,24 @@ final class ScreenExclusions: ObservableObject {
     /// defaults later never reached anyone who had already run Nod once.
     private static let offeredMessengersKey = "screen.exclusions.offeredMessengers"
 
-    /// Personal messengers, excluded before the user has said anything.
+    /// Personal messengers and password managers, excluded before the user has
+    /// said anything.
     ///
-    /// Ambient capture reads the window you are looking at, and the window
-    /// people look at most is a private conversation with someone who never
-    /// agreed to any of this. A blocklist that starts empty puts that text in
-    /// the index by default and asks the user to notice afterwards.
+    /// Ambient capture reads the window you are looking at, and the two windows
+    /// people look at most are a private conversation with someone who never
+    /// agreed to any of this, and a vault listing every account they own. A
+    /// blocklist that starts empty puts both in the index by default and asks
+    /// the user to notice afterwards.
     ///
     /// Seeded, not hardcoded: it lands in the same list as any other exclusion,
-    /// so a user who *wants* their messenger indexed can untick it and it stays
-    /// off — see `seedDefaultsIfNeeded`.
+    /// so a user who *wants* one of these indexed can untick it and it stays off
+    /// — see `seedDefaultsIfNeeded`.
     /// Telegram ships under three different identifiers and each one is a
     /// separate entry: matching is by bundle id, so the two that were listed
     /// here left the build most people actually run — `com.tdesktop.Telegram` —
-    /// readable by default. A messenger missing from this list is not a
-    /// cosmetic gap; it is private conversation in the index.
-    static let defaultExcludedMessengers = [
+    /// readable by default. An app missing from this list is not a cosmetic gap;
+    /// it is private conversation, or a password, in the index.
+    static let defaultExcludedApps = [
         ExcludedApp(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp"),
         ExcludedApp(bundleID: "com.tdesktop.Telegram", name: "Telegram"),
         ExcludedApp(bundleID: "ru.keepcoder.Telegram", name: "Telegram"),
@@ -63,7 +74,48 @@ final class ScreenExclusions: ObservableObject {
         ExcludedApp(bundleID: "com.signal.Signal", name: "Signal"),
         ExcludedApp(bundleID: "org.whispersystems.signal-desktop", name: "Signal"),
         ExcludedApp(bundleID: "com.viber.osx", name: "Viber"),
-        ExcludedApp(bundleID: "com.hnc.Discord", name: "Discord")
+        ExcludedApp(bundleID: "com.hnc.Discord", name: "Discord"),
+        ExcludedApp(bundleID: "com.1password.1password", name: "1Password"),
+        ExcludedApp(bundleID: "com.agilebits.onepassword7", name: "1Password 7"),
+        ExcludedApp(bundleID: "com.bitwarden.desktop", name: "Bitwarden"),
+        ExcludedApp(bundleID: "com.lastpass.LastPass", name: "LastPass"),
+        ExcludedApp(bundleID: "com.dashlane.Dashlane", name: "Dashlane"),
+        ExcludedApp(bundleID: "com.callpod.keeper-mac", name: "Keeper"),
+        ExcludedApp(bundleID: "com.nordpass.macos", name: "NordPass"),
+        ExcludedApp(bundleID: "me.proton.pass.electron", name: "Proton Pass"),
+        ExcludedApp(bundleID: "in.sinew.Enpass-Desktop", name: "Enpass"),
+        ExcludedApp(bundleID: "com.apple.Passwords", name: "Passwords"),
+        ExcludedApp(bundleID: "org.keepassxc.keepassxc", name: "KeePassXC")
+    ]
+
+    /// Sites excluded before the user has configured anything: password vaults,
+    /// and the one-time-secret services people paste credentials into.
+    ///
+    /// These are the windows where a single capture is worst — a vault listing
+    /// every account name, or a link whose whole purpose is to be read once and
+    /// destroyed. A category can't cover them: "banking" doesn't match
+    /// `1password.com`, and the title of a vault is usually just the item name.
+    ///
+    /// Matched by domain against the window title, so this only reaches a site
+    /// open in a *browser*. The desktop apps are covered by
+    /// `defaultExcludedApps` — both halves are needed, because most people use
+    /// the app and some use the web vault.
+    static let defaultExcludedWebsites = [
+        "1password.com",
+        "bitwarden.com",
+        "lastpass.com",
+        "dashlane.com",
+        "keepersecurity.com",
+        "nordpass.com",
+        "pass.proton.me",
+        "enpass.io",
+        "roboform.com",
+        "pwpush.com",
+        "onetimesecret.com",
+        "privnote.com",
+        "yopass.se",
+        "scrt.link",
+        "1ty.me"
     ]
 
     /// What the first version of the list contained. Used only to migrate an
@@ -85,34 +137,72 @@ final class ScreenExclusions: ObservableObject {
         apps = Self.decode([ExcludedApp].self, from: defaults, key: Self.appsKey) ?? []
         websites = Self.decode([String].self, from: defaults, key: Self.websitesKey) ?? []
         categories = Set(Self.decode([WebsiteCategory].self, from: defaults, key: Self.categoriesKey) ?? [])
-        if seedDefaults { seedDefaultsIfNeeded() }
+        alwaysIncluded = Self.decode([String].self, from: defaults, key: Self.alwaysIncludedKey) ?? []
+        if seedDefaults {
+            seedAppDefaultsIfNeeded()
+            seedWebsiteDefaultsIfNeeded()
+        }
     }
 
-    /// Offers each messenger default exactly once, ever.
+    /// Offers each app default exactly once, ever.
     ///
     /// Once, so an app the user deliberately removed never comes back. Each,
     /// so a default added in a later version still reaches installs that have
     /// already run — which is what a single "seeded" flag got wrong, leaving
     /// every existing install without the Telegram build most people have.
-    private func seedDefaultsIfNeeded() {
+    private func seedAppDefaultsIfNeeded() {
         var offered = Set(defaults.stringArray(forKey: Self.offeredMessengersKey) ?? [])
         if offered.isEmpty, defaults.bool(forKey: Self.seededMessengersKey) {
             offered = Self.firstSeededBundleIDs
         }
 
         let known = Set(apps.map(\.bundleID))
-        let added = Self.defaultExcludedMessengers.filter {
+        let all = Self.defaultExcludedApps.map(\.bundleID)
+        let added = Self.defaultExcludedApps.filter {
             !offered.contains($0.bundleID) && !known.contains($0.bundleID)
         }
-        defaults.set(
-            offered.union(Self.defaultExcludedMessengers.map(\.bundleID)).sorted(),
-            forKey: Self.offeredMessengersKey
-        )
+        // Only when it would change something. In the steady state — every
+        // launch after the first — this used to rebuild and rewrite an
+        // identical array through `cfprefsd` on the startup path.
+        if !offered.isSuperset(of: all) {
+            defaults.set(offered.union(all).sorted(), forKey: Self.offeredMessengersKey)
+        }
 
         guard !added.isEmpty else { return }
         apps.append(contentsOf: added)
         persistApps()
-        Log.screen.info("exclusions: seeded \(added.count) messenger default(s)")
+        Log.screen.info("exclusions: seeded \(added.count) app default(s)")
+    }
+
+    /// The same once-only contract for the website defaults. No legacy flag to
+    /// migrate — this list did not exist before, so an install that has never
+    /// been offered it gets the whole thing.
+    private func seedWebsiteDefaultsIfNeeded() {
+        let offered = Set(defaults.stringArray(forKey: Self.offeredWebsitesKey) ?? [])
+        let known = Set(websites)
+        // A site the user put on the always-include list is an explicit "read
+        // this". Seeding it into the blocklist would, by the documented
+        // precedence, silently overrule them and leave their own entry sitting
+        // in the UI doing nothing.
+        let allowed = Set(alwaysIncluded)
+        let added = Self.defaultExcludedWebsites.filter {
+            !offered.contains($0) && !known.contains($0) && !allowed.contains($0)
+        }
+        if !offered.isSuperset(of: Self.defaultExcludedWebsites) {
+            defaults.set(offered.union(Self.defaultExcludedWebsites).sorted(), forKey: Self.offeredWebsitesKey)
+        }
+
+        guard !added.isEmpty else { return }
+        websites.append(contentsOf: added)
+        persistWebsites()
+        Log.screen.info("exclusions: seeded \(added.count) website default(s)")
+    }
+
+    /// Whether a site is one Nod shipped rather than one the user typed. Only
+    /// the label differs — a default is an ordinary entry and removes the same
+    /// way, which is what makes shipping one defensible.
+    static func isDefaultWebsite(_ pattern: String) -> Bool {
+        defaultExcludedWebsites.contains(pattern)
     }
 
     /// Total number of website rules in force, category keywords included —
@@ -171,6 +261,36 @@ final class ScreenExclusions: ObservableObject {
         websites.removeAll { $0 == pattern }
         persistWebsites()
         Log.screen.info("exclusions: removed site \(pattern)")
+    }
+
+    /// Why an always-include entry was refused. The store knows which rule
+    /// rejected it; returning a bare `false` made the view re-derive the
+    /// precedence to guess, leaving two copies of it to keep in sync.
+    enum AlwaysIncludeRejection: Equatable {
+        case empty
+        case duplicate
+        /// Explicitly excluded, so the entry would silently do nothing — an
+        /// exclusion by name always wins.
+        case excluded
+    }
+
+    /// Adds a site to the always-capture list, or says why not.
+    @discardableResult
+    func alwaysInclude(_ pattern: String) -> AlwaysIncludeRejection? {
+        let normalized = Self.normalizeWebsite(pattern)
+        guard !normalized.isEmpty else { return .empty }
+        guard !alwaysIncluded.contains(normalized) else { return .duplicate }
+        guard !websites.contains(normalized) else { return .excluded }
+        alwaysIncluded.append(normalized)
+        persist(alwaysIncluded, key: Self.alwaysIncludedKey)
+        Log.screen.info("exclusions: always include \(normalized)")
+        return nil
+    }
+
+    func removeAlwaysIncluded(_ pattern: String) {
+        alwaysIncluded.removeAll { $0 == pattern }
+        persist(alwaysIncluded, key: Self.alwaysIncludedKey)
+        Log.screen.info("exclusions: dropped always-include \(pattern)")
     }
 
     func excludesApp(bundleID: String) -> Bool {
@@ -238,7 +358,25 @@ final class ScreenExclusions: ObservableObject {
 /// traversal that actually enforces it.
 struct ScreenExclusionRules: Equatable {
     let appBundleIDs: [String]
+    /// Domains the user (or a shipped default) named outright.
     let websites: [String]
+    /// The broad keyword lists behind the category switches. Kept apart from
+    /// `websites` because only these can be overridden — see `excludesWindow`.
+    let categoryKeywords: [String]
+    /// Domains to capture even when a category would have excluded them.
+    let alwaysIncluded: [String]
+
+    init(
+        appBundleIDs: [String],
+        websites: [String],
+        categoryKeywords: [String] = [],
+        alwaysIncluded: [String] = []
+    ) {
+        self.appBundleIDs = appBundleIDs
+        self.websites = websites
+        self.categoryKeywords = categoryKeywords
+        self.alwaysIncluded = alwaysIncluded
+    }
 
     static let none = ScreenExclusionRules(appBundleIDs: [], websites: [])
 
@@ -246,8 +384,19 @@ struct ScreenExclusionRules: Equatable {
         appBundleIDs.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame }
     }
 
+    /// Precedence, and the reason for it: a named exclusion always wins, and the
+    /// allowlist can only overrule a *category*.
+    ///
+    /// Categories are keyword matches against a window title, so they are
+    /// deliberately broad and catch things they shouldn't — "shopping" swallows
+    /// a supplier portal, "social" swallows a LinkedIn recruiting call. The
+    /// allowlist is the escape hatch for exactly that. What it must never do is
+    /// re-open a site the user typed into the blocklist themselves: that is an
+    /// explicit "never read this", and no other rule gets to overrule it.
     func excludesWindow(title: String) -> Bool {
-        ScreenExclusions.matches(title: title, patterns: websites)
+        if ScreenExclusions.matches(title: title, patterns: websites) { return true }
+        if ScreenExclusions.matches(title: title, patterns: alwaysIncluded) { return false }
+        return ScreenExclusions.matches(title: title, patterns: categoryKeywords)
     }
 }
 
@@ -255,7 +404,9 @@ extension ScreenExclusions {
     var rules: ScreenExclusionRules {
         ScreenExclusionRules(
             appBundleIDs: apps.map(\.bundleID),
-            websites: websites + WebsiteCategory.keywords(for: categories)
+            websites: websites,
+            categoryKeywords: WebsiteCategory.keywords(for: categories),
+            alwaysIncluded: alwaysIncluded
         )
     }
 }

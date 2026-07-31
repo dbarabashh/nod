@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-07-30_
+_Last updated: 2026-07-31_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -266,15 +266,18 @@ the product:
 
 | | |
 |---|---|
-| **Default** | **Off.** You enable it in Settings → Privacy. It is never switched on by an app update. |
+| **Default** | **Off.** You switch it on yourself — in Settings → Privacy, or from the **Ambient context** control at the bottom of Nod's sidebar, which states the same thing this row does before it turns anything on. It is never switched on by an app update. |
+| **Turning it off** | The same sidebar control switches it off in one click, and always shows whether it is on, off, or paused. You never have to go looking for the off switch. |
+| **Pausing** | You can pause capture for 15 minutes, an hour, or the rest of the day without switching the feature off. Nothing is read while it is paused, and it resumes on its own when the time is up. A pause survives quitting Nod, and never outlives its own deadline. |
 | **What is stored** | The window's text, the app's identifier, the window title, and a timestamp, in `screen_observations`. No images, no keystrokes, no clipboard, no password-field contents. |
 | **How often** | About every 5 seconds, and only for the window you are actually looking at — the focused one, never the app's other windows. An unchanged screen stays a **single row**, not one per sample; its timestamp is refreshed at most once a minute, so Nod can tell how long a window was up without storing it again. |
 | **How it reads** | The accessibility interface first. When a window tells macOS almost nothing — Slack, Figma and other Electron or canvas-drawn apps — Nod converts that window's pixels to text **on your Mac**, at most once every 20 seconds, and only for a window the accessibility read came up short on. This needs the **Screen Recording** permission you already granted for meeting audio; without it, the step is skipped. It also needs macOS 14 or later. |
 | **What happens to the image** | Nothing is saved. It exists in memory for the moment recognition takes, is never written to disk and never uploaded, and is released immediately. Only the recognised text is stored. |
 | **How long** | Every row carries an expiry — 14 days by default, and you choose. A scheduled job deletes expired rows server-side, so the index shrinks on its own even if you never open Nod again. |
 | **Exclusions** | Your blocklist is checked **before** anything is read — including before any pixel is read. An excluded app or window is never traversed and never recognised. |
-| **Excluded out of the box** | Personal messengers — WhatsApp, Telegram, Messages, Messenger, Signal, Viber, Discord — are on the blocklist before you touch it, so a private conversation is never the first thing captured. They are ordinary entries you can remove in Settings → Privacy if you want that app read; removing one is remembered and it is not added back. |
-| **Deletion** | Yours to delete at any time; account deletion removes all of it. |
+| **Excluded out of the box** | Two groups are on the blocklist before you touch it. **Personal messengers** — WhatsApp, Telegram, Messages, Messenger, Signal, Viber, Discord — so a private conversation is never the first thing captured. **Password managers and one-time-secret services** — 1Password, Bitwarden, LastPass, Dashlane, Keeper, NordPass, Proton Pass, Enpass, KeePassXC, Apple Passwords, and the matching websites plus pwpush, One-Time Secret, Privnote, Yopass, scrt.link and 1ty.me — because a vault window lists every account you own, and a one-time secret exists to be read once and destroyed. All of them are ordinary entries you can remove in Settings → Privacy if you want that app or site read; removing one is remembered and it is not added back. |
+| **Always include** | Category exclusions match keywords in a window title, so they are broad and will sometimes catch a site you want read — a supplier portal under "Shopping", a recruiting call under "Social media". You can list those sites as always-included, and they are captured despite the category. This cannot re-open a site you excluded by name: an explicit exclusion always wins. |
+| **Deletion** | Yours to delete at any time, from the same sidebar control: the last 5 minutes, the last 15 minutes, the last hour, or everything Nod has ever read from your screen. Deletion is immediate and permanent, and it does not touch your sessions or transcripts. What it does not do is stop capture: if ambient context is still on and you are still looking at the same window, that window will be read again as a new observation — pause or switch it off first. Account deletion removes all of it. |
 
 Legal basis: Consent (Art. 6(1)(a)) — this one is opt-in, and you can
 withdraw it by switching it off, which stops capture immediately; existing

@@ -22,8 +22,22 @@ final class ScreenContextService: ObservableObject {
     /// showing the switch used to keep its own `@State` mirror and re-read the
     /// disk to stay honest. This is the one copy they all bind to.
     @Published private(set) var isAmbientEnabled = ScreenContextDefaults.isEnabled
+    /// When a temporary pause runs out, or nil when nothing is paused.
+    ///
+    /// Distinct from switching the feature off: a pause is "not for the next few
+    /// minutes", and it restores itself, so the user who wanted privacy for one
+    /// call doesn't have to remember to turn ambient context back on afterwards
+    /// — forgetting is how a feature quietly stops being used.
+    @Published private(set) var pausedUntil: Date?
     @Published private(set) var isRunning = false
     @Published private(set) var lastCaptureAt: Date?
+    /// What the last deletion did, held briefly so a surface can say so.
+    ///
+    /// The deletion is server-side and there is no list on screen to visibly
+    /// shrink, so without this the button looks like it did nothing. It lives on
+    /// the service rather than in a view because the menu that triggers it is
+    /// gone by the time the delete returns.
+    @Published private(set) var lastDeletion: DeletionOutcome?
     /// Switched on but blocked on the Accessibility grant. A toggle that says
     /// "on" while nothing happens is worse than one that refuses to move, so
     /// the UI reads this and says what is missing.
@@ -33,6 +47,9 @@ final class ScreenContextService: ObservableObject {
     private let exclusions: ScreenExclusions
     private let reader: AccessibilityReader
     private var timerTask: Task<Void, Never>?
+    private var pauseTask: Task<Void, Never>?
+    private var announceTask: Task<Void, Never>?
+    private var wakeObserver: (any NSObjectProtocol)?
     /// When each screen state was last written, so an unchanged screen isn't
     /// re-sent on every tick. Not a plain "seen" set: the row's `observed_at` is
     /// where the digest reads how long a window was up from, and the dedup index
@@ -87,15 +104,19 @@ final class ScreenContextService: ObservableObject {
         self.supabase = supabase
         self.exclusions = exclusions
         self.reader = reader
+        observeWake()
+    }
+
+    deinit {
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
     }
 
     func start() {
         guard !isRunning, ScreenContextDefaults.isEnabled else { return }
         guard AccessibilityAccess.isTrusted else {
             needsAccessibility = true
-            // Asking here is the one moment the request is expected: the user
-            // just switched the feature on.
-            AccessibilityAccess.requestTrust()
             Log.screen.info("context: accessibility not granted — ambient capture stays off")
             return
         }
@@ -120,23 +141,196 @@ final class ScreenContextService: ObservableObject {
         Log.screen.info("context: ambient capture off")
     }
 
-    /// Re-reads the toggle and starts or stops accordingly. Called on launch,
-    /// and whenever something outside this service wrote the switch.
+    /// Re-reads the switch and the pause, then starts or stops accordingly.
+    /// Called on launch, and whenever something outside this service wrote
+    /// either of them.
     func refresh() {
         isAmbientEnabled = ScreenContextDefaults.isEnabled
-        if isAmbientEnabled {
-            start()
-        } else {
-            stop()
+        pausedUntil = ScreenContextDefaults.resolvePause(deadline: ScreenContextDefaults.pausedUntil, now: Date())
+        pauseTask?.cancel()
+        pauseTask = nil
+
+        guard isAmbientEnabled else { return stop() }
+        guard let until = pausedUntil else { return start() }
+        stop()
+        scheduleResume(at: until)
+    }
+
+    /// Re-resolves the pause after the Mac wakes.
+    ///
+    /// `scheduleResume` is a single sleeping task, and a timer that was due
+    /// while the lid was shut cannot be relied on to fire the moment it opens.
+    /// Without this a pause taken before closing the lid could outlive its own
+    /// deadline until the next launch — which `privacy.md` § 3.10(b) says it
+    /// never does.
+    ///
+    /// Subscribed in `init` rather than by the composition root: a second
+    /// bootstrap call is a step someone forgets, and forgetting it silently
+    /// reinstates the case this exists for.
+    private func observeWake() {
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
         }
     }
 
     /// Flip the switch: persist it, then start or stop. Every surface that
     /// offers the toggle goes through here, so none of them has to remember
     /// both halves.
+    ///
+    /// Switching on clears any pause — the user just asked for capture, and
+    /// leaving a stale deadline in place would make the toggle do nothing.
     func setAmbientEnabled(_ enabled: Bool) {
         ScreenContextDefaults.setEnabled(enabled)
+        if enabled {
+            ScreenContextDefaults.setPausedUntil(nil)
+            // Asked here, not inside `start()`: this is the one moment the
+            // system prompt is expected, because it follows the user's own
+            // click. `start()` also runs at launch and on wake, where an
+            // unexplained permission dialog is just noise.
+            if !AccessibilityAccess.isTrusted { AccessibilityAccess.requestTrust() }
+        }
         refresh()
+    }
+
+    /// Suspend capture for `duration`, then resume on its own.
+    func pause(for duration: TimeInterval) {
+        ScreenContextDefaults.setPausedUntil(Date().addingTimeInterval(duration))
+        refresh()
+        Log.screen.info("context: paused for \(Int(duration / 60)) min")
+    }
+
+    func resume() {
+        ScreenContextDefaults.setPausedUntil(nil)
+        refresh()
+        Log.screen.info("context: resumed")
+    }
+
+    var isPaused: Bool {
+        pausedUntil != nil
+    }
+
+    /// How long a capture is kept. Exposed so the consent disclosure can state
+    /// the figure the user is actually on — it is selectable (7/14/30), and a
+    /// sentence that always said "14 days" was untrue for everyone else at the
+    /// exact moment they were agreeing to it.
+    var retentionDays: Int {
+        ScreenContextDefaults.retentionDays
+    }
+
+    /// Whether reading the screen is allowed *right now*.
+    ///
+    /// One predicate rather than a pause check bolted on at each step: cancelling
+    /// the tick cannot abort an accessibility walk or an OCR pass already in
+    /// flight, and that is equally true of switching the feature off — which
+    /// `privacy.md` § 3.10(b) calls the one that "stops capture immediately".
+    /// The switch is re-read from disk because another surface may have written
+    /// it since the tick began.
+    private var isCaptureAllowed: Bool {
+        ScreenContextDefaults.isEnabled && !isPaused
+    }
+
+    /// The one place the four states are derived, so the sidebar row, the menu
+    /// and Settings can't disagree about what "on" means.
+    var activityState: ActivityState {
+        guard isAmbientEnabled else { return .off }
+        if let pausedUntil { return .paused(until: pausedUntil) }
+        return needsAccessibility ? .needsAccessibility : .on
+    }
+
+    enum ActivityState: Equatable {
+        case off
+        case needsAccessibility
+        case paused(until: Date)
+        case on
+
+        /// What the status column says. A paused state carries how long is
+        /// left: "Paused" alone leaves the user with no idea whether capture
+        /// comes back in a minute or at midnight, and the answer is the only
+        /// reason to look at the row.
+        func label(now: Date = Date()) -> String {
+            switch self {
+            case .off: "Off"
+            case .needsAccessibility: "Needs access"
+            case let .paused(until): "Paused \(Self.remaining(until: until, from: now))"
+            case .on: "On"
+            }
+        }
+
+        /// "42m" / "3h" — coarse on purpose, and short enough for a 232pt row.
+        /// A ticking counter invites watching it, and a pause is not that
+        /// precise.
+        static func remaining(until date: Date, from now: Date = Date()) -> String {
+            let minutes = Int(max(0, date.timeIntervalSince(now)) / 60)
+            if minutes < 1 { return "<1m" }
+            guard minutes >= 60 else { return "\(minutes)m" }
+            return "\(minutes / 60)h"
+        }
+    }
+
+    /// What a deletion did. A count, not a sentence: the wording and how long it
+    /// stays on screen are the surface's business, and a `Core/` service that
+    /// owns English can't be re-worded or localized per surface.
+    enum DeletionOutcome: Equatable {
+        case deleted(Int)
+        case failed
+    }
+
+    /// Delete captured context observed since `cutoff` — nil clears all of it.
+    /// The result reaches the UI through `lastDeletion`, because the menu that
+    /// triggered this is already gone by the time it returns.
+    ///
+    /// The policy promises deletion is as easy as capture was
+    /// (`privacy.md` § 3.10(b)); this is the code that makes that true.
+    func deleteObservations(since cutoff: Date?) async {
+        guard let supabase else { return announce(.failed) }
+        do {
+            // `.minimal` + an exact count: the number comes back in a header
+            // instead of as a body of every deleted row's UUID, which for
+            // "Everything" over a 14-day index is thousands of ids parsed and
+            // thrown away.
+            let table = supabase.from("screen_observations").delete(returning: .minimal, count: .exact)
+            // RLS already scopes the delete to the caller, so the only filter
+            // here is the time window the user chose.
+            let filtered = cutoff.map { table.gte("observed_at", value: $0) } ?? table
+            let deleted = try await filtered.execute().count ?? 0
+            // `lastStoredAt` is deliberately NOT cleared. It is what stops the
+            // window still on screen from being re-sent on the next 5s tick, and
+            // clearing it — as this once did — handed the user a delete that
+            // undid itself within one interval, for the exact window they were
+            // looking at when they reached for it.
+            Log.screen.info("context: deleted \(deleted) observation(s)")
+            announce(.deleted(deleted))
+        } catch {
+            Log.screen.error("context: delete failed — \(error.localizedDescription)")
+            announce(.failed)
+        }
+    }
+
+    private func announce(_ outcome: DeletionOutcome) {
+        lastDeletion = outcome
+        announceTask?.cancel()
+        announceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.announceDuration * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.lastDeletion = nil
+        }
+    }
+
+    private static let announceDuration: TimeInterval = 5
+
+    private func scheduleResume(at date: Date) {
+        pauseTask = Task { [weak self] in
+            let seconds = date.timeIntervalSinceNow
+            if seconds > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            }
+            guard !Task.isCancelled else { return }
+            self?.resume()
+        }
     }
 
     /// Accessibility describes a native window well and an Electron or
@@ -150,7 +344,8 @@ final class ScreenContextService: ObservableObject {
     /// isn't, and it must never become the steady state.
     private func recognizedIfAccessibilityIsThin(
         _ read: (title: String, text: String?),
-        pid: pid_t
+        pid: pid_t,
+        rules: ScreenExclusionRules
     ) async -> (title: String, text: String)? {
         // Whatever accessibility did return stays the answer whenever the pixel
         // read can't happen or comes back empty — a thin capture beats none.
@@ -162,9 +357,12 @@ final class ScreenContextService: ObservableObject {
             return asRead
         }
         guard ScreenTextRecognizer.isAvailable else { return asRead }
+        // The accessibility walk that got us here is long enough for the user to
+        // pause or switch off during it, and this step is the one that grabs
+        // pixels.
+        guard isCaptureAllowed else { return nil }
         if let last = lastRecognitionAt, Date().timeIntervalSince(last) < Self.recognitionInterval { return asRead }
 
-        let rules = exclusions.rules
         lastRecognitionAt = Date()
         guard let recognized = await ScreenTextRecognizer.read(forProcessID: pid, isAllowed: {
             !rules.excludesWindow(title: $0)
@@ -177,14 +375,18 @@ final class ScreenContextService: ObservableObject {
 
     private func captureOnce() async {
         guard ScreenContextDefaults.isEnabled else { return stop() }
+        guard isCaptureAllowed else { return }
         guard let supabase, let userID = supabase.auth.currentSession?.user.id else { return }
+        // Built once per tick and threaded through. Every access rebuilds the
+        // blocklist — twenty-odd bundle ids plus every enabled category's
+        // keywords — and this path used to construct three of them.
+        let rules = exclusions.rules
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier,
               bundleID != Bundle.main.bundleIdentifier,
-              !exclusions.excludesApp(bundleID: bundleID)
+              !rules.excludesApp(bundleID: bundleID)
         else { return }
 
-        let rules = exclusions.rules
         let reader = reader
         let pid = app.processIdentifier
         let read = await Task.detached(priority: .utility) { () -> (title: String, text: String?)? in
@@ -194,7 +396,8 @@ final class ScreenContextService: ObservableObject {
             return (focused.title, ScreenObservationBuilder.text(from: focused.texts))
         }.value
 
-        guard let read, let captured = await recognizedIfAccessibilityIsThin(read, pid: pid) else { return }
+        guard let read,
+              let captured = await recognizedIfAccessibilityIsThin(read, pid: pid, rules: rules) else { return }
         let observation = ScreenObservation(
             userID: userID,
             sourceApp: bundleID,
@@ -208,6 +411,9 @@ final class ScreenContextService: ObservableObject {
             content: ScreenObservationBuilder.merge(title: captured.title, text: captured.text),
             retention: ScreenContextDefaults.retention
         )
+        // Re-checked at the write too: it is the moment that matters, and the
+        // reads above take long enough for the user to have withdrawn since.
+        guard isCaptureAllowed else { return }
         let hash = observation.contentHash
         if let last = lastStoredAt[hash], Date().timeIntervalSince(last) < Self.refreshInterval { return }
         let previous = lastStoredAt[hash]
@@ -479,6 +685,12 @@ extension ScreenContextService {
     ]
 }
 
+/// Ids come back from a delete so the count can be reported; nothing reads the
+/// value.
+private struct DeletedRow: Decodable {
+    let id: UUID
+}
+
 /// User-facing switches for ambient capture. Off until the user turns it on —
 /// this reads more than any other part of Nod, so it must never arrive by
 /// default with an app update.
@@ -519,6 +731,42 @@ enum ScreenContextDefaults {
     }
 
     private static let enabledFileURL = AppSupport.root.appendingPathComponent("ambient-context.enabled")
+
+    /// The deadline of a temporary pause, or nil when none was ever set. May be
+    /// in the past — resolving that is `ScreenContextService.refresh`'s job.
+    ///
+    /// File-backed for the same reason as the switch above: a lost write here
+    /// fails in the direction that keeps capture running after the user asked
+    /// it to stop, and that is the one direction this feature must not fail in.
+    static var pausedUntil: Date? {
+        guard let raw = try? String(contentsOf: pausedUntilFileURL, encoding: .utf8),
+              let seconds = TimeInterval(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        else { return nil }
+        return Date(timeIntervalSinceReferenceDate: seconds)
+    }
+
+    /// An expired deadline is not a pause. Kept pure and separate from the file
+    /// read so it can be tested without writing the real one — a test that left
+    /// a pause behind would silently suppress capture for whoever ran it.
+    ///
+    /// Resolving on read, rather than counting down, is what lets a pause
+    /// outlive the process it was set in: quitting during one neither cancels it
+    /// nor extends it past its own end.
+    static func resolvePause(deadline: Date?, now: Date) -> Date? {
+        guard let deadline, deadline > now else { return nil }
+        return deadline
+    }
+
+    static func setPausedUntil(_ date: Date?) {
+        guard let date else {
+            try? FileManager.default.removeItem(at: pausedUntilFileURL)
+            return
+        }
+        try? Data(String(date.timeIntervalSinceReferenceDate).utf8)
+            .write(to: pausedUntilFileURL, options: .atomic)
+    }
+
+    private static let pausedUntilFileURL = AppSupport.root.appendingPathComponent("ambient-context.pausedUntil")
 
     static var retentionDays: Int {
         let stored = UserDefaults.standard.integer(forKey: retentionDaysKey)

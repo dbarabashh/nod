@@ -93,9 +93,12 @@ final class ScreenExclusionsTests: XCTestCase {
 
 @MainActor
 final class WebsiteCategoryTests: XCTestCase {
+    /// Seeding off, as in `ScreenExclusionsTests`: these assert on category
+    /// behaviour, and the shipped website defaults would otherwise be counted
+    /// in every total. `ScreenExclusionSeedTests` covers the seed itself.
     private func makeExclusions() -> ScreenExclusions {
         let suite = "screen.categories.tests.\(UUID().uuidString)"
-        return ScreenExclusions(defaults: UserDefaults(suiteName: suite) ?? .standard)
+        return ScreenExclusions(defaults: UserDefaults(suiteName: suite) ?? .standard, seedDefaults: false)
     }
 
     func testEveryCategoryCarriesKeywords() {
@@ -132,10 +135,10 @@ final class WebsiteCategoryTests: XCTestCase {
     func testCategoriesSurviveAReload() {
         let suite = "screen.categories.tests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suite) else { return XCTFail("no test suite") }
-        let first = ScreenExclusions(defaults: defaults)
+        let first = ScreenExclusions(defaults: defaults, seedDefaults: false)
         first.setExcluded(true, for: .banking)
 
-        XCTAssertEqual(ScreenExclusions(defaults: defaults).categories, [.banking])
+        XCTAssertEqual(ScreenExclusions(defaults: defaults, seedDefaults: false).categories, [.banking])
     }
 
     func testWebsiteRuleCountIncludesCategoryKeywords() {
@@ -480,5 +483,160 @@ final class ScreenExclusionSeedTests: XCTestCase {
         let second = ScreenExclusions(defaults: defaults)
 
         XCTAssertFalse(second.excludesApp(bundleID: "com.tdesktop.Telegram"))
+    }
+
+    /// A vault window lists every account the user owns. Reading one is the
+    /// worst single capture ambient context can make, so both halves — the
+    /// desktop app and the web vault — are off before anyone configures
+    /// anything.
+    func testPasswordManagersAreExcludedOnAFreshInstall() {
+        let exclusions = ScreenExclusions(defaults: freshDefaults())
+
+        XCTAssertTrue(exclusions.excludesApp(bundleID: "com.1password.1password"))
+        XCTAssertTrue(exclusions.excludesApp(bundleID: "com.bitwarden.desktop"))
+        XCTAssertTrue(exclusions.excludesApp(bundleID: "com.apple.Passwords"))
+        XCTAssertTrue(exclusions.excludesWindow(title: "Vault — 1password.com"))
+        XCTAssertTrue(exclusions.excludesWindow(title: "bitwarden.com"))
+    }
+
+    /// One-time-secret links exist to be read once and destroyed. Capturing one
+    /// into a 14-day index defeats the entire point of the service.
+    func testSecretSharingSitesAreExcludedOnAFreshInstall() {
+        let exclusions = ScreenExclusions(defaults: freshDefaults())
+
+        XCTAssertTrue(exclusions.excludesWindow(title: "Shared secret · onetimesecret.com"))
+        XCTAssertTrue(exclusions.excludesWindow(title: "privnote.com"))
+        XCTAssertTrue(exclusions.excludesWindow(title: "pwpush.com/p/abc"))
+    }
+
+    /// Same contract as the apps: a shipped default is an ordinary entry, and
+    /// removing one has to stick.
+    func testARemovedDefaultWebsiteIsNotReAddedOnRelaunch() {
+        let defaults = freshDefaults()
+        let first = ScreenExclusions(defaults: defaults)
+        first.removeWebsite("1password.com")
+
+        let second = ScreenExclusions(defaults: defaults)
+
+        XCTAssertFalse(second.excludesWindow(title: "Vault — 1password.com"))
+        XCTAssertTrue(second.excludesWindow(title: "bitwarden.com"))
+    }
+
+    func testDefaultWebsitesAreLabelledAsSuch() {
+        XCTAssertTrue(ScreenExclusions.isDefaultWebsite("1password.com"))
+        XCTAssertFalse(ScreenExclusions.isDefaultWebsite("bank.com"))
+    }
+
+    func testSeedingDoesNotDisturbWebsitesTheUserAlreadyHas() {
+        let defaults = freshDefaults()
+        let existing = ScreenExclusions(defaults: defaults, seedDefaults: false)
+        existing.excludeWebsite("bank.com")
+
+        let seeded = ScreenExclusions(defaults: defaults)
+
+        XCTAssertTrue(seeded.websites.contains("bank.com"))
+        XCTAssertTrue(seeded.websites.contains("1password.com"))
+    }
+}
+
+/// The allowlist exists because categories are keyword matches against a window
+/// title, so they are broad by construction and will catch a site the user
+/// actually wants read.
+@MainActor
+final class ScreenAlwaysIncludeTests: XCTestCase {
+    private func makeExclusions() -> ScreenExclusions {
+        let suite = "screen.allowlist.\(UUID().uuidString)"
+        return ScreenExclusions(defaults: UserDefaults(suiteName: suite) ?? .standard, seedDefaults: false)
+    }
+
+    func testAnAllowedSiteSurvivesAnExcludedCategory() {
+        let exclusions = makeExclusions()
+        exclusions.setExcluded(true, for: .shopping)
+        XCTAssertTrue(exclusions.excludesWindow(title: "Order 12 — amazon"))
+
+        exclusions.alwaysInclude("amazon")
+
+        XCTAssertFalse(exclusions.excludesWindow(title: "Order 12 — amazon"))
+    }
+
+    /// The line the allowlist must never cross: an explicitly excluded site is
+    /// the user saying "never read this", and no other rule gets to overrule it.
+    func testAnAllowedSiteCannotReopenAnExplicitExclusion() {
+        let exclusions = makeExclusions()
+        exclusions.excludeWebsite("bank.com")
+
+        XCTAssertEqual(exclusions.alwaysInclude("bank.com"), .excluded, "the entry would have had no effect")
+        XCTAssertTrue(exclusions.excludesWindow(title: "Statements — bank.com"))
+    }
+
+    /// …including when it arrived as a shipped default, which is the case a
+    /// user is least likely to remember setting.
+    func testTheAllowlistCannotReopenADefaultExclusion() {
+        let suite = "screen.allowlist.seeded.\(UUID().uuidString)"
+        let exclusions = ScreenExclusions(defaults: UserDefaults(suiteName: suite) ?? .standard)
+
+        XCTAssertEqual(exclusions.alwaysInclude("1password.com"), .excluded)
+        XCTAssertTrue(exclusions.excludesWindow(title: "Vault — 1password.com"))
+    }
+
+    func testAllowingDoesNotCaptureUnrelatedExcludedSites() {
+        let exclusions = makeExclusions()
+        exclusions.setExcluded(true, for: .shopping)
+        exclusions.alwaysInclude("amazon")
+
+        XCTAssertTrue(exclusions.excludesWindow(title: "Cart — ebay"))
+    }
+
+    func testAllowlistEntriesAreNormalizedAndDeduped() {
+        let exclusions = makeExclusions()
+
+        XCTAssertNil(exclusions.alwaysInclude("https://www.Portal.com/x"))
+        XCTAssertEqual(exclusions.alwaysInclude("portal.com"), .duplicate)
+        XCTAssertEqual(exclusions.alwaysIncluded, ["portal.com"])
+    }
+
+    func testAllowlistSurvivesAReload() {
+        let suite = "screen.allowlist.reload.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        let first = ScreenExclusions(defaults: defaults, seedDefaults: false)
+        first.alwaysInclude("portal.com")
+
+        let second = ScreenExclusions(defaults: defaults, seedDefaults: false)
+
+        XCTAssertEqual(second.alwaysIncluded, ["portal.com"])
+    }
+
+    func testRemovingAnAllowlistEntryRestoresTheCategory() {
+        let exclusions = makeExclusions()
+        exclusions.setExcluded(true, for: .shopping)
+        exclusions.alwaysInclude("amazon")
+        exclusions.removeAlwaysIncluded("amazon")
+
+        XCTAssertTrue(exclusions.excludesWindow(title: "Order 12 — amazon"))
+    }
+
+    /// With no category on, the allowlist has nothing to override and must not
+    /// start letting things through on its own.
+    func testTheAllowlistDoesNothingWhenNoCategoryIsExcluded() {
+        let exclusions = makeExclusions()
+        exclusions.alwaysInclude("portal.com")
+
+        XCTAssertFalse(exclusions.excludesWindow(title: "Standup — Google Meet"))
+        XCTAssertFalse(exclusions.excludesWindow(title: "portal.com"))
+    }
+
+    /// A default shipped in a later version must not quietly overrule a choice
+    /// the user already made in the other direction.
+    func testSeedingSkipsASiteTheUserAlwaysIncluded() {
+        let suite = "screen.allowlist.seed.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        let first = ScreenExclusions(defaults: defaults, seedDefaults: false)
+        first.alwaysInclude("1password.com")
+
+        let seeded = ScreenExclusions(defaults: defaults)
+
+        XCTAssertFalse(seeded.websites.contains("1password.com"))
+        XCTAssertTrue(seeded.alwaysIncluded.contains("1password.com"))
+        XCTAssertTrue(seeded.websites.contains("bitwarden.com"), "the rest of the list still seeds")
     }
 }

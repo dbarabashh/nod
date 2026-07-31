@@ -14,6 +14,7 @@ enum WebsiteCategory: String, CaseIterable, Identifiable, Codable {
     case health
     case social
     case shopping
+    case entertainment
 
     var id: String {
         rawValue
@@ -26,6 +27,7 @@ enum WebsiteCategory: String, CaseIterable, Identifiable, Codable {
         case .health: "Health & medical"
         case .social: "Social media"
         case .shopping: "Shopping"
+        case .entertainment: "Entertainment"
         }
     }
 
@@ -36,6 +38,7 @@ enum WebsiteCategory: String, CaseIterable, Identifiable, Codable {
         case .health: "Medical records, health information, and healthcare providers"
         case .social: "Social media platforms and messaging services"
         case .shopping: "E-commerce sites and online shopping platforms"
+        case .entertainment: "Streaming services, games, and entertainment platforms"
         }
     }
 
@@ -46,6 +49,7 @@ enum WebsiteCategory: String, CaseIterable, Identifiable, Codable {
         case .health: "cross.case"
         case .social: "bubble.left.and.bubble.right"
         case .shopping: "cart"
+        case .entertainment: "play.tv"
         }
     }
 
@@ -68,6 +72,15 @@ enum WebsiteCategory: String, CaseIterable, Identifiable, Codable {
             ]
         case .shopping:
             ["amazon", "ebay", "aliexpress", "rozetka", "checkout", "basket"]
+        case .entertainment:
+            // Bare words here would be costly: "twitch" and "spotify" are safe,
+            // but "netflix" in a meeting title is a legitimate conversation.
+            // Every entry is either a domain or a word no work call uses.
+            [
+                "netflix.com", "youtube.com", "twitch.tv", "spotify.com",
+                "hulu.com", "disneyplus.com", "hbomax.com", "max.com",
+                "primevideo.com", "steampowered.com", "epicgames.com"
+            ]
         }
     }
 

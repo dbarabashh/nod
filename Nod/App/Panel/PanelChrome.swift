@@ -23,9 +23,7 @@ struct HeaderMenuGlyph<Glyph: View, MenuItems: View>: View {
                     .frame(width: 22, height: 22)
                     .contentShape(Circle())
             }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
+            .plainMenuChrome()
             .fixedSize()
         }
         .frame(width: 22, height: 22)

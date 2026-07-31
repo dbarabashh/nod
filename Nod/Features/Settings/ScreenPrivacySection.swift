@@ -24,6 +24,8 @@ struct ScreenPrivacySection: View {
     @State private var installedApps: [InstalledApp] = []
     @State private var appQuery = ""
     @State private var websiteDraft = ""
+    @State private var alwaysIncludeDraft = ""
+    @State private var alwaysIncludeError: String?
     @State private var showsCategories = true
 
     private enum Scope: String, CaseIterable, Identifiable {
@@ -91,6 +93,20 @@ struct ScreenPrivacySection: View {
                         + "Grant it in System Settings, then switch this back on."
                 ) {
                     Button("Open Settings") { AccessibilityAccess.openSystemSettings() }
+                }
+            }
+
+            // Without this the switch reads "on" through a pause, and nothing on
+            // this pane says capture is suspended — the state the sidebar shows
+            // and the state Settings shows would disagree.
+            if case let .paused(until) = screenContext.activityState {
+                SettingsRowDivider()
+                SettingsRow(
+                    icon: "pause.circle",
+                    title: "Paused \(ScreenContextService.ActivityState.remaining(until: until))",
+                    subtitle: "Nothing is being read. Capture resumes on its own when the pause runs out."
+                ) {
+                    Button("Resume now") { screenContext.resume() }
                 }
             }
 
@@ -268,38 +284,19 @@ struct ScreenPrivacySection: View {
 
     private var customSites: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Specific sites")
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(Theme.Palette.ink)
-
-            SettingsCard {
-                if exclusions.websites.isEmpty {
-                    SettingsRow(icon: "globe", title: "No sites added", subtitle: nil) { EmptyView() }
-                } else {
-                    ForEach(Array(exclusions.websites.enumerated()), id: \.element) { index, site in
-                        if index > 0 { SettingsRowDivider() }
-                        SettingsRow(icon: "globe", title: site, subtitle: nil) {
-                            Button {
-                                exclusions.removeWebsite(site)
-                            } label: {
-                                Image(systemName: "minus.circle")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(Theme.Palette.muted)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-
-            HStack(spacing: 8) {
-                TextField("bank.com", text: $websiteDraft)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-                    .onSubmit(addWebsite)
-                Button("Add", action: addWebsite)
-                    .disabled(websiteDraft.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
+            siteList(
+                SiteListStyle(
+                    title: "Specific sites (\(exclusions.websites.count))",
+                    icon: "globe",
+                    empty: "No sites added",
+                    placeholder: "bank.com",
+                    marksDefaults: true
+                ),
+                sites: exclusions.websites,
+                draft: $websiteDraft,
+                add: addWebsite,
+                remove: exclusions.removeWebsite
+            )
 
             // Matching is on the browser window title, so a tab that never names
             // the site slips through. Say so rather than imply a guarantee.
@@ -307,12 +304,132 @@ struct ScreenPrivacySection: View {
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.Palette.muted)
                 .fixedSize(horizontal: false, vertical: true)
+
+            alwaysIncludedSites
         }
+    }
+
+    /// The escape hatch for the category switches. Categories match keywords in
+    /// a window title, so they are broad by construction and will catch a site
+    /// the user actually wants read — a supplier portal under "shopping", a
+    /// recruiting call under "social". Without this the only way out is to give
+    /// up the whole category.
+    private var alwaysIncludedSites: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Captured even when an excluded category matches them. A site you excluded by name stays excluded.")
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.Palette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 6)
+
+            siteList(
+                SiteListStyle(
+                    title: "Always include (\(exclusions.alwaysIncluded.count))",
+                    icon: "checkmark.circle",
+                    empty: "Nothing always included",
+                    placeholder: "portal.supplier.com"
+                ),
+                sites: exclusions.alwaysIncluded,
+                draft: $alwaysIncludeDraft,
+                add: addAlwaysIncluded,
+                remove: exclusions.removeAlwaysIncluded
+            )
+
+            // A rejection has to say why. Fifteen sites ship on the blocklist,
+            // so typing one of them here is an easy thing to do and used to
+            // produce nothing at all — a filled field, no row, no explanation.
+            if let alwaysIncludeError {
+                Text(alwaysIncludeError)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// A titled list of domains with a remove button and an add field. The two
+    /// site lists differ only in their strings and their two verbs, and each
+    /// re-spelling the row, the empty state and the trim-and-disable rule is how
+    /// they drift — a change made to one and not the other is invisible in the
+    /// list nobody opens.
+    /// The strings that tell the two lists apart. A struct rather than six more
+    /// arguments — the shape is the point, and it keeps the signature readable.
+    private struct SiteListStyle {
+        let title: String
+        let icon: String
+        let empty: String
+        let placeholder: String
+        /// Whether a shipped default gets a "Excluded by default" line. Only the
+        /// blocklist ships any.
+        var marksDefaults = false
+    }
+
+    @ViewBuilder
+    private func siteList(
+        _ style: SiteListStyle,
+        sites: [String],
+        draft: Binding<String>,
+        add: @escaping () -> Void,
+        remove: @escaping (String) -> Void
+    ) -> some View {
+        Text(style.title)
+            .font(.system(size: 12.5, weight: .semibold))
+            .foregroundStyle(Theme.Palette.ink)
+
+        SettingsCard {
+            if sites.isEmpty {
+                SettingsRow(icon: style.icon, title: style.empty, subtitle: nil) { EmptyView() }
+            } else {
+                ForEach(Array(sites.enumerated()), id: \.element) { index, site in
+                    if index > 0 { SettingsRowDivider() }
+                    SettingsRow(icon: style.icon, title: site, subtitle: subtitle(for: site, style: style)) {
+                        Button { remove(site) } label: {
+                            Image(systemName: "minus.circle")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Theme.Palette.muted)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+
+        HStack(spacing: 8) {
+            TextField(style.placeholder, text: draft)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+                .onSubmit(add)
+            Button("Add", action: add)
+                .disabled(draft.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+    }
+
+    /// A shipped default says so, because a list the user never typed is
+    /// otherwise indistinguishable from one they did — and the whole defence of
+    /// shipping defaults is that they are visible and removable.
+    private func subtitle(for site: String, style: SiteListStyle) -> String? {
+        guard style.marksDefaults, ScreenExclusions.isDefaultWebsite(site) else { return nil }
+        return "Excluded by default"
     }
 
     private func addWebsite() {
         guard exclusions.excludeWebsite(websiteDraft) else { return }
         websiteDraft = ""
+    }
+
+    private func addAlwaysIncluded() {
+        guard let rejection = exclusions.alwaysInclude(alwaysIncludeDraft) else {
+            alwaysIncludeError = nil
+            alwaysIncludeDraft = ""
+            return
+        }
+        let site = ScreenExclusions.normalizeWebsite(alwaysIncludeDraft)
+        alwaysIncludeError = switch rejection {
+        case .empty: "Enter a domain, like portal.supplier.com."
+        case .duplicate: "“\(site)” is already always included."
+        case .excluded:
+            "“\(site)” is on the excluded list above, and an exclusion always wins. Remove it there first."
+        }
     }
 }
 
