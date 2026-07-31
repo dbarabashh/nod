@@ -180,13 +180,19 @@ extension PromptLibrary {
     /// Matched narrowly on purpose: a bare `contains("action")` also swallows
     /// "Reaction", "Transaction summary", and an intentional "Action plan",
     /// silently dropping legitimate sections from the plan.
-    private static func isActionHeading(_ title: String) -> Bool {
+    ///
+    /// This list must stay in step with the headings the `[ACTION ITEMS]` rule
+    /// forbids. "Commitments" was named there but missing here, so the sales
+    /// template asked for a section the rule above it banned — two instructions
+    /// in one prompt contradicting each other, resolved differently run to run.
+    static func isActionHeading(_ title: String) -> Bool {
         let t = title.lowercased().trimmingCharacters(in: .whitespaces)
         return t == "action" || t == "actions"
             || t.contains("action item")
             || t.contains("next step")
             || t.contains("to-do") || t.contains("todo")
             || t.contains("follow-up") || t.contains("follow up")
+            || t.contains("commitment")
     }
 
     /// Few-shot calibration matched to the session kind, so a solo voice note
