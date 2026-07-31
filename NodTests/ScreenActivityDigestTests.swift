@@ -172,19 +172,105 @@ final class ScreenActivityDigestTests: XCTestCase {
         XCTAssertEqual(digest.apps[0].bundleID, "com.jira")
     }
 
+    /// The rules quote the block format literally, to tell the model to hide it.
+    /// They live two folders from the code that emits it, so a format change
+    /// leaves the prompt describing plumbing that no longer exists — which is
+    /// what a one-word edit ("captured") nearly did.
+    func testTheScreenRulesQuoteTheFormatWeActuallyEmit() {
+        let digest = digest(from: [
+            observation(app: "com.whatever", title: "a window", content: "the thread", minutesAgo: 5)
+        ])
+
+        let header = String(digest.apps[0].promptBlock(appName: "Whatever").prefix { $0 != "\n" })
+
+        XCTAssertTrue(header.hasPrefix(ScreenPromptBlock.opening), header)
+        XCTAssertTrue(header.contains(ScreenPromptBlock.captureMarker), header)
+        // Checked against the emitter's own constants, not against a literal:
+        // which app the rules pick for their example is theirs to change.
+        XCTAssertTrue(
+            PromptLibrary.screenRules.contains(ScreenPromptBlock.opening),
+            "the rules stopped quoting the header they tell the model to hide"
+        )
+        XCTAssertTrue(
+            PromptLibrary.screenRules.contains(ScreenPromptBlock.captureMarker),
+            "the rules no longer say the stamp is a capture time"
+        )
+    }
+
     func testPromptBlockNamesTheAppAndItsWindows() {
         let digest = digest(from: [
             observation(app: "com.jira", title: "AP-8 icon colours", content: "grey icons", minutesAgo: 5)
         ])
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        formatter.timeZone = TimeZone(identifier: "UTC")
+        let block = digest.apps[0].promptBlock(appName: "Jira")
 
-        let block = digest.apps[0].promptBlock(appName: "Jira", formatter: formatter)
-
-        XCTAssertTrue(block.hasPrefix("[On your screen — Jira, "))
+        XCTAssertTrue(block.hasPrefix("[On your screen — Jira, captured "))
         XCTAssertTrue(block.contains("AP-8 icon colours"))
         XCTAssertTrue(block.contains("grey icons"))
+    }
+}
+
+/// The day on a screen block is computed here, not left for the model to
+/// subtract from `[TODAY]`. It got that subtraction wrong on a real answer —
+/// a Slack thread open twenty minutes earlier was reported as yesterday's.
+@MainActor
+final class ObservationStampTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_785_610_740)
+
+    private func stamp(hoursAgo: Double) -> String {
+        PromptLibrary.observationStamp(now.addingTimeInterval(-hoursAgo * 3600), now: now)
+    }
+
+    func testSomethingSeenMinutesAgoIsToday() {
+        XCTAssertTrue(stamp(hoursAgo: 0.5).hasPrefix("today at "), stamp(hoursAgo: 0.5))
+    }
+
+    /// The regression: same clock time, one day back. A bare calendar date left
+    /// both of these looking alike to the model.
+    func testTheDayBeforeIsNamedYesterday() {
+        XCTAssertTrue(stamp(hoursAgo: 24).hasPrefix("yesterday at "), stamp(hoursAgo: 24))
+    }
+
+    func testAnOlderWindowCarriesItsWeekdayAndItsAge() {
+        let older = stamp(hoursAgo: 24 * 4)
+        XCTAssertTrue(older.contains(" at "), older)
+        XCTAssertTrue(older.hasSuffix("(4 days ago)"), older)
+    }
+
+    func testARangeInsideOneDayNamesTheDayOnce() {
+        let start = now.addingTimeInterval(-3600)
+
+        let span = PromptLibrary.observationSpan(from: start, to: now, now: now)
+
+        XCTAssertTrue(span.hasPrefix("today at "), span)
+        XCTAssertEqual(span.components(separatedBy: "today").count - 1, 1, span)
+    }
+
+    /// A window open across midnight has to say so on both ends, or the range
+    /// reads as an hour when it was thirteen.
+    func testARangeAcrossMidnightNamesBothDays() {
+        let midnight = Calendar.current.startOfDay(for: now)
+
+        let span = PromptLibrary.observationSpan(
+            from: midnight.addingTimeInterval(-600),
+            to: midnight.addingTimeInterval(600),
+            now: now
+        )
+
+        XCTAssertTrue(span.contains("yesterday at "), span)
+        XCTAssertTrue(span.contains("today at "), span)
+    }
+
+    /// Crossing midnight is a day change even when only minutes have passed —
+    /// the comparison is between calendar days, not elapsed hours.
+    func testJustAfterMidnightYesterdayIsStillYesterday() {
+        let midnight = Calendar.current.startOfDay(for: now)
+        let justBefore = midnight.addingTimeInterval(-60)
+
+        XCTAssertTrue(
+            PromptLibrary.observationStamp(justBefore, now: midnight.addingTimeInterval(300))
+                .hasPrefix("yesterday at "),
+            PromptLibrary.observationStamp(justBefore, now: midnight.addingTimeInterval(300))
+        )
     }
 }
 

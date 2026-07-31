@@ -276,8 +276,17 @@ enum ScreenRecall {
 /// describes a format that no longer exists, and the plumbing leaks into the
 /// answer, which is the exact failure the rule was written to prevent.
 enum ScreenPromptBlock {
+    /// The two fixed parts of a block header, named because the prompt rules
+    /// quote them back at the model and a test holds the two in step.
+    ///
+    /// "captured" is load-bearing: the stamp is when the screenshot was taken,
+    /// and without the word the model read it as the time of whatever message
+    /// the window happened to be showing.
+    static let opening = "[On your screen — "
+    static let captureMarker = ", captured "
+
     static func header(source: String, when: String) -> String {
-        "[On your screen — \(source), \(when)]"
+        "\(opening)\(source)\(captureMarker)\(when)]"
     }
 
     static func single(source: String, when: String, content: String) -> String {
@@ -288,20 +297,19 @@ enum ScreenPromptBlock {
 extension ScreenActivityDigest.App {
     /// One prompt block per app, so the model can attribute a line to the app it
     /// came from instead of to "your screen" in general.
-    func promptBlock(appName: String, formatter: DateFormatter) -> String {
-        let span = windows.map(\.firstSeen).min().map(formatter.string(from:)) ?? ""
-        let until = windows.map(\.lastSeen).max().map(formatter.string(from:)) ?? ""
+    func promptBlock(appName: String, now: Date = Date()) -> String {
         let body = windows
             .map { window in
                 let title = window.title.trimmingCharacters(in: .whitespacesAndNewlines)
                 let label = title.isEmpty ? "(untitled window)" : title
-                return "• \(label) (\(formatter.string(from: window.lastSeen)))\n\(window.content)"
+                return "• \(label) (\(PromptLibrary.observationStamp(window.lastSeen, now: now)))\n\(window.content)"
             }
             .joined(separator: "\n\n")
-        return ScreenPromptBlock.single(
-            source: appName,
-            when: span == until ? span : "\(span)–\(until)",
-            content: body
-        )
+        let when = if let first = windows.map(\.firstSeen).min(), let last = windows.map(\.lastSeen).max() {
+            PromptLibrary.observationSpan(from: first, to: last, now: now)
+        } else {
+            ""
+        }
+        return ScreenPromptBlock.single(source: appName, when: when, content: body)
     }
 }

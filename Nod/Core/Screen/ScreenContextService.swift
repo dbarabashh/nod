@@ -74,6 +74,11 @@ final class ScreenContextService: ObservableObject {
     /// `observationIndex` says so rather than returning a quietly short answer.
     private static let maximumIndexRows = 6000
 
+    /// How many matching rows the crossing ranks over. Wide enough that a noisy
+    /// app can't crowd out the relevant window on recency alone, bounded because
+    /// every row carries up to `maximumCharacters` of text.
+    private static let linkedPoolSize = 40
+
     /// Content hashes per body request. They go in the query string — 64 hex
     /// characters each — so the chunk keeps the URL clear of proxy limits.
     private static let bodyChunkSize = 48
@@ -150,7 +155,12 @@ final class ScreenContextService: ObservableObject {
         // Whatever accessibility did return stays the answer whenever the pixel
         // read can't happen or comes back empty — a thin capture beats none.
         let asRead = read.text.map { (title: read.title, text: $0) }
-        if let asRead, asRead.text.count >= ScreenObservationBuilder.thinCharacters { return asRead }
+        // Distinct content, not raw length: a repetitive sidebar now survives
+        // line dedup, and counting it would clear the bar with no conversation.
+        if let asRead,
+           ScreenObservationBuilder.informativeLength(of: asRead.text) >= ScreenObservationBuilder.thinCharacters {
+            return asRead
+        }
         guard ScreenTextRecognizer.isAvailable else { return asRead }
         if let last = lastRecognitionAt, Date().timeIntervalSince(last) < Self.recognitionInterval { return asRead }
 
@@ -229,12 +239,71 @@ extension ScreenContextService {
     /// embedding pipeline would mean a second index with its own retention and
     /// its own way to go stale. Returns nothing when ambient context is off.
     func recentContext(matching query: String, limit: Int = 4) async -> [ScreenObservation] {
-        guard ScreenContextDefaults.isEnabled, let supabase else { return [] }
         let terms = Self.searchTerms(in: query)
-        guard !terms.isEmpty else { return [] }
+        guard !terms.isEmpty, let rows = await matches(terms: terms, fetching: limit * 4) else { return [] }
+        let relevant = Array(Self.relevant(rows, for: terms).prefix(limit))
+        Log.screen.info("context: \(relevant.count)/\(rows.count) observation(s) kept for \(terms.count) term(s)")
+        return relevant
+    }
 
+    /// Screen text matching names the *sessions* supplied — the projects a
+    /// retrieved excerpt is about — rather than words from the question.
+    ///
+    /// This is the only path that can ground a link between what the user
+    /// committed to and what they then had open: the question-driven lookup
+    /// searches for the user's words, and a question about a commitment shares
+    /// no vocabulary with the window where the work happened.
+    ///
+    /// Ranked by how strongly each observation matches, not by recency: the
+    /// point is the tie to the session, and the newest window is rarely the one
+    /// that carries it. One term is enough here — every term is a name the
+    /// extraction already judged central to a session, not a stray word from a
+    /// sentence.
+    ///
+    /// The pool it ranks is still the newest matches, because PostgREST can
+    /// only order this query by a column. So the fetch is deliberately wide:
+    /// with a narrow one, an app whose chrome happens to carry a seed word fills
+    /// every slot with fresh noise and buries the window that actually matters.
+    func linkedContext(
+        aboutProjects projects: [[String]],
+        limit: Int = 3,
+        excluding excluded: Set<UUID> = []
+    ) async -> [ScreenObservation] {
+        let terms = Self.searchTerms(inProjects: projects)
+        guard !terms.isEmpty else {
+            Log.screen.info("context: no crossing — \(projects.count) grounded session(s) name no searchable project")
+            return []
+        }
+        guard let rows = await matches(terms: terms, fetching: Self.linkedPoolSize) else { return [] }
+        let ranked = Self.linked(rows, for: terms, limit: limit, excluding: excluded)
+        Log.screen.info("context: \(ranked.count) linked observation(s) for \(terms.count) session term(s)")
+        return ranked
+    }
+
+    /// Strongest matches first, recency only as a tiebreak, and never one the
+    /// caller already has.
+    static func linked(
+        _ observations: [ScreenObservation],
+        for terms: [String],
+        limit: Int,
+        excluding excluded: Set<UUID> = []
+    ) -> [ScreenObservation] {
+        observations
+            .filter { !excluded.contains($0.id) }
+            .map { (observation: $0, score: score(observation: $0, for: terms)) }
+            .filter { $0.score > 0 }
+            .sorted { ($0.score, $0.observation.observedAt) > ($1.score, $1.observation.observedAt) }
+            .prefix(limit)
+            .map(\.observation)
+    }
+
+    /// Live observations whose text matches any of `terms`. `nil` when ambient
+    /// capture is off or the query failed — distinct from "matched nothing", so
+    /// callers don't log an empty result as a miss.
+    private func matches(terms: [String], fetching limit: Int) async -> [ScreenObservation]? {
+        guard ScreenContextDefaults.isEnabled, let supabase else { return nil }
         do {
-            let rows: [ScreenObservation] = try await supabase
+            return try await supabase
                 .from("screen_observations")
                 .select()
                 .gt("expires_at", value: Date())
@@ -243,15 +312,12 @@ extension ScreenContextService {
                 // a query on another config would skip the index entirely.
                 .textSearch("content", query: terms.joined(separator: " | "), config: "simple")
                 .order("observed_at", ascending: false)
-                .limit(limit * 4)
+                .limit(limit)
                 .execute()
                 .value
-            let relevant = Array(Self.relevant(rows, for: terms).prefix(limit))
-            Log.screen.info("context: \(relevant.count)/\(rows.count) observation(s) kept for \(terms.count) term(s)")
-            return relevant
         } catch {
             Log.screen.error("context: lookup failed — \(error.localizedDescription)")
-            return []
+            return nil
         }
     }
 
@@ -375,11 +441,36 @@ extension ScreenContextService {
     /// Words worth matching on. Short and very common words are dropped: they
     /// match everything, which is the same as matching nothing.
     static func searchTerms(in query: String) -> [String] {
-        TextTokens.words(in: query)
-            .filter { $0.count >= 4 && !stopWords.contains($0) }
-            .prefix(6)
-            .map { $0 }
+        Array(searchable(query).prefix(termLimit))
     }
+
+    /// The same reduction over the projects the grounded sessions are about —
+    /// what the crossing searches for instead of the question's own words.
+    ///
+    /// Taken a session at a time rather than from one flat list: eight grounded
+    /// sessions where the first is called "customer onboarding revamp phase two"
+    /// would otherwise spend every slot on that one session and let the other
+    /// seven contribute nothing.
+    static func searchTerms(inProjects projects: [[String]], limit: Int = termLimit) -> [String] {
+        let perSession = projects.map { searchable($0.joined(separator: " ")) }
+        let rounds = perSession.map(\.count).max() ?? 0
+        let interleaved = (0 ..< rounds).flatMap { round in
+            perSession.compactMap { round < $0.count ? $0[round] : nil }
+        }
+        var seen = Set<String>()
+        return Array(interleaved.filter { seen.insert($0).inserted }.prefix(limit))
+    }
+
+    /// One rule for what this index can usefully match, so the two callers can't
+    /// drift apart on the length floor or the stopword list — they feed the same
+    /// `textSearch` query.
+    private static func searchable(_ text: String) -> [String] {
+        TextTokens.words(in: text).filter { $0.count >= 4 && !stopWords.contains($0) }
+    }
+
+    /// Terms per query. Past a handful they stop narrowing and start matching
+    /// every window that carries any one of them.
+    static let termLimit = 6
 
     private static let stopWords: Set<String> = [
         "what", "when", "where", "which", "that", "this", "with", "from",

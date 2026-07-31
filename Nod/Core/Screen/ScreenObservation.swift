@@ -115,15 +115,40 @@ enum ScreenObservationBuilder {
 
     /// Joins, collapses, and trims a walk's output. Returns nil when the window
     /// has nothing worth keeping.
+    /// Repeats are collapsed only where they are adjacent. A line that comes
+    /// back later in a window is structure, not noise: in a chat thread it is
+    /// the same person posting again, and dropping the second occurrence left
+    /// their message with no author line above it. An answer then read the
+    /// nearest name — an `@mention` inside the message — as the sender, and
+    /// reported a reply from someone who had not written since yesterday.
     static func text(from parts: [String]) -> String? {
-        var seen = Set<String>()
-        let lines = parts
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        var lines: [String] = []
+        for part in parts {
+            let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, trimmed != lines.last else { continue }
+            lines.append(trimmed)
+        }
 
         let joined = lines.joined(separator: "\n")
-        guard joined.count >= minimumCharacters else { return nil }
+        guard informativeLength(of: joined) >= minimumCharacters else { return nil }
         guard joined.count > maximumCharacters else { return joined }
         return String(joined.prefix(maximumCharacters))
+    }
+
+    /// Characters of *distinct* content — what a window says, ignoring what it
+    /// repeats.
+    ///
+    /// Both thresholds were calibrated when repeated lines were dropped
+    /// outright. Keeping them (so a chat thread keeps its bylines) inflates raw
+    /// length, and raw length is what decides whether a window is worth storing
+    /// and whether it is thin enough to re-read off the pixels. A sidebar label
+    /// repeated forty times would clear both bars while carrying one line of
+    /// content — suppressing the pixel read in exactly the case it exists for.
+    static func informativeLength(of text: String) -> Int {
+        var seen = Set<Substring>()
+        return text
+            .split(separator: "\n")
+            .filter { seen.insert($0).inserted }
+            .reduce(0) { $0 + $1.count + 1 }
     }
 }

@@ -121,13 +121,63 @@ enum PromptLibrary {
         localTimeFormatter.string(from: date)
     }
 
-    /// Timestamp on a screen-context block. Device locale on purpose — unlike
-    /// the session/`localTimeString` stamps it labels something the user saw
-    /// minutes ago, and it reads back to them in the answer.
-    static let observationStamp: DateFormatter = {
+    /// Timestamp on a screen-context block, with the day named outright rather
+    /// than left as a date to be subtracted from `[TODAY]`.
+    ///
+    /// Session labels have always carried "(today)" / "(yesterday)"; screen
+    /// blocks carried a bare calendar date, and the model dated a Slack thread
+    /// the user had open twenty minutes earlier to the day before. Both sides of
+    /// an answer now get their day computed here rather than derived there.
+    static func observationStamp(_ date: Date, now: Date = Date()) -> String {
+        let clock = observationClockFormatter.string(from: date)
+        return switch daysBack(to: date, from: now) {
+        case ..<1: "today at \(clock)"
+        case 1: "yesterday at \(clock)"
+        case let days: "\(observationDayFormatter.string(from: date)) at \(clock) (\(days) days ago)"
+        }
+    }
+
+    /// Whole days between two instants, by calendar day rather than by elapsed
+    /// hours — 23:59 and 00:05 are a day apart.
+    ///
+    /// Shared so a session label and a screen block can never disagree about
+    /// what "yesterday" means: they are read side by side in one answer, and two
+    /// copies of this arithmetic is how one instant ends up dated twice.
+    static func daysBack(to date: Date, from now: Date) -> Int {
+        let calendar = Calendar.current
+        return calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: date),
+            to: calendar.startOfDay(for: now)
+        ).day ?? 0
+    }
+
+    /// The same stamp over a range. Collapses the day when a window was on
+    /// screen within one — "today at 10:58–11:14" rather than repeating the day
+    /// on both ends of every header.
+    static func observationSpan(from start: Date, to end: Date, now: Date = Date()) -> String {
+        let opening = observationStamp(start, now: now)
+        guard daysBack(to: start, from: end) == 0 else {
+            return "\(opening)–\(observationStamp(end, now: now))"
+        }
+        // Compared as written, not as instants: a window first seen at 10:58:03
+        // and last at 10:58:41 is one stamp, and "today at 10:58–10:58" reads
+        // like a bug to a model told to take these literally.
+        let closing = observationClockFormatter.string(from: end)
+        return observationClockFormatter.string(from: start) == closing ? opening : "\(opening)–\(closing)"
+    }
+
+    private static let observationClockFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    private static let observationDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEEE d MMMM"
         return formatter
     }()
 

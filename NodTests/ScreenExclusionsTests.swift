@@ -282,6 +282,37 @@ final class ScreenContextTests: XCTestCase {
         XCTAssertEqual(text, expected, "a window repeating one line is one line of content")
     }
 
+    /// The regression, in the shape it arrived in: one person posts twice in a
+    /// thread. Dropping the second author line left their last message headed by
+    /// the `@mention` inside it, and an answer reported that mentioned person as
+    /// having replied.
+    func testAnAuthorPostingTwiceKeepsBothBylines() {
+        let thread = [
+            "Mikhail Koval", "Yesterday at 5:52 PM", "Just called it. It still could not handle the finishing call.",
+            "2 replies",
+            "Dima", "Yesterday at 6:27 PM", "I redeployed. I need a time to investigate this.",
+            "Dima", "25 minutes ago", "@Mikhail Koval Hey, can you try to make a call from the livekit?"
+        ]
+
+        let text = ScreenObservationBuilder.text(from: thread)
+
+        XCTAssertEqual(text?.components(separatedBy: "Dima").count, 3, text ?? "nil")
+        XCTAssertTrue(text?.contains("Dima\n25 minutes ago") == true, text ?? "nil")
+    }
+
+    /// Keeping repeats must not make a repetitive window look substantial: the
+    /// store gate and the OCR fallback both measure distinct content, or a
+    /// sidebar label forty times over passes for a conversation.
+    func testARepetitiveWindowIsStillJudgedOnItsDistinctContent() {
+        let sidebar = Array(repeating: ["Threads", "Huddles", "Drafts & sent", "general"], count: 30).flatMap { $0 }
+
+        XCTAssertNil(ScreenObservationBuilder.text(from: sidebar))
+        XCTAssertLessThan(
+            ScreenObservationBuilder.informativeLength(of: sidebar.joined(separator: "\n")),
+            ScreenObservationBuilder.minimumCharacters
+        )
+    }
+
     func testObservationCarriesAnExpiry() {
         let observation = ScreenObservation(
             userID: UUID(),

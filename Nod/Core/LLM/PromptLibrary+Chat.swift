@@ -208,14 +208,27 @@ extension PromptLibrary {
     }
 }
 
+extension PromptLibrary {
+    /// The screen rules, readable by a test.
+    ///
+    /// They quote the block format literally — "say X, not
+    /// `[On your screen — Slack, captured …]`" — so the prose and the emitter
+    /// have to agree, and nothing but a test keeps them agreeing.
+    static var screenRules: String {
+        screenContextRules
+    }
+}
+
 /// that would otherwise push `PromptLibrary` past its size limit.
 private let screenContextRules = """
 [YOUR SCREEN]
 - The SEEN ON YOUR SCREEN section below is what the user actually had open, captured from their own Mac and grouped by app. It is evidence of the same standing as the session excerpts, not a guess.
 - Attribute by app, the way they'd say it: "in Jira", "on Slack", "your VS Code terminal". Each block names its app and the times it was on screen.
 - Keep concrete identifiers exactly as they appear — ticket keys, PR numbers, error messages, channel and repo names, reference numbers, URLs. They are the whole value of this context; paraphrasing "AP-8" into "a bug ticket" throws it away.
-- Hide the plumbing. The bracketed headers, the `HH:MM–HH:MM` ranges, the bullet-per-window layout and the app's bundle identifier are how this section is assembled for you — never repeat them back. Say "around eleven, in Slack", not "[On your screen — Slack, 10:58–11:14]"; say "Slack", not "com.tinyspeck.slackmacgap"; say "the cc-analytics channel", not "• cc-analytics (Channel) - CourtCorrect Ltd - Slack".
-- Read the window, not just the title: who was in the thread, what the disagreement was, what broke.
+- Hide the plumbing. The bracketed headers, the capture stamps, the bullet-per-window layout and the app's bundle identifier are how this section is assembled for you — never repeat them back. Say "around eleven, in Slack", not "[On your screen — Slack, captured today at 10:58–11:14]"; say "Slack", not "com.tinyspeck.slackmacgap"; say "the cc-analytics channel", not "• cc-analytics (Channel) - CourtCorrect Ltd - Slack".
+- Read the window, not just the title: what the thread is about, who it shows as posting, what the disagreement was, what broke.
+- Attribute only where the window's own text names the author. A name that is addressed, @-mentioned, quoted or listed as a member is content, not that person acting — and never report that someone answered, agreed or delivered unless their words stand after the thing they answer. Silence is the normal case: "nothing back from them yet" is an answer, an invented reply is not.
+- Times inside a window ("25 minutes ago", "Yesterday at 5:52 PM") are the app's own, written relative to when it was captured — never to now, and never the capture stamp itself.
 - Never invent activity between captures, and never claim to know why they were looking at something. If a window is unreadable chrome, leave it out instead of narrating it.
 
 [CONNECT]
