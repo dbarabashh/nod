@@ -48,6 +48,7 @@ final class ScreenContextService: ObservableObject {
     private let reader: AccessibilityReader
     private var timerTask: Task<Void, Never>?
     private var pauseTask: Task<Void, Never>?
+    private var trustWatchTask: Task<Void, Never>?
     private var announceTask: Task<Void, Never>?
     private var wakeObserver: (any NSObjectProtocol)?
     /// When each screen state was last written, so an unchanged screen isn't
@@ -117,10 +118,13 @@ final class ScreenContextService: ObservableObject {
         guard !isRunning, ScreenContextDefaults.isEnabled else { return }
         guard AccessibilityAccess.isTrusted else {
             needsAccessibility = true
+            watchForTrust()
             Log.screen.info("context: accessibility not granted — ambient capture stays off")
             return
         }
         needsAccessibility = false
+        trustWatchTask?.cancel()
+        trustWatchTask = nil
         isRunning = true
         Log.screen.info("context: ambient capture on (every \(Int(Self.interval))s)")
         timerTask = Task { [weak self] in
@@ -132,9 +136,33 @@ final class ScreenContextService: ObservableObject {
         }
     }
 
+    /// Notices the Accessibility grant, which arrives with no notification of any
+    /// kind: the user leaves for System Settings and comes back to a toggle that
+    /// says "Needs access" forever. Re-reading on `didBecomeActive` — how
+    /// `PermissionManager` handles mic and screen recording — is not enough here,
+    /// because the panel is non-activating and the app can go a whole session
+    /// without ever becoming active. So poll, but only while actually blocked, and
+    /// stop the moment the answer arrives.
+    private func watchForTrust() {
+        trustWatchTask?.cancel()
+        trustWatchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self, !Task.isCancelled, ScreenContextDefaults.isEnabled else { return }
+                guard AccessibilityAccess.isTrusted else { continue }
+                Log.screen.info("context: accessibility granted — starting capture")
+                trustWatchTask = nil
+                refresh()
+                return
+            }
+        }
+    }
+
     func stop() {
         timerTask?.cancel()
         timerTask = nil
+        trustWatchTask?.cancel()
+        trustWatchTask = nil
         isRunning = false
         needsAccessibility = false
         lastStoredAt.removeAll()
