@@ -300,7 +300,15 @@ fi
 
 echo "    Current: ${CURRENT_VERSION} (${CURRENT_BUILD})"
 echo "    Next:    ${VERSION} (${BUILD})   [feed high-water mark: ${FEED_BUILD}]"
-echo "    Channel: $([ -n "$CHANNEL" ] && echo "${CHANNEL} — only enrolled accounts" || echo 'default — everyone')"
+# Report on BOTH narrowing flags: saying "everyone" on a --feed run is wrong in
+# the one place a mistake could still be caught before a 15-minute build.
+if [ -n "$CHANNEL" ]; then
+  echo "    Audience: channel '${CHANNEL}' — only enrolled accounts"
+elif [ -n "$FEED_NAME" ]; then
+  echo "    Audience: appcast-${FEED_NAME}.xml — only Macs pointed at that feed"
+else
+  echo "    Audience: public feed — everyone"
+fi
 echo "    Sign:    $SIGN_IDENTITY"
 echo "    Notarize: $([ "$SKIP_NOTARIZE" = 1 ] && echo 'SKIPPED' || echo "$NOTARY_PROFILE")"
 echo "    Publish: $([ "$NO_PUBLISH" = 1 ] && echo 'SKIPPED' || echo "GitHub + $NOD_LANDING_REPO")"
