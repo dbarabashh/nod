@@ -1,23 +1,28 @@
 # Security & Privacy
 
-_Last updated: 2026-07-30_
+_Last updated: 2026-08-01_
 
-> **Nod is in private beta.** It's built and operated by an individual
-> developer (Dima Barabash), not a registered company. We've made the
-> security and privacy decisions documented below to be defensible for a
-> production product — but we want you to know exactly where we stand.
+> **Nod is built and operated by an individual** (Dima Barabash), not a
+> registered company. We've made the security and privacy decisions
+> documented below to be defensible for a production product — but we want
+> you to know exactly where we stand.
 
 Nod records your meetings on your Mac and turns them into notes. Capture and
-voice detection run on-device; transcription and summarization run in the EU
-cloud under Zero Data Retention, with as little data leaving your machine as
-possible and no audio ever stored. This page documents exactly how that works.
+voice detection run on-device; transcription and summarization run on hosted
+inference providers under Zero Data Retention, with as little data leaving your
+machine as possible and no audio ever stored. Everything Nod keeps is stored in
+the EU. This page documents exactly how that works.
 
 ---
 
 ## Trust at a glance
 
-- **Hosted in the EU.** All stored data lives in Supabase (AWS `eu-west-1`,
-  Ireland).
+- **Stored in the EU.** All stored data lives in Supabase (AWS `eu-west-1`,
+  Ireland). Inference is the exception, documented under
+  [Infrastructure](#infrastructure): transcription runs on providers hosted
+  outside the EU, under EU-U.S. Data Privacy Framework adequacy or standard
+  contractual clauses, with Zero Data Retention and no training. No audio is
+  stored at either end.
 - **Encrypted in transit and at rest.** TLS 1.2+ on the wire (TLS 1.3 by
   default; TLS 1.1 and below are rejected). AES-256 at rest in Postgres.
   Direct database connections also require SSL.
@@ -38,11 +43,12 @@ possible and no audio ever stored. This page documents exactly how that works.
   it about what you were working on. It ships **off**, you switch it on, you
   choose how long it is kept, and you can exclude any app, category, or site.
   Personal messengers are excluded before you configure anything.
-- **Private by default.** No team workspaces, no shared notes, no public
-  links — your meetings are visible only to you.
-- **No SOC 2 yet.** Nod is in private beta. Independent audit isn't something
-  we've started — we'll publish progress here when it is. GDPR DPA available
-  on request.
+- **Private by default.** No team workspaces and no shared notes. Your
+  meetings are visible only to you, unless you create a share link yourself
+  (see [Access control](#access-control)).
+- **No SOC 2 yet.** It's planned, but the independent audit hasn't started, so
+  there's no report to send. We'll publish progress here when that changes.
+  GDPR DPA available on request.
 
 ---
 
@@ -235,8 +241,16 @@ user's data.
 
 ### Access control
 
-- Your notes are **private by default**. There is no sharing, no team mode,
-  no public links today.
+- Your notes are **private by default**. There are no team workspaces and no
+  shared notes, and nothing is readable by anyone else until you explicitly
+  create a share link for one specific meeting.
+- **Share links are opt-in, summary-only, and revocable.** Creating one mints
+  an opaque random token; whoever holds the link can read *that meeting's
+  summary* and nothing else, never the transcript and never your other
+  meetings. Anonymous viewers never touch the `meetings` table (Row-Level
+  Security forbids it); they read through a function that only returns recap
+  fields. At most one live link exists per meeting. Revoking it, or deleting
+  the meeting, kills access immediately.
 - You can delete any individual meeting from the app. Deletes are soft: the
   meeting moves to a trash that's automatically and permanently purged 30
   days later by a nightly Postgres job.
@@ -355,6 +369,11 @@ yields. Ambient context is off until you turn it on, its retention is yours to
 set, and Settings → Privacy lets you exclude any app, website category, or
 specific site before anything is read.
 
+**Can I stop Nod reading a particular app or site?**
+Yes. Settings → Privacy holds an exclusion list for apps, categories, and
+websites. It is checked before anything is read, so an excluded app is never
+traversed in any mode.
+
 **How do you notify other meeting participants?**
 We don't — you do. Nod runs locally and doesn't integrate with Zoom/Meet/Teams,
 so we can't post into the meeting chat. We show you a one-time consent
@@ -375,23 +394,24 @@ Nod holds about you as one machine-readable JSON file (GDPR Articles 15 &
 Not yet. Sign-in is via Google OAuth. SAML SSO is planned for the team tier.
 
 **Do you have SOC 2?**
-No, and we don't want to overpromise. Nod is in private beta and SOC 2 work
-hasn't started. We'll update this page when it does. In the meantime we're
-happy to walk through our actual controls — email **dbarabashdev@gmail.com**.
+No. It's planned, but the audit hasn't started, so there's no report to send,
+and we don't want to overpromise. We'll update this page when that changes. In
+the meantime we're happy to walk through our actual controls. Email
+**dmytro@hellonod.app**.
 
 **Where can I report a vulnerability?**
-**dbarabashdev@gmail.com**. Nod is built by one person right now, so there's
+**dmytro@hellonod.app**. Nod is built by one person right now, so there's
 no 24/7 on-call team — but every report goes straight to the founder and we
 act on it as quickly as we can. We're happy to credit researchers publicly.
 
 **Can I use my own AI provider / private cloud?**
 Not in the consumer app. We're evaluating a "bring your own key" mode for
-the team tier — let us know at **dbarabashdev@gmail.com** if you need this.
+the team tier — let us know at **dmytro@hellonod.app** if you need this.
 
 ---
 
 ## Contacts
 
-- General privacy questions: **dbarabashdev@gmail.com**
-- Security vulnerabilities: **dbarabashdev@gmail.com**
-- Everything else: **dbarabashdev@gmail.com**
+- General privacy questions: **dmytro@hellonod.app**
+- Security vulnerabilities: **dmytro@hellonod.app**
+- Everything else: **dmytro@hellonod.app**

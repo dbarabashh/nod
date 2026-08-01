@@ -32,7 +32,7 @@ state.
 - [Privacy Policy](./privacy.md) — GDPR-aligned notice of what we
   collect, why, and your rights.
 - **Data Processing Agreement (DPA)** — available on request from
-  **dbarabashdev@gmail.com**.
+  **dmytro@hellonod.app**.
 
 ## Open source
 

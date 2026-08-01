@@ -42,7 +42,7 @@ charge on a plan, not to later renewals.
 If you are a consumer in the **EU or UK**, you also have a statutory
 **14-day right of withdrawal** from the start of your subscription, in line
 with consumer-rights law. To withdraw, email
-**dbarabashdev@gmail.com** within 14 days of subscribing. This right is in
+**dmytro@hellonod.app** within 14 days of subscribing. This right is in
 addition to the money-back guarantee above; whichever is more favourable to
 you applies.
 
@@ -66,7 +66,7 @@ partial refund for:
 
 ## 6. How to request a refund
 
-Email **dbarabashdev@gmail.com** from the address on your account, and
+Email **dmytro@hellonod.app** from the address on your account, and
 include the **Paddle order or receipt ID** from your confirmation email. We
 aim to respond within **2 business days**.
 
@@ -104,4 +104,4 @@ dispute is investigated.
 
 We may update this policy as our billing matures; the "Last updated" date
 above always reflects the current version. Questions about a charge or a
-refund go to **dbarabashdev@gmail.com**.
+refund go to **dmytro@hellonod.app**.

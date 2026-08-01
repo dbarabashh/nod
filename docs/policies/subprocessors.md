@@ -1,13 +1,13 @@
 # Subprocessors
 
-_Last updated: 2026-07-30_
+_Last updated: 2026-08-01_
 
 A subprocessor is a third party that processes personal data on our behalf
 when you use Nod. We use the minimum number of subprocessors required to
 deliver the product, and we publish the full list here so you can audit it.
 
 We give 30 days' notice before adding a new subprocessor to this list. To
-subscribe to change notifications, email **dbarabashdev@gmail.com**.
+subscribe to change notifications, email **dmytro@hellonod.app**.
 
 ---
 
@@ -94,4 +94,4 @@ forwarded once and never written to durable storage anywhere in this chain.
 
 ---
 
-Questions? **dbarabashdev@gmail.com**.
+Questions? **dmytro@hellonod.app**.

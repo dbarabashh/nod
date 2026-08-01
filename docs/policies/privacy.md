@@ -1,11 +1,9 @@
 # Privacy Policy
 
-_Last updated: 2026-07-31_
+_Last updated: 2026-08-01_
 
-> **Nod is in private beta.** It is built and operated by an individual
-> developer, not a registered company. This policy describes the data
-> practices that already exist in the product today — every claim is tied
-> to code you can inspect.
+> This policy describes the data practices that already exist in the
+> product today — every claim is tied to code you can inspect.
 
 This Privacy Policy describes how Nod ("Nod", "we", "us", "I") collects, uses,
 stores, and shares personal data when you use the Nod macOS application
@@ -13,18 +11,17 @@ and the related services hosted at `hellonod.app`. It applies to all users,
 worldwide.
 
 If you have questions about this policy or your data, contact
-**dbarabashdev@gmail.com**.
+**dmytro@hellonod.app**.
 
 ---
 
 ## 1. Who we are (data controller)
 
-Nod is operated by **Dima Barabash**, an individual developer. There is no
-incorporated company behind Nod — that's an honest disclosure, not a gap
-we're hiding.
+Nod is operated by **Dima Barabash**. There is no incorporated company
+behind Nod — that's an honest disclosure, not a gap we're hiding.
 
 For the purposes of the EU/UK GDPR, the data controller is Dima Barabash
-personally. The contact point is **dbarabashdev@gmail.com**.
+personally. The contact point is **dmytro@hellonod.app**.
 
 Paid subscriptions are sold through **Paddle.com Market Limited**, which
 acts as our Merchant of Record. Paddle is an independent controller of the
@@ -412,7 +409,7 @@ Some subprocessors operate globally and may process data outside the EU:
   authentication / app-distribution data outside the EU under SCCs.
 
 We can provide our SCCs and transfer impact assessments on request to
-**dbarabashdev@gmail.com**.
+**dmytro@hellonod.app**.
 
 ---
 
@@ -447,7 +444,7 @@ any externally-resolvable way.
 
 Under the EU/UK GDPR (and equivalents in California, Brazil, Canada, etc.)
 you have the following rights. To exercise any of them, email
-**dbarabashdev@gmail.com**. We respond within 30 days.
+**dmytro@hellonod.app**. We respond within 30 days.
 
 - **Access & Portability** — export **all** the personal data we hold
   about you as a single machine-readable JSON file, yourself, at any time,
@@ -469,8 +466,8 @@ you have the following rights. To exercise any of them, email
   it at any time (does not affect prior processing).
 - **Lodge a complaint** with your local data protection authority. EU
   residents may complain to the supervisory authority in their country
-  of residence. Nod is currently operated by an individual developer
-  rather than a registered company, so there is no designated lead
+  of residence. Nod is currently operated by an individual rather than a
+  registered company, so there is no designated lead
   supervisory authority — your home-country authority is the right
   contact.
 
@@ -485,7 +482,7 @@ Encryption in transit (TLS 1.2+, default TLS 1.3, lower protocols
 rejected), encryption at rest (AES-256), Row-Level Security on every
 table, secrets isolated server-side. Detail in our [Security page](./security.md).
 
-If you discover a vulnerability, please email **dbarabashdev@gmail.com**.
+If you discover a vulnerability, please email **dmytro@hellonod.app**.
 Nod is built by one person right now, so there is no 24/7 on-call rotation
 — but every report goes straight to the founder and is acted on as quickly
 as possible. We're happy to publicly credit researchers.
@@ -531,9 +528,9 @@ change we will:
 
 ## Contact
 
-- Privacy questions and rights requests: **dbarabashdev@gmail.com**
-- Security: **dbarabashdev@gmail.com**
-- Everything else: **dbarabashdev@gmail.com**
+- Privacy questions and rights requests: **dmytro@hellonod.app**
+- Security: **dmytro@hellonod.app**
+- Everything else: **dmytro@hellonod.app**
 
 ---
 

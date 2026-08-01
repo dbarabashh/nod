@@ -1,15 +1,15 @@
 # Terms of Service
 
-_Last updated: 2026-06-10_
+_Last updated: 2026-06-22_
 
-> **Nod is built and operated by an individual developer**, Dima Barabash,
-> not an incorporated company. Paid subscriptions are sold through
-> **Paddle**, which acts as our Merchant of Record. These Terms describe
-> how Nod works today; we'll re-notify you of any material change.
+> **Nod is operated by Dima Barabash**, an individual, not an incorporated
+> company. Paid subscriptions are sold through **Paddle**, which acts as
+> our Merchant of Record. These Terms describe how Nod works today; we'll
+> re-notify you of any material change.
 
 Welcome to Nod. These Terms of Service ("Terms") are the agreement between
-you ("you", "your") and **Dima Barabash**, an individual developer
-operating Nod during private beta ("Nod", "we", "us") that governs your
+you ("you", "your") and **Dima Barabash**, the individual
+operating Nod ("Nod", "we", "us") that governs your
 use of the Nod macOS app, the related services hosted at `hellonod.app`, and
 anything else we offer (the "Service").
 
@@ -27,7 +27,7 @@ that organisation to these Terms.
 
 Sign-in is via Google OAuth. You're responsible for keeping your Google
 account secure and for everything that happens through your Nod account.
-Notify us immediately at **dbarabashdev@gmail.com** if you suspect unauthorised
+Notify us immediately at **dmytro@hellonod.app** if you suspect unauthorised
 access.
 
 One account per person. Don't share credentials.
@@ -68,7 +68,7 @@ When you use Nod you agree **not** to:
   app beyond what is permitted by mandatory law.
 - Probe, scan, or test the vulnerability of our infrastructure without
   prior written permission (responsible-disclosure reports to
-  **dbarabashdev@gmail.com** are welcome and encouraged).
+  **dmytro@hellonod.app** are welcome and encouraged).
 - Use the Service to build a competing product by systematically
   scraping outputs.
 - Circumvent quotas, rate limits, or our LLM proxy.
@@ -129,11 +129,11 @@ the app and at `hellonod.app/pricing` before you subscribe.
   payment.
 - **EU and UK consumers** also have a 14-day cooling-off period from the
   start of the subscription, in line with consumer-rights law. To
-  withdraw, email **dbarabashdev@gmail.com** within 14 days.
+  withdraw, email **dmytro@hellonod.app** within 14 days.
 - Outside those windows we do not generally refund unused portions of a
   billing cycle, but we'll make exceptions for service outages, billing
   errors, or cases where we've materially reduced promised functionality.
-  Contact **dbarabashdev@gmail.com**.
+  Contact **dmytro@hellonod.app**.
 - Prices are exclusive of taxes; Paddle adds VAT/GST where required by
   your location.
 
@@ -144,7 +144,7 @@ by Paddle.
 ## 8. Termination
 
 You can delete your account at any time by emailing
-**dbarabashdev@gmail.com**, or by deleting it from within the app once that flow
+**dmytro@hellonod.app**, or by deleting it from within the app once that flow
 ships. Account deletion removes your meetings, transcripts, summaries, and
 usage rows within 30 days (see [Privacy § 7](./privacy.md#7-how-long-we-keep-your-data)).
 
@@ -189,8 +189,8 @@ the statutory rights of consumers.
 
 ## 11. Governing law
 
-Because Nod is operated by an individual developer rather than a
-registered company, these Terms do not designate an exclusive governing
+Because Nod is operated by an individual rather than a registered
+company, these Terms do not designate an exclusive governing
 law. Mandatory consumer-protection law in your country of residence
 applies in full.
 
@@ -201,7 +201,7 @@ this section.
 
 ## 12. Disputes
 
-Before filing any formal claim, please email **dbarabashdev@gmail.com**
+Before filing any formal claim, please email **dmytro@hellonod.app**
 with a description of the dispute. We will try to resolve it informally
 within 30 days. If we can't, you may bring claims in the courts of your
 country of residence to the extent permitted by law.
@@ -223,14 +223,14 @@ country of residence to the extent permitted by law.
   connection with a merger, acquisition, or sale of assets, with notice
   to you.
 - **Notices.** We'll send legal notices to the email on your account.
-  You can send notices to **dbarabashdev@gmail.com**.
+  You can send notices to **dmytro@hellonod.app**.
 
 ---
 
 ## Contact
 
-- General: **dbarabashdev@gmail.com**
-- Privacy: **dbarabashdev@gmail.com**
-- Security: **dbarabashdev@gmail.com**
-- Billing & refunds: **dbarabashdev@gmail.com**
-- Legal: **dbarabashdev@gmail.com**
+- General: **dmytro@hellonod.app**
+- Privacy: **dmytro@hellonod.app**
+- Security: **dmytro@hellonod.app**
+- Billing & refunds: **dmytro@hellonod.app**
+- Legal: **dmytro@hellonod.app**
