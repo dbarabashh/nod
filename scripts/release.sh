@@ -37,8 +37,12 @@
 #                     seeded from the public one so the Mac reading it keeps every
 #                     build it already had; later general releases are written into
 #                     every private feed too, so nobody gets stranded on one.
-#   --to EMAILS       comma-separated accounts to put on --channel before building.
-#                     A single unknown address aborts the release before it builds.
+#   --to EMAILS       comma-separated accounts to enrol before building. With
+#                     --channel this is what delivers the build. With --feed it
+#                     does NOT: a private feed is reached by pointing a Mac at it,
+#                     and enrolment only saves doing that again once the account
+#                     runs a channel-aware build. Either way, a single unknown
+#                     address aborts the release before it builds.
 #   --skip-notarize   build + sign + DMG, skip Apple notarization
 #                     (use when Apple Developer Program is still pending; the
 #                     resulting DMG will show "developer cannot be verified"
@@ -102,8 +106,8 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$VERSION_ARG" ] || { echo "ERROR: version arg required (patch/minor/major, X.Y.Z, enroll or unenroll)" >&2; usage; }
-[ -z "$TO_EMAILS" ] || [ -n "$CHANNEL" ] || [ "$VERSION_ARG" = "unenroll" ] \
-  || { echo "ERROR: --to needs --channel (which channel are they joining?)" >&2; usage; }
+[ -z "$TO_EMAILS" ] || [ -n "$CHANNEL" ] || [ -n "$FEED_NAME" ] || [ "$VERSION_ARG" = "unenroll" ] \
+  || { echo "ERROR: --to needs --channel or --feed (which one are they joining?)" >&2; usage; }
 
 # Both flags narrow the audience, and everything that must not happen for a
 # narrow release — moving the website's download, nudging the whole install base,
@@ -305,8 +309,14 @@ echo
 
 # Enrol before building, not after: a typo'd address should cost seconds rather
 # than a full notarised build that nobody is allowed to download.
+#
+# With --feed the enrolment does NOT deliver this build — a Mac reaches a private
+# feed only by being pointed at it, and an old client sends nothing the server
+# could route on. It is done here so the account is already on the matching
+# channel by the time it runs a build that understands channels, and the manual
+# step never has to happen twice for the same person.
 if [ -n "$TO_EMAILS" ]; then
-  enrol_emails "$CHANNEL" "$TO_EMAILS"
+  enrol_emails "${CHANNEL:-$FEED_NAME}" "$TO_EMAILS"
   echo
 fi
 
@@ -665,9 +675,14 @@ if [ -n "$CHANNEL" ]; then
   echo
 fi
 if [ -n "$FEED_NAME" ]; then
-  echo "Nothing changed for anyone still on the public feed. To hand this build to a"
-  echo "Mac, run this once on it — Sparkle then downloads and installs it the same"
-  echo "way it does any update:"
+  echo "Nothing changed for anyone still on the public feed."
+  if [ -n "$TO_EMAILS" ]; then
+    echo "${TO_EMAILS} is on the '${FEED_NAME}' channel for later, but that is not what"
+    echo "delivers THIS build — send them this to run once, with Nod quit:"
+  else
+    echo "To hand this build to a Mac, run this once on it — Sparkle then downloads"
+    echo "and installs it the same way it does any update:"
+  fi
   echo
   echo "  defaults write com.example.nod SUFeedURL \"https://hellonod.app/appcast-${FEED_NAME}.xml\""
   echo

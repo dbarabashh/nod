@@ -142,8 +142,16 @@ delegate — including, at the time of writing, everyone.
 ./scripts/release.sh enroll   --channel beta --to c@z.com   # no build
 ./scripts/release.sh unenroll --to c@z.com                  # no build
 
-./scripts/release.sh patch --feed beta                      # private feed
+./scripts/release.sh patch --feed beta --to riwwom@gmail.com
 ```
+
+`--to` means different things in the two modes, and the difference is the whole
+point of having both. With `--channel` it *is* the delivery mechanism. With
+`--feed` it delivers nothing: the build reaches a Mac only because that Mac was
+pointed at the feed, and a client from before channel support sends nothing the
+server could route on — it just fetches the URL baked into its `Info.plist`.
+Passing `--to` alongside `--feed` only puts the account on the matching channel
+in advance, so the manual step never has to be repeated for that person.
 
 A channel build goes into the **same** `appcast.xml` everyone polls, tagged
 `<sparkle:channel>beta</sparkle:channel>`. Sparkle only offers a tagged item to
