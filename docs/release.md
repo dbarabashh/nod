@@ -49,17 +49,22 @@ leaves Keychain; the release script reads it from there via
 
 ### 3. Notarization credentials
 
-Store an app-specific password (or App Store Connect API key) once:
+Store an App Store Connect API key once:
 
 ```sh
-xcrun notarytool store-credentials nod-notary \
-  --apple-id you@example.com \
-  --team-id ABCDE12345 \
-  --password <app-specific-password>
+xcrun notarytool store-credentials Nod_New \
+  --key ~/private_keys/AuthKey_XXXXXX.p8 \
+  --key-id XXXXXX \
+  --issuer <issuer-uuid>
 ```
 
-`nod-notary` is the profile name the release script expects via
-`NOTARY_PROFILE`.
+`Nod_New` is the profile name the release script expects via `NOTARY_PROFILE`.
+
+An app-specific password (`--apple-id … --team-id … --password …`) works too, but
+prefer the API key: Apple revokes **every** app-specific password the moment the
+Apple ID password changes, and the only symptom is `HTTP status code: 401` on the
+next release — with the certificate, the team and the account all still fine.
+That is exactly what happened between 12.10.1 and 12.11.0.
 
 ### 4. Landing page (Vercel)
 
@@ -102,7 +107,7 @@ everything that exists — run it on a Mac with the usual apps on it.
 ```sh
 export VERSION=0.0.2
 export BUILD=2
-export NOTARY_PROFILE=nod-notary
+export NOTARY_PROFILE=Nod_New
 export SPARKLE_BIN_DIR="$HOME/Downloads/Sparkle-2.9.2/bin"
 
 ./scripts/release.sh

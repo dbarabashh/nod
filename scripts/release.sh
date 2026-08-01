@@ -54,7 +54,7 @@
 #
 # Required (env vars or auto-detected):
 #   SPARKLE_BIN_DIR     default: $HOME/Downloads/Sparkle-2.9.2/bin
-#   NOTARY_PROFILE      default: nod-notary-2  (skipped with --skip-notarize)
+#   NOTARY_PROFILE      default: Nod_New  (skipped with --skip-notarize)
 #   NOD_LANDING_REPO    default: <sibling of this repo>/nod-landing
 #
 # Optional:
@@ -74,7 +74,7 @@ REPO_ROOT="$(pwd)"
 # ───────────────────────── defaults / args ─────────────────────────
 
 SPARKLE_BIN_DIR="${SPARKLE_BIN_DIR:-$HOME/Downloads/Sparkle-2.9.2/bin}"
-NOTARY_PROFILE="${NOTARY_PROFILE:-nod-notary-2}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-Nod_New}"
 NOD_LANDING_REPO="${NOD_LANDING_REPO:-$(dirname "$REPO_ROOT")/nod-landing}"
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}"
 
