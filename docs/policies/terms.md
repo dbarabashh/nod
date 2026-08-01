@@ -1,6 +1,6 @@
 # Terms of Service
 
-_Last updated: 2026-06-22_
+_Last updated: 2026-08-01_
 
 > **Nod is operated by Dima Barabash**, an individual, not an incorporated
 > company. Paid subscriptions are sold through **Paddle**, which acts as

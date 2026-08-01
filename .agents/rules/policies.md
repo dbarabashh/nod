@@ -8,5 +8,5 @@ alwaysApply: false
 - Bump the `_Last updated:_` line on every policy you edit.
 - Keep the "what we do not collect" list in `privacy.md` § 3.8 literally true — adding any analytics SDK or first-party telemetry event invalidates it.
 - Bump `ConsentPreference.disclaimerVersion` whenever the consent body in `ConsentStrings.swift` changes, and update `consent.md` + `privacy.md` § 3.3.
-- Keep the status header accurate: Nod is in private beta, operated by Dima Barabash as an individual developer — no company, no SOC 2, contact `dbarabashdev@gmail.com`.
+- Keep the status header accurate: Nod is operated by Dima Barabash as an individual — no company, no SOC 2, contact `dmytro@hellonod.app`. Don't reintroduce "private beta" framing; it was deliberately dropped on 2026-08-01.
 - Never claim a security control the code doesn't implement. Every policy claim must be traceable to code in this repo.

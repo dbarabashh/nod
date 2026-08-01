@@ -10,10 +10,10 @@ of code listed below, proactively flag that the matching policy needs updating �
 even if the user didn't ask for the doc update. Bump the `_Last updated:_` line
 whenever you edit a policy.
 
-Current status (declared in every policy header): Nod is in **private beta**,
-operated by **Dima Barabash as an individual developer** — no company is
-incorporated yet, no SOC 2 process started, no per-jurisdiction governing-law
-set. All contact emails resolve to `dbarabashdev@gmail.com`.
+Current status (declared in every policy header): Nod is operated by **Dima
+Barabash as an individual** — no company is incorporated yet, no SOC 2 process
+started, no per-jurisdiction governing-law set. All contact emails resolve to
+`dmytro@hellonod.app`.
 
 | What changed in code/infra | Update in `docs/policies/` |
 |---|---|
