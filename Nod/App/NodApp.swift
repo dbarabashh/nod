@@ -30,10 +30,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Sparkle owns its own lifecycle once `startingUpdater: true`. We retain
     // the controller so the automatic check timer (SUScheduledCheckInterval)
-    // keeps firing for the life of the app.
-    private let updaterController = SPUStandardUpdaterController(
+    // keeps firing for the life of the app — and the delegate, which Sparkle
+    // holds weakly, for the same reason.
+    private let updaterChannelDelegate = UpdaterChannelDelegate()
+    private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
-        updaterDelegate: nil,
+        updaterDelegate: updaterChannelDelegate,
         userDriverDelegate: nil
     )
 
@@ -165,6 +167,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Task { await services.updateGate.check() }
+        // Sparkle reads the cached channel synchronously inside its check, so
+        // a channel that only just changed needs the cycle reset to be seen
+        // before the next 24h tick.
+        Task { @MainActor in
+            if await services.releaseChannel.refresh() {
+                updaterController.updater.resetUpdateCycle()
+            }
+        }
         // Ambient capture is opt-in: this starts it only if the user has
         // already turned it on, and is a no-op otherwise.
         services.screenContext.refresh()

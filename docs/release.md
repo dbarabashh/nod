@@ -121,6 +121,95 @@ The script:
 - runs `generate_appcast` to produce `dist/appcast.xml` (EdDSA-signed
   against the Keychain key).
 
+## Releasing to a few accounts first
+
+There are two ways to narrow the audience, and which one applies depends on what
+the target Mac is already running.
+
+| | `--channel` | `--feed` |
+|---|---|---|
+| Who is targeted | accounts, server-side | individual Macs |
+| Setup on their Mac | none | one `defaults write`, once |
+| Works on builds released before channel support | **no** | **yes** |
+| Where the item lands | the public `appcast.xml`, tagged | `appcast-NAME.xml` only |
+
+`--channel` is the better tool and the one to reach for by default. `--feed` is
+what gets a build onto a Mac whose installed version predates the channel
+delegate — including, at the time of writing, everyone.
+
+```sh
+./scripts/release.sh patch --channel beta --to a@x.com,b@y.com
+./scripts/release.sh enroll   --channel beta --to c@z.com   # no build
+./scripts/release.sh unenroll --to c@z.com                  # no build
+
+./scripts/release.sh patch --feed beta                      # private feed
+```
+
+A channel build goes into the **same** `appcast.xml` everyone polls, tagged
+`<sparkle:channel>beta</sparkle:channel>`. Sparkle only offers a tagged item to
+clients whose `allowedChannelsForUpdater:` returns that channel — for us, the
+accounts in `release_channel_members`, which `ReleaseChannelStore` reads at
+launch and caches in `UserDefaults` (Sparkle asks for the channel synchronously
+inside its check, so a live read would be too late).
+
+Compared with a normal release, a channel run also:
+
+- skips the `app_config.recommended_build` bump — the banner has no notion of
+  channels and would nag everyone toward a build they cannot download;
+- leaves `Nod-latest.dmg` alone, so the website keeps serving the last build
+  everyone is allowed to have;
+- marks the GitHub release `--prerelease`, which keeps it out of
+  `/releases/latest`.
+
+### Private feeds (`--feed`)
+
+`--feed beta` writes `public/appcast-beta.xml` and leaves `appcast.xml` byte-for-byte
+alone, so nothing changes for anyone who was not pointed at it. Pointing a Mac at
+it is one command, run once, with Nod quit:
+
+```sh
+defaults write com.example.nod SUFeedURL "https://hellonod.app/appcast-beta.xml"
+defaults delete com.example.nod SUFeedURL     # back to the public feed
+```
+
+This is core Sparkle behaviour, not a trick: `SPUUpdater` resolves the feed URL
+through `SUHost.objectForKey:`, which reads user defaults before `Info.plist`.
+It works because we set no `feedURLStringForUpdater:` delegate — that method takes
+priority over both, so adding one would silently break every private feed.
+
+From there it is a normal Sparkle update: scheduled check, EdDSA verification,
+download, relaunch. Nothing is installed by hand.
+
+Two properties keep this from turning into a second release train:
+
+- a **new** private feed is seeded from the public one, so the Mac reading it
+  keeps every build it was already entitled to;
+- a **general** release is written into `appcast.xml` *and* every existing
+  `appcast-*.xml`, so a Mac left on a private feed still receives it.
+
+### How the tracks converge
+
+Build numbers are global: the script takes `max(Info.plist, every
+sparkle:version in the published feed) + 1`. So the next default release always
+outranks any outstanding beta, and Sparkle — which does not let a client opt
+*out* of the default channel — offers it to the testers too. There is nothing to
+un-enrol before a general release.
+
+Sparkle's own guidance is that channels are branches that converge back into the
+default track, not parallel trains; a track that is never superseded wants a
+separate feed URL instead.
+
+### What to expect
+
+| Situation | What happens |
+|---|---|
+| Tester's app is older than the first channel-aware build | It ignores tagged items entirely. Hand them that first DMG directly — this is the one case channels can't bootstrap themselves. |
+| You un-enrol someone on a newer build | Nothing. Sparkle never downgrades; they sit there until the default track passes them. |
+| You want the beta for everyone | Cut a normal release from the same commit. Editing the channel out of a published item by hand is not worth the risk. |
+| A tester never launches the app after enrolment | No channel is cached, so no beta. One launch fixes it. |
+| Typo in `--to` | The RPC reports the unmatched address and the script aborts **before** building. |
+| Enrolled on several Macs | Channel is per account, so all of them. |
+
 Then:
 
 ```sh

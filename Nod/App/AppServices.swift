@@ -49,6 +49,9 @@ struct AppServices {
     /// stays quiet about. The detector itself lives with the panel's session.
     let meetingDetection: MeetingDetectionPreference
     let updateGate: UpdateGate
+    /// Which Sparkle channel this account may see builds from. Refreshed at
+    /// launch so the answer is cached before Sparkle's first update check.
+    let releaseChannel: ReleaseChannelStore
     let hotkeys: HotkeyManager
     /// User's meeting modes (recap/reply/kind presets), shared by the panel chip
     /// and the Settings editor.
@@ -168,6 +171,7 @@ struct AppServices {
             launchBehavior: LaunchBehavior(),
             meetingDetection: MeetingDetectionPreference(),
             updateGate: UpdateGate(supabase: supabase),
+            releaseChannel: ReleaseChannelStore(supabase: supabase, auth: auth),
             hotkeys: hotkeys,
             modeStore: modeStore,
             granolaImporter: GranolaImporter(
