@@ -4,6 +4,22 @@ import SwiftUI
 /// the cross-meeting one. Owns the urgency→colour mapping and the tooltip as
 /// well as the shape: when the two screens each rendered their own, the tooltip
 /// content had already drifted between them.
+extension ActionItemDeadline.Urgency {
+    /// A missed date is the only one that earns alarm colour; a phrase we can't
+    /// date reads as plain metadata so an old "end of week" doesn't keep
+    /// shouting. Lives here rather than in the pill because the attention
+    /// column renders the same urgency as bare text — and its own copy of this
+    /// map had already drifted on `.upcoming`.
+    var tint: Color {
+        switch self {
+        case .overdue: Theme.Palette.danger
+        case .imminent: Theme.Palette.warning
+        case .upcoming: Theme.Palette.brand
+        case .vague: Theme.Palette.muted
+        }
+    }
+}
+
 struct DeadlinePill: View {
     let display: ActionItemDeadline.Display
     let spokenAt: Date
@@ -11,17 +27,13 @@ struct DeadlinePill: View {
     /// the source is never in question.
     var meetingTitle: String?
     var compact = false
+    /// A ticked task is not overdue. Without this the row keeps its alarm colour
+    /// after the user has already dealt with it — and every list here keeps
+    /// showing done items rather than removing them.
+    var done = false
 
-    /// A missed date is the only one that earns alarm colour; a phrase we can't
-    /// date reads as plain metadata so an old "end of week" doesn't keep
-    /// shouting.
     private var tint: Color {
-        switch display.urgency {
-        case .overdue: Theme.Palette.danger
-        case .imminent: Theme.Palette.warning
-        case .upcoming: Theme.Palette.brand
-        case .vague: Theme.Palette.muted
-        }
+        done ? Theme.Palette.muted : display.urgency.tint
     }
 
     var body: some View {

@@ -9,7 +9,7 @@ import Supabase
 ///   summary is ready. Failures bubble up so the caller can surface a retry
 ///   toast; this class does NOT cache pending writes itself (v1 — add an
 ///   outbox if real losses surface).
-/// - **Read path** (`refresh`, `meetings`) — drives HistoryView. Holds the
+/// - **Read path** (`refresh`, `meetings`) — drives MainWindowView. Holds the
 ///   list of meetings sorted newest-first as an `@Published` collection so
 ///   the SwiftUI list re-renders on insert / refresh.
 ///
@@ -28,7 +28,22 @@ final class MeetingStore: ObservableObject {
     }
 
     @Published private(set) var meetings: [Meeting] = [] {
-        didSet { byID = Dictionary(meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
+        didSet {
+            byID = Dictionary(meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            digestKey = DigestKey(count: meetings.count, newest: meetings.first?.id)
+        }
+    }
+
+    /// Cheap identity of the loaded set, for the surfaces that re-derive when
+    /// sessions are added or removed. They used to join every id into a string
+    /// as a `.task(id:)` argument — evaluated on every render, allocating the
+    /// whole list to detect a change that a count and the newest id already
+    /// carry.
+    @Published private(set) var digestKey = DigestKey(count: 0, newest: nil)
+
+    struct DigestKey: Equatable {
+        let count: Int
+        let newest: UUID?
     }
 
     /// Meetings keyed by id, rebuilt with the list. Every surface that renders
@@ -38,12 +53,12 @@ final class MeetingStore: ObservableObject {
     @Published private(set) var loadState: LoadState = .idle
 
     /// Soft-deleted meetings (the "Trash") — loaded lazily by the Trash
-    /// segment of HistoryView. Empty until `refreshTrash()` runs.
+    /// segment of MainWindowView. Empty until `refreshTrash()` runs.
     @Published private(set) var trashedMeetings: [Meeting] = []
     @Published private(set) var trashState: LoadState = .idle
 
     /// Most recently soft-deleted meeting — drives the Undo toast in
-    /// HistoryView. Set by `softDelete(_:)`, cleared by `restore(_:)`,
+    /// MainWindowView. Set by `softDelete(_:)`, cleared by `restore(_:)`,
     /// `hardDelete(_:)`, `dismissUndo()`, or the 5-second auto-timer.
     /// Lives on the store so deletions triggered from MeetingDetailView's
     /// toolbar surface the same Undo affordance as right-click deletes.
@@ -54,7 +69,7 @@ final class MeetingStore: ObservableObject {
     /// True when the most recent `refresh()` attempt failed AND we kept
     /// cached `meetings` instead of flipping to `.failed`. Drives a
     /// non-blocking "couldn't sync, showing cached" warning in
-    /// HistoryView's toolbar so the user knows the list may be stale
+    /// MainWindowView's toolbar so the user knows the list may be stale
     /// without losing access to what we already have. Cleared on the
     /// next successful refresh.
     @Published private(set) var lastRefreshFailed: Bool = false
@@ -71,6 +86,13 @@ final class MeetingStore: ObservableObject {
     /// Summary generation may already be done, but edit/chat/transcript
     /// affordances still need the meeting row and transcript records to exist.
     @Published private(set) var finalizingMeetingIDs: Set<UUID> = []
+
+    /// Meetings whose speaker labels are still being decided — clustering at
+    /// finalize, then the pass that puts names to the clusters. A row's label
+    /// changes twice in that window (`Them` → `Speaker 2` → `Eric`), so the
+    /// transcript shows a placeholder rather than an answer it is about to
+    /// overwrite while the user is reading it.
+    @Published private(set) var resolvingSpeakerIDs: Set<UUID> = []
 
     /// Meeting IDs that finished generating but haven't fully reached the server
     /// — they still sit in the durable `MeetingOutbox`. Mirrored from the
@@ -117,7 +139,7 @@ final class MeetingStore: ObservableObject {
     /// Insert-or-update on the primary key. Used by the durable `MeetingOutbox`
     /// path: a meeting may already exist server-side from an earlier streamed
     /// insert (live transcript), so a plain insert would PK-conflict. Promotes
-    /// `loadState` and updates the local cache optimistically so HistoryView
+    /// `loadState` and updates the local cache optimistically so MainWindowView
     /// reflects the new row before the next full refresh.
     func upsert(_ meeting: Meeting) async throws {
         Log.ui.info("MeetingStore.upsert id=\(meeting.id.uuidString)")
@@ -196,6 +218,14 @@ final class MeetingStore: ObservableObject {
         streamingSummaries[meeting.id] = nil
     }
 
+    func beginResolvingSpeakers(id: UUID) {
+        resolvingSpeakerIDs.insert(id)
+    }
+
+    func finishResolvingSpeakers(id: UUID) {
+        resolvingSpeakerIDs.remove(id)
+    }
+
     /// Marks the end-of-meeting persistence path complete for a local draft.
     func finishFinalizing(id: UUID) {
         Log.ui.info("MeetingStore.finishFinalizing id=\(id.uuidString)")
@@ -244,7 +274,7 @@ final class MeetingStore: ObservableObject {
     /// Patches `title` + `summary` for an existing meeting. Only those two
     /// fields are sent in the payload — other columns (started_at, etc.)
     /// stay untouched even though the local Meeting carries them. Local
-    /// cache is replaced on success so HistoryView re-renders without a
+    /// cache is replaced on success so MainWindowView re-renders without a
     /// full refresh.
     func update(_ meeting: Meeting) async throws {
         Log.ui.info("MeetingStore.update id=\(meeting.id.uuidString)")
@@ -296,6 +326,68 @@ final class MeetingStore: ObservableObject {
         if let idx = meetings.firstIndex(where: { $0.id == meeting.id }) {
             meetings[idx] = meeting
         }
+    }
+
+    /// Local mirrors of a soft delete / restore, until the next refresh brings
+    /// the server-stamped timestamp.
+    private func trashed(_ meeting: Meeting) -> Meeting {
+        var copy = meeting
+        copy.deletedAt = Date()
+        return copy
+    }
+
+    private func restored(_ meeting: Meeting) -> Meeting {
+        var copy = meeting
+        copy.deletedAt = nil
+        return copy
+    }
+
+    /// Patches only `speaker_names`. Written by the post-meeting extraction pass
+    /// once the row is on the server, so it never rides the insert payload and
+    /// can't be lost to an outbox re-push that predates it.
+    func updateSpeakerNames(_ names: [String: String], for meetingID: UUID) async throws {
+        guard !names.isEmpty else { return }
+        Log.ui.info("MeetingStore.updateSpeakerNames id=\(meetingID.uuidString) count=\(names.count)")
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+
+        struct Patch: Encodable {
+            let speakerNames: [String: String]
+
+            enum CodingKeys: String, CodingKey {
+                case speakerNames = "speaker_names"
+            }
+        }
+        try await supabase
+            .from(Self.tableName)
+            .update(Patch(speakerNames: names))
+            .eq("id", value: meetingID.uuidString)
+            .execute()
+
+        if let idx = meetings.firstIndex(where: { $0.id == meetingID }) {
+            meetings[idx].speakerNames = names
+        }
+    }
+
+    /// Recently-ended meetings whose recap never landed, for the launch retry.
+    /// `recap_json IS NULL` narrows the scan server-side; the caller still has
+    /// to match the placeholder summaries, because a meeting streamed
+    /// mid-recording is also recap-less and must be left alone.
+    func fetchMeetingsMissingRecap(since: Date, limit: Int) async throws -> [Meeting] {
+        #if DEBUG
+            if DemoMode.isEnabled { return [] }
+        #endif
+        return try await supabase
+            .from(Self.tableName)
+            .select()
+            .is("recap_json", value: nil)
+            .is("deleted_at", value: nil)
+            .gte("ended_at", value: ISO8601DateFormatter().string(from: since))
+            .order("ended_at", ascending: false)
+            .limit(limit)
+            .execute()
+            .value
     }
 
     // MARK: - Transcripts
@@ -444,7 +536,7 @@ final class MeetingStore: ObservableObject {
             if DemoMode.isEnabled {
                 meetings.removeAll { $0.id == meeting.id }
                 if case .loaded = trashState {
-                    trashedMeetings.insert(meeting.updating(deletedAt: Date()), at: 0)
+                    trashedMeetings.insert(trashed(meeting), at: 0)
                 }
                 pendingUndo = meeting
                 return
@@ -462,7 +554,7 @@ final class MeetingStore: ObservableObject {
             // The trash-list copy carries a client-side `deletedAt` for
             // the "trashed Xd ago" badge until the next refreshTrash
             // overwrites with the server-stamped value.
-            trashedMeetings.insert(meeting.updating(deletedAt: Date()), at: 0)
+            trashedMeetings.insert(trashed(meeting), at: 0)
         }
         pendingUndo = meeting
     }
@@ -478,7 +570,7 @@ final class MeetingStore: ObservableObject {
             if DemoMode.isEnabled {
                 if let idx = trashedMeetings.firstIndex(where: { $0.id == id }) {
                     let row = trashedMeetings.remove(at: idx)
-                    meetings.insert(row.updating(deletedAt: nil), at: 0)
+                    meetings.insert(restored(row), at: 0)
                     meetings.sort { $0.startedAt > $1.startedAt }
                 }
                 if pendingUndo?.id == id { pendingUndo = nil }
@@ -495,7 +587,7 @@ final class MeetingStore: ObservableObject {
         if let idx = trashedMeetings.firstIndex(where: { $0.id == id }) {
             let row = trashedMeetings.remove(at: idx)
             if case .loaded = loadState {
-                meetings.insert(row.updating(deletedAt: nil), at: 0)
+                meetings.insert(restored(row), at: 0)
                 meetings.sort { $0.startedAt > $1.startedAt }
             }
         }
@@ -719,7 +811,7 @@ final class MeetingStore: ObservableObject {
             if hadLoadedCache {
                 Log.ui.error("MeetingStore.refresh failed (keeping cache): \(error.localizedDescription)")
                 // Keep loadState = .loaded so the cached list stays
-                // rendered, but raise lastRefreshFailed so HistoryView
+                // rendered, but raise lastRefreshFailed so MainWindowView
                 // can show a small warning chip. Without that flag the
                 // user has no signal at all that data is stale.
                 lastRefreshFailed = true

@@ -80,3 +80,18 @@ extension MeetingMode {
         MeetingMode(name: "Standup", icon: "checklist", summary: .standup, reply: .meeting)
     ]
 }
+
+extension WorkRole {
+    /// The preset a new user of this role almost always wants first. Nil where
+    /// no preset is a better guess than the General default — an engineer runs
+    /// standups, but also everything else.
+    var presetModeName: String? {
+        switch self {
+        case .recruiter: "Interview"
+        case .sales: "Sales call"
+        case .manager: "1:1"
+        case .engineer: "Standup"
+        case .founder, .consultant, .other: nil
+        }
+    }
+}

@@ -1,6 +1,15 @@
 {
-  "originHash" : "9d9d2cb04981d71fa08e975b792ca8c4bd9d85e7980295ab638559286fedee20",
+  "originHash" : "acd6bdc75a57da835b282df35085d318e9f64a6ce071f5916dbabc00d6484513",
   "pins" : [
+    {
+      "identity" : "argmax-oss-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/argmaxinc/argmax-oss-swift.git",
+      "state" : {
+        "revision" : "25c62997041c134b03ca82731ce2f6fd2cae1eb9",
+        "version" : "1.0.0"
+      }
+    },
     {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
@@ -17,6 +26,15 @@
       "state" : {
         "revision" : "dd29b624b9ceea87612d0b00457e1400f7d22c2e",
         "version" : "2.46.0"
+      }
+    },
+    {
+      "identity" : "swift-argument-parser",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-argument-parser.git",
+      "state" : {
+        "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
+        "version" : "1.8.2"
       }
     },
     {

@@ -45,6 +45,20 @@ extension AnyTransition {
             ? .opacity
             : .move(edge: edge).combined(with: .opacity)
     }
+
+    /// A finished answer taking the place of the thinking indicator.
+    ///
+    /// It rises a few points as it fades in rather than simply appearing: a
+    /// block of text that materialises out of nothing reads as a glitch, while
+    /// a short move in the direction the conversation grows reads as arrival.
+    /// Kept small — this is a frequent transition, and anything larger would
+    /// start costing reading time. Reduce Motion keeps the fade, drops the
+    /// movement.
+    static func answerArrival(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .opacity.combined(with: .offset(y: 6))
+    }
 }
 
 extension View {
@@ -55,6 +69,26 @@ extension View {
         opacity(isVisible ? 1 : 0)
             .scaleEffect(reduceMotion ? 1 : (isVisible ? 1 : 0.82), anchor: anchor)
             .allowsHitTesting(isVisible)
+    }
+
+    /// The row-under-the-pointer highlight: one containing shape that fades in
+    /// on hover, with the timing and the Reduce Motion collapse already right.
+    /// Every list that re-rolled this drifted on the fill, so adjacent panes
+    /// highlighted at different strengths.
+    func hoverHighlight(
+        _ isHovering: Bool,
+        cornerRadius: CGFloat = 8,
+        reduceMotion: Bool,
+        inset: CGSize = .zero
+    ) -> some View {
+        background(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Theme.Palette.surfaceStrong)
+                .opacity(isHovering ? 1 : 0)
+                .padding(.horizontal, inset.width)
+                .padding(.vertical, inset.height)
+                .animation(.hoverReveal(reduceMotion: reduceMotion), value: isHovering)
+        )
     }
 
     /// Shows the macOS link pointer (the pointing hand) over a clickable custom

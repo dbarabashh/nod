@@ -122,13 +122,19 @@ final class EntityStore: ObservableObject {
         }
     }
 
-    /// People across several sessions in two queries instead of two per
-    /// session. Grounding a cross-session answer needs the participants of
-    /// every retrieved session at once, and the per-meeting call is itself two
-    /// round trips — so eight sessions meant sixteen requests before the model
-    /// could even be asked.
-    func people(forMeetings meetingIDs: [UUID]) async -> [UUID: [String]] {
-        guard !meetingIDs.isEmpty else { return [:] }
+    /// People and projects across several sessions in two queries instead of
+    /// two per session. Grounding a cross-session answer needs the participants
+    /// of every retrieved session at once, and the per-meeting call is itself
+    /// two round trips — so eight sessions meant sixteen requests before the
+    /// model could even be asked.
+    ///
+    /// Both kinds come back from the one pair of queries because the second
+    /// query already reads every linked entity: the grounding labels want the
+    /// people, and the screen crossing wants the projects to search the ambient
+    /// record for. Splitting them would double the round trips to re-read rows
+    /// already in hand.
+    func names(forMeetings meetingIDs: [UUID]) async -> (people: [UUID: [String]], projects: [UUID: [String]]) {
+        guard !meetingIDs.isEmpty else { return ([:], [:]) }
         do {
             struct Link: Decodable { let meeting_id: UUID; let entity_id: UUID }
             let links: [Link] = try await supabase
@@ -138,27 +144,33 @@ final class EntityStore: ObservableObject {
                 .execute()
                 .value
             let entityIDs = Set(links.map(\.entity_id))
-            guard !entityIDs.isEmpty else { return [:] }
+            guard !entityIDs.isEmpty else { return ([:], [:]) }
             let entities: [Entity] = try await supabase
                 .from(Self.entitiesTable)
                 .select()
                 .in("id", values: entityIDs.map(\.uuidString))
                 .execute()
                 .value
-            let peopleByID = Dictionary(
-                entities.filter { $0.kind == .person }.map { ($0.id, $0.name) },
-                uniquingKeysWith: { first, _ in first }
-            )
-            var grouped: [UUID: [String]] = [:]
+            let byID = Dictionary(entities.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            var people: [UUID: [String]] = [:]
+            var projects: [UUID: [String]] = [:]
             for link in links {
-                guard let name = peopleByID[link.entity_id] else { continue }
-                grouped[link.meeting_id, default: []].append(name)
+                guard let entity = byID[link.entity_id] else { continue }
+                switch entity.kind {
+                case .person: people[link.meeting_id, default: []].append(entity.name)
+                case .project: projects[link.meeting_id, default: []].append(entity.name)
+                case .topic: continue
+                }
             }
-            return grouped.mapValues { $0.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending } }
+            return (people.mapValues(Self.alphabetical), projects.mapValues(Self.alphabetical))
         } catch {
-            Log.ui.error("EntityStore.people(forMeetings) failed: \(error.localizedDescription)")
-            return [:]
+            Log.ui.error("EntityStore.names(forMeetings) failed: \(error.localizedDescription)")
+            return ([:], [:])
         }
+    }
+
+    private static func alphabetical(_ names: [String]) -> [String] {
+        names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     /// Other sessions that share at least one entity with this one, ranked by

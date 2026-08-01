@@ -11,19 +11,24 @@ struct ActionItemsAggregateView: View {
     /// scoping the list to live meetings.
     let meetings: [Meeting]
     let onOpenMeeting: (UUID) -> Void
+    /// It is reached from the attention column's open-actions block, never from
+    /// the sidebar, so it carries its own way back.
+    let onBack: () -> Void
 
     @EnvironmentObject private var actionItemStore: ActionItemStore
     @EnvironmentObject private var entitlements: EntitlementService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var items: [ActionItem] = []
+    private var items: [ActionItem] {
+        actionItemStore.items
+    }
+
     /// Cached cross-meeting duplicate flags (id → strongest match id) over the
     /// OPEN items. Recomputed via `recomputeFlags()` only when `items`/`dismissed`
     /// change, not on every body read.
     @State private var flagged: [UUID: UUID] = [:]
     @State private var filter: Filter = .open
     @State private var loaded = false
-    @State private var inFlight: Set<UUID> = []
     @State private var dismissed: Set<String> = Dismissals.load()
     /// The task just checked off under the Open filter — where it vanishes from
     /// view — offered for a few seconds as a one-tap Undo so an accidental
@@ -55,15 +60,17 @@ struct ActionItemsAggregateView: View {
     /// other Pro gates: the feature is granted on trial/Pro, and a Pro user whose
     /// entitlement fetch transiently failed shouldn't be shown the upsell.
     private var canUseActionItems: Bool {
-        entitlements.entitlement == nil || entitlements.can(.actionItems)
+        entitlements.mayUse(.actionItems)
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            // Header first in every state: an empty or locked checklist still
+            // needs the way back it was opened from.
+            header
             if !canUseActionItems {
                 upsell
             } else if loaded, !relevantItems.isEmpty {
-                header
                 list
             } else if loaded {
                 emptyState
@@ -84,7 +91,7 @@ struct ActionItemsAggregateView: View {
             guard canUseActionItems else { return }
             await load()
         }
-        .onChange(of: items) { _ in recomputeFlags() }
+        .onChange(of: actionItemStore.revision) { _ in recomputeFlags() }
         .onChange(of: dismissed) { _ in recomputeFlags() }
     }
 
@@ -168,7 +175,16 @@ struct ActionItemsAggregateView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(spacing: 10) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .iconButtonChrome()
+            }
+            .buttonStyle(.plain)
+            .help("Back")
+            .linkCursor()
             Text("Action Items")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(Theme.Palette.ink)
@@ -178,7 +194,7 @@ struct ActionItemsAggregateView: View {
                     .foregroundStyle(Theme.Palette.muted)
             }
             Spacer(minLength: 8)
-            filterControl
+            if !relevantItems.isEmpty { filterControl }
         }
         .padding(.horizontal, 16)
         .padding(.top, 18)
@@ -217,6 +233,11 @@ struct ActionItemsAggregateView: View {
             .padding(.horizontal, 16)
             .padding(.top, 2)
             .padding(.bottom, 24)
+            // Declarative, because checking a row off is an `await` on the store:
+            // an imperative `withAnimation` around that call wraps the creation
+            // of the Task, and the published change lands a main-actor turn later
+            // — outside the transaction, animating nothing.
+            .animation(.standard(reduceMotion: reduceMotion), value: visibleItems)
         }
         .scrollContentBackground(.hidden)
         .tooltipContainer()
@@ -286,7 +307,7 @@ struct ActionItemsAggregateView: View {
     private func addRow(_ group: ItemGroup) -> some View {
         if addingMeetingID == group.meetingID {
             HStack(alignment: .firstTextBaseline, spacing: 11) {
-                checkbox(done: false)
+                ActionCheckbox(done: false)
                 TextField("New task", text: $newItemText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1 ... 6)
@@ -349,7 +370,7 @@ struct ActionItemsAggregateView: View {
 
     private func row(_ item: ActionItem) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 11) {
-            checkbox(done: item.done)
+            ActionCheckbox(done: item.done)
                 .onTapGesture { Task { await toggle(item) } }
             VStack(alignment: .leading, spacing: 5) {
                 if editingID == item.id {
@@ -392,7 +413,8 @@ struct ActionItemsAggregateView: View {
                                     display: ActionItemDeadline.display(phrase: deadline, spokenAt: spoken),
                                     spokenAt: spoken,
                                     meetingTitle: meetingTitle(item.meetingID),
-                                    compact: true
+                                    compact: true,
+                                    done: item.done
                                 )
                             }
                             if flagged[item.id] != nil {
@@ -409,7 +431,6 @@ struct ActionItemsAggregateView: View {
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 12)
-        .opacity(inFlight.contains(item.id) ? 0.5 : 1)
         .contentShape(Rectangle())
         .overlay(alignment: .trailing) {
             let show = hoveredID == item.id && editingID != item.id
@@ -472,26 +493,6 @@ struct ActionItemsAggregateView: View {
         } label: {
             Label("Delete", systemImage: "trash")
         }
-    }
-
-    private func checkbox(done: Bool) -> some View {
-        ZStack {
-            Circle()
-                .fill(done ? Theme.Palette.brand : Color.clear)
-                .overlay(Circle().stroke(done ? Theme.Palette.brand : Theme.Palette.borderStrong, lineWidth: 1.5))
-                .frame(width: 18, height: 18)
-            if done {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 9.5, weight: .bold))
-                    .foregroundStyle(Theme.Palette.bg)
-            }
-        }
-        // The circle has no text baseline, so under `.firstTextBaseline` the HStack
-        // would hang it from its bottom edge and float it above the line. Report
-        // its center (nudged to the cap height) as the baseline so it sits centered
-        // on the first line of text.
-        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-        .contentShape(Rectangle())
     }
 
     private func duplicatePill(for item: ActionItem) -> some View {
@@ -644,31 +645,10 @@ struct ActionItemsAggregateView: View {
     // MARK: - Actions
 
     private func load() async {
-        do {
-            var fetched = try await actionItemStore.allItems()
-            // Backfill any active meeting whose recap actions were never promoted
-            // (finalized offline, or whose finalize save raced and lost) so the
-            // global list is complete without opening each meeting first.
-            // `saveExtracted` no-ops when the meeting already has rows, so this
-            // only writes for genuine gaps and never resurrects deleted tasks.
-            let present = Set(fetched.map(\.meetingID))
-            let missing = meetings.filter { m in
-                m.kind.extractsActionItems
-                    && !present.contains(m.id)
-                    && !(m.recap?.actionItems.isEmpty ?? true)
-            }
-            if !missing.isEmpty {
-                for m in missing {
-                    if let pending = m.recap?.actionItems {
-                        await actionItemStore.saveExtracted(pending, meetingID: m.id, userID: m.userID)
-                    }
-                }
-                fetched = try await actionItemStore.allItems()
-            }
-            items = fetched
-        } catch {
-            Log.ui.error("ActionItemsAggregateView.load failed: \(error.localizedDescription)")
-        }
+        // Backfills any active meeting whose recap actions were never promoted
+        // (finalized offline, or whose finalize save raced and lost) so the
+        // global list is complete without opening each meeting first.
+        await actionItemStore.promoteMissing(in: meetings)
         loaded = true
         recomputeFlags()
     }
@@ -700,16 +680,8 @@ struct ActionItemsAggregateView: View {
         guard editingID == item.id else { return }
         let text = editingText.trimmingCharacters(in: .whitespacesAndNewlines)
         editingID = nil
-        guard !text.isEmpty, text != item.text,
-              let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
-        let previous = items[idx]
-        items[idx] = previous.renamed(text)
-        do {
-            try await actionItemStore.updateText(text, itemID: item.id)
-        } catch {
-            if let i = items.firstIndex(where: { $0.id == item.id }) { items[i] = previous }
-            Log.ui.error("ActionItemsAggregateView.commitEdit failed: \(error.localizedDescription)")
-        }
+        guard !text.isEmpty, text != item.text else { return }
+        await actionItemStore.updateText(text, itemID: item.id)
     }
 
     // MARK: Add task
@@ -729,39 +701,21 @@ struct ActionItemsAggregateView: View {
         let text = newItemText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { cancelAdd(); return }
         let position = (items.filter { $0.meetingID == meetingID }.map(\.position).max() ?? -1) + 1
-        do {
-            let item = try await actionItemStore.add(text: text, meetingID: meetingID, position: position)
-            items.append(item)
-        } catch {
-            Log.ui.error("ActionItemsAggregateView.commitAdd failed: \(error.localizedDescription)")
-        }
+        await actionItemStore.add(text: text, meetingID: meetingID, position: position)
         cancelAdd()
     }
 
     private func toggle(_ item: ActionItem) async {
-        guard let idx = items.firstIndex(where: { $0.id == item.id }), !inFlight.contains(item.id) else { return }
-        let target = !items[idx].done
-        inFlight.insert(item.id)
-        defer { inFlight.remove(item.id) }
-        let previous = items[idx]
-        withAnimation(.standard(reduceMotion: reduceMotion)) {
-            items[idx] = previous.marked(done: target, at: Date())
-        }
+        let target = !item.done
         // Checking off under Open makes the row disappear — offer a quick Undo
         // so an accidental tap is reversible without hunting through filters.
         if target, filter == .open {
-            presentUndo(items[idx])
+            presentUndo(item)
         } else if !target {
             // Manually unchecking is itself the undo — drop any stale toast.
             clearUndo()
         }
-        do {
-            try await actionItemStore.setDone(target, itemID: item.id)
-        } catch {
-            if let i = items.firstIndex(where: { $0.id == item.id }) { items[i] = previous }
-            if undoItem?.id == item.id { clearUndo() }
-            Log.ui.error("ActionItemsAggregateView.toggle failed: \(error.localizedDescription)")
-        }
+        Task { await actionItemStore.setDone(target, itemID: item.id) }
     }
 
     private func presentUndo(_ item: ActionItem) {
@@ -787,38 +741,14 @@ struct ActionItemsAggregateView: View {
 
     private func undo(_ item: ActionItem) async {
         clearUndo()
-        guard !inFlight.contains(item.id) else { return }
-        inFlight.insert(item.id)
-        defer { inFlight.remove(item.id) }
-        if let idx = items.firstIndex(where: { $0.id == item.id }) {
-            withAnimation(.standard(reduceMotion: reduceMotion)) {
-                items[idx] = items[idx].marked(done: false, at: nil)
-            }
-        }
-        do {
-            try await actionItemStore.setDone(false, itemID: item.id)
-        } catch {
-            Log.ui.error("ActionItemsAggregateView.undo failed: \(error.localizedDescription)")
-        }
+        await actionItemStore.setDone(false, itemID: item.id)
     }
 
     private func delete(_ item: ActionItem) async {
-        guard !inFlight.contains(item.id) else { return }
         // Drop a pending "Marked done" toast for this row — otherwise Undo would
         // fire against a now soft-deleted item (a no-op write + a stale toast).
         if undoItem?.id == item.id { clearUndo() }
-        inFlight.insert(item.id)
-        defer { inFlight.remove(item.id) }
-        let snapshot = items
-        withAnimation(.standard(reduceMotion: reduceMotion)) {
-            items.removeAll { $0.id == item.id }
-        }
-        do {
-            try await actionItemStore.softDelete(itemID: item.id)
-        } catch {
-            items = snapshot
-            Log.ui.error("ActionItemsAggregateView.delete failed: \(error.localizedDescription)")
-        }
+        await actionItemStore.softDelete(itemID: item.id)
     }
 
     private func dismissDuplicate(_ a: UUID, _ b: UUID) {

@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-07-19_
+_Last updated: 2026-07-30_
 
 > **Nod is in private beta.** It's built and operated by an individual
 > developer (Dima Barabash), not a registered company. We've made the
@@ -27,6 +27,17 @@ possible and no audio ever stored. This page documents exactly how that works.
 - **Audio is never stored.** Chunks are transcribed in ~5-second windows and
   the bytes are released as soon as the transcript returns. Only the
   transcript and your notes are persisted.
+- **No screen recording, and no image ever saved.** What Nod keeps from your
+  screen is always *text*, read through the macOS accessibility interface.
+  With ambient context on, a window macOS cannot describe — Slack, Figma and
+  other Electron or canvas-drawn apps — is converted to text from its pixels
+  on your Mac; that image lives only in memory for the moment recognition
+  takes and is never written to disk or transmitted anywhere.
+- **Ambient context is off until you turn it on.** Nod can keep a
+  time-limited index of text from windows you haven't excluded, so you can ask
+  it about what you were working on. It ships **off**, you switch it on, you
+  choose how long it is kept, and you can exclude any app, category, or site.
+  Personal messengers are excluded before you configure anything.
 - **Private by default.** No team workspaces, no shared notes, no public
   links — your meetings are visible only to you.
 - **No SOC 2 yet.** Nod is in private beta. Independent audit isn't something
@@ -46,6 +57,11 @@ record. While a meeting is running, Nod captures two audio streams locally:
 
 An on-device voice-activity model (Silero VAD) decides where each utterance
 starts and ends, so the streams are cut into complete chunks on real pauses.
+Telling voices apart afterwards also happens on your Mac, on a speaker model
+(pyannote, via Argmax SpeakerKit) that Nod downloads once from Hugging Face on
+first use and keeps on disk. That download sends nothing but the request itself
+— no audio, no transcript, no account — and every diarised meeting after it
+works offline.
 Each chunk is sent to Whisper in the cloud — routed through our EU proxy under
 Zero Data Retention — and the audio bytes are discarded immediately after the
 transcript comes back. Transcription and summarization are not on-device. The
@@ -87,6 +103,84 @@ chunk it (~5 seconds), normalise it, and POST the chunk to Whisper through our
 proxy. As soon as the transcript returns, the audio bytes are released. There
 is no recording file, no waveform export, no cloud-stored audio — ever.
 
+### Screen access
+
+Nod reads from your screen in three distinct ways. All three keep **text, never
+an image** — primarily via the macOS accessibility interface, the same one
+screen readers use. Nod records **no video** and saves **no image**, in any of
+them. Modes 1 and 2 require the macOS **Accessibility** permission, which you
+grant in System Settings; without it, neither runs. Mode 3 reads only window
+*titles*, through the **Screen Recording** permission Nod already needs to hear
+a meeting.
+
+Ambient context (mode 2) has one exception: an app that tells macOS nothing
+about its contents is read from its pixels and converted to text on-device, at
+most once every 20 seconds, and only after the accessibility read came up
+short. It needs the **Screen Recording** permission and macOS 14 or later, and
+it is skipped without either. Your blocklist is checked before that read, not
+after — an excluded window is never recognised.
+
+**1. Call participants — while a session records.**
+
+- **One window.** A running conferencing app (Zoom, Teams, Webex, Slack,
+  Discord), or — for a browser — only a window whose title names a call. Other windows and
+  tabs are skipped without being read.
+- **A couple of samples per session**, not a loop. A participant list changes
+  rarely.
+- **Count on-device, names once to the summariser.** The participant count
+  drives on-device speaker clustering — the model runs on your Mac's Neural
+  Engine, and the audio it clusters never leaves your machine. The names go
+  once, alongside the transcript, to the summarising model through our EU proxy
+  under Zero Data Retention, so a summary can say "Alina" instead of
+  "Speaker 2". The list itself is not stored — it is dropped with the session.
+
+**2. Ambient context — only if you switch it on.**
+
+This is the part that reads beyond a meeting, so it is the part with the
+tightest controls:
+
+- **Off by default.** It never arrives switched on with an app update. You
+  turn it on in Settings → Privacy.
+- **What it stores.** Every ~5 seconds it reads the text of the window you
+  are actually looking at and stores it in `screen_observations`: the text,
+  the app, the window title, and a timestamp. No image is ever stored — not
+  even when the text came from recognising one — and no keystrokes, no
+  clipboard, no password-field contents.
+- **Bounded retention.** Every row carries an expiry — 14 days by default, and
+  you choose. A scheduled job deletes expired rows server-side, so context
+  stops existing even if you never open the app again.
+- **Deduplicated.** An unchanged screen is one row, not one row per tick.
+- **Your blocklist wins.** The exclusion check runs *before* anything is read,
+  not after. An excluded app or window is never traversed at all.
+- **Messengers start excluded.** WhatsApp, Telegram, Messages, Messenger,
+  Signal, Viber and Discord are on the blocklist before you configure
+  anything — the window people look at most is a private conversation with
+  someone who never agreed to any of this. They are removable entries, not
+  fixed rules: take one off the list and it stays off.
+- **Deletable.** You can delete observations the same way you delete a
+  meeting, and account deletion takes them with it.
+
+We are stating the trade plainly: with ambient context on, Nod holds a
+time-limited record of text you had on screen. That is more than a meeting
+recorder holds. It is off unless you decide otherwise, it is bounded, and it
+is yours to delete.
+
+**3. Meeting detection — noticing a call has started.**
+
+- **Titles, not contents.** Which apps are running, which app holds the
+  microphone (macOS names it; no audio is read), and the window titles of
+  conferencing apps. No window's contents
+  are read, in any app, and the accessibility interface is not used at all.
+- **Nothing is stored.** A title is matched in memory and dropped: no row, no
+  file, nothing transmitted.
+- **It cannot start a recording.** It raises a card. Clicking it goes through
+  the same consent and language steps as pressing Start yourself.
+- **It wraps up after the call.** A recording Nod started for a detected call
+  finishes and summarises about 30 seconds after that call disappears, with a
+  visible countdown and a keep-recording button.
+- **Off in one click.** Settings → General disables it; the card offers "Never
+  for <app>"; a blocklisted app is never detected.
+
 ### What we do store
 
 - **Transcripts.** One row per finalised Whisper chunk in
@@ -118,6 +212,10 @@ is no recording file, no waveform export, no cloud-stored audio — ever.
   your own content, under the same Row-Level Security as everything else.
 - **Entities.** People, projects, and topics extracted from your sessions
   (`entities` + `meeting_entities`) so related sessions can be linked.
+- **Screen observations — only with ambient context on.** Text read from
+  windows you haven't excluded, in `screen_observations`, with the app, the
+  window title, and an expiry. Empty unless you switched the feature on;
+  purged automatically when rows expire.
 - **Account profile.** Your email and Google OAuth identity, stored in
   Supabase Auth.
 - **Consent acknowledgements.** An audit row each time you click "Acknowledge
@@ -243,6 +341,19 @@ No. Neither we nor our subprocessors. See [Model training](#model-training).
 **Do you store audio recordings?**
 No. Audio is chunked, transcribed, and discarded within seconds. Only the
 transcript is saved.
+
+**Does Nod take screenshots or watch my screen?**
+No video, and no image of your screen is ever saved — what Nod keeps is
+text. By default the
+only thing it reads is the participant list of your call window, while a
+session records, to tell speakers apart. Separately, you can switch on
+**ambient context**, which keeps a time-limited index of text from windows you
+haven't excluded so you can ask Nod about what you were working on. In that
+mode, a window that macOS cannot describe is converted to text from its pixels
+on your Mac — the image is never saved or sent anywhere, only the text it
+yields. Ambient context is off until you turn it on, its retention is yours to
+set, and Settings → Privacy lets you exclude any app, website category, or
+specific site before anything is read.
 
 **How do you notify other meeting participants?**
 We don't — you do. Nod runs locally and doesn't integrate with Zoom/Meet/Teams,

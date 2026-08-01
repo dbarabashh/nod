@@ -105,6 +105,7 @@ final class GranolaImporter: ObservableObject {
             summary: "",
             recap: nil,
             language: language,
+            speakerNames: nil,
             deletedAt: nil
         )
     }

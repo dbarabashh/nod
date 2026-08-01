@@ -43,6 +43,11 @@ struct AppServices {
     let accountExport: AccountExportService
     let connections: ConnectionService
     let panelSharing: PanelSharingPreference
+    /// What launch puts on screen — main window, capture panel, or nothing.
+    let launchBehavior: LaunchBehavior
+    /// Whether Nod offers to record a call it sees starting, and which apps it
+    /// stays quiet about. The detector itself lives with the panel's session.
+    let meetingDetection: MeetingDetectionPreference
     let updateGate: UpdateGate
     let hotkeys: HotkeyManager
     /// User's meeting modes (recap/reply/kind presets), shared by the panel chip
@@ -51,6 +56,16 @@ struct AppServices {
     /// Offline transcript import from Granola's local cache — a low-cost
     /// migration path off a direct competitor.
     let granolaImporter: GranolaImporter
+    /// Rebuilds recaps for meetings whose generation never landed.
+    let summaryRegeneration: SummaryRegeneration
+    /// Apps and websites the user has put off-limits to screen reading.
+    let screenExclusions: ScreenExclusions
+    /// Ambient screen capture. Constructed always, running only when the user
+    /// has switched it on — see `ScreenContextDefaults`.
+    let screenContext: ScreenContextService
+    /// Pending "open Settings on this pane" request, shared by the deep links
+    /// that raise it and the window that renders Settings.
+    let settingsFocus: SettingsFocus
 
     /// Construction ORDER is load-bearing — Supabase before the LLM client,
     /// auth before the stores that read it, callback wiring last.
@@ -101,11 +116,15 @@ struct AppServices {
         let meetingStore = MeetingStore(supabase: supabase)
         let profileStore = ProfileStore(supabase: supabase, auth: auth)
         let knowledgeStore = KnowledgeStore(llm: llmClient)
+        let screenExclusions = ScreenExclusions()
+        let screenContext = ScreenContextService(supabase: supabase, exclusions: screenExclusions)
         let labelStore = LabelStore(supabase: supabase, auth: auth)
         let entityStore = EntityStore(supabase: supabase)
         let actionItemStore = ActionItemStore(supabase: supabase)
         let knowledgeThreads = KnowledgeThreadStore(supabase: supabase)
         let retrievalFeedback = RetrievalFeedbackStore(supabase: supabase)
+        let entitlements = EntitlementService(supabase: supabase)
+        let modeStore = ModeStore()
 
         return AppServices(
             permissions: permissions,
@@ -135,24 +154,39 @@ struct AppServices {
                 entities: entityStore,
                 actionItems: actionItemStore,
                 threads: knowledgeThreads,
-                feedback: retrievalFeedback
+                feedback: retrievalFeedback,
+                screenContext: screenContext
             ),
             knowledgeThreads: knowledgeThreads,
             labelStore: labelStore,
-            entitlements: EntitlementService(supabase: supabase),
+            entitlements: entitlements,
             billing: BillingService(supabase: supabase),
             referral: ReferralService(supabase: supabase),
             accountExport: AccountExportService(supabase: supabase),
             connections: ConnectionService(supabase: supabase),
             panelSharing: PanelSharingPreference(),
+            launchBehavior: LaunchBehavior(),
+            meetingDetection: MeetingDetectionPreference(),
             updateGate: UpdateGate(supabase: supabase),
             hotkeys: hotkeys,
-            modeStore: ModeStore(),
+            modeStore: modeStore,
             granolaImporter: GranolaImporter(
                 meetingStore: meetingStore,
                 auth: auth,
                 language: languagePreference
-            )
+            ),
+            summaryRegeneration: SummaryRegeneration(
+                llm: llmClient,
+                meetingStore: meetingStore,
+                actionItemStore: actionItemStore,
+                knowledgeStore: knowledgeStore,
+                profileStore: profileStore,
+                modeStore: modeStore,
+                entitlements: entitlements
+            ),
+            screenExclusions: screenExclusions,
+            screenContext: screenContext,
+            settingsFocus: SettingsFocus()
         )
     }
 }

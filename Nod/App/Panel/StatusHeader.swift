@@ -214,11 +214,11 @@ struct StatusHeader: View {
                         .panelTooltip("Mic")
                 }
                 PanelIconButton(
-                    systemName: "rectangle.stack",
-                    help: "Library",
+                    systemName: "macwindow",
+                    help: "Open Nod",
                     action: { NotificationCenter.default.post(name: .nodOpenLibrary, object: nil) }
                 )
-                .panelTooltip("Library")
+                .panelTooltip("Open Nod")
                 ScreenShareButton()
             }
             .fixedSize()

@@ -79,6 +79,7 @@ final class WhisperTranscriber: @unchecked Sendable {
         let prompt: String
         let promptLanguage: String?
         let timestamp: Date
+        let segmentID: UUID?
     }
 
     /// Bounded FIFO of segments awaiting a retry. Touched only on `queue`.
@@ -117,6 +118,13 @@ final class WhisperTranscriber: @unchecked Sendable {
 
     private var acceptedSampleCount = 0
     private var audioClockSpans: [AudioClockSpan] = []
+    #if DEBUG
+        private var debugDump: DebugAudioDump?
+    #endif
+    /// Non-nil only while a session that gets diarized is recording. Holds the
+    /// speech this source emitted so the whole stream can be clustered at the
+    /// end; never written to disk.
+    private var diarization: DiarizationBuffer?
 
     // Silero segmentation tuning (see sherpaOnnxSileroVadModelConfig):
     /// Cut a segment only after this much trailing silence. A/B knob (default
@@ -181,7 +189,7 @@ final class WhisperTranscriber: @unchecked Sendable {
         }
     }
 
-    func start() async {
+    func start(retainingAudioForDiarization: Bool = false) async {
         Log.stt.info("[\(source.label)] Whisper start() — Silero VAD (sherpa)")
         queue.async {
             self.generation &+= 1
@@ -190,6 +198,13 @@ final class WhisperTranscriber: @unchecked Sendable {
             self.vad?.reset()
             self.acceptedSampleCount = 0
             self.audioClockSpans.removeAll(keepingCapacity: false)
+            #if DEBUG
+                self.debugDump = DebugAudioDump.isEnabled ? DebugAudioDump(label: self.source.rawValue) : nil
+            #endif
+            self.diarization = retainingAudioForDiarization ? DiarizationBuffer() : nil
+            Log.stt.info(
+                "[\(self.source.label)] diarization retention \(retainingAudioForDiarization ? "on" : "off")"
+            )
             self.promptTail = ""
             self.promptLanguage = nil
             if !self.retryQueue.isEmpty {
@@ -213,8 +228,42 @@ final class WhisperTranscriber: @unchecked Sendable {
             self.drainSegments(reason: "stop")
             self.resendQueuedLocked(reason: "stop")
             self.keepRecognizing = false
+            #if DEBUG
+                self.debugDump?.finish()
+                self.debugDump = nil
+            #endif
         }
         Log.stt.info("[\(source.label)] Whisper stopped")
+    }
+
+    /// Hand off the retained speech for clustering and drop our reference, so
+    /// the (multi-minute, multi-hundred-megabyte) diarization pass runs off this
+    /// serial queue instead of blocking transcription behind it.
+    func detachDiarizationBuffer() async -> DiarizationBuffer? {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                let buffer = self.diarization
+                self.diarization = nil
+                if buffer == nil {
+                    Log.stt.info("[\(self.source.label)] diarization skipped — retention was off")
+                } else if buffer?.isEmpty == true {
+                    Log.stt.info("[\(self.source.label)] diarization skipped — no speech retained")
+                }
+                continuation.resume(returning: (buffer?.isEmpty ?? true) ? nil : buffer)
+            }
+        }
+    }
+
+    /// Drop the retained speech without clustering it. A session the user
+    /// cancels or discards never reaches `detachDiarizationBuffer`, and the
+    /// buffer holds up to an hour of `Int16` samples — hundreds of megabytes
+    /// that would otherwise stay resident until the next recording starts.
+    func discardDiarizationBuffer() {
+        queue.async {
+            guard self.diarization != nil else { return }
+            self.diarization = nil
+            Log.stt.info("[\(self.source.label)] diarization buffer discarded")
+        }
     }
 
     /// Retry every parked segment now that connectivity is back. Called by
@@ -271,6 +320,9 @@ final class WhisperTranscriber: @unchecked Sendable {
             let frameCount = Int(normalized.frameLength)
             guard frameCount > 0 else { return }
             self.noteAcceptedAudio(frameCount: frameCount, receivedAt: receivedAt)
+            #if DEBUG
+                self.debugDump?.append(channel, count: frameCount)
+            #endif
             vad.acceptWaveform(channel, count: frameCount)
             self.drainSegments(reason: "vad")
         }
@@ -353,7 +405,8 @@ final class WhisperTranscriber: @unchecked Sendable {
                 timestamp: timestamp(forSampleIndex: segment.start),
                 prompt: promptTail,
                 promptLanguage: promptLanguage,
-                retrying: false
+                retrying: false,
+                segmentID: diarization?.record(segment.samples)
             )
         }
     }
@@ -396,7 +449,8 @@ final class WhisperTranscriber: @unchecked Sendable {
         timestamp: Date,
         prompt: String,
         promptLanguage promptLang: String?,
-        retrying: Bool
+        retrying: Bool,
+        segmentID: UUID?
     ) {
         chunkCounter += 1
         let chunkID = chunkCounter
@@ -462,7 +516,7 @@ final class WhisperTranscriber: @unchecked Sendable {
                         }
                         self.resendQueuedLocked(reason: retrying ? "retryDone" : "afterSuccess")
                         continuation.resume(
-                            returning: kept.map { TranscribedChunk(text: $0, source: src, timestamp: timestamp) }
+                            returning: kept.map { TranscribedChunk(text: $0, source: src, timestamp: timestamp, segmentID: segmentID) }
                         )
                     }
                 }
@@ -481,10 +535,13 @@ final class WhisperTranscriber: @unchecked Sendable {
                         // for the next `.satisfied` edge or a live success.
                         if retrying { self.inFlightRetries -= 1 }
                         self.enqueueForRetryLocked(
-                            wav: wav,
-                            prompt: prompt,
-                            promptLanguage: promptLang,
-                            timestamp: timestamp,
+                            PendingSegment(
+                                wav: wav,
+                                prompt: prompt,
+                                promptLanguage: promptLang,
+                                timestamp: timestamp,
+                                segmentID: segmentID
+                            ),
                             chunkID: chunkID
                         )
                     }
@@ -511,13 +568,7 @@ final class WhisperTranscriber: @unchecked Sendable {
     /// segment is evicted so the freshest speech — closest to reconnect and to
     /// the ongoing conversation — survives a long outage. Lossy by design past
     /// the cap; the loss-free fix is on-device STT (out of scope).
-    private func enqueueForRetryLocked(
-        wav: Data,
-        prompt: String,
-        promptLanguage: String?,
-        timestamp: Date,
-        chunkID: Int
-    ) {
+    private func enqueueForRetryLocked(_ segment: PendingSegment, chunkID: Int) {
         if retryQueue.count >= Self.maxRetryQueue {
             retryQueue.removeFirst()
             droppedRetrySegments += 1
@@ -525,7 +576,7 @@ final class WhisperTranscriber: @unchecked Sendable {
                 Log.stt.error("[\(source.label)] retry queue full — dropped \(droppedRetrySegments) oldest segment(s)")
             }
         }
-        retryQueue.append(PendingSegment(wav: wav, prompt: prompt, promptLanguage: promptLanguage, timestamp: timestamp))
+        retryQueue.append(segment)
         Log.stt.info("[\(source.label)] chunk #\(chunkID) parked for retry (queued=\(retryQueue.count))")
     }
 
@@ -547,7 +598,8 @@ final class WhisperTranscriber: @unchecked Sendable {
                 timestamp: item.timestamp,
                 prompt: item.prompt,
                 promptLanguage: item.promptLanguage,
-                retrying: true
+                retrying: true,
+                segmentID: item.segmentID
             )
         }
         if started > 0 {

@@ -44,6 +44,24 @@ xcodegen generate                    # then build / open Nod.xcodeproj as usual
 - To bump sherpa-onnx: edit `SHERPA_VERSION` + `SHA256` in the script, re-run
   with `--force`.
 
+## Diarization models — nothing to fetch
+
+Speaker diarization runs on [Argmax SpeakerKit](https://github.com/argmaxinc/argmax-oss-swift)
+(MIT), a Swift package resolved by SPM like Supabase and Sparkle. It runs pyannote
+on Core ML / the Neural Engine.
+
+- **No build step and no committed payload.** The Core ML models come from the
+  `argmaxinc/speakerkit-coreml` repo on Hugging Face, downloaded on first use and
+  cached on disk — so the first diarized meeting after a fresh install needs the
+  network and every later one does not. No audio ever leaves the device.
+- A failed download is survivable: `SpeakerDiarizer.make()` returns nil and
+  transcripts fall back to source-based `Me` / `Them` labels.
+- Licences: the SDK is MIT (Argmax); the pyannote community models are CC-BY-4.0,
+  which requires attribution but permits commercial use.
+- Cluster tuning is the SDK's job now. `defaults write com.example.nod
+  diarization.threshold 0.55` still overrides the distance threshold for field
+  debugging; unset, SpeakerKit picks it.
+
 ## Lint, format, and git hooks
 
 ```sh

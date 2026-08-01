@@ -1,7 +1,7 @@
 import Foundation
 
 /// A persisted meeting — summary + transcript pair plus the metadata you
-/// need to render a HistoryView row. Wire-compatible with the `meetings`
+/// need to render a MainWindowView row. Wire-compatible with the `meetings`
 /// table created in migration `20260523204132_meetings.sql`. Issue #14.
 struct Meeting: Codable, Identifiable {
     let id: UUID
@@ -10,23 +10,27 @@ struct Meeting: Codable, Identifiable {
     /// before INSERT — the custom encoder omits it from the payload so the
     /// DB default kicks in instead of trusting the client's wall-clock.
     let createdAt: Date?
-    let startedAt: Date
-    let endedAt: Date
-    let title: String?
+    var startedAt: Date
+    var endedAt: Date
+    var title: String?
     /// What this recording is — drives audio capture + recap framing. Every
     /// legacy row defaults to `.meeting` server-side.
     let kind: SessionKind
-    let summary: String
+    var summary: String
     /// Structured recap — same content as `summary` (which is the rendered
     /// markdown view) but as typed JSON: topics / decisions / actions /
     /// open_questions. Nullable for backward compatibility with rows
     /// generated before the `recap_json` column existed.
-    let recap: MeetingRecap?
+    var recap: MeetingRecap?
     let language: String
+    /// Name per diarized speaker cluster, keyed by the number the transcript
+    /// rows carry (`{"1": "Eric"}`). Sparse: only clusters the transcript itself
+    /// identified are named, the rest keep rendering as "Speaker N".
+    var speakerNames: [String: String]?
     /// Soft-delete timestamp — non-nil when the meeting lives in the Trash
     /// segment (#16). Nil for active rows. Server-driven; the client only
     /// reads this (mutations go via `MeetingStore.softDelete` / `.restore`).
-    let deletedAt: Date?
+    var deletedAt: Date?
 
     // The transcript itself lives in a sibling table — `meeting_transcripts`
     // (migration `20260527093241_meeting_transcripts.sql`) — one row per
@@ -41,6 +45,30 @@ struct Meeting: Codable, Identifiable {
     static let shortDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "d MMM"
+        return formatter
+    }()
+
+    /// Date + time, for the surfaces that list sessions or head one. Shared so
+    /// the same untitled session can't read differently in the list and in the
+    /// chat header above it.
+    static let listDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    /// "yesterday", "3d ago" — how old a session is, which is what the
+    /// attention surfaces care about. One formatter, built once: allocating a
+    /// `RelativeDateTimeFormatter` per row per render was measurable.
+    static func ago(_ date: Date, relativeTo now: Date = Date()) -> String {
+        agoFormatter.localizedString(for: date, relativeTo: now)
+    }
+
+    private static let agoFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.dateTimeStyle = .named
+        formatter.unitsStyle = .abbreviated
         return formatter
     }()
 
@@ -64,6 +92,7 @@ struct Meeting: Codable, Identifiable {
         case summary
         case recap = "recap_json"
         case language
+        case speakerNames = "speaker_names"
         case deletedAt = "deleted_at"
     }
 
@@ -84,6 +113,9 @@ struct Meeting: Codable, Identifiable {
         try c.encode(summary, forKey: .summary)
         try c.encodeIfPresent(recap, forKey: .recap)
         try c.encode(language, forKey: .language)
+        // Omitted when absent so an upsert from the outbox can't wipe names a
+        // later extraction pass already wrote.
+        try c.encodeIfPresent(speakerNames, forKey: .speakerNames)
         try c.encodeIfPresent(deletedAt, forKey: .deletedAt)
     }
 
@@ -112,30 +144,47 @@ struct Meeting: Codable, Identifiable {
             summary: summary,
             recap: recap,
             language: language,
+            speakerNames: nil,
             deletedAt: nil
         )
     }
 
+    /// Stamped into `summary` when generation failed outright — it keeps the
+    /// meeting a terminal, drainable row instead of a phantom one that re-pushes
+    /// forever. **Do not reword:** persisted rows are matched against this
+    /// literal by `lacksRecap`, so an edit here orphans every meeting already
+    /// carrying it.
+    static let summaryUnavailableNote =
+        "A summary couldn't be generated automatically for this meeting. The transcript was saved."
+
+    /// The same fact for a session interrupted before End and recovered on the
+    /// next launch by `MeetingOutbox`. Same "do not reword" rule.
+    static let recoveredPlaceholder =
+        "⏳ Recovered from an interrupted session — the transcript was preserved, but a summary was never generated for it."
+
+    /// True when the meeting ended with a transcript but no recap — generation
+    /// failed, or an interrupted session was recovered. Matched against the two
+    /// known placeholders rather than "summary is empty": a meeting still
+    /// recording is already on the server with an empty summary, and so is one
+    /// the user deliberately cleared. The length guard keeps a real recap from
+    /// being copied on every render just to be compared with two short strings.
+    var lacksRecap: Bool {
+        guard summary.count <= 200 else { return false }
+        let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed == Self.summaryUnavailableNote || trimmed == Self.recoveredPlaceholder
+    }
+
     /// Returns a copy with the title, summary, and recap replaced. Used by
     /// MeetingDetailView's autosave and by the end-of-meeting generation
-    /// path — Meeting's properties are all `let`, so updates flow as new
-    /// value instances. `recap` defaults to the existing value so callers
+    /// path. `recap` defaults to the existing value so callers
     /// that only touch text (manual edits) don't have to thread the JSON
     /// through; pass `recap: .some(newRecap)` to refresh structured state.
     func updating(title: String?, summary: String, recap: MeetingRecap? = nil) -> Meeting {
-        Meeting(
-            id: id,
-            userID: userID,
-            createdAt: createdAt,
-            startedAt: startedAt,
-            endedAt: endedAt,
-            title: title,
-            kind: kind,
-            summary: summary,
-            recap: recap ?? self.recap,
-            language: language,
-            deletedAt: deletedAt
-        )
+        var copy = self
+        copy.title = title
+        copy.summary = summary
+        copy.recap = recap ?? self.recap
+        return copy
     }
 
     /// Returns a copy with the recording bookends taken from `draft`, keeping
@@ -144,41 +193,13 @@ struct Meeting: Codable, Identifiable {
     /// generating draft holds the real stop time — so the duration stays
     /// accurate during generation without clobbering the server row's content.
     func withBookends(from draft: Meeting) -> Meeting {
-        Meeting(
-            id: id,
-            userID: userID,
-            createdAt: createdAt,
-            startedAt: draft.startedAt,
-            endedAt: draft.endedAt,
-            title: title,
-            kind: kind,
-            summary: summary,
-            recap: recap,
-            language: language,
-            deletedAt: deletedAt
-        )
+        var copy = self
+        copy.startedAt = draft.startedAt
+        copy.endedAt = draft.endedAt
+        return copy
     }
 
-    /// Returns a copy with only `deletedAt` replaced — the local-cache mirror
-    /// of a soft delete / restore while the next refresh fetches the
-    /// server-stamped value.
-    func updating(deletedAt: Date?) -> Meeting {
-        Meeting(
-            id: id,
-            userID: userID,
-            createdAt: createdAt,
-            startedAt: startedAt,
-            endedAt: endedAt,
-            title: title,
-            kind: kind,
-            summary: summary,
-            recap: recap,
-            language: language,
-            deletedAt: deletedAt
-        )
-    }
-
-    /// Convenience for HistoryView row rendering — finds the first line of
+    /// Convenience for MainWindowView row rendering — finds the first line of
     /// actual content (skipping section headers like `**Topics covered**`,
     /// `**Topics covered:**`, or `**Topics covered**:`) and returns it
     /// without markdown markers.
@@ -243,6 +264,15 @@ struct Meeting: Codable, Identifiable {
             return title
         }
         return "Meeting on \(dateFormatter.string(from: startedAt))"
+    }
+}
+
+extension [Meeting] {
+    /// Live sessions, newest first — the trash-visibility invariant in one
+    /// place. A copy of this that forgets `deletedAt` leaks a deleted session
+    /// into whatever surface re-rolled it.
+    func liveNewestFirst() -> [Meeting] {
+        filter { $0.deletedAt == nil }.sorted { $0.startedAt > $1.startedAt }
     }
 }
 

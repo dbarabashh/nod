@@ -54,9 +54,14 @@ xcodebuild -project Nod.xcodeproj -scheme Nod build        # CLI build
 xcodebuild -project Nod.xcodeproj -scheme Nod -destination 'platform=macOS' test
 ```
 
-**First clone:** run `./scripts/fetch-vad-xcframework.sh` before the first build
-— the sherpa-onnx VAD xcframework is vendored, not committed. Full build,
-lint/format, git-hook, and CI-pin details: `docs/build-setup.md`.
+**First clone:** fetch the VAD payload before the first build — it is not
+committed, and the build fails without it:
+
+```sh
+./scripts/fetch-vad-xcframework.sh     # sherpa-onnx VAD xcframework → Vendor/
+```
+
+Full build, lint/format, git-hook, and CI-pin details: `docs/build-setup.md`.
 
 ## Where things are documented
 

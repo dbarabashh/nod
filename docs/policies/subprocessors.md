@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-06-25_
+_Last updated: 2026-07-30_
 
 A subprocessor is a third party that processes personal data on our behalf
 when you use Nod. We use the minimum number of subprocessors required to
@@ -52,6 +52,11 @@ entirely by Paddle as Merchant of Record.
 - **Granola is not a subprocessor.** Nod's "Import from Granola" feature reads
   Granola's local cache file on your Mac to bring your own transcripts in. No
   data is sent **to** Granola, and Granola never processes data on our behalf.
+- **Hugging Face is not a subprocessor.** Nod downloads its on-device speaker
+  model from a public Hugging Face repository the first time it separates
+  speakers, then caches it on disk. The download discloses your IP and app
+  version, as any download does; no audio, transcript, or account data is sent,
+  and Hugging Face processes nothing on our behalf.
 
 ---
 
@@ -85,6 +90,7 @@ forwarded once and never written to durable storage anywhere in this chain.
 | 2026-06-23 | Added Vercel Inc. (marketing-site hosting + cookieless Web Analytics). Self-hosted website fonts and app icons to stop IP leakage to Google CDNs. |
 | 2026-06-24 | Added Groq, Inc. as the primary Whisper speech-to-text provider (audio transient, no retention by default). OpenAI/OpenRouter Whisper are now fallbacks. |
 | 2026-06-25 | LLM summaries & chat now default to Anthropic Claude (Sonnet 4.6, Haiku 4.5 fallback), routed via AWS Bedrock / Google Vertex AI (no-train). Google Gemini becomes an optional model rather than the default. No change to data shared or retention. |
+| 2026-07-30 | Speaker separation moved to an on-device Core ML model fetched once from a public Hugging Face repository. Noted as an outbound download, not a subprocessor — no audio, transcript, or account data is sent. |
 
 ---
 

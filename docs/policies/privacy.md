@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-07-21_
+_Last updated: 2026-07-31_
 
 > **Nod is in private beta.** It is built and operated by an individual
 > developer, not a registered company. This policy describes the data
@@ -69,7 +69,9 @@ Calendar, Drive, or contacts.
 | **Cross-session chats** (`knowledge_threads`, `knowledge_messages`) — your questions, the answers, and the sessions/excerpts each answer used | To let you reopen and continue an "Ask Nod" conversation instead of losing it on quit | Contract (Art. 6(1)(b)) |
 | **Source clicks** (`retrieval_feedback`) — the question asked, the session opened from the answer, and its position in the list | To improve which sessions search returns for a question | Legitimate interest (Art. 6(1)(f)): improving the product you're using, on your own content |
 | **Entities** (people / projects / topics extracted from a session) | To link related sessions and power scoped search | Contract (Art. 6(1)(b)) |
-| Your optional **profile** (name, role, current focus) | To give the assistant context about you | Contract (Art. 6(1)(b)); you may leave it blank or clear it anytime |
+| Your optional **profile** (name, what you want Nod to focus on) | To give the assistant context about you | Contract (Art. 6(1)(b)); you may leave it blank or clear it anytime |
+| Your optional **role** (founder, recruiter, sales, …), asked once during setup | To pick a sensible default meeting mode for you, and to understand who Nod is for. It is **not** sent to the assistant | Legitimate interest (Art. 6(1)(f)): setting the product up for you and knowing who uses it; you may leave it blank |
+| Your optional answer to **"how did you hear about us?"** | To know which channels bring people to Nod, so we know where to spend | Legitimate interest (Art. 6(1)(f)): running the business; you may leave it blank |
 
 The embeddings, chat messages, and entities are derived from transcript
 content you already chose to record; they are stored in the same
@@ -117,6 +119,10 @@ and whether the app needed to restart to pick up a screen-recording grant.
 Each row holds your user ID, a timestamp, the event name, and the app
 version — no meeting content, no screen contents, and nothing about what you
 do in the app after setup finishes.
+
+Two rows carry one extra detail: which permission an event refers to, and — if
+you answered it — the role you picked on the setup screen, so we can see which
+kinds of users finish setup and which get stuck.
 
 We need this because setup progress is otherwise stored only on your own Mac,
 which left us unable to tell whether new users were getting stuck on the macOS
@@ -177,6 +183,18 @@ in the same `eu-west-1` region.
 - We do **not** track you across the web or use advertising cookies.
 - We do **not** read your calendar, email, or other Google services.
 - We do **not** collect your contacts or address book.
+- We do **not** record video of your screen, and we do **not** save an image
+  of it — ever. What Nod keeps from your screen is always **text**. With
+  ambient context on, a window whose text macOS cannot describe is read from
+  its pixels in memory and discarded in the same moment; only the recognised
+  text is stored (§ 3.10).
+- We do **not** log your keystrokes, read your clipboard, or capture password
+  fields.
+- We do **not** read anything from an app, category, or site you have
+  excluded — the check runs before anything is read.
+- We do **not** keep a screen index at all unless you switch **ambient
+  context** on yourself (§ 3.10). It is off by default and never enabled by an
+  update.
 - We do **not** sell your personal data to anyone, ever.
 
 ### 3.9 Importing from other apps (Granola)
@@ -198,6 +216,126 @@ when you explicitly tap **Import from Granola** in Settings.
 
 Legal basis: Contract (Art. 6(1)(b)) — you asked us to bring your own data
 into Nod.
+
+### 3.10 What Nod reads from your screen
+
+Nod reads from the screen in three separate ways. All three keep **text, never
+an image**, and they work primarily through the macOS accessibility interface —
+the same one screen readers use. **No video is recorded and no image of your
+screen is ever saved, in any of them.** (a) and (b) require the macOS
+**Accessibility** permission, which you grant explicitly; (c) reads only a
+window's title, through the same **Screen Recording** permission you already
+granted so Nod can hear a meeting.
+
+One exception, in ambient context only, is described in (b): some apps
+(Slack, Figma and other Electron or canvas-drawn apps) tell macOS almost
+nothing about what they are showing. For those, Nod reads the window's pixels
+in memory and converts them to text on your Mac. The image is never written to
+disk, never uploaded, and is released as soon as the text is extracted.
+
+**(a) Call participants — while a session records.** To label who said what,
+Nod needs to know how many people are on the call, so it reads the
+**participant list** of a running conferencing app.
+
+- It reads **text, not pixels.** Nod uses the macOS accessibility interface,
+  the same one screen readers use, to read the labels a window already
+  exposes. It takes **no screenshots** and records **no video** of your
+  screen.
+- It looks at **one app**: a running conferencing app (Zoom, Teams, Webex,
+  Slack, Discord). For a **browser**, it reads only a window whose title names a call
+  (for example "Meet – abc-defg-hij"); every other window and tab is skipped
+  without being read.
+- It runs **only while a recording is running**, and re-reads the list about
+  every 15 seconds for as long as it lasts. Reading it once at the start missed
+  everyone who had not joined yet, and the participant *count* is what makes
+  speaker separation accurate, so the readings are merged as the call goes on.
+  It never runs when nothing is being recorded.
+- Nod uses the **number** of participants for on-device speaker clustering,
+  and the **names** to put a name to a voice in your summary. The name list is
+  sent once, with the transcript, to the summarising model through our EU proxy
+  under Zero Data Retention — the same path and the same protections as the
+  transcript itself (§ 4, § 5). It is **not stored** as its own record: the
+  list is dropped when the session ends, and only whatever the summary itself
+  says is kept.
+- The model is instructed to leave a speaker as "Speaker 2" when the transcript
+  does not make the match unambiguous. A wrong name is worse than an unnamed
+  speaker.
+- Without the Accessibility permission this step is skipped, and Nod falls
+  back to guessing the number of speakers from the audio alone.
+
+**(b) Ambient context — only if you switch it on.**
+
+Nod can keep a time-limited index of text from the window you are working in,
+so you can ask it about what you were doing and not only about what was said
+out loud. This reads beyond a meeting, so it carries the tightest controls in
+the product:
+
+| | |
+|---|---|
+| **Default** | **Off.** You switch it on yourself — in Settings → Privacy, or from the **Ambient context** control at the bottom of Nod's sidebar, which states the same thing this row does before it turns anything on. It is never switched on by an app update. |
+| **Turning it off** | The same sidebar control switches it off in one click, and always shows whether it is on, off, or paused. You never have to go looking for the off switch. |
+| **Pausing** | You can pause capture for 15 minutes, an hour, or the rest of the day without switching the feature off. Nothing is read while it is paused, and it resumes on its own when the time is up. A pause survives quitting Nod, and never outlives its own deadline. |
+| **What is stored** | The window's text, the app's identifier, the window title, and a timestamp, in `screen_observations`. No images, no keystrokes, no clipboard, no password-field contents. |
+| **How often** | About every 5 seconds, and only for the window you are actually looking at — the focused one, never the app's other windows. An unchanged screen stays a **single row**, not one per sample; its timestamp is refreshed at most once a minute, so Nod can tell how long a window was up without storing it again. |
+| **How it reads** | The accessibility interface first. When a window tells macOS almost nothing — Slack, Figma and other Electron or canvas-drawn apps — Nod converts that window's pixels to text **on your Mac**, at most once every 20 seconds, and only for a window the accessibility read came up short on. This needs the **Screen Recording** permission you already granted for meeting audio; without it, the step is skipped. It also needs macOS 14 or later. |
+| **What happens to the image** | Nothing is saved. It exists in memory for the moment recognition takes, is never written to disk and never uploaded, and is released immediately. Only the recognised text is stored. |
+| **How long** | Every row carries an expiry — 14 days by default, and you choose. A scheduled job deletes expired rows server-side, so the index shrinks on its own even if you never open Nod again. |
+| **Exclusions** | Your blocklist is checked **before** anything is read — including before any pixel is read. An excluded app or window is never traversed and never recognised. |
+| **Excluded out of the box** | Two groups are on the blocklist before you touch it. **Personal messengers** — WhatsApp, Telegram, Messages, Messenger, Signal, Viber, Discord — so a private conversation is never the first thing captured. **Password managers and one-time-secret services** — 1Password, Bitwarden, LastPass, Dashlane, Keeper, NordPass, Proton Pass, Enpass, KeePassXC, Apple Passwords, and the matching websites plus pwpush, One-Time Secret, Privnote, Yopass, scrt.link and 1ty.me — because a vault window lists every account you own, and a one-time secret exists to be read once and destroyed. All of them are ordinary entries you can remove in Settings → Privacy if you want that app or site read; removing one is remembered and it is not added back. |
+| **Always include** | Category exclusions match keywords in a window title, so they are broad and will sometimes catch a site you want read — a supplier portal under "Shopping", a recruiting call under "Social media". You can list those sites as always-included, and they are captured despite the category. This cannot re-open a site you excluded by name: an explicit exclusion always wins. |
+| **Deletion** | Yours to delete at any time, from the same sidebar control: the last 5 minutes, the last 15 minutes, the last hour, or everything Nod has ever read from your screen. Deletion is immediate and permanent, and it does not touch your sessions or transcripts. What it does not do is stop capture: if ambient context is still on and you are still looking at the same window, that window will be read again as a new observation — pause or switch it off first. Account deletion removes all of it. |
+
+Legal basis: Consent (Art. 6(1)(a)) — this one is opt-in, and you can
+withdraw it by switching it off, which stops capture immediately; existing
+rows expire or can be deleted at once.
+
+We would rather state the trade than bury it: with ambient context on, Nod
+holds a time-limited record of text you had on screen. That is more than a
+meeting recorder holds. It is off unless you choose otherwise, it is bounded,
+and it is yours to delete.
+
+**(c) Meeting detection — noticing that a call has started.**
+
+So that you don't have to remember to press record, Nod can notice when a video
+call begins and offer to record it. It never starts on its own: the offer is a
+card you click, and clicking it takes you through the same consent and language
+steps as pressing Start yourself.
+
+- **What it reads.** Which apps are running, **which** app is using your
+  microphone (macOS names the app; Nod never hears what it is recording), and
+  the **window titles** of conferencing apps only — never the contents of any
+  window, in any app. It does not use the accessibility
+  interface at all; window titles come from the same **Screen Recording**
+  permission Nod already needs to hear a meeting.
+- **What it stores.** Nothing. A title is matched in memory and dropped. There
+  is no row, no file, and nothing leaves your Mac.
+- **Which apps.** Zoom, Microsoft Teams, Webex, Slack and Discord, plus a
+  browser window whose title names a call (for example "Meet – abc-defg-hij").
+  Windows belonging to any other app are not looked at.
+- **How often.** Every few seconds while no recording is running, and while one
+  is, to notice that the call has ended.
+- **When the call ends.** If Nod is recording a Zoom call, it wraps up and
+  summarises about half a minute after Zoom's meeting process exits — with the
+  panel raised, a visible countdown, and a button to keep recording; anyone
+  still speaking cancels it. This exists so a meeting you forgot to stop doesn't
+  become forty minutes of an empty room. A window title is never used to end a
+  recording: it disappears when you switch tab or Space, not only when the call
+  is over.
+- **Off in one click.** Settings → General turns detection off entirely, and
+  the card itself offers "Never for <app>" for a single app. An app on your
+  screen-reading blocklist is never detected either.
+
+Legal basis: Legitimate interest (Art. 6(1)(f)) — offering to record the
+meeting you are in is the product's core purpose, and it is served by reading a
+window title and nothing more. You can switch it off at any time.
+
+- You can exclude any app, whole categories of website, or specific sites in
+  **Settings → Privacy**, and the exclusions apply to **all three** modes above.
+
+Legal basis for (a): Legitimate interest (Art. 6(1)(f)) — attributing speech to
+speakers is the feature you are using Nod for. Participants' names are read
+locally, used transiently, and travel no further than the summarising model
+already handling the transcript of the same conversation.
 
 ---
 
@@ -245,6 +383,15 @@ third parties only when one of the following applies:
   will notify you with at least 30 days' notice and you can delete your
   data before any transfer.
 
+One outbound connection is not a data share at all, and we list it here so
+the picture is complete: the first time Nod separates speakers on a recording,
+it downloads the speaker model from **Hugging Face** (`argmaxinc/speakerkit-coreml`,
+a public repository). Like any download, that request discloses your IP address
+and app version to them — and nothing else. No audio, no transcript, no account
+data is involved, the model is cached on disk afterwards, and Hugging Face
+processes no personal data on our behalf, so they are not a subprocessor
+(see [Subprocessors](./subprocessors.md)).
+
 ---
 
 ## 6. International transfers
@@ -280,6 +427,7 @@ We can provide our SCCs and transfer impact assessments on request to
 | Meeting transcripts                  | Same as the parent meeting (cascade delete).                         |
 | Transcript embeddings, session chats, entity links | Same as the parent meeting (cascade delete). Extracted entities themselves are per-user and removed on account deletion. |
 | Onboarding progress (`onboarding_events`) | Until you delete your account (cascade).                        |
+| Screen observations (`screen_observations`) | The expiry set when captured — **14 days by default**, changeable in Settings. A scheduled job deletes expired rows. Empty unless you switched ambient context on; deletable at any time; removed on account deletion (cascade). |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |
 | Usage metadata                       | 24 months, then aggregated and anonymised.                           |
 | Encrypted database backups           | 7 days rolling.                                                      |

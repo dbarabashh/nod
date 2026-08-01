@@ -69,29 +69,19 @@ actor MeetingOutbox {
     /// fresh `beginRecording` can't promote a live recording to `.completed`.
     private var recordingIDsAtLaunch: Set<UUID> = []
 
-    /// Shown in place of a real recap when an interrupted (never-ended) meeting
-    /// is recovered on launch — the transcript is preserved even though the
-    /// summary was never generated.
-    static let recoveredPlaceholder =
-        "⏳ Recovered from an interrupted session — the transcript was preserved, but a summary was never generated for it."
-
     /// `directory` is injectable so tests run against a temp dir, not the real
     /// Application Support location.
     init(directory: URL? = nil) {
-        let resolved: URL
+        // `AppSupport` creates what it hands back; an injected test directory is
+        // ours to create. Note the fallback there lands the WAL in the temp
+        // directory when Application Support is unavailable — the one consumer
+        // for which that is a real loss, since a reboot purges it.
         if let directory {
-            resolved = directory
+            dir = directory
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         } else {
-            let base = (try? FileManager.default.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            )) ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            resolved = base.appendingPathComponent("Nod/outbox", isDirectory: true)
+            dir = AppSupport.directory("outbox")
         }
-        dir = resolved
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let loaded = Self.load(from: dir)
         entries = loaded.entries
         recordingIDsAtLaunch = loaded.recordingIDs
@@ -134,8 +124,8 @@ actor MeetingOutbox {
 
     /// Stamp the final, summarised meeting. The transcript snapshot replaces the
     /// streamed rows; already-synced ids stay synced (their text is unchanged
-    /// from streaming), so the completion push only sends the meeting recap and
-    /// any tail rows not yet streamed.
+    /// from streaming), so the completion push sends the meeting recap, the tail
+    /// rows not yet streamed, and the rows diarization relabelled.
     func complete(_ meeting: Meeting, transcripts: [TranscriptRecord], for id: UUID) {
         var entry = entries[id] ?? OutboxEntry(
             meeting: meeting,
@@ -146,23 +136,25 @@ actor MeetingOutbox {
             persistedTranscriptIDs: []
         )
         entry.meeting = meeting
-        entry.transcripts = transcripts
         entry.state = .completed
         // Force a re-push of the row: during recording it may already have
         // landed with an empty summary, and skipping the upsert here (on a stale
         // `meetingSynced`) would leave that empty row on the server instead of
         // the real recap.
         entry.meetingSynced = false
-        // Append the tail records not yet on disk — the disk copy is a crash
-        // backstop; already-persisted ids aren't re-written.
-        let tail = transcripts.filter { !entry.persistedTranscriptIDs.contains($0.id) }
-        for record in tail {
+        // Rows are not immutable once written: clustering resolves speakers only
+        // at End, so a row streamed mid-recording is on disk and on the server
+        // with `speaker: nil`. Diff against the last written form rather than
+        // naming the field that happens to mutate today.
+        let previous = Dictionary(entry.transcripts.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        let changed = transcripts.filter { previous[$0.id] != $0 }
+        entry.syncedTranscriptIDs.subtract(changed.map(\.id))
+        entry.transcripts = transcripts
+        for record in changed {
             entry.persistedTranscriptIDs.insert(record.id)
         }
         entries[id] = entry
-        for record in tail {
-            appendTranscriptLine(record, for: id)
-        }
+        appendTranscriptLines(changed, for: id)
         Log.ui.info("MeetingOutbox.complete id=\(id.uuidString) transcripts=\(transcripts.count)")
         writeMeta(id)
     }
@@ -203,7 +195,7 @@ actor MeetingOutbox {
                 continue
             }
             var recovered = entry
-            recovered.meeting = entry.meeting.updating(title: entry.meeting.title, summary: Self.recoveredPlaceholder)
+            recovered.meeting.summary = Meeting.recoveredPlaceholder
             recovered.state = .completed
             recovered.meetingSynced = false // force a re-push so the placeholder lands
             entries[id] = recovered
@@ -294,16 +286,30 @@ actor MeetingOutbox {
         }
     }
 
+    private func appendTranscriptLines(_ records: [TranscriptRecord], for id: UUID) {
+        guard !records.isEmpty else { return }
+        let lines = records.compactMap { try? encoder.encode($0) }
+        guard !lines.isEmpty else { return }
+        var blob = Data()
+        for line in lines {
+            blob.append(line)
+            blob.append(0x0A)
+        }
+        appendBlob(blob, for: id)
+    }
+
     private func appendTranscriptLine(_ record: TranscriptRecord, for id: UUID) {
-        guard let data = try? encoder.encode(record) else { return }
+        appendTranscriptLines([record], for: id)
+    }
+
+    private func appendBlob(_ blob: Data, for id: UUID) {
         let url = transcriptURL(id)
         if let handle = try? FileHandle(forWritingTo: url) {
             defer { try? handle.close() }
             _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-            try? handle.write(contentsOf: Data([0x0A]))
+            try? handle.write(contentsOf: blob)
         } else {
-            try? (data + Data([0x0A])).write(to: url, options: .atomic)
+            try? blob.write(to: url, options: .atomic)
         }
     }
 

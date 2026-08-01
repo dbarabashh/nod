@@ -2,17 +2,97 @@ import Combine
 import Foundation
 import Supabase
 
-/// Data access for `action_items`. Stateless beyond the Supabase client — the
-/// per-meeting checklist view and (later) the History aggregate hold their own
-/// `@State`/`@Published` and call these methods, mirroring `EntityStore`. RLS
-/// scopes every read/write to the owner, so reads carry no `user_id` filter.
+/// Owns the user's action items: the live rows, and every write to them. RLS
+/// scopes each read/write to the owner, so queries carry no `user_id` filter.
+///
+/// It holds the rows rather than handing each screen its own array because four
+/// surfaces render the same tasks — the attention column, the full checklist, a
+/// meeting's own list, and one task's detail. When they each kept a copy, a box
+/// ticked on one stayed unticked on the others until something unrelated
+/// reloaded it, and the optimistic-write-then-revert dance was written out four
+/// times, four slightly different ways.
 @MainActor
 final class ActionItemStore: ObservableObject {
+    /// Every live (non-trashed) task, across meetings. Mutations apply here
+    /// first and revert if the write fails, so the UI stays instant without any
+    /// screen owning rollback.
+    @Published private(set) var items: [ActionItem] = []
+    /// Bumped with every change to `items`, as a cheap key for the derivations
+    /// that shouldn't re-run on an unrelated render.
+    @Published private(set) var revision = 0
+
     private let supabase: SupabaseClient
     private static let tableName = "action_items"
+    private var didLoad = false
+    private var loading: Task<Void, Never>?
 
     init(supabase: SupabaseClient) {
         self.supabase = supabase
+    }
+
+    private func didMutate() {
+        revision &+= 1
+    }
+
+    // MARK: - Cache
+
+    /// Loads every live task once. Concurrent callers await the same fetch —
+    /// three surfaces mount together on the main window.
+    func refresh(force: Bool = false) async {
+        if let loading {
+            await loading.value
+            if !force { return }
+        }
+        if didLoad, !force { return }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let rows = try await allItems()
+                items = rows
+                didLoad = true
+                didMutate()
+            } catch {
+                Log.ui.error("ActionItemStore.refresh failed: \(error.localizedDescription)")
+            }
+        }
+        loading = task
+        await task.value
+        loading = nil
+    }
+
+    func items(forMeeting meetingID: UUID) -> [ActionItem] {
+        items.filter { $0.meetingID == meetingID }.sorted { $0.position < $1.position }
+    }
+
+    var openItems: [ActionItem] {
+        items.filter { !$0.done }
+    }
+
+    /// Promote recap actions for meetings that never got theirs — a finalize
+    /// that ran offline, or one whose save raced and lost. `saveExtracted`
+    /// no-ops when the meeting already has rows, so this only writes for real
+    /// gaps and never resurrects deleted tasks.
+    func promoteMissing(in meetings: [Meeting]) async {
+        await refresh()
+        let present = Set(items.map(\.meetingID))
+        let missing = meetings.filter { meeting in
+            meeting.kind.extractsActionItems
+                && !present.contains(meeting.id)
+                && !(meeting.recap?.actionItems.isEmpty ?? true)
+        }
+        guard !missing.isEmpty else { return }
+        for meeting in missing {
+            if let pending = meeting.recap?.actionItems {
+                await saveExtracted(pending, meetingID: meeting.id, userID: meeting.userID)
+            }
+        }
+        await refresh(force: true)
+    }
+
+    func clear() {
+        items = []
+        didLoad = false
+        didMutate()
     }
 
     /// Persist a freshly-finalized meeting's extracted actions as rows. Called
@@ -52,25 +132,6 @@ final class ActionItemStore: ObservableObject {
         }
     }
 
-    /// A meeting's items, promoting the recap's extracted actions first if they
-    /// were never persisted — the offline / raced-finalize backfill. Driven by
-    /// the per-meeting checklist's load so a meeting that finalized without
-    /// network (its `saveExtracted` skipped) still materialises its tasks the
-    /// first time it's opened, instead of showing an empty list forever.
-    func itemsPromoting(for meeting: Meeting) async throws -> [ActionItem] {
-        #if DEBUG
-            if DemoMode.isEnabled { return DemoData.actionItems(for: meeting.id) }
-        #endif
-        let existing = try await items(forMeeting: meeting.id)
-        if !existing.isEmpty { return existing }
-        // Passive media carries no personal to-dos — never promote a checklist
-        // for it, even if a stray recap emitted one.
-        guard meeting.kind.extractsActionItems,
-              let pending = meeting.recap?.actionItems, !pending.isEmpty else { return existing }
-        await saveExtracted(pending, meetingID: meeting.id, userID: meeting.userID)
-        return try await items(forMeeting: meeting.id)
-    }
-
     /// True if the meeting has ANY action-item rows, including trashed ones —
     /// the resurrection / duplication guard for `saveExtracted`.
     private func hasAnyRows(forMeeting meetingID: UUID) async -> Bool {
@@ -92,29 +153,11 @@ final class ActionItemStore: ObservableObject {
         }
     }
 
-    /// A meeting's own action items, in recap order (open + done), excluding
-    /// trashed rows. The `deleted_at IS NULL` filter lives in the query, not the
-    /// RLS SELECT policy — a soft-delete UPDATE would otherwise trip the policy
-    /// as a WITH CHECK on the now-hidden new row.
-    func items(forMeeting meetingID: UUID) async throws -> [ActionItem] {
-        #if DEBUG
-            if DemoMode.isEnabled { return DemoData.actionItems(for: meetingID) }
-        #endif
-        return try await supabase
-            .from(Self.tableName)
-            .select()
-            .eq("meeting_id", value: meetingID.uuidString)
-            .is("deleted_at", value: nil)
-            .order("position", ascending: true)
-            .limit(500)
-            .execute()
-            .value
-    }
-
     /// Every non-trashed action item across the user's meetings, newest meeting
-    /// first — backs the History aggregate. RLS scopes to the owner; the
-    /// `deleted_at IS NULL` filter is applied here in the query (see above).
-    func allItems() async throws -> [ActionItem] {
+    /// first. The `deleted_at IS NULL` filter lives in the query, not the RLS
+    /// SELECT policy — a soft-delete UPDATE would otherwise trip the policy as a
+    /// WITH CHECK on the now-hidden new row.
+    private func allItems() async throws -> [ActionItem] {
         #if DEBUG
             if DemoMode.isEnabled { return DemoData.allActionItems() }
         #endif
@@ -149,10 +192,79 @@ final class ActionItemStore: ObservableObject {
             .value
     }
 
-    /// Soft-delete a single item (used to resolve a flagged duplicate). Mirrors
-    /// the `meetings` soft-delete: stamps `deleted_at` so it drops out of every
-    /// read without a hard delete.
-    func softDelete(itemID: UUID) async throws {
+    // MARK: - Writes
+
+    //
+    // Each one applies to `items` first and puts the row back if the write
+    // fails. Optimism is what makes a checkbox feel instant, and keeping it
+    // here is what stops four screens from each owning a rollback.
+
+    /// Soft-delete a single item. Mirrors the `meetings` soft-delete: stamps
+    /// `deleted_at` so it drops out of every read without a hard delete.
+    func softDelete(itemID: UUID) async {
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+        let removed = items.remove(at: index)
+        didMutate()
+        do {
+            try await persistSoftDelete(itemID: itemID)
+        } catch {
+            items.insert(removed, at: min(index, items.count))
+            didMutate()
+            Log.ui.error("ActionItemStore.softDelete failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Rename a task — the inline edit of an extracted or user-added item.
+    func updateText(_ text: String, itemID: UUID) async {
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+        let previous = items[index]
+        items[index] = previous.renamed(text)
+        didMutate()
+        do {
+            try await persistText(text, itemID: itemID)
+        } catch {
+            restore(previous)
+            Log.ui.error("ActionItemStore.updateText failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Check / uncheck a task, stamping `done_at`.
+    func setDone(_ done: Bool, itemID: UUID) async {
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+        let previous = items[index]
+        items[index] = previous.marked(done: done, at: done ? Date() : nil)
+        didMutate()
+        do {
+            try await persistDone(done, itemID: itemID)
+        } catch {
+            restore(previous)
+            Log.ui.error("ActionItemStore.setDone failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Insert one user-added task under a meeting. Returns nil when the write
+    /// failed, so the caller can leave its field open instead of pretending.
+    @discardableResult
+    func add(text: String, meetingID: UUID, position: Int) async -> ActionItem? {
+        do {
+            let item = try await persistInsert(text: text, meetingID: meetingID, position: position)
+            items.append(item)
+            didMutate()
+            return item
+        } catch {
+            Log.ui.error("ActionItemStore.add failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Puts a row back where the id still is, after a failed write.
+    private func restore(_ item: ActionItem) {
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[index] = item
+        didMutate()
+    }
+
+    private func persistSoftDelete(itemID: UUID) async throws {
         #if DEBUG
             if DemoMode.isEnabled { return }
         #endif
@@ -168,9 +280,7 @@ final class ActionItemStore: ObservableObject {
             .execute()
     }
 
-    /// Rename a single item's text — the inline edit of an AI-extracted or
-    /// user-added task. The caller updates its local copy optimistically.
-    func updateText(_ text: String, itemID: UUID) async throws {
+    private func persistText(_ text: String, itemID: UUID) async throws {
         #if DEBUG
             if DemoMode.isEnabled { return }
         #endif
@@ -185,10 +295,9 @@ final class ActionItemStore: ObservableObject {
             .execute()
     }
 
-    /// Insert one user-added task under a meeting and return the local row. The
-    /// owner is resolved from the current session so the view needn't thread it
-    /// through; RLS still checks `auth.uid() = user_id` on insert.
-    func add(text: String, meetingID: UUID, position: Int) async throws -> ActionItem {
+    /// The owner is resolved from the current session so the view needn't thread
+    /// it through; RLS still checks `auth.uid() = user_id` on insert.
+    private func persistInsert(text: String, meetingID: UUID, position: Int) async throws -> ActionItem {
         #if DEBUG
             if DemoMode.isEnabled {
                 return ActionItem.new(
@@ -212,9 +321,7 @@ final class ActionItemStore: ObservableObject {
         return item
     }
 
-    /// Check / uncheck a single item, stamping `done_at` and `updated_at`. The
-    /// caller updates its local copy optimistically; this persists the change.
-    func setDone(_ done: Bool, itemID: UUID) async throws {
+    private func persistDone(_ done: Bool, itemID: UUID) async throws {
         #if DEBUG
             if DemoMode.isEnabled { return }
         #endif

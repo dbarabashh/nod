@@ -46,4 +46,5 @@ enum Log {
     static let stt   = AppLog(logger: Logger(subsystem: subsystem, category: "STT"),   tag: "STT")
     static let llm   = AppLog(logger: Logger(subsystem: subsystem, category: "LLM"),   tag: "LLM")
     static let auth  = AppLog(logger: Logger(subsystem: subsystem, category: "Auth"),  tag: "AUTH")
+    static let screen = AppLog(logger: Logger(subsystem: subsystem, category: "Screen"), tag: "SCREEN")
 }

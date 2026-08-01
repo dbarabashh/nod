@@ -4,18 +4,23 @@ import SwiftUI
 /// list (filtering), and the cross-session chat (scoping). A label always
 /// reads as a coloured pill — keep that look in one place.
 
-/// A coloured pill showing a label. Pass `onRemove` to add a trailing ✕ that
-/// detaches it (used inline on the meeting detail and in the chat scope chip).
-struct LabelChip: View {
-    let label: SessionLabel
+/// A pill naming something, with a trailing ✕ that takes it off whatever list
+/// it is on. `swatch` tints the pill for a folder; without one it reads as
+/// neutral chrome, which is what a plain named entry (an excluded app) wants.
+struct RemovablePill: View {
+    let title: String
+    var swatch: Color?
+    var removeHelp: String
     var onRemove: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 5) {
-            Circle()
-                .fill(label.swatchColor)
-                .frame(width: 7, height: 7)
-            Text(label.name)
+            if let swatch {
+                Circle()
+                    .fill(swatch)
+                    .frame(width: 7, height: 7)
+            }
+            Text(title)
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
             if let onRemove {
@@ -24,16 +29,32 @@ struct LabelChip: View {
                         .font(.system(size: 8, weight: .bold))
                 }
                 .buttonStyle(.plain)
-                .help("Remove folder")
+                .help(removeHelp)
             }
         }
-        .foregroundStyle(Theme.Palette.ink.opacity(0.85))
+        .foregroundStyle(Theme.Palette.ink.opacity(swatch == nil ? 0.7 : 0.85))
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
             Capsule(style: .continuous)
-                .fill(label.swatchColor.opacity(0.16))
-                .overlay(Capsule().stroke(label.swatchColor.opacity(0.4), lineWidth: 0.5))
+                .fill(swatch?.opacity(0.16) ?? Theme.Palette.surface)
+                .overlay(Capsule().stroke(swatch?.opacity(0.4) ?? Theme.Palette.border, lineWidth: 0.5))
+        )
+    }
+}
+
+/// A coloured pill showing a label. Pass `onRemove` to add a trailing ✕ that
+/// detaches it (used inline on the meeting detail and in the chat scope chip).
+struct LabelChip: View {
+    let label: SessionLabel
+    var onRemove: (() -> Void)?
+
+    var body: some View {
+        RemovablePill(
+            title: label.name,
+            swatch: label.swatchColor,
+            removeHelp: "Remove folder",
+            onRemove: onRemove
         )
     }
 }

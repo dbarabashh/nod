@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Owns every window the app can show — sign-in, onboarding, the floating
@@ -8,10 +9,18 @@ import SwiftUI
 final class WindowCoordinator: NSObject, NSWindowDelegate {
     private let services: AppServices
     private(set) var panel: NSPanel?
+    /// The panel's session. Held so the window can hand it a capture kind —
+    /// the alternative was routing that through the panel's *view*, which made
+    /// a view the app's intent router.
+    private var meetingSession: MeetingSession?
+    /// Watches for a call starting and ending. Lives with the panel's session,
+    /// which is the thing it can act on.
+    private var detector: MeetingDetector?
+    private var detectionCard: FloatingPanel<MeetingDetectedCard>?
+    private var detectionObserver: AnyCancellable?
     private var onboardingWindow: NSWindow?
     private var signInWindow: NSWindow?
-    private var historyWindow: NSWindow?
-    private var settingsWindow: NSWindow?
+    private var mainWindow: NSWindow?
 
     init(services: AppServices) {
         self.services = services
@@ -31,16 +40,39 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         } else {
             closeSignInWindow()
             closeOnboardingWindow()
-            showFloatingPanel()
+            buildFloatingPanel()
+            applyLaunchBehavior()
         }
     }
+
+    /// What launch puts on screen. Opening the app is not the same as asking to
+    /// capture, so the panel only arrives when the user chose that — or asks for
+    /// it later by hotkey, menu bar, or the Capture button.
+    ///
+    /// Runs once per signed-in run: the auth publisher emits on every token
+    /// refresh, and a window the user closed must stay closed.
+    private func applyLaunchBehavior() {
+        guard !didApplyLaunchBehavior else { return }
+        didApplyLaunchBehavior = true
+        switch services.launchBehavior.mode {
+        case .mainWindow:
+            showMainWindow()
+            NSApp.activate(ignoringOtherApps: true)
+        case .capturePanel:
+            revealPanel()
+        case .menuBarOnly:
+            break
+        }
+    }
+
+    private var didApplyLaunchBehavior = false
 
     /// The quick panel, built on first use — most sessions never open it, and
     /// it holds a hosting controller plus an event monitor.
     private lazy var launcher = LauncherController(
         services: services,
-        openMeeting: { [weak self] id in self?.showHistoryWindow(focusing: id) },
-        openLibrary: { [weak self] in self?.showHistoryWindow() }
+        openMeeting: { [weak self] id in self?.showMainWindow(focusing: id) },
+        openLibrary: { [weak self] in self?.showMainWindow() }
     )
 
     func toggleLauncher() {
@@ -70,12 +102,28 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     func setPanelVisibleWhenSharing(_ visible: Bool) {
         panel?.sharingType = visible ? .readOnly : .none
-        // Keep the Dock icon / ⌘-Tab entry in lockstep with share visibility —
-        // hiding the panel from captures is pointless if the Dock still shows
-        // Nod. Only while the panel is the active surface; sign-in/onboarding
-        // force .regular regardless.
-        if panel != nil {
-            NSApp.setActivationPolicy(visible ? .regular : .accessory)
+        mainWindow?.sharingType = visible ? .readOnly : .none
+        syncActivationPolicy()
+    }
+
+    /// Dock icon and ⌘-Tab entry follow whichever surface is actually up.
+    ///
+    /// A panel-only session in stealth stays `.accessory`: excluding the panel
+    /// from captures is pointless if the Dock still announces Nod. A main window
+    /// the user opened is not stealth — without `.regular` it has no Dock tile
+    /// and no ⌘-Tab entry, so clicking any other app leaves the menu-bar item as
+    /// the only way back, and `applicationShouldHandleReopen` can never fire.
+    ///
+    /// The old check was `if panel != nil`, which read as "while the panel is the
+    /// active surface" but means "while the panel exists" — and it is built at
+    /// launch regardless of which surface the user chose.
+    ///
+    /// Sign-in / onboarding set `.regular` directly and are not routed here.
+    private func syncActivationPolicy() {
+        if mainWindow != nil {
+            NSApp.setActivationPolicy(.regular)
+        } else if panel != nil {
+            NSApp.setActivationPolicy(services.panelSharing.visibleWhenSharing ? .regular : .accessory)
         }
     }
 
@@ -154,6 +202,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         .environmentObject(services.profileStore)
         .environmentObject(services.auth)
         .environmentObject(services.onboardingTelemetry)
+        .environmentObject(services.modeStore)
 
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)
@@ -167,7 +216,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     // MARK: - Floating panel
 
-    private func showFloatingPanel() {
+    /// Builds the panel without putting it on screen. It has to exist — it owns
+    /// the `MeetingSession` and the whole recording surface — but showing it is
+    /// a separate decision (`applyLaunchBehavior`, the hotkey, the menu bar, or
+    /// the Capture button).
+    private func buildFloatingPanel() {
         // Idempotent — re-entrant from the auth observer is normal.
         guard panel == nil else { return }
 
@@ -177,7 +230,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         // AppDelegate.applicationShouldHandleReopen). In stealth mode the panel
         // is excluded from screen captures, so a Dock icon (and ⌘-Tab entry)
         // would leak Nod's presence anyway — go accessory to match.
-        NSApp.setActivationPolicy(services.panelSharing.visibleWhenSharing ? .regular : .accessory)
+        syncActivationPolicy()
 
         // One session per panel — its lifetime matches the old view-local
         // @State (created with the panel, dropped on sign-out teardown), so
@@ -195,8 +248,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             auth: services.auth,
             profileStore: services.profileStore,
             outbox: services.meetingOutbox,
-            modeStore: services.modeStore
+            modeStore: services.modeStore,
+            screenExclusions: services.screenExclusions
         )
+
+        self.meetingSession = meetingSession
 
         let content = ContentView(
             onPreferredWidthChange: { [weak self] width in self?.panel?.setWidth(to: width) },
@@ -221,60 +277,115 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         )
         panel.sharingType = services.panelSharing.sharingType
         panel.positionOnLeftCenter()
-        panel.orderFrontRegardless()
         self.panel = panel
+
+        startDetecting(for: meetingSession)
     }
 
     private func closeFloatingPanel() {
         panel?.close()
         panel = nil
+        stopDetecting()
+        meetingSession = nil
     }
 
-    // MARK: - Settings window
+    // MARK: - Meeting detection
 
-    func showSettingsWindow(focusSubscription: Bool = false, focusModes: Bool = false) {
-        if let existing = settingsWindow {
-            existing.makeKeyAndOrderFront(nil)
-            if focusModes { NotificationCenter.default.post(name: .nodOpenModes, object: nil) }
-            return
-        }
-        let window = makeWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 740, height: 560),
-            styleMask: [.titled, .closable, .fullSizeContentView]
+    private func startDetecting(for session: MeetingSession) {
+        let detector = MeetingDetector(
+            session: session,
+            exclusions: services.screenExclusions,
+            preference: services.meetingDetection
         )
-        window.title = "Settings"
-        // Hide the native title so the top strip is uniform glass, not a heavier
-        // title-bar band over the translucent body (matches sign-in/onboarding).
-        window.titleVisibility = .hidden
-        window.contentViewController = NSHostingController(rootView: SettingsView(
-            hotkey: services.hotkeys,
-            profileStore: services.profileStore,
-            panelSharing: services.panelSharing,
-            billing: services.billing,
-            entitlements: services.entitlements,
-            granolaImporter: services.granolaImporter,
-            auth: services.auth,
-            accountExport: services.accountExport,
-            connections: services.connections,
-            modeStore: services.modeStore,
-            referral: services.referral,
-            focusSubscription: focusSubscription,
-            focusModes: focusModes
-        ))
-        window.makeKeyAndOrderFront(nil)
-        settingsWindow = window
+        self.detector = detector
+        detectionObserver = detector.$invitation.sink { [weak self] app in
+            guard let app else { return self?.closeDetectionCard() ?? () }
+            self?.showDetectionCard(for: app)
+        }
+        detector.start()
     }
 
-    func closeSettingsWindow() {
-        close(&settingsWindow)
+    private func stopDetecting() {
+        detectionObserver = nil
+        detector?.stop()
+        detector = nil
+        closeDetectionCard()
     }
 
-    // MARK: - History window (issue #14)
+    private func closeDetectionCard() {
+        detectionCard?.close()
+        detectionCard = nil
+    }
 
-    func showHistoryWindow(focusing meetingID: UUID? = nil) {
-        if let existing = historyWindow {
+    /// The card is rebuilt per call rather than kept around and re-bound: it
+    /// appears a few times a day at most, and a window held open all day to
+    /// save one allocation is the wrong trade.
+    private func showDetectionCard(for app: ConferencingApp) {
+        closeDetectionCard()
+        guard let detector else { return }
+
+        let card = FloatingPanel(
+            contentRect: NSRect(origin: .zero, size: MeetingDetectedCard.initialWindowSize),
+            content: MeetingDetectedCard(
+                app: app,
+                onStart: { [weak detector] in detector?.accept() },
+                onDismiss: { [weak detector] in detector?.decline() },
+                onMute: { [weak detector] in detector?.mute(app) }
+            ),
+            sizesToContent: true
+        )
+        // Never in a screen share, whatever the panel's own preference is: this
+        // window names the call the user is in, on top of that same call.
+        card.sharingType = .none
+        // Lay the content out before anchoring: the panel is created at a
+        // placeholder height and only takes its real one once hosted.
+        card.contentViewController?.view.layoutSubtreeIfNeeded()
+        card.positionOnTopRight()
+        card.orderFrontRegardless()
+        detectionCard = card
+    }
+
+    /// Pick what the next capture is and bring the panel forward. It stops
+    /// there on purpose: consent, the permission prompts and the language check
+    /// live in the panel, and no shortcut into recording may skip them. A kind
+    /// arriving mid-recording is ignored — the streams are already chosen.
+    func capture(_ kind: SessionKind) {
+        if meetingSession?.meeting == .idle {
+            meetingSession?.selectedKind = kind
+        }
+        revealPanel()
+    }
+
+    /// Settings renders inside the main window as one of its sections, so it is
+    /// built here (where the service graph lives) and handed over as a view.
+    private var settingsPane: AnyView {
+        AnyView(
+            SettingsView(
+                hotkey: services.hotkeys,
+                profileStore: services.profileStore,
+                panelSharing: services.panelSharing,
+                launchBehavior: services.launchBehavior,
+                billing: services.billing,
+                entitlements: services.entitlements,
+                granolaImporter: services.granolaImporter,
+                auth: services.auth,
+                accountExport: services.accountExport,
+                connections: services.connections,
+                modeStore: services.modeStore,
+                referral: services.referral,
+                screenExclusions: services.screenExclusions,
+                screenContext: services.screenContext,
+                meetingDetection: services.meetingDetection
+            )
+        )
+    }
+
+    // MARK: - Main window (issue #14)
+
+    func showMainWindow(focusing meetingID: UUID? = nil) {
+        if let existing = mainWindow {
             existing.makeKeyAndOrderFront(nil)
-            // HistoryView is already mounted and observing the
+            // MainWindowView is already mounted and observing the
             // `.nodOpenMeetingDetail` notification — its own `.onReceive`
             // handles the navigation push.
             return
@@ -284,10 +395,15 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 1040, height: 640),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         )
-        window.title = "Library"
+        window.title = "Nod"
+        // The panel is kept out of screen captures unless the user opts in, and
+        // this window now opens by itself on launch — a window listing their
+        // meeting titles, open actions and unresolved points must follow the
+        // same preference, or the first screen-share pops it into the call.
+        window.sharingType = services.panelSharing.sharingType
 
         // First-mount focus is handed in via init — the open-detail
-        // notification fires before HistoryView's `.onReceive` subscribes
+        // notification fires before MainWindowView's `.onReceive` subscribes
         // when the window is being created fresh, so its `.task` reads
         // `initialFocusMeetingID` after the initial refresh instead.
         // No SwiftUI `minWidth/minHeight` on the root on purpose — a SwiftUI min
@@ -297,7 +413,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         // window level instead (`contentMinSize`, set after the controller is
         // attached), so the content always fills the window and the rail stays
         // pinned at the leading edge.
-        let root = HistoryView(initialFocusMeetingID: meetingID)
+        let root = MainWindowView(initialFocusMeetingID: meetingID, settings: settingsPane)
             .environmentObject(services.meetingStore)
             .environmentObject(services.chatStore)
             .environmentObject(services.profileStore)
@@ -310,6 +426,10 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             .environmentObject(services.languagePreference)
             .environmentObject(services.labelStore)
             .environmentObject(services.entitlements)
+            .environmentObject(services.hotkeys)
+            .environmentObject(services.settingsFocus)
+            .environmentObject(services.screenContext)
+            .environmentObject(services.summaryRegeneration)
 
         let hosting = NSHostingController(rootView: root)
         // Don't let the hosting controller derive the window's min/max size from
@@ -320,18 +440,23 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         window.contentViewController = hosting
         // With the hosting controller no longer sizing the window, set the opening
         // size and the floor explicitly AFTER attaching it (assigning a
-        // contentViewController resets the window's size constraints). 1040×640
-        // opens comfortably; 860×520 keeps the rail + list/detail column + the
-        // 380pt chat dock all usable and is the hard minimum.
-        window.setContentSize(NSSize(width: 1040, height: 640))
-        window.contentMinSize = NSSize(width: 860, height: 520)
+        // contentViewController resets the window's size constraints). Three
+        // columns now: 1240×760 opens comfortably; 980×560 is where the sidebar,
+        // the centre column, and the context column all still work.
+        window.setContentSize(NSSize(width: 1240, height: 760))
+        window.contentMinSize = NSSize(width: 980, height: 560)
         window.center()
         window.makeKeyAndOrderFront(nil)
-        historyWindow = window
+        mainWindow = window
+        syncActivationPolicy()
     }
 
-    func closeHistoryWindow() {
-        close(&historyWindow)
+    func closeMainWindow() {
+        close(&mainWindow)
+        syncActivationPolicy()
+        // Only sign-out reaches here (a user close goes through
+        // `windowWillClose`), so the next account gets its own launch surface.
+        didApplyLaunchBehavior = false
     }
 
     // MARK: - NSWindowDelegate
@@ -344,8 +469,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     /// untouched. Runs on the main thread, so the isolated state is safe to read.
     nonisolated func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
         MainActor.assumeIsolated {
-            guard sender === historyWindow else { return frameSize }
-            return NSSize(width: max(frameSize.width, 860), height: max(frameSize.height, 520))
+            guard sender === mainWindow else { return frameSize }
+            return NSSize(width: max(frameSize.width, 980), height: max(frameSize.height, 560))
         }
     }
 
@@ -357,13 +482,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 signInWindow = nil
             } else if closed === onboardingWindow {
                 onboardingWindow = nil
-            } else if closed === historyWindow {
-                // History is auxiliary — closing it doesn't trigger any
-                // reconciliation; the floating panel keeps running.
-                historyWindow = nil
-                return
-            } else if closed === settingsWindow {
-                settingsWindow = nil
+            } else if closed === mainWindow {
+                // The main window is auxiliary to the panel — closing it
+                // doesn't trigger any reconciliation; capture keeps running.
+                mainWindow = nil
+                // Back to whatever the panel alone warrants — a stealth session
+                // must not keep the Dock tile the main window earned.
+                syncActivationPolicy()
                 return
             }
             // User-initiated close of the only UI: re-open whichever window

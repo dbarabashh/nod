@@ -3,12 +3,12 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject private var hotkey: HotkeyManager
-    @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting: Bool = MeetingLanguagePromptDefaults.defaultValue
 
     /// Optional so previews (and any future env-free mount) work without a
     /// live Supabase-backed store. nil → the profile section is omitted.
     private let profileStore: ProfileStore?
     private let panelSharing: PanelSharingPreference?
+    private let launchBehavior: LaunchBehavior?
     private let billing: BillingService?
     private let entitlements: EntitlementService?
     private let granolaImporter: GranolaImporter?
@@ -17,11 +17,15 @@ struct SettingsView: View {
     private let connections: ConnectionService?
     private let modeStore: ModeStore?
     private let referral: ReferralService?
+    private let screenExclusions: ScreenExclusions?
+    private let screenContext: ScreenContextService?
+    private let meetingDetection: MeetingDetectionPreference?
 
     init(
         hotkey: HotkeyManager,
         profileStore: ProfileStore? = nil,
         panelSharing: PanelSharingPreference? = nil,
+        launchBehavior: LaunchBehavior? = nil,
         billing: BillingService? = nil,
         entitlements: EntitlementService? = nil,
         granolaImporter: GranolaImporter? = nil,
@@ -30,12 +34,16 @@ struct SettingsView: View {
         connections: ConnectionService? = nil,
         modeStore: ModeStore? = nil,
         referral: ReferralService? = nil,
+        screenExclusions: ScreenExclusions? = nil,
+        screenContext: ScreenContextService? = nil,
+        meetingDetection: MeetingDetectionPreference? = nil,
         focusSubscription: Bool = false,
         focusModes: Bool = false
     ) {
         _hotkey = ObservedObject(wrappedValue: hotkey)
         self.profileStore = profileStore
         self.panelSharing = panelSharing
+        self.launchBehavior = launchBehavior
         self.billing = billing
         self.entitlements = entitlements
         self.granolaImporter = granolaImporter
@@ -44,6 +52,9 @@ struct SettingsView: View {
         self.connections = connections
         self.modeStore = modeStore
         self.referral = referral
+        self.screenExclusions = screenExclusions
+        self.screenContext = screenContext
+        self.meetingDetection = meetingDetection
         _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .profile))
     }
 
@@ -82,6 +93,7 @@ struct SettingsView: View {
     }
 
     @State private var tab: Tab
+    @EnvironmentObject private var focus: SettingsFocus
 
     var body: some View {
         HStack(spacing: 0) {
@@ -89,13 +101,23 @@ struct SettingsView: View {
             Divider().overlay(Theme.Palette.border)
             detail
         }
-        .frame(width: 740, height: 560)
-        .background(WindowBackdrop().ignoresSafeArea())
-        .onReceive(NotificationCenter.default.publisher(for: .nodOpenSubscription)) { _ in
-            tab = .subscription
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .nodOpenModes)) { _ in
-            tab = .modes
+        // Sized by the window it's a section of — Settings is no longer a
+        // fixed-size window of its own, and the main window draws the backdrop.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { applyPendingFocus() }
+        .onChange(of: focus.request) { _ in applyPendingFocus() }
+    }
+
+    /// A deep link ("open Settings on Subscription") is raised before this pane
+    /// mounts, so the request is read here rather than delivered as a
+    /// notification to a view that didn't exist yet.
+    private func applyPendingFocus() {
+        switch focus.consume() {
+        case .subscription: tab = .subscription
+        case .modes: tab = .modes
+        case .privacy: tab = .privacy
+        case .profile: tab = .profile
+        case nil: break
         }
     }
 
@@ -205,79 +227,13 @@ struct SettingsView: View {
     }
 
     private var generalPane: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SettingsCard {
-                SettingsRow(
-                    icon: "globe",
-                    title: "Confirm Nod language before each meeting",
-                    subtitle: "Show a quick check for the language Nod uses in summaries and answers. Turn off to start straight away."
-                ) {
-                    Toggle("", isOn: $confirmLanguageBeforeMeeting)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(Theme.Palette.violet)
-                }
-            }
-
-            if let panelSharing {
-                ScreenShareSettingsSection(pref: panelSharing)
-            }
-
-            if let granolaImporter, granolaImporter.isGranolaInstalled {
-                GranolaImportSection(importer: granolaImporter)
-            }
-
-            #if DEBUG
-                demoModeCard
-            #endif
-        }
+        GeneralSettingsPane(
+            meetingDetection: meetingDetection,
+            launchBehavior: launchBehavior,
+            panelSharing: panelSharing,
+            granolaImporter: granolaImporter
+        )
     }
-
-    #if DEBUG
-        /// Recording aid — fills the app with sample meetings and swallows every
-        /// DB read/write, so the whole workflow can be filmed without touching
-        /// Supabase. DEBUG-only: neither this card nor `DemoData` compile into
-        /// Release, so it can never reach the App Store build. Relaunches so the
-        /// stores reseed cleanly regardless of what's cached.
-        private var demoModeCard: some View {
-            SettingsCard {
-                SettingsRow(
-                    icon: "wand.and.stars",
-                    title: "Demo mode",
-                    subtitle: "Fill Nod with sample meetings for a recording. Nothing is read from or written to the database. Toggling relaunches Nod."
-                ) {
-                    Toggle("", isOn: demoBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(Theme.Palette.violet)
-                }
-            }
-        }
-
-        private var demoBinding: Binding<Bool> {
-            Binding(
-                get: { DemoMode.isEnabled },
-                set: { newValue in
-                    DemoMode.set(newValue)
-                    Self.relaunch()
-                }
-            )
-        }
-
-        private static func relaunch() {
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.createsNewApplicationInstance = true
-            NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, error in
-                DispatchQueue.main.async {
-                    if let error {
-                        Log.ui.error("demo relaunch failed: \(error.localizedDescription)")
-                        return
-                    }
-                    NSApp.terminate(nil)
-                }
-            }
-        }
-    #endif
 
     @ViewBuilder
     private var modesPane: some View {
@@ -365,7 +321,12 @@ struct SettingsView: View {
     @ViewBuilder
     private var privacyPane: some View {
         if let auth, let accountExport {
-            AccountDataSection(auth: auth, export: accountExport)
+            VStack(alignment: .leading, spacing: 20) {
+                if let screenExclusions, let screenContext {
+                    ScreenPrivacySection(exclusions: screenExclusions, screenContext: screenContext)
+                }
+                AccountDataSection(auth: auth, export: accountExport)
+            }
         } else {
             Text("Sign in to manage your data.")
                 .font(.system(size: 12.5))
@@ -376,4 +337,6 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView(hotkey: HotkeyManager())
+        .environmentObject(SettingsFocus())
+        .frame(width: 740, height: 560)
 }

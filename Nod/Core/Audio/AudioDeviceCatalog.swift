@@ -57,21 +57,24 @@ enum AudioDeviceCatalog {
 
     // MARK: - Internals
 
-    private static func enumerateDeviceIDs() -> [AudioDeviceID] {
+    private static func enumerateDeviceIDs() -> [AudioObjectID] {
+        objectList(kAudioHardwarePropertyDevices)
+    }
+
+    /// The system object's list of audio objects under `selector` — devices,
+    /// processes, whatever the selector names. Same size-probe-then-fetch dance
+    /// for all of them.
+    static func objectList(_ selector: AudioObjectPropertySelector) -> [AudioObjectID] {
         var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
+            mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
         var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size) == noErr else {
-            return []
-        }
-        let count = Int(size) / MemoryLayout<AudioDeviceID>.size
-        var ids = [AudioDeviceID](repeating: 0, count: count)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &ids) == noErr else {
-            return []
-        }
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        guard AudioObjectGetPropertyDataSize(system, &addr, 0, nil, &size) == noErr, size > 0 else { return [] }
+        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &addr, 0, nil, &size, &ids) == noErr else { return [] }
         return ids
     }
 
@@ -86,18 +89,62 @@ enum AudioDeviceCatalog {
         return size > 0
     }
 
-    private static func stringProperty(_ id: AudioDeviceID, _ selector: AudioObjectPropertySelector) -> String? {
+    /// A CFString property of any audio object.
+    ///
+    /// Taken *retained*: the HAL hands these back at +1, and the caller owns
+    /// them. Read on a loop over every audio process on the machine, so an
+    /// unbalanced retain here is a steady leak rather than a one-off.
+    static func stringProperty(_ id: AudioObjectID, _ selector: AudioObjectPropertySelector) -> String? {
         var addr = AudioObjectPropertyAddress(
             mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var size = UInt32(MemoryLayout<CFString?>.size)
-        var cf: CFString?
-        let status = withUnsafeMutablePointer(to: &cf) {
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        var value: Unmanaged<CFString>?
+        let status = withUnsafeMutablePointer(to: &value) {
             AudioObjectGetPropertyData(id, &addr, 0, nil, &size, $0)
         }
-        guard status == noErr, let cf else { return nil }
-        return cf as String
+        guard status == noErr, let value else { return nil }
+        return value.takeRetainedValue() as String
+    }
+}
+
+/// Which processes are recording right now, by bundle identifier.
+///
+/// `kAudioDevicePropertyDeviceIsRunningSomewhere` — the state behind the orange
+/// dot — says only that *someone* is holding the microphone. That was not good
+/// enough: it made every running conferencing app look like it was in a call,
+/// so Slack, which is open all day, was announced as a call whenever anything
+/// else touched the mic. The HAL's process list names the process instead.
+enum AudioProcessActivity {
+    /// Bundle identifiers with at least one active input stream.
+    ///
+    /// Empty on macOS 13, where the HAL exposes no process list — the caller
+    /// then has only window titles to go on, which is the correct degradation:
+    /// fewer detections, never a wrong one.
+    static func bundleIDsRecording(excluding ownBundleID: String?) -> Set<String> {
+        var recording: Set<String> = []
+        for process in AudioDeviceCatalog.objectList(kAudioHardwarePropertyProcessObjectList) {
+            guard isRunningInput(process),
+                  let bundleID = AudioDeviceCatalog.stringProperty(process, kAudioProcessPropertyBundleID),
+                  !bundleID.isEmpty
+            else { continue }
+            guard bundleID != ownBundleID else { continue }
+            recording.insert(bundleID)
+        }
+        return recording
+    }
+
+    private static func isRunningInput(_ process: AudioObjectID) -> Bool {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioProcessPropertyIsRunningInput,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var running: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(process, &addr, 0, nil, &size, &running) == noErr else { return false }
+        return running != 0
     }
 }

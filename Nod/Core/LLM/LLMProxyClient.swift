@@ -77,16 +77,30 @@ final class LLMProxyClient: ObservableObject {
     }
 
     /// Model for the user-facing Q&A chat (`chat(system:history:)`) only — NOT
-    /// the summary/recap/title generation, which stays on the reasoning-class
-    /// `model` above. Chat over an already-summarized transcript is a lighter
-    /// task than composing the recap, so it runs on Claude Haiku 4.5: ~3× cheaper
-    /// per token than Sonnet, which is where the bulk of per-user LLM cost was
-    /// going (power chat users hit $2+/mo on Sonnet alone). Escalates to `model`
-    /// (Sonnet) via the fallback chain if Haiku fails. Override for an A/B with
-    /// `defaults write com.example.nod openrouter.model.chat "anthropic/claude-sonnet-4.6"`.
+    /// the summary/recap/title generation, which stays on `model` above.
+    ///
+    /// This is the one call whose output the user reads word for word, so it
+    /// gets the strongest model of the three. It ran on Haiku 4.5 to save cost,
+    /// but the saving was misplaced: the answer is the quality-sensitive step,
+    /// while the two JSON prep calls that surround it — which were on Sonnet —
+    /// are not. They now run on `utilityModel`, which pays for most of this.
+    /// Override for an A/B with
+    /// `defaults write com.example.nod openrouter.model.chat "anthropic/claude-haiku-4.5"`.
     private static let chatModelKey = "openrouter.model.chat"
     var chatModel: String {
-        UserDefaults.standard.string(forKey: Self.chatModelKey) ?? "anthropic/claude-haiku-4.5"
+        UserDefaults.standard.string(forKey: Self.chatModelKey) ?? "anthropic/claude-sonnet-5"
+    }
+
+    /// Model for the structured prep calls that never reach the user: rewriting
+    /// a follow-up into a standalone query (+ its HyDE passage) and routing a
+    /// question to a scope. Both emit a fixed JSON schema from a prompt of a
+    /// couple of thousand characters — there is nothing for a reasoning-class
+    /// model to do, and running two of them on Sonnet added ~4.5s of latency
+    /// before retrieval even started.
+    /// Override with `defaults write com.example.nod openrouter.model.utility "..."`.
+    private static let utilityModelKey = "openrouter.model.utility"
+    var utilityModel: String {
+        UserDefaults.standard.string(forKey: Self.utilityModelKey) ?? "anthropic/claude-haiku-4.5"
     }
 
     /// Provider routing hints for the chat call. The `google-vertex` pin +
@@ -96,6 +110,27 @@ final class LLMProxyClient: ObservableObject {
     /// constrain routing — Claude is also served via Vertex on OpenRouter, so
     /// pinning the order there would silence Anthropic's own infra — so we send
     /// no order/ignore and let OpenRouter pick the best provider.
+    /// Whether a model still accepts `temperature`.
+    ///
+    /// Anthropic removed the sampling parameters from Sonnet 5, Opus 4.7 and
+    /// later, and the Fable/Mythos line: a non-default `temperature` is
+    /// rejected outright, and OpenRouter lists none of them in that model's
+    /// `supported_parameters`. Sending 0.2 anyway costs the call — either it
+    /// 400s and silently falls through to the next model in the chain, or the
+    /// grounding we set it for is quietly dropped. Older models keep it.
+    static func acceptsTemperature(_ model: String) -> Bool {
+        let withoutSampling = [
+            "claude-sonnet-5",
+            "claude-sonnet-latest",
+            "claude-opus-4.7",
+            "claude-opus-4.8",
+            "claude-opus-latest",
+            "claude-fable",
+            "claude-mythos"
+        ]
+        return !withoutSampling.contains { model.contains($0) }
+    }
+
     private func providerPreference(for primaryModel: String) -> ProviderPreference {
         guard primaryModel.hasPrefix("google/") else {
             return ProviderPreference(order: nil, ignore: nil, allow_fallbacks: true)
@@ -158,9 +193,9 @@ final class LLMProxyClient: ObservableObject {
         let content: String
     }
 
-    func complete(system: String, user: String, jsonMode: Bool = false) async throws -> String {
+    func complete(system: String, user: String, jsonMode: Bool = false, primaryModel: String? = nil) async throws -> String {
         Log.llm.info(
-            "→ chat via proxy model=\(model) fallback=\(fallbackModel) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)"
+            "→ chat via proxy model=\(primaryModel ?? model) fallback=\(fallbackModel) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)"
         )
         Log.llm.sensitive("→ user[0..200]: \(user.prefix(200))")
 
@@ -169,18 +204,37 @@ final class LLMProxyClient: ObservableObject {
                 .init(role: "system", content: system),
                 .init(role: "user", content: user)
             ],
-            jsonMode: jsonMode
+            jsonMode: jsonMode,
+            primaryModel: primaryModel
         )
     }
 
     /// Multi-turn chat: a system prompt followed by the running
     /// user/assistant history. Used by single-session chat (step 3). The
     /// transcript + recap live in `system`; `history` is just the dialogue.
-    func chat(system: String, history: [ChatTurn], temperature: Double? = nil) async throws -> String {
+    ///
+    /// `cachePrompt` must be false when the caller's `system` ends in content
+    /// that changes per question. The breakpoint sits at the end of the system
+    /// message, so a varying tail means the prefix is never the same twice: the
+    /// cache is written on every call and read on none, and a write costs 1.25×
+    /// what the tokens would have cost uncached. Only a caller whose `system` is
+    /// stable across turns — a meeting's transcript and recap — profits from it.
+    func chat(
+        system: String,
+        history: [ChatTurn],
+        temperature: Double? = nil,
+        cachePrompt: Bool = true
+    ) async throws -> String {
         Log.llm.info("→ multi-turn chat via proxy model=\(chatModel) system.len=\(system.count) turns=\(history.count)")
         var messages: [ChatRequest.Message] = [.init(role: "system", content: system)]
         messages += history.map { .init(role: $0.role.rawValue, content: $0.content) }
-        return try await send(messages: messages, jsonMode: false, temperature: temperature, primaryModel: chatModel, cachePrompt: true)
+        return try await send(
+            messages: messages,
+            jsonMode: false,
+            temperature: temperature,
+            primaryModel: chatModel,
+            cachePrompt: cachePrompt
+        )
     }
 
     /// Shared transport for every chat call. Applies the same provider
@@ -226,7 +280,7 @@ final class LLMProxyClient: ObservableObject {
             messages: messages,
             provider: providerPreference(for: primary),
             response_format: jsonMode ? ResponseFormat(type: "json_object") : nil,
-            temperature: temperature,
+            temperature: Self.acceptsTemperature(primary) ? temperature : nil,
             stream: nil,
             cache_prompt: cachePrompt ? true : nil
         )
@@ -257,8 +311,13 @@ final class LLMProxyClient: ObservableObject {
     /// extract the JSON value before decoding so a well-shaped payload survives
     /// a sloppy model. A genuinely malformed response surfaces as
     /// `.decodingFailed`.
-    func completeJSON<T: Decodable>(system: String, user: String, as type: T.Type) async throws -> T {
-        let raw = try await complete(system: system, user: user, jsonMode: true)
+    func completeJSON<T: Decodable>(
+        system: String,
+        user: String,
+        as type: T.Type,
+        primaryModel: String? = nil
+    ) async throws -> T {
+        let raw = try await complete(system: system, user: user, jsonMode: true, primaryModel: primaryModel)
         let cleaned = Self.extractJSON(raw)
         guard let data = cleaned.data(using: .utf8) else {
             throw ClientError.decodingFailed("non-utf8 LLM response")
@@ -300,7 +359,12 @@ final class LLMProxyClient: ObservableObject {
     /// Runs on `chatModel` with the same fallback chain and prompt caching as
     /// `chat`, so switching a caller to the stream doesn't change which model
     /// answers or what the grounding costs.
-    func streamChat(system: String, history: [ChatTurn], temperature: Double? = nil) -> AsyncThrowingStream<String, Error> {
+    func streamChat(
+        system: String,
+        history: [ChatTurn],
+        temperature: Double? = nil,
+        cachePrompt: Bool = true
+    ) -> AsyncThrowingStream<String, Error> {
         Log.llm.info("→ streaming chat via proxy model=\(chatModel) system.len=\(system.count) turns=\(history.count)")
         var messages: [ChatRequest.Message] = [.init(role: "system", content: system)]
         messages += history.map { .init(role: $0.role.rawValue, content: $0.content) }
@@ -309,7 +373,7 @@ final class LLMProxyClient: ObservableObject {
             jsonMode: false,
             temperature: temperature,
             primaryModel: chatModel,
-            cachePrompt: true
+            cachePrompt: cachePrompt
         )
     }
 
@@ -337,7 +401,7 @@ final class LLMProxyClient: ObservableObject {
                         messages: messages,
                         provider: providerPreference(for: primary),
                         response_format: jsonMode ? ResponseFormat(type: "json_object") : nil,
-                        temperature: temperature,
+                        temperature: Self.acceptsTemperature(primary) ? temperature : nil,
                         stream: true,
                         cache_prompt: cachePrompt ? true : nil
                     )
@@ -550,10 +614,14 @@ final class LLMProxyClient: ObservableObject {
         query: String,
         language: AppLanguage = .english,
         personalContext: String = ""
-    ) async -> (standalone: String, hyde: String?) {
+    ) async -> (standalone: String, hyde: String?, aboutScreen: Bool) {
         struct HyDEResult: Decodable {
             let standalone_query: String
             let hypothetical_answer: String
+            /// Absent on older responses and on a model that ignores the field;
+            /// false then, which is the safe default — no screen context rather
+            /// than screen context on a question that didn't ask for it.
+            let about_screen: Bool?
         }
         let (system, user) = PromptLibrary.buildHyDE(
             history: history,
@@ -562,13 +630,22 @@ final class LLMProxyClient: ObservableObject {
             personalContext: personalContext
         )
         do {
-            let result = try await completeJSON(system: system, user: user, as: HyDEResult.self)
+            let result = try await completeJSON(
+                system: system,
+                user: user,
+                as: HyDEResult.self,
+                primaryModel: utilityModel
+            )
             let standalone = result.standalone_query.trimmingCharacters(in: .whitespacesAndNewlines)
             let hyde = result.hypothetical_answer.trimmingCharacters(in: .whitespacesAndNewlines)
-            return (standalone.isEmpty ? query : standalone, hyde.isEmpty ? nil : hyde)
+            return (
+                standalone.isEmpty ? query : standalone,
+                hyde.isEmpty ? nil : hyde,
+                result.about_screen ?? false
+            )
         } catch {
             Log.llm.error("query prep failed (using raw query): \(error.localizedDescription)")
-            return (query, nil)
+            return (query, nil, false)
         }
     }
 

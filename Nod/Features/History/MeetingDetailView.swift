@@ -11,6 +11,7 @@ struct MeetingDetailView: View {
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var actionItemStore: ActionItemStore
+    @EnvironmentObject private var summaryRegeneration: SummaryRegeneration
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var editableTitle: String = ""
@@ -94,7 +95,7 @@ struct MeetingDetailView: View {
     /// returns. Falls back to the captured `meeting` value when the store
     /// hasn't loaded yet (deep-link or refresh race).
     private var current: Meeting {
-        meetingStore.meetings.first(where: { $0.id == meeting.id }) ?? meeting
+        meetingStore.byID[meeting.id] ?? meeting
     }
 
     /// True while ContentView's post-meeting Task is still waiting on the
@@ -107,6 +108,14 @@ struct MeetingDetailView: View {
     /// first persistence pass.
     private var isFinalizing: Bool {
         meetingStore.finalizingMeetingIDs.contains(meeting.id)
+    }
+
+    /// True while this line's speaker is still being decided. Scoped to the
+    /// remote side: the user's own mic is a single known voice and is never
+    /// clustered, so its chip is final the moment the line exists.
+    private func isResolvingSpeakers(_ record: TranscriptRecord) -> Bool {
+        TranscriptSource(rawValue: record.source) == .them
+            && meetingStore.resolvingSpeakerIDs.contains(meeting.id)
     }
 
     /// Finished generating but still waiting on the server (durable outbox).
@@ -186,15 +195,17 @@ struct MeetingDetailView: View {
         }
     }
 
+    /// The session is presented as a sheet over the screen it was opened from,
+    /// so this closes rather than navigates back.
     private var backButton: some View {
         Button(action: onClose) {
-            Image(systemName: "chevron.backward")
-                .font(.system(size: 13, weight: .semibold))
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.Palette.muted)
                 .iconButtonChrome()
         }
         .buttonStyle(.plain)
-        .help("Back to library")
+        .help("Close (esc)")
         .linkCursor()
     }
 
@@ -583,6 +594,14 @@ struct MeetingDetailView: View {
             } else {
                 generatingSummaryPlaceholder
             }
+        } else if case let .running(partial) = summaryRegeneration.state(for: meeting.id) {
+            if let partial {
+                streamingSummaryView(partial)
+            } else {
+                generatingSummaryPlaceholder
+            }
+        } else if !isEditingSummary, current.lacksRecap {
+            missingSummaryState
         } else if isEditingSummary {
             TextEditor(text: $editableSummary)
                 .font(.system(size: 14, weight: .regular))
@@ -623,6 +642,35 @@ struct MeetingDetailView: View {
                 "Capturing decisions & action items…",
                 "Almost there…"
             ])
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Shown when the meeting kept its transcript but never got a recap — the
+    /// recap is the only thing missing, so the offer is to rebuild it.
+    private var missingSummaryState: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(current.summary)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(Theme.Palette.ink.opacity(0.92))
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: regenerateSummary) {
+                subToolbarLabel(systemImage: "arrow.clockwise", text: "Generate summary")
+            }
+            .buttonStyle(.plain)
+            // A meeting still queued in the outbox would have the regenerated
+            // recap overwritten by the next drain — the WAL copy still holds the
+            // note, and it wins over the cache until the push lands.
+            .disabled(isFinalizing || isUnsynced)
+            .opacity(isFinalizing || isUnsynced ? 0.4 : 1)
+            .help(isUnsynced ? "Available once the meeting finishes syncing" : "Rebuild the summary from the saved transcript")
+            .linkCursor()
+            if case let .failed(message) = summaryRegeneration.state(for: meeting.id) {
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -684,7 +732,7 @@ struct MeetingDetailView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
             } else {
-                VStack(alignment: .leading, spacing: 14) {
+                LazyVStack(alignment: .leading, spacing: 14) {
                     ForEach(records) { record in
                         transcriptRow(record)
                     }
@@ -715,16 +763,11 @@ struct MeetingDetailView: View {
     private func transcriptRow(_ record: TranscriptRecord) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(record.displayLabel().uppercased())
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .tracking(0.4)
-                    .foregroundStyle(Theme.Palette.ink.opacity(0.85))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(speakerBackground(record))
-                    )
+                SpeakerChip(
+                    label: record.displayLabel(names: current.speakerNames),
+                    tint: speakerBackground(record),
+                    isResolving: isResolvingSpeakers(record)
+                )
                 Text(Self.timeFormatter.string(from: record.ts))
                     .font(.system(size: 10.5))
                     .foregroundStyle(Theme.Palette.muted)
@@ -763,6 +806,14 @@ struct MeetingDetailView: View {
         } catch {
             Log.ui.error("MeetingDetailView fetchTranscript failed: \(error.localizedDescription)")
             transcriptLoad = .failed(error.localizedDescription)
+        }
+    }
+
+    private func regenerateSummary() {
+        Task {
+            guard let updated = await summaryRegeneration.run(for: current) else { return }
+            editableSummary = updated.summary
+            editableTitle = updated.title ?? ""
         }
     }
 
@@ -843,7 +894,11 @@ struct MeetingDetailView: View {
     private func performSave() async {
         guard !isFinalizing else { return }
         let titleTrimmed = editableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let updated = meeting.updating(
+        // From `current`, not the captured `meeting`: the latter is a snapshot
+        // from when the view opened, so saving an edit after a generation (or a
+        // manual regeneration) would write its stale nil recap back over the
+        // structured state in the cache.
+        let updated = current.updating(
             title: titleTrimmed.isEmpty ? nil : titleTrimmed,
             summary: editableSummary
         )
@@ -909,7 +964,7 @@ struct MeetingDetailView: View {
         guard case let .loaded(records) = transcriptLoad, !records.isEmpty else { return }
         let payload = records
             .map { record in
-                "[\(Self.timeFormatter.string(from: record.ts))] \(record.displayLabel()): \(record.text)"
+                "[\(Self.timeFormatter.string(from: record.ts))] \(record.displayLabel(names: current.speakerNames)): \(record.text)"
             }
             .joined(separator: "\n")
         copyAndFlash(payload)
@@ -1024,19 +1079,4 @@ func renderRecapMarkdown(_ source: String) -> AttributedString {
     )
     return (try? AttributedString(markdown: source, options: options))
         ?? AttributedString(source)
-}
-
-private extension View {
-    /// 30×30 surface tile with a hairline border — the detail header's icon-button chrome.
-    func iconButtonChrome() -> some View {
-        frame(width: 30, height: 30)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Theme.Palette.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Theme.Palette.border, lineWidth: 0.5)
-                    )
-            )
-    }
 }

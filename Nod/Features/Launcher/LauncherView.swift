@@ -203,7 +203,7 @@ struct LauncherView: View {
         Divider().overlay(Theme.Palette.border)
         if !canAskAcross {
             upsell
-        } else if chat.isSending, !chat.isStreaming {
+        } else if chat.isSending, launcherAnswerHasContent == false {
             // The chat's own indicator, not a bare spinner: it names the stage
             // it's on (searching → reading N sessions → writing), which is the
             // difference between "it's working" and "it's stuck".
@@ -223,7 +223,8 @@ struct LauncherView: View {
             hint("Asking across your sessions…")
         }
         // A stale answer must never read as the reply to what was just typed —
-        // that's what the `isStreaming` gate above is for.
+        // that's what the `isSending` gate above is for: the indicator holds the
+        // floor until the answer is complete, then the whole answer replaces it.
     }
 
     /// The answer to what was asked *here* — anything older belongs to the
@@ -232,14 +233,29 @@ struct LauncherView: View {
         model.answer
     }
 
+    /// Whether the answer has a finished paragraph to show yet. Until it does,
+    /// the indicator holds the panel; after that the paragraphs do, and the
+    /// indicator moves below them.
+    private var launcherAnswerHasContent: Bool {
+        guard let answer = launcherAnswer else { return false }
+        return chat.isStreaming ? AnswerBlocks.hasComplete(in: answer.content) : !answer.content.isEmpty
+    }
+
     private func answerPane(_ answer: KnowledgeChatStore.Message) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 // The chat's own bubble, minus its chrome: same markdown
                 // rendering (cached, not re-parsed per body pass) and the same
                 // copy affordance the Library answer has.
-                AssistantTextBubble(content: answer.content, showsBubble: false)
-                if !answer.evidence.isEmpty {
+                AssistantTextBubble(
+                    content: answer.content,
+                    showsBubble: false,
+                    isStreaming: chat.isStreaming
+                )
+                if chat.isStreaming {
+                    ThinkingIndicator(phase: chat.thinkingPhase)
+                }
+                if !answer.evidence.isEmpty, !chat.isStreaming {
                     evidence(answer.evidence, in: answer.id)
                 }
             }

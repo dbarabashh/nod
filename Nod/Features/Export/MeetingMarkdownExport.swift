@@ -41,7 +41,7 @@ enum MeetingMarkdownExport {
         if !transcript.isEmpty {
             out += "\n## Transcript\n\n"
             out += transcript
-                .map { line(for: $0, meetingStart: meeting.startedAt) }
+                .map { line(for: $0, meetingStart: meeting.startedAt, names: meeting.speakerNames) }
                 .joined(separator: "\n")
             out += "\n"
         }
@@ -87,9 +87,9 @@ enum MeetingMarkdownExport {
 
     // MARK: - Body helpers
 
-    private static func line(for record: TranscriptRecord, meetingStart: Date) -> String {
+    private static func line(for record: TranscriptRecord, meetingStart: Date, names: [String: String]?) -> String {
         let stamp = offsetLabel(from: meetingStart, to: record.ts)
-        return "[\(stamp)] **\(record.displayLabel())**: \(record.text)"
+        return "[\(stamp)] **\(record.displayLabel(names: names))**: \(record.text)"
     }
 
     /// One action item as a Markdown task list line. The deadline is resolved

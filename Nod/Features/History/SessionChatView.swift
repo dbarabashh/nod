@@ -106,7 +106,7 @@ struct SessionChatView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Ask anything about this \(kindNoun)")
+            Text("Ask about this \(kindNoun)")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
             VStack(alignment: .leading, spacing: 5) {
@@ -272,9 +272,7 @@ struct SessionChatView: View {
     private func loadTranscript() async {
         do {
             let records = try await meetingStore.fetchTranscript(meetingID: meeting.id)
-            transcriptText = records.map { record in
-                "[\(record.displayLabel())] \(record.text)"
-            }.joined(separator: "\n")
+            transcriptText = records.promptContext(names: meeting.speakerNames)
         } catch {
             Log.ui.error("SessionChatView transcript load failed: \(error.localizedDescription)")
             // Empty (not nil) so chat still works off the recap alone.

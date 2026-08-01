@@ -13,9 +13,12 @@ import Supabase
 final class OnboardingTelemetry: ObservableObject {
     enum Event: String {
         case stepShown = "step_shown"
+        case profileCompleted = "profile_completed"
+        case profileSkipped = "profile_skipped"
         case permissionRequested = "permission_requested"
         case permissionGranted = "permission_granted"
         case permissionDenied = "permission_denied"
+        case permissionPendingRelaunch = "permission_pending_relaunch"
         case permissionsSkipped = "permissions_skipped"
         case relaunchPrompted = "relaunch_prompted"
         case relaunchClicked = "relaunch_clicked"
@@ -47,12 +50,30 @@ final class OnboardingTelemetry: ObservableObject {
         log(.stepShown, step: step)
     }
 
+    /// `detail` carries the role, so the funnel answers "who signs up" and
+    /// "who finishes" in one query. Nil when they answered without picking one.
+    func profileCompleted(role: WorkRole?) {
+        log(.profileCompleted, step: .profile, detail: role?.rawValue)
+    }
+
+    func profileSkipped() {
+        log(.profileSkipped, step: .profile)
+    }
+
     func permissionRequested(_ permission: Permission) {
         log(.permissionRequested, step: .permissions, detail: permission.rawValue)
     }
 
     func permissionResolved(_ permission: Permission, granted: Bool) {
         log(granted ? .permissionGranted : .permissionDenied, step: .permissions, detail: permission.rawValue)
+    }
+
+    /// Screen Recording only: the answer can't be read back before a restart,
+    /// so this replaces the `permission_denied` we used to log on faith. Every
+    /// such row was a guess, and the funnel read 0 grants while users were
+    /// recording system audio fine.
+    func screenRecordingPendingRelaunch() {
+        log(.permissionPendingRelaunch, step: .permissions, detail: Permission.screenRecording.rawValue)
     }
 
     func permissionsSkipped() {

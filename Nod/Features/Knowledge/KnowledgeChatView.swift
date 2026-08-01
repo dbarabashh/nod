@@ -9,8 +9,13 @@ struct KnowledgeChatView: View {
     /// Navigate the host (the Meetings window's left column) to a session —
     /// used when a mention or source is clicked.
     let onOpenMeeting: (UUID) -> Void
+    /// Set by the main window: the home state then carries the memory brief
+    /// under its openers, and tapping it opens what needs attention. nil where
+    /// the chat has no attention column beside it.
+    var onOpenAttention: (() -> Void)?
 
     @EnvironmentObject private var meetingStore: MeetingStore
+    @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var entitlements: EntitlementService
     /// The thread itself — shared with any other surface onto the same
@@ -19,6 +24,7 @@ struct KnowledgeChatView: View {
 
     private typealias SessionRef = KnowledgeChatStore.SessionRef
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draft: String = ""
     @FocusState private var inputFocused: Bool
 
@@ -108,11 +114,15 @@ struct KnowledgeChatView: View {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if chat.messages.isEmpty { emptyState }
                     ForEach(chat.messages) { message in
-                        bubble(message).id(message.id)
+                        bubble(message)
+                            .id(message.id)
+                            .transition(.answerArrival(reduceMotion: reduceMotion))
                     }
-                    // Once tokens are arriving the answer bubble IS the
-                    // progress indicator — two of them reads as a stall.
-                    if chat.isSending, !chat.isStreaming { typingIndicator.id(Self.typingAnchor) }
+                    // Stays below the paragraphs already written, for as long as
+                    // more are coming: it is the only thing on screen that says
+                    // the answer isn't finished, and losing it at the first
+                    // paragraph would read as a truncated reply.
+                    if chat.isSending { typingIndicator.id(Self.typingAnchor) }
                     if let errorText = chat.errorText {
                         Text(errorText)
                             .font(.system(size: 11.5))
@@ -122,6 +132,9 @@ struct KnowledgeChatView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+                // The indicator leaving and the answer arriving are one motion,
+                // so they share a single animation driven by the same value.
+                .animation(.standard(reduceMotion: reduceMotion), value: chat.isSending)
             }
             .onChange(of: chat.messages.count) { _ in scrollToEnd(proxy) }
             .onChange(of: chat.isSending) { _ in scrollToEnd(proxy) }
@@ -132,24 +145,46 @@ struct KnowledgeChatView: View {
         }
     }
 
+    /// The home surface: this is what opening Nod shows, so it greets the user
+    /// and points at their own sessions rather than describing the feature.
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Ask anything across your recordings")
-                .font(.system(size: 14, weight: .semibold))
+        VStack(alignment: .leading, spacing: 6) {
+            Text(ChatHomeSuggestions.greeting(for: profileStore.profile?.displayName))
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
-            VStack(alignment: .leading, spacing: 5) {
-                suggestion("What have I been thinking about lately?")
-                suggestion("What did I say I'd follow up on?")
+            // What the question will actually reach. Without it an empty
+            // composer reads as a chatbot rather than as the user's own memory.
+            Text(ChatHomeSuggestions.scopeHeadline(project: scopeLabel?.name))
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.muted)
+                .padding(.bottom, 14)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(ChatHomeSuggestions.build(meetings: meetingStore.meetings, project: scopeLabel?.name)) { opener in
+                    suggestion(opener)
+                }
+            }
+            if let onOpenAttention {
+                MemoryBriefCard(onOpenAttention: onOpenAttention)
+                    .padding(.top, 18)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 24)
+        .padding(.vertical, 28)
     }
 
-    private func suggestion(_ text: String) -> some View {
-        ChatSuggestionChip(text: text) {
-            draft = text
-            inputFocused = true
+    /// Tapping an opener asks it, rather than typing it into the composer for
+    /// the user to press send on. The chip already *is* the question — a
+    /// pre-filled field asks them to confirm a choice they just made.
+    ///
+    /// The composer is filled too, and then cleared by `send()`, so the question
+    /// travels the same path a typed one does and lands in the transcript the
+    /// same way.
+    private func suggestion(_ opener: ChatHomeSuggestions.Opener) -> some View {
+        ChatSuggestionChip(text: opener.label) {
+            guard !chat.isSending else { return }
+            draft = opener.question
+            send()
         }
     }
 
@@ -160,111 +195,78 @@ struct KnowledgeChatView: View {
                 .padding(.leading, 40)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                AssistantTextBubble(content: message.content)
-                    .padding(.trailing, 40)
-                if !message.evidence.isEmpty {
-                    // The passages an answer stands on, not just which sessions
-                    // it touched. They're persisted with the message, so a
-                    // reopened thread shows the same evidence it was read with.
-                    evidenceRows(message.evidence, in: message.id)
-                } else if !message.sources.isEmpty {
+                AssistantTextBubble(
+                    content: message.content,
+                    isStreaming: chat.isStreaming && message.id == chat.messages.last?.id
+                )
+                .padding(.trailing, 40)
+                // Sessions and apps are both just "where this came from", so
+                // they read as one row of chips rather than two lists in two
+                // shapes. A session opens; an app is a label — the chip says
+                // which by whether it responds to the pointer.
+                if !message.sources.isEmpty {
                     sourcesRow(message.sources, in: message.id)
                 }
             }
         }
     }
 
-    /// One row per session, with the passage the answer used — the same shape
-    /// the launcher shows, so an answer reads the same wherever it's opened.
-    private func evidenceRows(
-        _ items: [KnowledgeChatStore.Excerpt],
-        in answerID: KnowledgeChatStore.Message.ID
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("FROM YOUR SESSIONS")
-                .font(.system(size: 9, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(Theme.Palette.muted)
-            ForEach(Array(items.prefix(3).enumerated()), id: \.element.id) { rank, item in
-                Button {
-                    chat.noteOpenedSource(meetingID: item.meetingID, rank: rank, in: answerID)
-                    onOpenMeeting(item.meetingID)
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text(item.title)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Theme.Palette.ink.opacity(0.85))
-                                .lineLimit(1)
-                            Text(item.date)
-                                .font(.system(size: 10))
-                                .foregroundStyle(Theme.Palette.muted)
-                            Spacer(minLength: 0)
-                        }
-                        Text(item.text)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.Palette.graphite)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 7)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                            .fill(Theme.Palette.surface)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                                    .stroke(Theme.Palette.border, lineWidth: 0.5)
-                            )
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Open this session")
-            }
-        }
-        .padding(.leading, 2)
-        .padding(.trailing, 40)
-    }
-
+    /// Everything the answer drew on, in one row: sessions first — they're the
+    /// spine of the answer and they open — then the apps it read off the screen.
     private func sourcesRow(_ sources: [SessionRef], in answerID: KnowledgeChatStore.Message.ID) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let ordered = sources.filter { !$0.isApp } + sources.filter(\.isApp)
+        return VStack(alignment: .leading, spacing: 4) {
             Text("SOURCES")
                 .font(.system(size: 9, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(Theme.Palette.muted)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(Array(sources.enumerated()), id: \.element.id) { rank, source in
-                        Button {
-                            chat.noteOpenedSource(meetingID: source.id, rank: rank, in: answerID)
-                            onOpenMeeting(source.id)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "doc.text")
-                                    .font(.system(size: 8.5, weight: .semibold))
-                                Text(source.title)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .lineLimit(1)
+                    ForEach(Array(ordered.enumerated()), id: \.element.id) { rank, source in
+                        if source.isApp {
+                            sourceChip(source)
+                        } else {
+                            Button {
+                                chat.noteOpenedSource(meetingID: source.id, rank: rank, in: answerID)
+                                onOpenMeeting(source.id)
+                            } label: {
+                                sourceChip(source)
                             }
-                            .foregroundStyle(Theme.Palette.ink.opacity(0.75))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(Theme.Palette.surface)
-                                    .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
-                            )
+                            .buttonStyle(.plain)
+                            .help("Open this session")
                         }
-                        .buttonStyle(.plain)
-                        .help("Open this session")
                     }
                 }
             }
         }
         .padding(.leading, 2)
+    }
+
+    /// One chip. The icon carries the kind: an app's own icon for something read
+    /// off the screen, a document glyph for a recorded session.
+    private func sourceChip(_ source: SessionRef) -> some View {
+        HStack(spacing: 5) {
+            if let bundleID = source.bundleID,
+               let icon = AppDirectory.icon(for: AppDirectory.identity(forBundleID: bundleID)) {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 12, height: 12)
+            } else {
+                Image(systemName: source.isApp ? "macwindow" : "doc.text")
+                    .font(.system(size: 8.5, weight: .semibold))
+            }
+            Text(source.title)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(Theme.Palette.ink.opacity(0.75))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Theme.Palette.surface)
+                .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
+        )
     }
 
     /// User message with its @mentions rendered as underlined, tappable links
@@ -336,8 +338,8 @@ struct KnowledgeChatView: View {
     }
 
     private var composerPrompt: String {
-        if let scopeLabel { return "Ask within \(scopeLabel.name)" }
-        return "Ask across your sessions  (@ to mention a session)"
+        if let scopeLabel { return "Ask about \(scopeLabel.name)" }
+        return "Ask across all memory  (@ to mention a session)"
     }
 
     private var scopeMenu: some View {

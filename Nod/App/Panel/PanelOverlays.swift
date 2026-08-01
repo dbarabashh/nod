@@ -158,7 +158,7 @@ struct SaveErrorToast: View {
 /// the countdown elapses — so a walked-away user doesn't record hours of dead
 /// air. "Keep recording" is the prominent action for a user who's still here.
 struct InactivityPrompt: View {
-    let secondsRemaining: Int
+    let prompt: AutoEndPrompt
     /// Kind-aware "keep going" label (e.g. "Keep listening") — never "recording".
     let keepTitle: String
     let onKeep: () -> Void
@@ -166,15 +166,15 @@ struct InactivityPrompt: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "moon.zzz.fill")
+            Image(systemName: prompt.icon)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.Palette.warning)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Still there?")
+                Text(prompt.title)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
-                Text("No audio for a while — ending in \(Self.clock(secondsRemaining))")
+                Text(prompt.detail)
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(Theme.Palette.muted)
             }
@@ -211,10 +211,5 @@ struct InactivityPrompt: View {
             .clipShape(Capsule(style: .continuous))
         )
         .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
-    }
-
-    private static func clock(_ seconds: Int) -> String {
-        let s = max(0, seconds)
-        return String(format: "%d:%02d", s / 60, s % 60)
     }
 }

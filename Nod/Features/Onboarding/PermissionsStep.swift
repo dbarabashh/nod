@@ -122,8 +122,12 @@ struct PermissionsStep: View {
         permissions.microphone == .authorized && permissions.screenRecording == .authorized
     }
 
+    /// Shown as soon as we've asked — not only once the grant is visible. A TCC
+    /// entry added while this process runs stays invisible to it, so "did that
+    /// work?" is a question only a fresh process can answer. Gating the card on
+    /// `.authorized` meant it never appeared for anyone.
     private var needsRelaunch: Bool {
-        permissions.requestedScreenRecordingThisSession && permissions.screenRecording == .authorized
+        permissions.requestedScreenRecordingThisSession
     }
 
     private var continueTint: AnyShapeStyle {
@@ -153,8 +157,12 @@ struct PermissionsStep: View {
         Task {
             pendingScreen = true
             telemetry.permissionRequested(.screenRecording)
-            let granted = await permissions.requestScreenRecording()
-            telemetry.permissionResolved(.screenRecording, granted: granted)
+            switch await permissions.requestScreenRecording() {
+            case .authorized:
+                telemetry.permissionResolved(.screenRecording, granted: true)
+            case .pendingRelaunch:
+                telemetry.screenRecordingPendingRelaunch()
+            }
             pendingScreen = false
         }
     }

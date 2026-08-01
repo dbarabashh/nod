@@ -8,8 +8,20 @@ final class FloatingPanel<Content: View>: NSPanel {
     // lag behind the moving panel. Dragging is the user's intent to reposition,
     // so the open menu is dismissed the instant the panel starts moving.
     private weak var trackingMenu: NSMenu?
+    /// Set by `positionOnTopRight`. While it holds, every resize re-anchors to
+    /// that corner instead of growing downward from a stale origin.
+    private var topRightMargin: CGFloat?
+    /// Whether the hosting controller drives this window's size. Only such a
+    /// window resizes behind the caller's back, and only it needs the repaint
+    /// in `setFrame`.
+    private let sizesToContent: Bool
 
-    init(contentRect: NSRect, content: Content) {
+    /// `sizesToContent` hands the height to SwiftUI. The capture panel does the
+    /// opposite — it drives its own width through `animateWidth`, and a hosting
+    /// controller pushing sizes back would fight that — but a card whose height
+    /// depends on how its text wraps has no size the caller can know in advance.
+    init(contentRect: NSRect, content: Content, sizesToContent: Bool = false) {
+        self.sizesToContent = sizesToContent
         super.init(
             contentRect: contentRect,
             styleMask: [.nonactivatingPanel, .borderless, .fullSizeContentView],
@@ -18,6 +30,11 @@ final class FloatingPanel<Content: View>: NSPanel {
         )
 
         isFloatingPanel = true
+        // ARC owns this window through the coordinator's reference, and AppKit's
+        // default would release it again on `close()`. Harmless for the capture
+        // panel, which is closed once at sign-out; not harmless for the
+        // detection card, which is closed and rebuilt for every call.
+        isReleasedWhenClosed = false
         level = .floating
         backgroundColor = .clear
         isOpaque = false
@@ -27,7 +44,10 @@ final class FloatingPanel<Content: View>: NSPanel {
         // over light backgrounds. Depth comes from the pills' own SwiftUI
         // shadows instead.
         hasShadow = false
-        isMovableByWindowBackground = true
+        // A card that re-anchors on every resize would snap back mid-drag, so
+        // the two behaviours are mutually exclusive: the panel you keep is
+        // draggable, the card that appears for a minute is not.
+        isMovableByWindowBackground = !sizesToContent
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = true
         // Deliver mouse-moved / cursor-update events even while the panel isn't
@@ -61,11 +81,31 @@ final class FloatingPanel<Content: View>: NSPanel {
         // controller doesn't try to push the content's own preferred size back
         // onto the window — with flexible-width content that size is undefined
         // and would fight the resize animation.
-        hostingController.sizingOptions = []
-        hostingController.view.frame = NSRect(origin: .zero, size: contentRect.size)
+        // Sized by the content, or by the caller — never half of each.
+        var initialSize = contentRect.size
+        if sizesToContent {
+            if #available(macOS 13.3, *) {
+                hostingController.sizingOptions = [.preferredContentSize]
+            } else {
+                // `sizingOptions` is 13.3+ and the deployment target is 13.0, so
+                // on 13.0–13.2 the window kept `contentRect`'s placeholder height
+                // and a card whose text wrapped clipped its own buttons — with
+                // dragging off (`isMovableByWindowBackground` follows
+                // `sizesToContent`), leaving no way to reach them. Measured once
+                // instead of tracked: the same number `.preferredContentSize`
+                // would push, and these cards don't reflow after they appear.
+                hostingController.sizingOptions = []
+                hostingController.view.layoutSubtreeIfNeeded()
+                let fitting = hostingController.view.fittingSize
+                if fitting.width > 0, fitting.height > 0 { initialSize = fitting }
+            }
+        } else {
+            hostingController.sizingOptions = []
+        }
+        hostingController.view.frame = NSRect(origin: .zero, size: initialSize)
         hostingController.view.autoresizingMask = [.width, .height]
         contentViewController = hostingController
-        setContentSize(contentRect.size)
+        setContentSize(initialSize)
 
         let center = NotificationCenter.default
         center.addObserver(
@@ -104,6 +144,44 @@ final class FloatingPanel<Content: View>: NSPanel {
 
     override var canBecomeMain: Bool {
         false
+    }
+
+    /// Top-right, where macOS itself puts things that ask for a moment of
+    /// attention — and the opposite corner from the capture panel, so a
+    /// detection card never lands on top of it.
+    func positionOnTopRight(margin: CGFloat = 12) {
+        topRightMargin = margin
+        guard let visible = (screen ?? NSScreen.main)?.visibleFrame else { return }
+        setFrameOrigin(Self.topRightOrigin(for: frame.size, in: visible, margin: margin))
+    }
+
+    /// The content decides the height, and SwiftUI applies it through
+    /// `setFrame` from the existing origin — which grows the card downward off
+    /// its corner. Rewriting the origin here keeps it anchored within the same
+    /// layout pass, with no second pass and no visible jump.
+    ///
+    /// Every size change also forces a repaint. The card is created at a
+    /// placeholder height and resized once the content lays out — and this
+    /// window is transparent, `buffered`, and draws its own drop shadow rather
+    /// than the window server's (`hasShadow = false`). The area the content no
+    /// longer covers keeps the pixels it had, which puts a hard-edged copy of
+    /// that shadow beside the button it came from. Not gated on the anchoring
+    /// branch below: the first resize arrives before `positionOnTopRight`, and
+    /// that is precisely the one that leaves the ghost.
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        let resized = sizesToContent && frameRect.size != frame.size
+        defer { if resized { forceRedraw() } }
+        guard let topRightMargin, let visible = (screen ?? NSScreen.main)?.visibleFrame else {
+            super.setFrame(frameRect, display: flag)
+            return
+        }
+        var rect = frameRect
+        rect.origin = Self.topRightOrigin(for: rect.size, in: visible, margin: topRightMargin)
+        super.setFrame(rect, display: flag)
+    }
+
+    private static func topRightOrigin(for size: NSSize, in visible: NSRect, margin: CGFloat) -> NSPoint {
+        NSPoint(x: visible.maxX - size.width - margin, y: visible.maxY - size.height - margin)
     }
 
     func positionOnLeftCenter(margin: CGFloat = 24) {

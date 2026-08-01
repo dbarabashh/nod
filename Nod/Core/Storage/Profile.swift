@@ -12,26 +12,47 @@ struct Profile: Codable, Equatable {
     /// role/focus fields, which were work-specific and wrong for the many
     /// non-work sessions (therapy, side projects) a global profile also feeds.
     var preferences: String
+    /// What the user does. Drives the starting meeting mode and segments the
+    /// funnel — and stays out of `promptBlock` on purpose, since that is
+    /// exactly the role-shaped prompt line removed above.
+    var role: WorkRole?
+    /// Where they first heard about Nod. Attribution only; nothing reads it at
+    /// runtime.
+    var heardFrom: AcquisitionSource?
 
     enum CodingKeys: String, CodingKey {
         case userID = "user_id"
         case displayName = "display_name"
         case preferences
+        case role
+        case heardFrom = "heard_from"
     }
 
-    init(userID: UUID, displayName: String = "", preferences: String = "") {
+    init(
+        userID: UUID,
+        displayName: String = "",
+        preferences: String = "",
+        role: WorkRole? = nil,
+        heardFrom: AcquisitionSource? = nil
+    ) {
         self.userID = userID
         self.displayName = displayName
         self.preferences = preferences
+        self.role = role
+        self.heardFrom = heardFrom
     }
 
     /// Nullable text columns decode as absent or JSON `null`; coalesce both
-    /// to "" so the rest of the app never juggles optionals.
+    /// to "" so the rest of the app never juggles optionals. A role or channel
+    /// this build doesn't know (row written by a newer client) reads as nil
+    /// rather than failing the whole profile.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         userID = try c.decode(UUID.self, forKey: .userID)
         displayName = try (c.decodeIfPresent(String.self, forKey: .displayName)) ?? ""
         preferences = try (c.decodeIfPresent(String.self, forKey: .preferences)) ?? ""
+        role = try c.decodeIfPresent(String.self, forKey: .role).flatMap(WorkRole.init(rawValue:))
+        heardFrom = try c.decodeIfPresent(String.self, forKey: .heardFrom).flatMap(AcquisitionSource.init(rawValue:))
     }
 
     var isEmpty: Bool {
@@ -51,6 +72,64 @@ struct Profile: Codable, Equatable {
             "Use this to interpret who [Me] is and to shape what you emphasise. It is NOT part of the transcript — do not attribute it as something that was said."
         )
         return lines.joined(separator: "\n")
+    }
+}
+
+/// What the user does, asked once during onboarding. Kept short on purpose —
+/// a list long enough to be exhaustive is a list nobody reads to the end of.
+enum WorkRole: String, Codable, CaseIterable, Identifiable {
+    case founder
+    case recruiter
+    case sales
+    case manager
+    case engineer
+    case consultant
+    case other
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .founder: "Founder"
+        case .recruiter: "Recruiter / HR"
+        case .sales: "Sales"
+        case .manager: "Manager"
+        case .engineer: "Engineer"
+        case .consultant: "Consultant"
+        case .other: "Something else"
+        }
+    }
+}
+
+/// Where the user first heard about Nod. We have no attribution at all today,
+/// so every answer is signal we currently don't have.
+enum AcquisitionSource: String, Codable, CaseIterable, Identifiable {
+    case friend
+    case search
+    case twitter
+    case linkedin
+    case youtube
+    case reddit
+    case productHunt = "product_hunt"
+    case other
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .friend: "Friend or colleague"
+        case .search: "Search engine"
+        case .twitter: "X (Twitter)"
+        case .linkedin: "LinkedIn"
+        case .youtube: "YouTube"
+        case .reddit: "Reddit"
+        case .productHunt: "Product Hunt"
+        case .other: "Somewhere else"
+        }
     }
 }
 
