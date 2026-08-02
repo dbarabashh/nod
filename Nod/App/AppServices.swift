@@ -121,12 +121,24 @@ struct AppServices {
         let knowledgeStore = KnowledgeStore(llm: llmClient)
         let screenExclusions = ScreenExclusions()
         let screenContext = ScreenContextService(supabase: supabase, exclusions: screenExclusions)
+        let entitlements = EntitlementService(supabase: supabase)
+        // Ambient capture has to *act* on the entitlement, not just render it, so
+        // it's mirrored here once instead of at each of the four `refresh()`
+        // call sites. `mayUse` (not `can`) on purpose: a transient lookup failure
+        // must not stop a paying subscriber's capture, and the
+        // `screen_observations` RLS policy is the gate that actually holds.
+        entitlements.onChange = { [weak screenContext] entitlement in
+            guard let screenContext else { return }
+            // nil is sign-out, so capture stops. A *failed* refresh never fires
+            // this, which is where the fail-open lives: the last known answer
+            // stands rather than a hiccup revoking a subscriber's feature.
+            screenContext.setEntitled(entitlement?.isActive == true && entitlement?.can(.ambientContext) == true)
+        }
         let labelStore = LabelStore(supabase: supabase, auth: auth)
         let entityStore = EntityStore(supabase: supabase)
         let actionItemStore = ActionItemStore(supabase: supabase)
         let knowledgeThreads = KnowledgeThreadStore(supabase: supabase)
         let retrievalFeedback = RetrievalFeedbackStore(supabase: supabase)
-        let entitlements = EntitlementService(supabase: supabase)
         let modeStore = ModeStore()
 
         return AppServices(

@@ -58,13 +58,25 @@ struct AmbientContextSidebarRow: View {
 
     @ViewBuilder
     private var menuItems: some View {
-        // A checkmark item, so the state and the switch are the same control. A
-        // separate "Turn off" at the bottom would be a second command for an
-        // operation this already performs.
-        Toggle("Ambient Context", isOn: enabledBinding)
+        // Off the plan, the switch is the wrong control to offer: it would flip,
+        // persist, and capture nothing, because RLS refuses the writes. So the
+        // menu collapses to the one action that changes the answer, plus the
+        // deletion commands — those keep working, since existing captures stay
+        // readable and erasable.
+        if case .notEntitled = screenContext.activityState {
+            Text("Ambient context is part of Pro")
+            Button("See Plans…") {
+                NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+            }
+        } else {
+            // A checkmark item, so the state and the switch are the same control. A
+            // separate "Turn off" at the bottom would be a second command for an
+            // operation this already performs.
+            Toggle("Ambient Context", isOn: enabledBinding)
 
-        if case .needsAccessibility = screenContext.activityState {
-            Button("Grant Accessibility Access…") { AccessibilityAccess.openSystemSettings() }
+            if case .needsAccessibility = screenContext.activityState {
+                Button("Grant Accessibility Access…") { AccessibilityAccess.openSystemSettings() }
+            }
         }
 
         // Keyed on the state, not on the raw switch: pausing a feature that is
@@ -80,7 +92,7 @@ struct AmbientContextSidebarRow: View {
         case .paused:
             Divider()
             Button("Resume Now") { screenContext.resume() }
-        case .off, .needsAccessibility:
+        case .off, .notEntitled, .needsAccessibility:
             EmptyView()
         }
 
@@ -191,6 +203,9 @@ struct AmbientContextSidebarRow: View {
         switch screenContext.activityState {
         case .on: Theme.Palette.success
         case .off: Theme.Palette.danger
+        // Grey, not red: red answers "is Nod looking at me", and the answer here
+        // is not "no, it stopped" but "this isn't yours to switch on".
+        case .notEntitled: Theme.Palette.muted
         case .paused, .needsAccessibility: Theme.Palette.warning
         }
     }
@@ -198,6 +213,7 @@ struct AmbientContextSidebarRow: View {
     private var help: String {
         switch screenContext.activityState {
         case .off: "Ambient context is off — Nod reads nothing from your screen"
+        case .notEntitled: "Ambient context is part of Pro"
         case .needsAccessibility: "Ambient context needs Accessibility access"
         case .paused: "Ambient context is paused — nothing is being read"
         case .on: "Ambient context is on — Nod reads the window you're working in"

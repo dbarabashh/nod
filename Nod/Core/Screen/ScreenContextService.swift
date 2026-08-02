@@ -114,8 +114,27 @@ final class ScreenContextService: ObservableObject {
         }
     }
 
+    /// Whether the plan grants ambient capture. Pushed in from the composition
+    /// root rather than resolved here, so `Core/Screen` stays unaware of how
+    /// entitlements are fetched.
+    ///
+    /// Starts `true` and so fails OPEN, matching `EntitlementService.mayUse`: a
+    /// subscriber whose entitlement fetch hiccupped must not silently lose
+    /// capture, and the `screen_observations` RLS policy is the real gate
+    /// regardless of what this says.
+    @Published private(set) var isEntitled = true
+
+    /// Re-runs the switch through `refresh()` so losing the feature stops an
+    /// already-running capture loop, not just future ones.
+    func setEntitled(_ entitled: Bool) {
+        guard isEntitled != entitled else { return }
+        isEntitled = entitled
+        Log.screen.info("context: ambient entitlement \(entitled ? "granted" : "revoked")")
+        refresh()
+    }
+
     func start() {
-        guard !isRunning, ScreenContextDefaults.isEnabled else { return }
+        guard !isRunning, isEntitled, ScreenContextDefaults.isEnabled else { return }
         guard AccessibilityAccess.isTrusted else {
             needsAccessibility = true
             watchForTrust()
@@ -178,7 +197,7 @@ final class ScreenContextService: ObservableObject {
         pauseTask?.cancel()
         pauseTask = nil
 
-        guard isAmbientEnabled else { return stop() }
+        guard isEntitled, isAmbientEnabled else { return stop() }
         guard let until = pausedUntil else { return start() }
         stop()
         scheduleResume(at: until)
@@ -258,12 +277,15 @@ final class ScreenContextService: ObservableObject {
     /// The switch is re-read from disk because another surface may have written
     /// it since the tick began.
     private var isCaptureAllowed: Bool {
-        ScreenContextDefaults.isEnabled && !isPaused
+        isEntitled && ScreenContextDefaults.isEnabled && !isPaused
     }
 
     /// The one place the four states are derived, so the sidebar row, the menu
     /// and Settings can't disagree about what "on" means.
+    /// Entitlement outranks the switch: a Starter user who had capture on before
+    /// the feature moved behind the plan should read "Pro only", not "On".
     var activityState: ActivityState {
+        guard isEntitled else { return .notEntitled }
         guard isAmbientEnabled else { return .off }
         if let pausedUntil { return .paused(until: pausedUntil) }
         return needsAccessibility ? .needsAccessibility : .on
@@ -271,6 +293,7 @@ final class ScreenContextService: ObservableObject {
 
     enum ActivityState: Equatable {
         case off
+        case notEntitled
         case needsAccessibility
         case paused(until: Date)
         case on
@@ -282,6 +305,7 @@ final class ScreenContextService: ObservableObject {
         func label(now: Date = Date()) -> String {
             switch self {
             case .off: "Off"
+            case .notEntitled: "Pro only"
             case .needsAccessibility: "Needs access"
             case let .paused(until): "Paused \(Self.remaining(until: until, from: now))"
             case .on: "On"
@@ -535,7 +559,7 @@ extension ScreenContextService {
     /// capture is off or the query failed — distinct from "matched nothing", so
     /// callers don't log an empty result as a miss.
     private func matches(terms: [String], fetching limit: Int) async -> [ScreenObservation]? {
-        guard ScreenContextDefaults.isEnabled, let supabase else { return nil }
+        guard isEntitled, ScreenContextDefaults.isEnabled, let supabase else { return nil }
         do {
             return try await supabase
                 .from("screen_observations")
@@ -569,7 +593,7 @@ extension ScreenContextService {
     /// silently. The index is small enough to cover the whole window, and only
     /// the windows that survive the fold are read in full.
     func activity(in window: DateInterval) async -> ScreenActivityDigest {
-        guard ScreenContextDefaults.isEnabled, let supabase else { return ScreenActivityDigest(apps: []) }
+        guard isEntitled, ScreenContextDefaults.isEnabled, let supabase else { return ScreenActivityDigest(apps: []) }
         do {
             let index = try await observationIndex(in: window, from: supabase)
             guard !index.isEmpty else {

@@ -23,6 +23,10 @@ enum Feature: String, CaseIterable {
     /// First-class action items — the per-meeting checklist + the cross-meeting
     /// Action Items aggregate with dedup. Granted on trial/Pro, not Starter.
     case actionItems = "action_items"
+    /// Ambient screen context — reading the window the user is working in.
+    /// Pro-tier. The gate that matters is the `screen_observations` RLS policy,
+    /// because the client writes that table directly; this key drives the UI.
+    case ambientContext = "ambient_context"
 }
 
 /// The resolved entitlement for the current user, as returned by the
@@ -122,6 +126,19 @@ final class EntitlementService: ObservableObject {
     @Published private(set) var entitlement: Entitlement?
     @Published private(set) var loadFailed = false
 
+    /// Fired whenever the resolved entitlement changes, so a service that must
+    /// *act* on a feature (rather than render it) doesn't have to observe this
+    /// object. Set once in the composition root: a `refresh()` happens from four
+    /// places, and mirroring the result at each of them is three chances to
+    /// forget.
+    ///
+    /// Carries the entitlement rather than nothing, because a consumer that acts
+    /// has to tell two nils apart that `mayUse` deliberately conflates: **nil
+    /// here means signed out** (only `clear()` passes it), while a *failed*
+    /// refresh doesn't fire at all, leaving the last known answer in place. Fail
+    /// open on a hiccup, fail closed on sign-out.
+    var onChange: ((Entitlement?) -> Void)?
+
     private let supabase: SupabaseClient
 
     init(supabase: SupabaseClient) {
@@ -139,6 +156,7 @@ final class EntitlementService: ObservableObject {
             Log.ui.info(
                 "EntitlementService.refresh plan=\(result.plan) status=\(result.status.rawValue) hours=\(result.hoursUsed)/\(result.hoursLimit)"
             )
+            onChange?(result)
         } catch {
             loadFailed = true
             Log.ui.error("EntitlementService.refresh failed: \(error.localizedDescription)")
@@ -167,5 +185,6 @@ final class EntitlementService: ObservableObject {
     func clear() {
         entitlement = nil
         loadFailed = false
+        onChange?(nil)
     }
 }

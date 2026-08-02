@@ -19,6 +19,18 @@ struct ScreenPrivacySection: View {
         screenContext.isAmbientEnabled
     }
 
+    /// Gates the rows that only make sense while capture can actually run — the
+    /// Accessibility prompt in particular, since asking an unentitled account
+    /// for a permission it cannot use is a dead end.
+    ///
+    /// Retention deliberately does NOT use this. The RLS gate leaves SELECT and
+    /// DELETE open so a downgraded user can still manage what Nod already
+    /// stored, and hiding the picker would leave those rows under a ceiling only
+    /// we could change.
+    private var ambientRunnable: Bool {
+        screenContext.isEntitled && screenContext.isAmbientEnabled
+    }
+
     @AppStorage(ScreenContextDefaults.retentionDaysKey) private var retentionDays = ScreenContextDefaults.defaultRetentionDays
     @State private var scope: Scope = .apps
     @State private var installedApps: [InstalledApp] = []
@@ -75,16 +87,25 @@ struct ScreenPrivacySection: View {
                 subtitle: "Let Nod read the window you're working in, so you can ask about what you were doing — "
                     + "not just what was said. Off by default. Excluded apps and sites are never read."
             ) {
-                Toggle("", isOn: Binding(
-                    get: { screenContext.isAmbientEnabled },
-                    set: { screenContext.setAmbientEnabled($0) }
-                ))
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .controlSize(.small)
+                // Off the plan the switch would flip, persist, and capture
+                // nothing — RLS refuses the writes — so it is replaced by the
+                // one control that changes the answer.
+                if screenContext.isEntitled {
+                    Toggle("", isOn: Binding(
+                        get: { screenContext.isAmbientEnabled },
+                        set: { screenContext.setAmbientEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .controlSize(.small)
+                } else {
+                    Button("Upgrade to Pro") {
+                        NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+                    }
+                }
             }
 
-            if ambientEnabled, screenContext.needsAccessibility {
+            if ambientRunnable, screenContext.needsAccessibility {
                 SettingsRowDivider()
                 SettingsRow(
                     icon: "exclamationmark.triangle",

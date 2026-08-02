@@ -141,16 +141,52 @@ final class AmbientContextMenuTests: XCTestCase {
 
     // MARK: - State labels
 
+    /// One name per `ActivityState`, so the invariants below can be driven off
+    /// `allCases` instead of a hand-written list. `kind(of:)` is the enforcement:
+    /// it fails to compile when a state is added, which is what stops a new case
+    /// from silently sitting outside both guarantees — `.notEntitled` was added
+    /// and did exactly that.
+    private enum StateKind: CaseIterable {
+        case off, notEntitled, needsAccessibility, paused, on
+    }
+
+    private static func state(for kind: StateKind, now: Date) -> ScreenContextService.ActivityState {
+        switch kind {
+        case .off: .off
+        case .notEntitled: .notEntitled
+        case .needsAccessibility: .needsAccessibility
+        case .paused: .paused(until: now.addingTimeInterval(900))
+        case .on: .on
+        }
+    }
+
+    private static func kind(of state: ScreenContextService.ActivityState) -> StateKind {
+        switch state {
+        case .off: .off
+        case .notEntitled: .notEntitled
+        case .needsAccessibility: .needsAccessibility
+        case .paused: .paused
+        case .on: .on
+        }
+    }
+
+    private static func allStates(now: Date) -> [ScreenContextService.ActivityState] {
+        StateKind.allCases.map { state(for: $0, now: now) }
+    }
+
+    /// Fails if a state exists that the list above doesn't build — the guard that
+    /// keeps the two invariants below honest.
+    func testEveryStateIsCovered() {
+        let now = Date()
+        let kinds = Self.allStates(now: now).map { Self.kind(of: $0) }
+        XCTAssertEqual(Set(kinds).count, StateKind.allCases.count)
+    }
+
     /// Every state has to read differently. Two that render the same word are
     /// how "on but doing nothing" gets mistaken for running.
     func testEveryStateReadsDifferently() {
         let now = Date()
-        let states: [ScreenContextService.ActivityState] = [
-            .off,
-            .needsAccessibility,
-            .paused(until: now.addingTimeInterval(900)),
-            .on
-        ]
+        let states = Self.allStates(now: now)
         XCTAssertEqual(Set(states.map { $0.label(now: now) }).count, states.count)
     }
 
@@ -178,13 +214,7 @@ final class AmbientContextMenuTests: XCTestCase {
     /// that grows past this truncates the one word that names the feature.
     func testStatusLabelStaysShortEnoughForTheRow() {
         let now = Date()
-        let states: [ScreenContextService.ActivityState] = [
-            .off,
-            .needsAccessibility,
-            .paused(until: now.addingTimeInterval(59 * 60)),
-            .on
-        ]
-        for state in states {
+        for state in Self.allStates(now: now) {
             XCTAssertLessThanOrEqual(state.label(now: now).count, 13, "\(state) is too long for the row")
         }
     }
