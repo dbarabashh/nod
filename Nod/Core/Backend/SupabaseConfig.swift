@@ -15,8 +15,19 @@ enum SupabaseConfig {
 
     /// Remote MCP server endpoint for browser/desktop AI connectors (ChatGPT,
     /// Claude, Gemini). The personal token is appended as a path segment
-    /// (`…/mcp/<token>`). Resolves to sandbox in Debug and production in Release.
+    /// (`…/mcp/<token>`).
+    ///
+    /// Release routes through the landing domain rather than the Supabase
+    /// gateway: Claude probes `/.well-known/oauth-protected-resource/<path>`
+    /// on the same origin before connecting, and the gateway answers 401 on
+    /// every unrouted path — which Claude reads as "this resource needs OAuth"
+    /// and then fails at dynamic client registration. Vercel returns a plain
+    /// 404 there, so the connector stays authless.
     static var mcpBaseURL: URL {
-        url.appending(path: "functions/v1/mcp")
+        #if DEBUG
+            url.appending(path: "functions/v1/mcp")
+        #else
+            URL(string: "https://hellonod.app/mcp")!
+        #endif
     }
 }
