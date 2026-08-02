@@ -600,10 +600,8 @@ extension KnowledgeChatStore {
         let excerpts: [String]
         let sources: [SessionRef]
         let evidence: [Excerpt]
-        /// Sessions the prompt was actually built from — more than `sources`,
-        /// which names only the ones strong enough to cite. The wait narrates
-        /// this one: "nothing matched" while eight excerpts go to the model is
-        /// a lie about the work being done.
+        /// Sessions the prompt was built from — what the wait narrates. Screen
+        /// context is counted separately, through `sources`.
         var readSessions: Int = 0
         /// Screen context, kept apart from session excerpts: the two are
         /// grounded differently and the prompt says so.
@@ -887,7 +885,8 @@ extension KnowledgeChatStore {
             // alongside rather than after it, as in the `.specific` branch.
             async let screening = observed(for: query, aboutScreen: aboutScreen)
             let chunks = await knowledge.search(query: query, meetingIDs: scopedIDs, embedText: embedText)
-            let grounded = Array(Set(chunks.map(\.meetingID)))
+            let relevant = Self.worthGrounding(chunks)
+            let grounded = Array(Set(relevant.map(\.meetingID)))
             // Started before the screen leg is joined: it depends on `chunks`
             // alone, and its two round trips would otherwise queue behind a
             // full-text query they have nothing to do with.
@@ -899,13 +898,12 @@ extension KnowledgeChatStore {
             // after the entity read, that the answer waits on.
             let linked = await crossed(sessions: grounded, with: screen)
             let byID = meetingsByID
-            let cited = Self.worthCiting(chunks)
             return Grounding(
-                excerpts: chunks.map { labeledExcerpt($0, in: byID) },
-                sources: resolveSources(cited, in: byID) + screen.apps + linked.apps,
+                excerpts: relevant.map { labeledExcerpt($0, in: byID) },
+                sources: resolveSources(relevant, in: byID) + screen.apps + linked.apps,
                 evidence:
                 // A row we can't name can't be opened either, so it isn't shown.
-                Self.strongestPerSession(cited.compactMap { chunk in
+                Self.strongestPerSession(relevant.compactMap { chunk in
                     byID[chunk.meetingID].map {
                         excerpt(for: $0, text: chunk.content, similarity: chunk.similarity)
                     }
@@ -990,30 +988,30 @@ extension KnowledgeChatStore {
         meetings.byID
     }
 
-    /// The chunks strong enough to be named under the answer.
+    /// The chunks the answer is allowed to be built from.
     ///
     /// Retrieval always returns its top-k, so a question the corpus has nothing
     /// on ("what about the tickets?", answered from the screen) still comes back
-    /// with the least-bad sessions. They're harmless as grounding — the model
-    /// reads them and says it found nothing — but a chip is a claim: *this is
-    /// where the answer came from*. A therapy session under an answer about
-    /// train tickets makes every chip untrustworthy.
+    /// with the least-bad sessions. Feeding those to the model and then hiding
+    /// them from the chips is the worst of both: the answer can quote a therapy
+    /// session while the UI shows a Chrome window. The prompt and the chips read
+    /// from this one list, so what the answer used is exactly what it names.
     ///
     /// Two gates, because weakness is both absolute and relative: a match near
     /// the retrieval floor (the raw cosine runs ~0.3–0.8) is noise on its own,
     /// and a match far below the best one didn't contribute next to it.
-    static func worthCiting(_ chunks: [RetrievedChunk]) -> [RetrievedChunk] {
+    static func worthGrounding(_ chunks: [RetrievedChunk]) -> [RetrievedChunk] {
         guard let best = chunks.map(\.similarity).max() else { return [] }
-        let floor = max(citationFloor, best * citationBand)
-        let cited = chunks.filter { $0.similarity >= floor }
-        if cited.count < chunks.count {
-            Log.ui.debug("Sources: kept \(cited.count)/\(chunks.count) chunks above \(floor) (best \(best))")
+        let floor = max(relevanceFloor, best * relevanceBand)
+        let kept = chunks.filter { $0.similarity >= floor }
+        if kept.count < chunks.count {
+            Log.ui.debug("Grounding: kept \(kept.count)/\(chunks.count) chunks above \(floor) (best \(best))")
         }
-        return cited
+        return kept
     }
 
-    private static let citationFloor: Double = 0.45
-    private static let citationBand: Double = 0.75
+    private static let relevanceFloor: Double = 0.45
+    private static let relevanceBand: Double = 0.75
 
     /// Distinct sessions behind the retrieved chunks, in retrieval order, so the
     /// answer can show what it drew on.
