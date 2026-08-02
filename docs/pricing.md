@@ -1,114 +1,183 @@
-# Nod — Pricing Plan
+# Nod — Pricing
 
-> **No training on your data. Audio is never stored.**
-> You pay, we stay private — and we never touch your audio.
+_Last updated: 2026-08-02_
 
-Nod is your private, AI meeting notetaker that records both sides of the
-conversation (Zoom, Google Meet, Teams, phone calls), transcribes live, and
-turns every meeting into summaries, action items, and a searchable knowledge
-base you can ask questions about.
+The spec the pricing surfaces are built from. Three of them have to agree, and
+each has its own copy: `plans` / `plan_prices` in Supabase (the only enforced
+truth), `hellonod.app/pricing` (`nod-landing`, 12 locales), and the in-app
+paywall (`PaywallView`). When a number here changes, all three move.
+
+Prices are set. This document exists because the *limits* are derived, and the
+derivation has to be written down or it gets re-guessed.
 
 ---
 
-## Plans at a glance
+## Plans
 
-| | **Trial** | **Starter** | **Pro** · _Most popular_ |
+| | **Trial** | **Starter** | **Pro** |
 |---|---|---|---|
-| **Best for** | Trying Nod risk-free | Your AI notetaker, fully unlocked | People who live in meetings |
-| **Price** | **$0** for 14 days | **$9/mo** billed yearly _(or $14/mo monthly)_ | **$19/mo** billed yearly _(or $29/mo monthly)_ |
-| **Annual savings** | — | ~36% | ~34% |
-| **Meeting hours** | Full access | **15 hrs / month** | **50 hrs / month** |
-| **Devices** | 1 | 1 | Up to 3 |
-| Records you **+ the other side** | ✅ | ✅ | ✅ |
-| Live transcription, summaries & action items | ✅ | ✅ | ✅ |
-| **Ask Nod** about any meeting | ✅ | ✅ | ✅ |
-| Multilingual transcription (14 languages) | ✅ | ✅ | ✅ |
-| Unlimited history, labels & search | ✅ | ✅ | ✅ |
-| Private by design — **audio never stored** | ✅ | ✅ | ✅ |
-| **Ask Nod across all meetings** (knowledge base) | ✅ | — | ✅ |
-| **Label-scoped questions** — narrow Ask Nod to a project/topic | ✅ | — | ✅ |
-| Early access + priority support | ✅ | — | ✅ |
-| No credit card required | ✅ | — | — |
+| Price, billed yearly | **$0** for 14 days | **$9 / mo** ($108 / yr) | **$19 / mo** ($228 / yr) |
+| Price, billed monthly | — | **$14 / mo** | **$29 / mo** |
+| Meeting hours / month | **5** | **8** | **Unlimited** (fair use) |
+| Devices | 1 | 1 | 3 |
+| Card required to start | no | — | — |
 
-_Billed via our Merchant of Record — taxes included. **7-day money-back
-guarantee**, cancel anytime. Yearly saves you ~4 months. Regional (PPP) pricing
-available for lower-purchasing-power countries._
+Prices are **tax-inclusive**: the figure above is what the customer is charged,
+and Paddle remits VAT/GST out of it. `terms.md` § 7 says so; it used to say the
+opposite.
 
----
+There is no overage and no usage credits. Both were built once and deleted
+(`df98ba8 remove overage feature`); the landing advertised `$0.60 / hr` for
+weeks after the code stopped being able to charge it.
 
-## Trial — $0 for 14 days
+## Features
 
-**Try everything, risk-free.**
+Enforced means a line of code checks it. Everything else is a marketing row that
+happens to be true because no plan restricts it.
 
-The Trial unlocks the full Pro experience for 14 days with **no credit card
-required**. It replaces a permanent free tier: you get the complete product, not
-a stripped-down version, so you can judge Nod on its best day.
+| | Trial | Starter | Pro | Enforced where |
+|---|---|---|---|---|
+| Records you + the other side | ✅ | ✅ | ✅ | — |
+| Live transcription, 14 languages | ✅ | ✅ | ✅ | — |
+| Summary, title, action items | ✅ | ✅ | ✅ | `action_items` flag, client UI only |
+| Ask Nod about one meeting | ✅ | ✅ | ✅ | `llm-proxy`, `ask_single_meeting` |
+| Unlimited history, folders, search | ✅ | ✅ | ✅ | — |
+| Audio is never stored | ✅ | ✅ | ✅ | `WhisperTranscriber` discards chunks |
+| Ask Nod live during a meeting | ✅ | — | ✅ | client only (`ask_live`) — no server gate |
+| Ask across all meetings | ✅ | — | ✅ | `llm-proxy`, `ask_across_meetings` |
+| Folder-scoped questions | ✅ | — | ✅ | `llm-proxy`, `label_scoping` |
+| **Screen context (ambient)** | ✅ | — | ✅ | `screen_observations` RLS + client |
+| Early access + priority support | ✅ | — | ✅ | operational, not code |
+| Speaker labels | — | — | — | **not shipped** — see below |
 
-- Full access to all Pro features for 14 days, on 1 device
-- No credit card, no commitment
-- No permanent free tier — every transcription has a real cost, so Nod stays
-  paid to stay private
+`plans.features` is the mapping; the client's `Feature` enum only knows the key
+names. Re-pricing which plan unlocks what is a data change, not a release.
 
-When the trial ends, pick Starter or Pro to keep your notes, history, and
-knowledge base.
+## Where the limits come from
 
----
+Measured over the 30 days to 2026-08-02, in prod:
 
-## Starter — $9/mo (billed yearly)
+| | |
+|---|---|
+| STT | **$0.163** per wall-hour |
+| LLM | **$0.0279** per call, 4.83 calls per meeting |
+| Embeddings | **$0.00** (model is local to the edge function) |
+| Blended, median user | **$0.406 / hour** |
+| Blended, worst observed profile | **$0.574 / hour** |
 
-**Your AI notetaker, fully unlocked.**
+The cost driver is not hours, it is **short meetings plus heavy Ask Nod**: every
+meeting pays a fixed summary-and-title price regardless of length, so the same
+15 hours cost between $3.30 and $8.40 depending on how they are spent. The floor
+is 3.0 LLM calls per meeting; everything above that is discretionary.
 
-Everything you need to capture, understand, and search your meetings — for
-people with a steady, focused meeting load.
+Revenue is not the sticker price. Prices are tax-inclusive and Paddle is
+Merchant of Record, so **~79% of a yearly price reaches us**:
 
-- **$9/mo** billed yearly, or **$14/mo** billed monthly _(save ~36% on annual)_
-- **15 meeting hours / month**
-- **1 device**
-- Records you **and the other side** on Zoom, Meet, Teams, and calls
-- Live transcription, summaries, and action items
-- **Ask Nod** about any individual meeting
-- Multilingual transcription — 14 languages
-- Unlimited history, labels, and search
-- Private by design — your audio is never stored
+| | Charged | − VAT (20%) | − Paddle (5% + $0.50) | **Net / month** |
+|---|---|---|---|---|
+| Starter, yearly | $108 / yr | $90.00 | $85.00 | **$7.08** |
+| Starter, monthly | $14 | $11.67 | $10.58 | **$10.58** |
+| Pro, yearly | $228 / yr | $190.00 | $180.00 | **$15.00** |
+| Pro, monthly | $29 | $24.17 | $22.46 | **$22.46** |
 
----
+The yearly buyer is the binding case everywhere below — the annual discount and
+the VAT haircut stack.
 
-## Pro — $19/mo (billed yearly) · Most popular
+**Starter's 8 hours is a real ceiling.** `price > limit × worst-profile cost`:
+$7.08 × 65% ÷ $0.574 = 8.0. At 8 hours the worst profile costs $4.59 and leaves
+35%; the median profile costs $3.25 and leaves 54%.
 
-**For people who live in meetings.**
+**Pro's "unlimited" is a bounded promise, not an uncapped one.**
+`plans.pro.limits.hours_per_month` is **40** — the fair-use threshold from
+`terms.md` § 7, never displayed. It is 2.6× the largest month ever recorded on
+any plan (15.4 h, a trial) and ~6× the p90 paying user; the largest Pro month to
+date is 6.2 h. Someone who reached it would cost ~$23 against $15 of revenue, so
+the claim costs at most ~$8 a month per outlier — against an unbounded liability
+if no ceiling existed. Break-even on Pro is 26 hours for the worst profile and
+37 for the median.
 
-Everything in Starter, plus a cross-meeting knowledge base you can ask
-questions and scope by project — for power users running back-to-back calls.
+`plans.hours_are_unlimited` decides whether a surface prints the number.
+`hours_per_month` stays the truth for metering. A sentinel value was rejected:
+the reader that forgot the convention would print "40 meeting hours / month"
+beside a page promising unlimited.
 
-- **$19/mo** billed yearly, or **$29/mo** billed monthly _(save ~34% on annual)_
-- **50 meeting hours / month**
-- **Up to 3 devices**
-- Everything in Starter, **plus:**
-  - **Ask Nod across all meetings** — your personal knowledge base
-  - **Label-scoped questions** — tag sessions and narrow Ask Nod to a project or topic
-  - Early access to new features + priority support
+## Existing subscribers keep what they bought
 
----
+Lowering Starter from 15 to 8 and re-framing Pro would have downgraded people
+mid-subscription, so migration `20260802100544` pins each already-active
+subscription's old ceiling into `subscriptions.limit_overrides` **before**
+touching `plans` — copying whatever the plan grants at that moment rather than a
+hardcoded 15/50, so it stays correct on any branch.
 
-## 🔥 Founding members
+The pin expires when the plan does: `apply_paddle_subscription` drops
+`limit_overrides->'hours_per_month'` whenever `plan` changes
+(`20260802103325`). Without that, a grandfathered Starter upgrading to Pro
+resolved to a *lower* cap than Pro grants, and a grandfathered Pro downgrading
+kept 50 hours on the cheaper plan forever.
 
-**The first 100 sign-ups lock in Starter $9/mo and Pro $19/mo — forever.**
-
-Founding pricing applies to **annual billing** and never goes up, even as
-standard prices change. A thank-you to the people who back Nod early.
-
----
+Trials are deliberately not grandfathered: the page has always said 5 hours, so
+the cap makes a promise true rather than breaking one.
 
 ## Billing rules
 
-- **Paid from day one — no permanent free tier.** Every transcription uses real
-  compute (transcription + LLM), so a standing free cohort would be a standing
-  loss. The 14-day trial lets you try risk-free instead.
-- **7-day money-back guarantee.** Cancel anytime; refunds handled by our
-  Merchant of Record.
-- **Yearly is the best value.** A single transaction per year (instead of 12)
-  lowers payment fees, which is why the annual discount is steep.
-- **The monthly hours are a soft cap.** You won't be cut off mid-meeting if you
-  go over — recording keeps working.
-- **Regional (PPP) pricing.** Lower prices for countries with lower purchasing
-  power, so Nod is fair worldwide.
+- **Paid from day one.** No permanent free tier — every transcription costs real
+  compute. The 14-day trial is the risk-free path instead.
+- **7-day money-back guarantee**, plus the EU/UK 14-day cooling-off period.
+  Detail in `refund.md`.
+- **Yearly is the best value** for the customer and the most fee-efficient for
+  us: one transaction a year amortises Paddle's $0.50 per-transaction fee.
+- **Regional (PPP) pricing** is configured per-country in the Paddle dashboard,
+  not in this repo. One subscriber is on a manually granted 80% discount.
+- **No overage, ever.** Fixed subscription. `terms.md` § 7 promises we do not
+  meter, do not bill overage, and do not cut off mid-meeting.
+
+## Not shipped yet
+
+Each of these is a claim some surface already makes, or a control the numbers
+above assume exists. None of them is live.
+
+- [ ] **Hours are not enforced.** The cap rides in `x-nod-hours-*` response
+      headers and nothing blocks a recording. `hoursLimit` is read in exactly two
+      places: `SummaryRegeneration` (skip regeneration at zero) and
+      `PaywallView` (display). At 50 hours this was harmless because nobody came
+      close; at 8 the median Starter user is within reach and the observed
+      maximum is already past it. Until this lands, every limit here is a label.
+      The pattern to copy is the proxy's own: block a *new* meeting, never
+      interrupt one in flight.
+- [ ] **No fair-use alerting.** `terms.md` § 7 promises we email a Pro user
+      *before* acting on extraordinary usage, which requires knowing they are
+      approaching 40 hours in their billing period. Nothing computes that today —
+      see the founder-dashboard gap below.
+- [ ] **Speaker labels are advertised but not released.** `hellonod.app/pricing`
+      carries the row in `en` and `uk`; diarization lives on branch
+      `diarization-phase1`, and 1 meeting out of 237 has `speaker_names`. Either
+      ship it or pull the row.
+- [ ] **`ask_live` has no server gate.** `llm-proxy` feature-checks only the
+      three `search` scopes; the in-meeting Ask box is gated client-side only.
+- [ ] **`label_scoping` has no client gate.** The proxy enforces it, so a Starter
+      user sees the folder-scope affordance and gets a 403.
+
+## Founder-dashboard gap
+
+Per-user hours **within the current billing period, against the plan's limit,
+do not exist anywhere**. `founder_users_enriched` returns
+`minutes_transcribed` and `cost_usd` for a user's **entire lifetime**, with no
+window and no comparison to `hours_limit`; the Users table renders it as
+"Transcribed". `founder_usage_breakdown` has `minutes`, but aggregated by `kind`
+across all users. (`minutes_transcribed_30d` exists in the dashboard's types,
+but it belongs to `founder_overview` — a product-wide figure, not per-user.)
+
+The window to reuse is `resolve_entitlement`'s, which is not a calendar month:
+for an annual plan it walks the term start forward month by month
+(`20260730081521_monthly_usage_window_for_annual_plans`), so a naïve
+`date_trunc('month')` reports the wrong period for exactly the yearly
+subscribers the fair-use ceiling is about.
+
+## Related
+
+| Topic | Where |
+|---|---|
+| Fair use, tax treatment, refunds | `docs/policies/terms.md` § 7 |
+| Which policy a pricing change touches | `docs/policy-bindings.md` |
+| Landing pricing table, 12 locales | `../nod-landing/src/locales/*.ts` |
+| Entitlement resolution | `supabase/migrations/*monthly_usage_window*`, `Nod/Core/Backend/EntitlementService.swift` |

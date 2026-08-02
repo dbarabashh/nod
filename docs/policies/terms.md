@@ -1,6 +1,6 @@
 # Terms of Service
 
-_Last updated: 2026-08-01_
+_Last updated: 2026-08-02_
 
 > **Nod is operated by Dima Barabash**, an individual, not an incorporated
 > company. Paid subscriptions are sold through **Paddle**, which acts as
@@ -134,12 +134,34 @@ the app and at `hellonod.app/pricing` before you subscribe.
   billing cycle, but we'll make exceptions for service outages, billing
   errors, or cases where we've materially reduced promised functionality.
   Contact **dmytro@hellonod.app**.
-- Prices are exclusive of taxes; Paddle adds VAT/GST where required by
-  your location.
+- Prices shown are **inclusive of tax**: the amount on the pricing page is
+  what you are charged, and Paddle remits any VAT/GST due for your
+  location out of it.
 
 See our [Refund Policy](./refund.md) for the full detail on the
 money-back guarantee, cooling-off rights, and how refunds are processed
 by Paddle.
+
+### Fair use on unlimited plans
+
+Pro includes **unlimited meeting hours**. Unlimited means what it says for
+personal use: we do not meter your recording, and there is no per-hour
+charge, no overage bill, and no cut-off in the middle of a meeting.
+
+It is bounded only by the plan being for **one person**. So on Pro you
+agree not to:
+
+- Share the account with other people, or use one subscription to record
+  meetings on behalf of a team.
+- Run automated, scheduled, or unattended recording — a machine capturing
+  around the clock is not a person in meetings.
+- Resell or redistribute the Service's output as a recording service.
+
+If your usage is so far outside normal personal use that it looks like one
+of the above, **we will email you first** and work it out with you. We will
+not silently throttle you, delete anything, or add a charge you did not
+agree to. Suspension under this section is a last resort, and only after
+we have contacted you.
 
 ## 8. Termination
 
