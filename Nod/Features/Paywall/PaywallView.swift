@@ -32,12 +32,12 @@ struct PaywallView: View {
             tagline: "Your AI notetaker, fully unlocked.",
             highlighted: false, badge: nil,
             features: [
-                "15 meeting hours / month",
                 "1 device",
                 "Records you and the other side",
                 "Live transcription, summaries & action items",
-                "Ask Nod about any meeting",
-                "Unlimited history, folders & search"
+                "Ask Nod about a single meeting",
+                "Unlimited history, folders & search",
+                "Audio is never stored"
             ]
         ),
         PlanCopy(
@@ -45,11 +45,12 @@ struct PaywallView: View {
             tagline: "For people who live in meetings.",
             highlighted: true, badge: "Most popular",
             features: [
-                "50 meeting hours / month",
                 "Up to 3 devices",
                 "Everything in Starter, plus:",
+                "Ask Nod live during a meeting",
                 "Ask Nod across all meetings — your knowledge base",
                 "Folder-scoped questions",
+                "Screen context — ask about what's in front of you",
                 "Early access + priority support"
             ]
         )
@@ -162,6 +163,12 @@ struct PaywallView: View {
             return "\(days) day\(days == 1 ? "" : "s") left · full Pro access"
         }
         if ent.isActive {
+            // On an unlimited plan the ceiling is the fair-use threshold, not an
+            // allowance — printing "of 40" would hand the user the one number
+            // the pricing page says doesn't exist.
+            if billing.hoursAreUnlimited(plan: ent.plan) {
+                return String(format: "%.1f hours recorded this period", ent.hoursUsed)
+            }
             return String(format: "%.1f of %.0f hours used this period", ent.hoursUsed, ent.hoursLimit)
         }
         return nil
@@ -195,6 +202,24 @@ struct PaywallView: View {
     }
 
     // MARK: - Plan card
+
+    /// The hours line comes from `public.plans`, not from `PlanCopy`: it is the
+    /// one bullet the server can change under us, and a stale number here sold
+    /// Pro on 50 hours while the same pane reported a used-of-16 figure below.
+    /// Omitted rather than guessed when the catalog hasn't loaded.
+    private func features(for plan: PlanCopy) -> [String] {
+        if billing.hoursAreUnlimited(plan: plan.id) {
+            return ["Unlimited meeting hours"] + plan.features
+        }
+        guard let hours = billing.hoursPerMonth(plan: plan.id) else { return plan.features }
+        return ["\(Self.hoursText(hours)) meeting hours / month"] + plan.features
+    }
+
+    /// Whole numbers read as plan limits ("8"), fractions keep one decimal so a
+    /// limit set to 7.5 doesn't render as "8".
+    static func hoursText(_ hours: Double) -> String {
+        hours == hours.rounded() ? String(Int(hours)) : String(format: "%.1f", hours)
+    }
 
     private func planCard(_ plan: PlanCopy) -> some View {
         let price = billing.subscriptionPrice(plan: plan.id, cycle: cycle)
@@ -243,7 +268,7 @@ struct PaywallView: View {
                 .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(plan.features, id: \.self) { feature in
+                ForEach(features(for: plan), id: \.self) { feature in
                     featureRow(feature)
                 }
             }

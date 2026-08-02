@@ -29,6 +29,38 @@ struct PlanPrice: Decodable, Identifiable {
     }
 }
 
+/// A plan's metered ceiling, read from `public.plans`. The paywall renders the
+/// hours line from this rather than from a string in the binary: the entitlement
+/// only carries the *current* plan's limit, so a hardcoded "50 meeting hours"
+/// sold Pro on a number the server had already changed.
+struct PlanLimits: Decodable {
+    let plan: String
+    let limits: [String: Double]
+    /// Pro is sold as unlimited hours, bounded by the fair-use terms rather than
+    /// by a number. `hours_per_month` still carries the enforcement ceiling, so
+    /// this is what keeps a surface from printing it.
+    let hoursAreUnlimited: Bool
+
+    var hoursPerMonth: Double? {
+        limits["hours_per_month"]
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case plan, limits
+        case hoursAreUnlimited = "hours_are_unlimited"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        plan = try c.decode(String.self, forKey: .plan)
+        limits = try c.decodeIfPresent([String: Double].self, forKey: .limits) ?? [:]
+        // Absent on a client that predates the column — treat as metered, which
+        // is the safe direction: it prints a real number rather than promising
+        // unlimited on a plan that isn't.
+        hoursAreUnlimited = try c.decodeIfPresent(Bool.self, forKey: .hoursAreUnlimited) ?? false
+    }
+}
+
 /// Drives the paywall's purchase flow. It does NOT process payment: it fetches
 /// the price catalog, asks the `create-checkout` Edge Function (which holds the
 /// Paddle API key) for a hosted checkout URL, and opens it in the browser. The
@@ -37,6 +69,7 @@ struct PlanPrice: Decodable, Identifiable {
 @MainActor
 final class BillingService: ObservableObject {
     @Published private(set) var prices: [PlanPrice] = []
+    @Published private(set) var planLimits: [PlanLimits] = []
     @Published private(set) var isStartingCheckout = false
     @Published private(set) var isOpeningPortal = false
     @Published var lastError: String?
@@ -61,6 +94,30 @@ final class BillingService: ObservableObject {
         } catch {
             Log.ui.error("BillingService.loadPrices failed: \(error.localizedDescription)")
         }
+        await loadPlanLimits()
+    }
+
+    /// Loaded alongside the prices, from the same pane's one refresh. Failure is
+    /// survivable: the paywall drops the hours line rather than showing a stale
+    /// number, which is the whole point of not keeping one in the binary.
+    private func loadPlanLimits() async {
+        do {
+            planLimits = try await supabase
+                .from("plans")
+                .select("plan,limits,hours_are_unlimited")
+                .execute()
+                .value
+        } catch {
+            Log.ui.error("BillingService.loadPlanLimits failed: \(error.localizedDescription)")
+        }
+    }
+
+    func hoursPerMonth(plan: String) -> Double? {
+        planLimits.first { $0.plan == plan }?.hoursPerMonth
+    }
+
+    func hoursAreUnlimited(plan: String) -> Bool {
+        planLimits.first { $0.plan == plan }?.hoursAreUnlimited ?? false
     }
 
     /// Subscription prices for `plan` (Starter/Pro), keyed by cycle, used by the
