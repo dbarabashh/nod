@@ -91,6 +91,19 @@ extension View {
         )
     }
 
+    /// A small control that carries its own surface at rest — filled, hairline
+    /// bordered, brightening on hover. `hoverHighlight` is the version for rows
+    /// inside a list, which show nothing until the pointer arrives; this is for
+    /// a button that has to be findable before anyone hovers it.
+    func hoverSurface(_ isHovering: Bool, in shape: some InsettableShape, reduceMotion: Bool) -> some View {
+        background(
+            shape
+                .fill(isHovering ? Theme.Palette.surfaceStrong : Theme.Palette.surface)
+                .overlay(shape.stroke(Theme.Palette.border, lineWidth: 0.5))
+                .animation(.hoverReveal(reduceMotion: reduceMotion), value: isHovering)
+        )
+    }
+
     /// Shows the macOS link pointer (the pointing hand) over a clickable custom
     /// control. No-op before macOS 15, where `pointerStyle` is unavailable.
     @ViewBuilder func linkCursor() -> some View {

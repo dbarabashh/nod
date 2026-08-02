@@ -172,17 +172,7 @@ struct AttentionColumn: View {
             SectionLabel(title)
             countBadge(count)
             Spacer(minLength: 0)
-            if let action {
-                Button(action: action) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.muted)
-                        .frame(width: 20, height: 16)
-                }
-                .buttonStyle(.plain)
-                .linkCursor()
-                .help("See all")
-            }
+            if let action { SeeAllButton(action: action) }
         }
         .padding(.horizontal, 4)
     }
@@ -194,8 +184,8 @@ struct AttentionColumn: View {
             blockHeader("Open actions", count: openActionCount, action: onOpenActionItems)
             card {
                 if actions.isEmpty {
-                    // The chevron beside the header is the only way into the full
-                    // checklist, so the block stays even when nothing is open.
+                    // The block stays even when nothing is open: its header
+                    // carries the only route into the full checklist.
                     Text(loaded ? "Nothing open." : "Loading…")
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.Palette.muted)
@@ -465,5 +455,34 @@ struct AttentionColumn: View {
             )
         }
         openActionCount = actionItemStore.openItems.count
+    }
+}
+
+/// "See all ›" beside a block header. A word plus the chevron, on its own
+/// surface — this is the only route into the full list behind a block.
+private struct SeeAllButton: View {
+    let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Text("See all")
+                    .font(.system(size: 10.5, weight: .semibold))
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundStyle(isHovering ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.72))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .hoverSurface(isHovering, in: Capsule(style: .continuous), reduceMotion: reduceMotion)
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .linkCursor()
+        .help("See all")
     }
 }

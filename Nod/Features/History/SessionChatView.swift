@@ -161,7 +161,7 @@ struct SessionChatView: View {
     // MARK: - Composer
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             ChatComposerField(
                 prompt: isReady ? "Message" : loadingPlaceholder,
                 text: $draft,

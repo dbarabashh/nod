@@ -29,6 +29,7 @@ struct HomeSidebar: View {
     @State private var newProjectColor = LabelPalette.default
     @State private var editingLabel: SessionLabel?
     @State private var confirmingDeleteThread: UUID?
+    @State private var newChatHovering = false
     /// "3 sessions · 2h ago" per project, counted over LIVE sessions only — the
     /// raw link tally includes rows pointing at trashed sessions, which reads as
     /// "5 sessions" on a project that opens showing four.
@@ -151,14 +152,14 @@ struct HomeSidebar: View {
             // pointer-exit events, and a highlight painted on hover stays lit
             // after the menu closes.
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                     .fill(Theme.Palette.surface)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                             .stroke(Theme.Palette.borderStrong, lineWidth: 0.5)
                     )
             )
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous))
         }
         .plainMenuChrome()
         .help("Capture a meeting, voice note, or media  ·  \(panelShortcut)")
@@ -194,7 +195,7 @@ struct HomeSidebar: View {
     /// intents, so they're different targets: the row returns you to the chat
     /// you had, the ＋ opens an empty one.
     private var chatRow: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 4) {
             // "Chat" names the interface; "Ask Nod" names the job — and it's
             // the phrase the composer already uses ("Ask across all memory").
             navRow(
@@ -203,14 +204,27 @@ struct HomeSidebar: View {
                 isSelected: surface == .chat,
                 action: { onSelect(.chat) }
             )
+            // Carries its own surface at rest: as a bare glyph it read as
+            // decoration beside the row and users didn't find it.
             Button(action: onNewChat) {
                 Image(systemName: "square.and.pencil")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .frame(width: 26, height: 26)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(newChatHovering ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.72))
+                    // Stretches to the row beside it where the stack has a
+                    // height to give — inside a `ScrollView` it doesn't, and
+                    // `maxHeight` alone collapses to the glyph.
+                    .frame(width: 30)
+                    .frame(minHeight: 30, maxHeight: .infinity)
+                    .hoverSurface(
+                        newChatHovering,
+                        in: RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous),
+                        reduceMotion: reduceMotion
+                    )
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onHover { newChatHovering = $0 }
+            .linkCursor()
             .help("New chat")
         }
     }
