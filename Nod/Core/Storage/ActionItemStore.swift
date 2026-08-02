@@ -180,9 +180,14 @@ final class ActionItemStore: ObservableObject {
         #if DEBUG
             if DemoMode.isEnabled { return Array(DemoData.allActionItems().filter { !$0.done }.prefix(limit)) }
         #endif
+        // Tasks outlive their session's own soft delete (the FK cascades on hard
+        // delete only), so the parent has to be filtered too — otherwise a
+        // trashed session's tasks keep grounding "what's on my plate", credited
+        // to a session the user deleted and can no longer open.
         return try await supabase
             .from(Self.tableName)
-            .select()
+            .select("*, meetings!inner(deleted_at)")
+            .is("meetings.deleted_at", value: nil)
             .is("deleted_at", value: nil)
             .eq("done", value: false)
             .order("created_at", ascending: false)
