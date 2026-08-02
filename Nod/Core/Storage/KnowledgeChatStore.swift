@@ -60,8 +60,10 @@ final class KnowledgeChatStore: ObservableObject {
     /// True from the first token until the answer completes — the UI shows the
     /// text growing instead of a spinner.
     @Published private(set) var isStreaming = false
-    /// Narration for the wait — which stage the answer is at.
-    @Published private(set) var thinkingPhase = ""
+    /// Narration for the wait: the lines the current stage may show, in order.
+    /// `ThinkingIndicator` walks them — the store says what is happening, the
+    /// view paces it.
+    @Published private(set) var thinkingScript: [String] = []
     @Published var errorText: String?
 
     private let llm: LLMProxyClient
@@ -187,6 +189,7 @@ final class KnowledgeChatStore: ObservableObject {
         messages = []
         errorText = nil
         threadID = nil
+        thinkingScript = []
     }
 
     /// Reopens a saved conversation, with the sources and passages its answers
@@ -195,6 +198,7 @@ final class KnowledgeChatStore: ObservableObject {
         guard self.threadID != threadID else { return }
         self.threadID = threadID
         errorText = nil
+        thinkingScript = []
         messages = await threads.messages(in: threadID).map { stored in
             Message(
                 role: stored.role == "user" ? .user : .assistant,
@@ -244,8 +248,8 @@ final class KnowledgeChatStore: ObservableObject {
 extension KnowledgeChatStore {
     /// Answers `text` across the user's sessions. `pinned` are @-mentioned
     /// sessions (most specific intent, wins over everything); `scope` narrows to
-    /// a folder when no mention was made.
-    func ask(_ text: String, pinned: [SessionRef] = [], scope: SessionLabel? = nil) async {
+    /// the union of one or more folders when no mention was made.
+    func ask(_ text: String, pinned: [SessionRef] = [], scope: [SessionLabel] = []) async {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isSending else { return }
         errorText = nil
@@ -271,7 +275,7 @@ extension KnowledgeChatStore {
         // row, and awaiting it here put a full eu-west round trip (three, on a
         // thread's first question) in front of every answer.
         async let saved: Void = persist(question)
-        thinkingPhase = "Searching your sessions…"
+        thinkingScript = ChatThinking.searching
 
         // Answer in the language the user typed, not the app default — the
         // retrieved excerpts (often Ukrainian) otherwise drag the reply away
@@ -306,6 +310,7 @@ extension KnowledgeChatStore {
         let scope: Scope
         switch routing {
         case let .answered(reply):
+            thinkingScript = []
             let answer = Message(role: .assistant, content: reply)
             messages.append(answer)
             await persist(answer)
@@ -324,12 +329,10 @@ extension KnowledgeChatStore {
             aboutScreen: prepared.aboutScreen
         )
         let sources = grounding.sources
-        let sessionCount = sources.filter { !$0.isApp }.count
-        if sessionCount > 0 {
-            thinkingPhase = sessionCount == 1 ? "Reading 1 session…" : "Reading \(sessionCount) sessions…"
-        } else if !grounding.observations.isEmpty || !grounding.crossedObservations.isEmpty {
-            thinkingPhase = "Reading what was on your screen…"
-        }
+        thinkingScript = [ChatThinking.reading(
+            sessions: grounding.readSessions,
+            apps: sources.filter(\.isApp).count
+        )]
         let taskBlock = await tasks
         let system = PromptLibrary.buildKnowledgeSystem(
             excerpts: Self.withinBudget(taskBlock.map { [$0] + grounding.excerpts } ?? grounding.excerpts),
@@ -341,7 +344,7 @@ extension KnowledgeChatStore {
             )
         )
         let history = chatHistory
-        thinkingPhase = "Writing your answer…"
+        thinkingScript = ChatThinking.writing
         // Joined before the answer is saved, so the thread exists to save into.
         await saved
         // Low temperature — cross-session answers must stay grounded in the
@@ -394,7 +397,7 @@ extension KnowledgeChatStore {
                     appended = true
                     // The first token is the moment the wait ends.
                     isStreaming = true
-                    thinkingPhase = ""
+                    thinkingScript = []
                     lastFlush = .now
                     continue
                 }
@@ -437,6 +440,7 @@ extension KnowledgeChatStore {
             errorText = error.localizedDescription
         }
         isStreaming = false
+        thinkingScript = []
     }
 
     private static let streamFlushInterval: Duration = .milliseconds(50)
@@ -449,16 +453,11 @@ extension KnowledgeChatStore {
         /// fake-streams a canned cross-session answer instead of calling the
         /// proxy. The launcher's headline feature works on camera with no login
         /// and no network, and nothing is persisted to the thread tables.
-        private func answerFromDemo(question: String, scope: SessionLabel?) async {
-            thinkingPhase = "Searching your sessions…"
-            let demoScope: Scope = scope.map { .scoped(Array(labels.meetingIDs(withLabel: $0.id))) } ?? .all
+        private func answerFromDemo(question: String, scope: [SessionLabel]) async {
+            thinkingScript = ChatThinking.searching
+            let demoScope: Scope = scope.isEmpty ? .all : .scoped(scopedMeetingIDs(in: scope))
             let grounding = await gather(for: demoScope, query: question, embedText: nil)
-            if !grounding.sources.isEmpty {
-                thinkingPhase = grounding.sources.count == 1
-                    ? "Reading 1 session…"
-                    : "Reading \(grounding.sources.count) sessions…"
-            }
-            thinkingPhase = "Writing your answer…"
+            thinkingScript = ChatThinking.writing
             await streamDemoReply(
                 DemoData.knowledgeAnswer(for: question),
                 sources: grounding.sources,
@@ -474,7 +473,7 @@ extension KnowledgeChatStore {
             let id = answer.id
             messages.append(answer)
             isStreaming = true
-            thinkingPhase = ""
+            thinkingScript = []
             let words = text.split(separator: " ", omittingEmptySubsequences: false)
             var accumulated = ""
             for (idx, word) in words.enumerated() {
@@ -553,6 +552,9 @@ extension KnowledgeChatStore {
         guard !open.isEmpty else { return nil }
         let byID = meetingsByID
 
+        // A missing meeting means the list hasn't loaded yet or the session is
+        // older than the 500 it holds — not that the task is stale, so the task
+        // still counts. Trashed sessions are excluded by `openItems` itself.
         let lines = open.map { item -> String in
             let meeting = byID[item.meetingID]
             let source = meeting?.displayTitle(dateFormatter: Meeting.shortDateFormatter) ?? "a past session"
@@ -598,6 +600,11 @@ extension KnowledgeChatStore {
         let excerpts: [String]
         let sources: [SessionRef]
         let evidence: [Excerpt]
+        /// Sessions the prompt was actually built from — more than `sources`,
+        /// which names only the ones strong enough to cite. The wait narrates
+        /// this one: "nothing matched" while eight excerpts go to the model is
+        /// a lie about the work being done.
+        var readSessions: Int = 0
         /// Screen context, kept apart from session excerpts: the two are
         /// grounded differently and the prompt says so.
         var observations: [String] = []
@@ -708,11 +715,11 @@ extension KnowledgeChatStore {
     /// can; otherwise the router decides ("the pricing one" resolves to
     /// specific rows, broad questions stay corpus-wide).
     ///
-    private func route(pinned: [SessionRef], scope: SessionLabel?, standalone: String) async -> Routing {
+    private func route(pinned: [SessionRef], scope: [SessionLabel], standalone: String) async -> Routing {
         if !pinned.isEmpty {
             return .search(.specific(pinned.map(\.id)))
         }
-        guard let scope else {
+        guard !scope.isEmpty else {
             let timed = timeRoute(for: standalone)
             if case .answered = timed, let timed { return timed }
             let window: [UUID]? = if case let .search(scope) = timed {
@@ -731,13 +738,21 @@ extension KnowledgeChatStore {
             if let timed { return timed }
             return await routeQuery(standalone)
         }
-        let ids = Array(labels.meetingIDs(withLabel: scope.id))
+        let ids = scopedMeetingIDs(in: scope)
         guard !ids.isEmpty else {
+            let named = scope.map { "“\($0.name)”" }.joined(separator: ", ")
             return .answered(
-                "No sessions are in the “\(scope.name)” folder yet. Add one from a session's detail view, then ask again."
+                "No sessions are in \(named) yet. Add one from a session's detail view, then ask again."
             )
         }
         return .search(.scoped(ids))
+    }
+
+    /// Every session carrying any of the scoped labels. Sorted so the same
+    /// selection produces the same retrieval cache key across turns.
+    private func scopedMeetingIDs(in scope: [SessionLabel]) -> [UUID] {
+        Set(scope.flatMap { labels.meetingIDs(withLabel: $0.id) })
+            .sorted { $0.uuidString < $1.uuidString }
     }
 
     /// Sessions inside a window the question named. Nil when it named none.
@@ -884,16 +899,18 @@ extension KnowledgeChatStore {
             // after the entity read, that the answer waits on.
             let linked = await crossed(sessions: grounded, with: screen)
             let byID = meetingsByID
+            let cited = Self.worthCiting(chunks)
             return Grounding(
                 excerpts: chunks.map { labeledExcerpt($0, in: byID) },
-                sources: resolveSources(chunks, in: byID) + screen.apps + linked.apps,
+                sources: resolveSources(cited, in: byID) + screen.apps + linked.apps,
                 evidence:
-                // A row we can't name can't be opened either — "A past session"
-                // with a stray quote reads as noise, so it isn't shown.
-                Self.strongestPerSession(chunks.compactMap { chunk in
-                    guard byID[chunk.meetingID] != nil else { return nil }
-                    return excerpt(for: chunk.meetingID, text: chunk.content, in: byID, similarity: chunk.similarity)
+                // A row we can't name can't be opened either, so it isn't shown.
+                Self.strongestPerSession(cited.compactMap { chunk in
+                    byID[chunk.meetingID].map {
+                        excerpt(for: $0, text: chunk.content, similarity: chunk.similarity)
+                    }
                 }),
+                readSessions: grounded.count,
                 observations: screen.blocks,
                 crossedObservations: linked.blocks
             )
@@ -962,6 +979,7 @@ extension KnowledgeChatStore {
                 excerpts: excerpts,
                 sources: sources + screen.apps + linked.apps,
                 evidence: evidence,
+                readSessions: inScope.count,
                 observations: screen.blocks,
                 crossedObservations: linked.blocks
             )
@@ -972,25 +990,62 @@ extension KnowledgeChatStore {
         meetings.byID
     }
 
+    /// The chunks strong enough to be named under the answer.
+    ///
+    /// Retrieval always returns its top-k, so a question the corpus has nothing
+    /// on ("what about the tickets?", answered from the screen) still comes back
+    /// with the least-bad sessions. They're harmless as grounding — the model
+    /// reads them and says it found nothing — but a chip is a claim: *this is
+    /// where the answer came from*. A therapy session under an answer about
+    /// train tickets makes every chip untrustworthy.
+    ///
+    /// Two gates, because weakness is both absolute and relative: a match near
+    /// the retrieval floor (the raw cosine runs ~0.3–0.8) is noise on its own,
+    /// and a match far below the best one didn't contribute next to it.
+    static func worthCiting(_ chunks: [RetrievedChunk]) -> [RetrievedChunk] {
+        guard let best = chunks.map(\.similarity).max() else { return [] }
+        let floor = max(citationFloor, best * citationBand)
+        let cited = chunks.filter { $0.similarity >= floor }
+        if cited.count < chunks.count {
+            Log.ui.debug("Sources: kept \(cited.count)/\(chunks.count) chunks above \(floor) (best \(best))")
+        }
+        return cited
+    }
+
+    private static let citationFloor: Double = 0.45
+    private static let citationBand: Double = 0.75
+
     /// Distinct sessions behind the retrieved chunks, in retrieval order, so the
     /// answer can show what it drew on.
+    ///
+    /// Once the list has loaded, a session it doesn't hold is one the user
+    /// trashed — the list is `deleted_at is null`. It used to be chipped as
+    /// "A past session", which names nothing and opens nothing, so it's dropped.
+    /// Before the list loads, absence means nothing at all: keep the chip and
+    /// let the title fill in rather than hiding a source the answer really used.
     private func resolveSources(_ chunks: [RetrievedChunk], in byID: [UUID: Meeting]) -> [SessionRef] {
+        let listed = meetings.loadState == .loaded
         var seen = Set<UUID>()
         var refs: [SessionRef] = []
         for chunk in chunks where seen.insert(chunk.meetingID).inserted {
-            let title = byID[chunk.meetingID]?
-                .displayTitle(dateFormatter: Meeting.shortDateFormatter) ?? "A past session"
-            refs.append(SessionRef(id: chunk.meetingID, title: title))
+            guard let meeting = byID[chunk.meetingID] else {
+                if listed {
+                    Log.ui.debug("Sources: dropping unnamed session \(chunk.meetingID)")
+                    continue
+                }
+                refs.append(SessionRef(id: chunk.meetingID, title: "A past session"))
+                continue
+            }
+            refs.append(SessionRef(id: chunk.meetingID, title: meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter)))
         }
         return refs
     }
 
-    private func excerpt(for meetingID: UUID, text: String, in byID: [UUID: Meeting], similarity: Double = 0) -> Excerpt {
-        let meeting = byID[meetingID]
-        return Excerpt(
-            meetingID: meetingID,
-            title: meeting?.displayTitle(dateFormatter: Meeting.shortDateFormatter) ?? "A past session",
-            date: meeting.map { Meeting.shortDateFormatter.string(from: $0.startedAt) } ?? "",
+    private func excerpt(for meeting: Meeting, text: String, similarity: Double) -> Excerpt {
+        Excerpt(
+            meetingID: meeting.id,
+            title: meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter),
+            date: Meeting.shortDateFormatter.string(from: meeting.startedAt),
             text: Self.readable(text),
             similarity: similarity
         )

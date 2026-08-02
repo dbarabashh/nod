@@ -347,24 +347,17 @@ struct ChatCopyButton: View {
 
 /// The row shown while a reply is in flight: bouncing dots beside a label that
 /// evolves as the work progresses, so the wait reads as activity rather than a
-/// frozen spinner. Two ways to drive it:
+/// frozen spinner.
 ///
-/// - `ThinkingIndicator(phase:)` — the caller owns the label and updates it as
-///   real stages complete (search → read → write). Each change cross-fades.
-/// - `ThinkingIndicator(script:)` — no real sub-stages to report: the component
-///   walks the given phrases on a timer and holds on the last until removed.
+/// The caller says what the current stage may show; the component paces it,
+/// cross-fading between lines and holding on the last. Handing over a new
+/// script — the next real stage — restarts the walk, so a caller that knows a
+/// stage's facts (how many sessions matched) and one that doesn't drive the
+/// same view the same way.
 struct ThinkingIndicator: View {
     private let phrases: [String]
     private let interval: Double
 
-    /// Caller-driven: `phase` reflects the current real stage; updating it
-    /// animates the label. A single phrase means nothing self-cycles.
-    init(phase: String) {
-        phrases = [phase]
-        interval = 0
-    }
-
-    /// Self-driving: cycles `script` on a timer, then holds on the last phrase.
     init(script: [String], interval: Double = 1.6) {
         phrases = script.isEmpty ? [""] : script
         self.interval = interval
@@ -394,12 +387,10 @@ struct ThinkingIndicator: View {
             .animation(.standard(reduceMotion: reduceMotion), value: displayed)
             Spacer(minLength: 0)
         }
-        .onAppear { if displayed.isEmpty { displayed = phrases[0] } }
-        .onChange(of: phrases) { new in
-            if new.count == 1 { displayed = new[0] }
-        }
-        .task {
-            guard phrases.count > 1 else { return }
+        // Keyed on the script, so handing over a new stage's phrases restarts
+        // the walk instead of leaving the previous stage's timer running.
+        .task(id: phrases) {
+            displayed = phrases[0]
             for phrase in phrases.dropFirst() {
                 try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
                 if Task.isCancelled { return }

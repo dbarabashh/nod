@@ -35,10 +35,17 @@ struct KnowledgeChatView: View {
     @State private var mentionSearch = ""
     @FocusState private var mentionSearchFocused: Bool
 
-    /// When set, questions are answered using ONLY sessions carrying this
-    /// label. Persists across turns until the user clears it. An explicit
-    /// @mention overrides it for that message.
-    @State private var scopeLabel: SessionLabel?
+    /// When non-empty, questions are answered using ONLY sessions carrying at
+    /// least one of these labels. Persists across turns until the user clears
+    /// it. An explicit @mention overrides it for that message.
+    @State private var scopeLabelIDs: Set<UUID> = []
+    @State private var showScopePicker = false
+
+    /// Resolved against the store rather than held as models, so a renamed or
+    /// deleted folder can't leave a stale name in the composer.
+    private var scopeLabels: [SessionLabel] {
+        labelStore.labels.filter { scopeLabelIDs.contains($0.id) }
+    }
 
     var body: some View {
         Group {
@@ -57,9 +64,9 @@ struct KnowledgeChatView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await meetingStore.refresh() }
         .onChange(of: labelStore.labels) { labels in
-            if let scope = scopeLabel, !labels.contains(where: { $0.id == scope.id }) {
-                scopeLabel = nil
-            }
+            let live = Set(labels.map(\.id))
+            guard !scopeLabelIDs.isSubset(of: live) else { return }
+            scopeLabelIDs.formIntersection(live)
         }
         // Intercept taps on inline mention links (nod-meeting://m/<uuid>).
         .environment(\.openURL, OpenURLAction { url in
@@ -154,13 +161,13 @@ struct KnowledgeChatView: View {
                 .foregroundStyle(Theme.Palette.ink)
             // What the question will actually reach. Without it an empty
             // composer reads as a chatbot rather than as the user's own memory.
-            Text(ChatHomeSuggestions.scopeHeadline(project: scopeLabel?.name))
+            Text(ChatHomeSuggestions.scopeHeadline(projects: scopeLabels.map(\.name)))
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.Palette.muted)
                 .padding(.bottom, 14)
 
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(ChatHomeSuggestions.build(meetings: meetingStore.meetings, project: scopeLabel?.name)) { opener in
+                ForEach(ChatHomeSuggestions.build(meetings: meetingStore.meetings, projects: scopeLabels.map(\.name))) { opener in
                     suggestion(opener)
                 }
             }
@@ -287,20 +294,20 @@ struct KnowledgeChatView: View {
     }
 
     private var typingIndicator: some View {
-        ThinkingIndicator(phase: chat.thinkingPhase)
+        ThinkingIndicator(script: chat.thinkingScript)
     }
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
             composerInput
-            if !labelStore.labels.isEmpty { scopeMenu }
+            if !labelStore.labels.isEmpty { scopeButton }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }
 
     private var composerInput: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             ChatComposerField(
                 prompt: composerPrompt,
                 text: $draft,
@@ -338,41 +345,83 @@ struct KnowledgeChatView: View {
     }
 
     private var composerPrompt: String {
-        if let scopeLabel { return "Ask about \(scopeLabel.name)" }
-        return "Ask across all memory  (@ to mention a session)"
+        guard !scopeLabelIDs.isEmpty else { return "Ask across all memory  (@ to mention a session)" }
+        return ChatHomeSuggestions.scopeHeadline(projects: scopeLabels.map(\.name), titleLimit: 48)
     }
 
-    private var scopeMenu: some View {
-        Menu {
-            Button { scopeLabel = nil } label: {
-                menuItemLabel("All sessions", isSelected: scopeLabel == nil)
-            }
-            Divider()
-            ForEach(labelStore.labels) { label in
-                Button { scopeLabel = label } label: {
-                    menuItemLabel(label.name, isSelected: scopeLabel?.id == label.id)
-                }
-            }
-        } label: {
+    /// Reads what the next question will reach: nothing selected is everything,
+    /// one project names itself, several are counted — the names don't fit.
+    private var scopeSummary: String {
+        switch scopeLabels.count {
+        case 0: "All sessions"
+        case 1: scopeLabels[0].name
+        case let count: "\(count) projects"
+        }
+    }
+
+    /// A popover rather than a `Menu`: folders are toggles now, and an AppKit
+    /// menu closes on every pick (`MenuActionDismissBehavior.disabled` is
+    /// unavailable on macOS), which would make choosing three of them a
+    /// three-times-reopened chore.
+    private var scopeButton: some View {
+        Button { showScopePicker.toggle() } label: {
             HStack(spacing: 4) {
                 Image(systemName: "line.3.horizontal.decrease")
                     .font(.system(size: 9, weight: .semibold))
-                Text(scopeLabel?.name ?? "All sessions")
+                Text(scopeSummary)
                     .font(.system(size: 11, weight: .medium))
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .semibold))
             }
-            .foregroundStyle(scopeLabel == nil ? Theme.Palette.muted : Theme.Palette.violet)
+            .foregroundStyle(scopeLabelIDs.isEmpty ? Theme.Palette.muted : Theme.Palette.violet)
+            .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
         .fixedSize()
-        .help("Scope questions to a folder")
+        .help("Scope questions to one or more projects")
+        // Anchored to a fixed point rather than to the button: the button's
+        // width tracks its own summary text, so anchoring to it slid the whole
+        // popover sideways on every pick.
+        .overlay(alignment: .leading) {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .popover(isPresented: $showScopePicker, arrowEdge: .bottom) { scopePicker }
+        }
     }
 
-    @ViewBuilder
-    private func menuItemLabel(_ text: String, isSelected: Bool) -> some View {
-        if isSelected { SwiftUI.Label(text, systemImage: "checkmark") } else { Text(text) }
+    private var scopePicker: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScopePickerRow(text: "All sessions", isSelected: scopeLabelIDs.isEmpty, swatch: nil) {
+                scopeLabelIDs.removeAll()
+            }
+            Divider()
+                .padding(.vertical, 4)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(labelStore.labels) { label in
+                        ScopePickerRow(
+                            text: label.name,
+                            isSelected: scopeLabelIDs.contains(label.id),
+                            swatch: label.swatchColor
+                        ) {
+                            toggleScope(label)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 260)
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 6)
+        .frame(width: 264)
+    }
+
+    private func toggleScope(_ label: SessionLabel) {
+        if scopeLabelIDs.contains(label.id) {
+            scopeLabelIDs.remove(label.id)
+        } else {
+            scopeLabelIDs.insert(label.id)
+        }
     }
 
     private var mentionPicker: some View {
@@ -463,7 +512,7 @@ struct KnowledgeChatView: View {
         let active = mentions.filter { text.localizedCaseInsensitiveContains("@\($0.title)") }
         draft = ""
         mentions = []
-        let scope = scopeLabel
+        let scope = scopeLabels
         Task { await chat.ask(text, pinned: active, scope: scope) }
     }
 
@@ -482,4 +531,42 @@ struct KnowledgeChatView: View {
     }
 
     private static let typingAnchor = "nod.knowledge.typing"
+}
+
+/// One folder in the scope picker: the same swatch-name-checkmark shape the
+/// folder popover on a session uses, so the two lists read as one control.
+private struct ScopePickerRow: View {
+    let text: String
+    let isSelected: Bool
+    let swatch: Color?
+    let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Circle()
+                    .fill(swatch ?? .clear)
+                    .frame(width: 9, height: 9)
+                Text(text)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Theme.Palette.ink)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.violet)
+                    .opacity(isSelected ? 1 : 0)
+            }
+            .frame(height: 18)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .hoverHighlight(isHovering, cornerRadius: 6, reduceMotion: reduceMotion)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
 }

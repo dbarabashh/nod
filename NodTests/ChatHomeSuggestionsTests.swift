@@ -33,7 +33,7 @@ final class ChatHomeSuggestionsTests: XCTestCase {
     func testProjectScopeNamesTheProjectInEveryOpener() {
         let suggestions = ChatHomeSuggestions.build(
             meetings: [meeting(title: "Standup", daysAgo: 1)],
-            project: "Hiring",
+            projects: ["Hiring"],
             now: now
         )
 
@@ -42,10 +42,30 @@ final class ChatHomeSuggestionsTests: XCTestCase {
         XCTAssertFalse(suggestions.contains { $0.label.contains("Standup") })
     }
 
+    func testSeveralProjectsAreNamedInEveryOpener() {
+        let suggestions = ChatHomeSuggestions.build(
+            meetings: [meeting(title: "Standup", daysAgo: 1)],
+            projects: ["Hiring", "Pricing"],
+            now: now
+        )
+
+        XCTAssertFalse(suggestions.isEmpty)
+        XCTAssertTrue(suggestions.allSatisfy { $0.question.contains("Hiring and Pricing") })
+        XCTAssertFalse(suggestions.contains { $0.label.contains("Standup") })
+    }
+
     func testScopeHeadlineNamesTheReach() {
-        XCTAssertEqual(ChatHomeSuggestions.scopeHeadline(project: nil), "Ask across all memory")
-        XCTAssertEqual(ChatHomeSuggestions.scopeHeadline(project: "   "), "Ask across all memory")
-        XCTAssertEqual(ChatHomeSuggestions.scopeHeadline(project: "Hiring"), "Ask about Hiring")
+        XCTAssertEqual(ChatHomeSuggestions.scopeHeadline(projects: []), "Ask across all memory")
+        XCTAssertEqual(ChatHomeSuggestions.scopeHeadline(projects: ["   "]), "Ask across all memory")
+        XCTAssertEqual(ChatHomeSuggestions.scopeHeadline(projects: ["Hiring"]), "Ask about Hiring")
+        XCTAssertEqual(
+            ChatHomeSuggestions.scopeHeadline(projects: ["Hiring", "Pricing"]),
+            "Ask about Hiring and Pricing"
+        )
+        XCTAssertEqual(
+            ChatHomeSuggestions.scopeHeadline(projects: ["Hiring", "  ", "Pricing", "Roadmap"]),
+            "Ask about Hiring, Pricing and Roadmap"
+        )
     }
 
     func testRecentMeetingIsNamedInAnOpener() {
@@ -121,7 +141,7 @@ final class ChatHomeSuggestionsTests: XCTestCase {
     /// scope away.
     func testProjectQuestionsCarryTheWholeName() {
         let project = "Платформа рекомендацій та персоналізації стрічки"
-        let suggestions = ChatHomeSuggestions.build(meetings: [], project: project, now: now)
+        let suggestions = ChatHomeSuggestions.build(meetings: [], projects: [project], now: now)
 
         XCTAssertFalse(suggestions.isEmpty)
         XCTAssertTrue(suggestions.allSatisfy { $0.question.contains(project) })

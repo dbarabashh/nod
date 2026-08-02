@@ -39,25 +39,33 @@ enum ChatHomeSuggestions {
     /// a lie and the opener would return nothing.
     static let recentWindow: TimeInterval = 7 * 24 * 60 * 60
 
+    /// The scoped projects read as prose — "Hiring", "Hiring and Pricing",
+    /// "Hiring, Pricing and Roadmap". Nil when nothing is scoped.
+    static func scopeName(_ projects: [String]) -> String? {
+        let names = projects
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard let last = names.last else { return nil }
+        guard names.count > 1 else { return last }
+        return names.dropLast().joined(separator: ", ") + " and " + last
+    }
+
     /// What the chat is pointed at, spelled out above the openers. An empty
     /// composer reads as a generic chatbot; naming the reach ("all memory", or
-    /// the folder the user scoped to) is what makes it read as *their* memory.
-    static func scopeHeadline(project: String?, titleLimit: Int = 40) -> String {
-        guard let project, !project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return "Ask across all memory"
-        }
-        return "Ask about \(truncated(project, to: titleLimit))"
+    /// the folders the user scoped to) is what makes it read as *their* memory.
+    static func scopeHeadline(projects: [String], titleLimit: Int = 40) -> String {
+        guard let name = scopeName(projects) else { return "Ask across all memory" }
+        return "Ask about \(truncated(name, to: titleLimit))"
     }
 
     static func build(
         meetings: [Meeting],
-        project: String? = nil,
+        projects: [String] = [],
         now: Date = Date(),
         titleLimit: Int = 40
     ) -> [Opener] {
         var suggestions: [Opener] = []
-        if let project, !project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let full = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let full = scopeName(projects) {
             let short = truncated(full, to: titleLimit)
             suggestions = [
                 naming("Catch me up on %@", short: short, full: full),

@@ -208,7 +208,7 @@ struct LauncherView: View {
             // it's on (searching → reading N sessions → writing), which is the
             // difference between "it's working" and "it's stuck".
             HStack {
-                ThinkingIndicator(phase: chat.thinkingPhase)
+                ThinkingIndicator(script: chat.thinkingScript)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
@@ -253,7 +253,7 @@ struct LauncherView: View {
                     isStreaming: chat.isStreaming
                 )
                 if chat.isStreaming {
-                    ThinkingIndicator(phase: chat.thinkingPhase)
+                    ThinkingIndicator(script: chat.thinkingScript)
                 }
                 if !answer.evidence.isEmpty, !chat.isStreaming {
                     evidence(answer.evidence, in: answer.id)
