@@ -942,6 +942,13 @@ async function handleSearch(payload: unknown, userId: string): Promise<Response>
     // Hybrid boost (cross-session only): lift chunks from sessions whose
     // extracted entity is named in the query, so "what did Sarah say about X"
     // surfaces Sarah's sessions even when pure vector rank misses them.
+    //
+    // The boost orders, it does not score. It used to be added into
+    // `similarity` itself, so a named-person match reported 0.1 more than it
+    // measured — and the client thresholds on that number to decide what may
+    // ground and cite an answer. Same reasoning as the recency prior in
+    // `match_session_chunks`, which also ranks with a bonus and returns the raw
+    // cosine.
     if (!meetingId && matches.length > 0) {
         try {
             const { data: entRows } = await admin.rpc("meetings_matching_entities", {
@@ -951,8 +958,9 @@ async function handleSearch(payload: unknown, userId: string): Promise<Response>
             const boosted = new Set((entRows ?? []).map((r: { meeting_id: string }) => r.meeting_id));
             if (boosted.size > 0) {
                 matches = matches
-                    .map((m) => boosted.has(m.meeting_id) ? { ...m, similarity: m.similarity + 0.1 } : m)
-                    .sort((a, b) => b.similarity - a.similarity);
+                    .map((m) => ({ match: m, rank: boosted.has(m.meeting_id) ? m.similarity + 0.1 : m.similarity }))
+                    .sort((a, b) => b.rank - a.rank)
+                    .map(({ match }) => match);
             }
         } catch (err) {
             console.warn(`entity boost skipped: ${err}`);
