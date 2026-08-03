@@ -383,7 +383,11 @@ private struct LanguagePicker: View {
                 .foregroundColor(.white.opacity(0.78))
                 .headerGlyphCircle()
         } menu: {
-            Picker("Nod language", selection: Binding(
+            // Label shown, not hidden: the chip is two letters, so an unlabelled
+            // list of language names is indistinguishable from "what language is
+            // this meeting in?". Inline style renders it as the menu's section
+            // header, which is the one place the choice can name itself.
+            Picker("Nod language — summaries and answers", selection: Binding(
                 get: { current },
                 set: { onSelect($0) }
             )) {
@@ -392,9 +396,8 @@ private struct LanguagePicker: View {
                 }
             }
             .pickerStyle(.inline)
-            .labelsHidden()
         }
-        .help("Switch Nod language — applies to summaries, titles, cards, and answers")
+        .help(MeetingLanguagePrompt.scopeNote)
     }
 }
 

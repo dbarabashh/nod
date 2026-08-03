@@ -51,10 +51,16 @@ struct WelcomeStep: View {
             .frame(maxWidth: 380)
             .padding(.bottom, 18)
 
-            LanguageRow(
-                label: strings.welcomeLanguageLabel,
-                selection: $selection
-            )
+            VStack(alignment: .leading, spacing: 6) {
+                LanguageRow(
+                    label: strings.welcomeLanguageLabel,
+                    selection: $selection
+                )
+                Text(strings.welcomeLanguageHint)
+                    .font(.system(size: 11.5, weight: .regular))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             .frame(maxWidth: 380)
             .padding(.bottom, 30)
 

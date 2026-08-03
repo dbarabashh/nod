@@ -20,6 +20,11 @@ struct MeetingLanguagePrompt: View {
     let onStart: () -> Void
     let onCancel: () -> Void
 
+    /// What the Nod language pick governs, and — the half people get wrong —
+    /// what it leaves alone. Shared with the onboarding pick and the header
+    /// picker's tooltip so all three describe the same setting the same way.
+    static let scopeNote = "Summaries, titles, and answers come back in this language. It doesn't limit what you speak on the call — Nod transcribes whatever it hears."
+
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 8) {
@@ -34,6 +39,16 @@ struct MeetingLanguagePrompt: View {
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundColor(.white.opacity(0.95))
             }
+
+            // A language confirm shown the instant you press Start reads as
+            // "what language is this meeting in?" no matter what it is called —
+            // the context is doing the talking. Users set it to the language
+            // they were about to speak and then got a recap they couldn't read.
+            // So the card states what it governs, and what it does not.
+            Text(Self.scopeNote)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundColor(.white.opacity(0.55))
+                .fixedSize(horizontal: false, vertical: true)
 
             Toggle(isOn: $askEachTime) {
                 Text("Ask before each meeting")
