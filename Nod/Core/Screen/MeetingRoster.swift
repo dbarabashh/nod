@@ -146,26 +146,35 @@ struct MeetingRosterReader {
 
     /// Blocking — call it off the main actor.
     func sample() -> MeetingRoster? {
-        guard let (app, pid) = Self.runningConferencingApp(excluding: exclusions) else { return nil }
+        let candidates = Self.runningConferencingApps(excluding: exclusions)
+        guard let leading = candidates.first else { return nil }
         guard AccessibilityAccess.isTrusted else {
-            requestTrustOnce(for: app)
+            requestTrustOnce(for: leading.app)
             return nil
         }
 
+        for candidate in candidates {
+            guard let roster = roster(of: candidate.app, pid: candidate.pid) else { continue }
+            // Per-sample, so `.debug`: sampling repeats for the whole call, and
+            // the event worth an `.info` line is the accumulated count changing,
+            // which the caller logs.
+            Log.screen.debug("roster: \(candidate.app.displayName) — \(roster.speakerCount) participant(s) this sample")
+            return roster
+        }
+        let running = candidates.map(\.app.displayName).joined(separator: ", ")
+        Log.screen.debug("roster: \(running) running, no participants readable")
+        return nil
+    }
+
+    /// One app's participant list, or nil when its windows name no one.
+    private func roster(of app: ConferencingApp, pid: pid_t) -> MeetingRoster? {
         let exclusions = exclusions
         let texts = reader.texts(forProcessID: pid) { title in
             guard !exclusions.excludesWindow(title: title) else { return false }
             return app.isBrowser ? Self.isMeetingWindowTitle(title) : true
         }
         let names = Self.participantNames(in: texts)
-        // Per-sample, so `.debug`: sampling repeats for the whole call, and the
-        // event worth an `.info` line is the accumulated count changing, which
-        // the caller logs.
-        guard !names.isEmpty else {
-            Log.screen.debug("roster: \(app.displayName) running, no participants readable")
-            return nil
-        }
-        Log.screen.debug("roster: \(app.displayName) — \(names.count) participant(s) this sample")
+        guard !names.isEmpty else { return nil }
         return MeetingRoster(app: app, participants: names)
     }
 
@@ -184,13 +193,36 @@ struct MeetingRosterReader {
 
     private static let trustRequested = OSAllocatedUnfairLock(initialState: false)
 
-    /// Prefers a native conferencing app over a browser: if Zoom is running, its
-    /// window is unambiguously the call, while a browser needs the title to
-    /// agree first. Apps whose windows aren't a roster are skipped — see
+    /// Every app worth asking for a roster, best candidate first.
+    ///
+    /// An ordered list rather than a single pick, because the leading app is a
+    /// guess and a wrong guess used to end the search: Slack sits open all day
+    /// and sorts ahead of every browser, so a Google Meet call in Chrome read as
+    /// "Slack running, no participants readable" and the roster came back empty
+    /// for the whole meeting — no names for the recap, and no speaker count to
+    /// pin clustering with. The caller walks this list and keeps the first app
+    /// that actually names someone.
+    ///
+    /// Order: an app a call-only helper process places in a call is
+    /// unambiguously the call and leads; the rest keep native-before-browser,
+    /// since a native app *is* the call while a browser merely contains one.
+    /// Apps whose windows aren't a roster are skipped — see
     /// `exposesParticipantList`.
-    static func runningConferencingApp(excluding exclusions: ScreenExclusionRules = .none) -> (ConferencingApp, pid_t)? {
-        ConferencingApp.running(excluding: exclusions).apps
-            .first { $0.0.exposesParticipantList }
+    static func runningConferencingApps(
+        excluding exclusions: ScreenExclusionRules = .none
+    ) -> [(app: ConferencingApp, pid: pid_t)] {
+        let (apps, inCall) = ConferencingApp.running(excluding: exclusions)
+        return rosterOrder(apps.map { (app: $0.0, pid: $0.1) }, inCall: inCall)
+    }
+
+    /// The ordering half of `runningConferencingApps`, split out so the rule can
+    /// be tested without a running Zoom.
+    static func rosterOrder(
+        _ apps: [(app: ConferencingApp, pid: pid_t)],
+        inCall: Set<ConferencingApp>
+    ) -> [(app: ConferencingApp, pid: pid_t)] {
+        let readable = apps.filter(\.app.exposesParticipantList)
+        return readable.filter { inCall.contains($0.app) } + readable.filter { !inCall.contains($0.app) }
     }
 
     /// Whether a browser window title names a video call.

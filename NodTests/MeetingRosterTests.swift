@@ -129,6 +129,41 @@ final class MeetingRosterTests: XCTestCase {
         )
     }
 
+    /// The bug this ordering exists for: Slack sits open all day and sorts ahead
+    /// of every browser, so a Google Meet call in Chrome used to be shadowed by
+    /// it — one app was picked, it named nobody, and the search ended there.
+    /// Chrome has to stay in the list so the caller can fall through to it.
+    func testBrowsersStayInTheListBehindNativeApps() {
+        let order = MeetingRosterReader.rosterOrder(
+            [(app: .slack, pid: 1), (app: .chrome, pid: 2)],
+            inCall: []
+        )
+
+        XCTAssertEqual(order.map(\.app), [.slack, .chrome])
+    }
+
+    /// A call-only helper process is proof, not a guess, so that app is asked
+    /// first even though a browser otherwise sorts last.
+    func testAnAppConfirmedInACallLeads() {
+        let order = MeetingRosterReader.rosterOrder(
+            [(app: .slack, pid: 1), (app: .zoom, pid: 2), (app: .chrome, pid: 3)],
+            inCall: [.chrome]
+        )
+
+        XCTAssertEqual(order.map(\.app), [.chrome, .slack, .zoom])
+    }
+
+    /// Discord's windows are DMs and server channels, not a roster — walking
+    /// them harvests person-shaped strings out of private conversation.
+    func testAppsThatExposeNoRosterAreNeverAsked() {
+        let order = MeetingRosterReader.rosterOrder(
+            [(app: .discord, pid: 1), (app: .chrome, pid: 2)],
+            inCall: [.discord]
+        )
+
+        XCTAssertEqual(order.map(\.app), [.chrome])
+    }
+
     /// A different app is a different call — the earlier names belong to it, not
     /// to this one.
     func testMergingADifferentAppReplacesRatherThanUnions() {

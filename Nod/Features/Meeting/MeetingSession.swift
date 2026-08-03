@@ -658,13 +658,30 @@ final class MeetingSession: ObservableObject {
             // took over the store during flush, fall back to the pinned snapshot
             // so this meeting is still persisted instead of silently dropped.
             let entriesSnapshot = sessionGeneration == generation ? store.entries : pinnedEntries
-            let context = Self.transcriptContext(from: entriesSnapshot, speakers: speakers)
-            guard !context.isEmpty else {
+            let clustered = Self.transcriptContext(from: entriesSnapshot, speakers: speakers)
+            guard !clustered.isEmpty else {
                 if sessionGeneration == generation { store.clear() }
                 await outbox.discard(draftID)
                 meetingStore.markGenerationFailed(id: draftID, errorMessage: "⚠️ No transcript captured")
                 return
             }
+
+            // Names before the recap, not after it: the recap is the artefact
+            // the user keeps and shares, and it can only write a name it was
+            // handed one for. Resolved afterwards, the summary froze around
+            // "Speaker 2" while the transcript chips underneath were relabelled
+            // — one meeting, two views, permanently disagreeing.
+            let speakerNames = speakers.isEmpty
+                ? [:]
+                : await nameSpeakers(in: clustered, participants: participants)
+            let context = speakerNames.isEmpty
+                ? clustered
+                : Self.transcriptContext(from: entriesSnapshot, speakers: speakers, names: speakerNames)
+            // Carried on the draft rather than patched in afterwards, so the
+            // names land in the same INSERT as the meeting instead of needing
+            // the row to exist first.
+            var named = draft
+            named.speakerNames = speakerNames.isEmpty ? nil : speakerNames
 
             let (system, user) = PromptLibrary.build(
                 kind: .summary,
@@ -692,7 +709,7 @@ final class MeetingSession: ObservableObject {
                 // persistence; Meeting.displayTitle falls back to a
                 // date label.
                 let title = await recapGenerator.title(from: text, language: lang)
-                let updated = draft.updating(title: title, summary: text, recap: recap)
+                let updated = named.updating(title: title, summary: text, recap: recap)
                 meetingStore.applyGenerated(updated)
 
                 // Only clear the live store if it still belongs to THIS meeting —
@@ -723,7 +740,14 @@ final class MeetingSession: ObservableObject {
                 // pass on exactly the long calls that overran the join timeout.
                 if speakers.isEmpty {
                     lateRelabelOwnsFlag = true
-                    Task { await self.applyLateSpeakers(from: speakerTask, entries: entriesSnapshot, meeting: updated) }
+                    Task {
+                        await self.applyLateSpeakers(
+                            from: speakerTask,
+                            entries: entriesSnapshot,
+                            meeting: updated,
+                            participants: participants
+                        )
+                    }
                 }
 
                 // Enrichment (entities for "Related" + embeddings for
@@ -745,8 +769,7 @@ final class MeetingSession: ObservableObject {
                         userID: userID,
                         transcript: context,
                         recap: recap,
-                        participants: participants,
-                        speakersLabelled: !speakers.isEmpty
+                        participants: participants
                     )
                 }
             } catch {
@@ -1108,13 +1131,22 @@ final class MeetingSession: ObservableObject {
 
     /// Array-based counterpart to `TranscriptStore.fullContext` so finalize can
     /// read a pinned snapshot, not the shared live store the next recording resets.
-    private static func transcriptContext(from entries: [TranscriptEntry], speakers: [UUID: Int] = [:]) -> String {
+    /// `names` maps a cluster number to the person behind it, so a transcript
+    /// handed to the recap reads `[Them · Andy]` rather than `[Them · Speaker 3]`
+    /// — the recap can only write a name it was given one for.
+    private static func transcriptContext(
+        from entries: [TranscriptEntry],
+        speakers: [UUID: Int] = [:],
+        names: [String: String] = [:]
+    ) -> String {
         entries.map { entry in
             // The `[Them]` prefix is load-bearing — every playbook rule in
             // `PromptLibrary` keys on it — so a resolved speaker narrows the
             // label rather than replacing it.
             let speaker = entry.segmentID.flatMap { speakers[$0] }
-            let label = speaker.map { "\(entry.source.label) · Speaker \($0)" } ?? entry.source.label
+            let label = speaker.map { cluster in
+                "\(entry.source.label) · \(names["\(cluster)"] ?? "Speaker \(cluster)")"
+            } ?? entry.source.label
             return "[\(label)]: \(entry.text)"
         }
         .joined(separator: "\n")
@@ -1171,7 +1203,8 @@ final class MeetingSession: ObservableObject {
     private func applyLateSpeakers(
         from task: Task<[UUID: Int], Never>,
         entries: [TranscriptEntry],
-        meeting: Meeting
+        meeting: Meeting,
+        participants: [String]
     ) async {
         defer { meetingStore.finishResolvingSpeakers(id: meeting.id) }
         let speakers = await task.value
@@ -1185,6 +1218,19 @@ final class MeetingSession: ObservableObject {
             // The transcript is already saved and readable; only the speaker
             // labels are missing, so a failure here is not worth surfacing.
             Log.stt.error("diarization: late relabel failed — \(error.localizedDescription)")
+        }
+
+        // The recap for this meeting was already written from an unclustered
+        // transcript, so it names nobody — but the chips can still carry names,
+        // and this is the only pass that can put them there. Patched rather than
+        // written with the row, which landed long before clustering finished.
+        let context = Self.transcriptContext(from: entries, speakers: speakers)
+        let names = await nameSpeakers(in: context, participants: participants)
+        guard !names.isEmpty else { return }
+        do {
+            try await meetingStore.updateSpeakerNames(names, for: meeting.id)
+        } catch {
+            Log.ui.error("speaker naming failed (non-fatal): \(error.localizedDescription)")
         }
     }
 
@@ -1257,8 +1303,7 @@ final class MeetingSession: ObservableObject {
         userID: UUID,
         transcript: String,
         recap: MeetingRecap,
-        participants: [String],
-        speakersLabelled: Bool
+        participants: [String]
     ) async {
         // Only kinds that carry personal to-dos (meeting / voice note) —
         // passive media has none.
@@ -1270,8 +1315,7 @@ final class MeetingSession: ObservableObject {
             userID: userID,
             transcript: transcript,
             summary: meeting.summary,
-            participants: participants,
-            speakersLabelled: speakersLabelled
+            participants: participants
         )
         // Detached, and only after entities: indexing runs gte-small embeddings
         // inside the edge worker and is CPU-heavy enough to trip
@@ -1286,46 +1330,51 @@ final class MeetingSession: ObservableObject {
         userID: UUID,
         transcript: String,
         summary: String,
-        participants: [String],
-        speakersLabelled: Bool
+        participants: [String]
     ) async {
         guard !transcript.isEmpty else { return }
         let (system, user) = PromptLibrary.buildEntityExtraction(
             transcript: transcript,
             summary: summary,
-            participants: participants,
-            speakersLabelled: speakersLabelled
+            participants: participants
         )
-        let extracted: ExtractedEntities
         do {
-            extracted = try await llm.completeJSON(system: system, user: user, as: ExtractedEntities.self)
-            if !extracted.isEmpty {
-                try await entityStore.saveExtraction(extracted, meetingID: meetingID, userID: userID)
-            }
+            let extracted = try await llm.completeJSON(system: system, user: user, as: ExtractedEntities.self)
+            guard !extracted.isEmpty else { return }
+            try await entityStore.saveExtraction(extracted, meetingID: meetingID, userID: userID)
         } catch {
             Log.ui.error("entity extraction failed (non-fatal): \(error.localizedDescription)")
-            return
         }
+    }
 
-        // The same call also names the diarized clusters it can tie to a person,
-        // so a named speaker costs no extra request. Written in its own attempt:
-        // this column is newer than the rest of the row, and a client running
-        // ahead of the deployed schema must not take entity extraction down with
-        // it.
-        guard speakersLabelled else { return }
-        let speakers = Self.namedSpeakers(in: extracted)
+    /// Which diarized cluster is which person, from the transcript's own
+    /// evidence plus whatever the conferencing app's roster named.
+    ///
+    /// Best-effort by design, and an empty map is the expected answer for most
+    /// meetings: unnamed clusters make the recap authorless, which is honest,
+    /// while a guessed name ships a lie into something the user shares.
+    private func nameSpeakers(in transcript: String, participants: [String]) async -> [String: String] {
+        guard !transcript.isEmpty else { return [:] }
+        let (system, user) = PromptLibrary.buildSpeakerNaming(
+            transcript: transcript,
+            participants: participants
+        )
         do {
-            try await meetingStore.updateSpeakerNames(speakers, for: meetingID)
+            let named = try await llm.completeJSON(system: system, user: user, as: NamedSpeakers.self)
+            let speakers = Self.namedSpeakers(in: named.speakers)
+            Log.stt.info("diarization: named \(speakers.count) cluster(s) from \(participants.count) roster name(s)")
+            return speakers
         } catch {
             Log.ui.error("speaker naming failed (non-fatal): \(error.localizedDescription)")
+            return [:]
         }
     }
 
     /// Cluster→name pairs worth persisting: a positive cluster number and a
     /// non-empty name. Models occasionally answer with `{"1": ""}` or key the
     /// map by a person's name instead of the number, and neither can render.
-    private static func namedSpeakers(in extracted: ExtractedEntities) -> [String: String] {
-        guard let speakers = extracted.speakers else { return [:] }
+    private static func namedSpeakers(in speakers: [String: String]?) -> [String: String] {
+        guard let speakers else { return [:] }
         return speakers.reduce(into: [String: String]()) { result, pair in
             let name = pair.value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let cluster = Int(pair.key), cluster > 0, !name.isEmpty else { return }

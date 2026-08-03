@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-01_
+_Last updated: 2026-08-03_
 
 > This policy describes the data practices that already exist in the
 > product today — every claim is tied to code you can inspect.
@@ -238,10 +238,13 @@ Nod needs to know how many people are on the call, so it reads the
   the same one screen readers use, to read the labels a window already
   exposes. It takes **no screenshots** and records **no video** of your
   screen.
-- It looks at **one app**: a running conferencing app (Zoom, Teams, Webex,
-  Slack, Discord). For a **browser**, it reads only a window whose title names a call
-  (for example "Meet – abc-defg-hij"); every other window and tab is skipped
-  without being read.
+- It looks only at **running conferencing apps** (Zoom, Teams, Webex, Slack),
+  asking them in turn and stopping at the first one that names anyone — a call
+  in a browser was otherwise shadowed by whichever conferencing app happened to
+  be open alongside it. For a **browser**, it reads only a window whose title
+  names a call (for example "Meet – abc-defg-hij"); every other window and tab
+  is skipped without being read. Discord is never read at all: its windows are
+  DMs and server channels, not a participant list.
 - It runs **only while a recording is running**, and re-reads the list about
   every 15 seconds for as long as it lasts. Reading it once at the start missed
   everyone who had not joined yet, and the participant *count* is what makes
@@ -254,9 +257,10 @@ Nod needs to know how many people are on the call, so it reads the
   transcript itself (§ 4, § 5). It is **not stored** as its own record: the
   list is dropped when the session ends, and only whatever the summary itself
   says is kept.
-- The model is instructed to leave a speaker as "Speaker 2" when the transcript
-  does not make the match unambiguous. A wrong name is worse than an unnamed
-  speaker.
+- The model is instructed to leave a speaker unnamed when the transcript does
+  not make the match unambiguous — the summary then reports what was said with
+  no name attached to it, and the transcript keeps showing that voice as
+  "Speaker 2". A wrong name is worse than an unnamed speaker.
 - Without the Accessibility permission this step is skipped, and Nod falls
   back to guessing the number of speakers from the audio alone.
 

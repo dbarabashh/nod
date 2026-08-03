@@ -24,12 +24,13 @@ extension PromptLibrary {
         STEP 1 — INTERNAL EXTRACTION (do not output this step; it is your private scratchpad before writing the recap).
 
         [SPEAKER LABELS]
-        The transcript marks turns with `[Me]:` (the user holding the device) and `[Them]:` (the other party). Treat these as routing hints for WHO said what — they are NEVER to appear literally in the output. Before writing the recap, decide how to refer to each speaker in the recap language:
-        - If a personal name for that speaker appears literally in the transcript (on your PEOPLE list, said by either party — e.g. "I'm Dima", "thanks, Sarah"), USE that name in the recap.
-        - `[Them · Speaker N]` marks distinct voices on the other side, clustered from the audio. Treat each N as one person and keep them apart. If a [CALL PARTICIPANTS] block is present, it lists who was on the call — map a Speaker N to a participant ONLY when the transcript makes it unambiguous (they introduce themselves, someone addresses them by name, or only one participant can plausibly be that voice). If the mapping is uncertain, keep "Speaker N" rather than guessing: a wrong name is worse than an unnamed speaker.
-        - Otherwise, use a natural noun phrase in the recap language. Prefer a concrete role if one is clear from context (e.g. the recruiter, the candidate, the interviewer, the hiring manager, the PM). If no role is clear, fall back to a neutral phrase: for `[Me]` use the second-person form natural to the recap language ("ви" in Ukrainian, "you" in English, etc.) or "the user"; for `[Them]` use "the other participant" / "співрозмовник" / equivalent.
-        - Be consistent: pick one label per speaker and use it throughout the recap. Do not mix "Dima" and "the candidate" for the same person.
-        - HARD BAN: the literal strings `[Me]`, `[Them]`, `Me:`, `Them:` must NEVER appear anywhere in the output. If you catch yourself about to write one, stop and substitute the label you picked above.
+        The transcript marks turns with `[Me]:` (the user holding the device) and `[Them]:` (the other party). A voice already identified by name is tagged `[Them · Eric]`; one that is only clustered, with no name behind it, is tagged `[Them · Speaker N]`. All of these are routing hints for WHO said what and are NEVER to appear literally in the output. Before writing the recap, decide how to refer to each speaker in the recap language:
+        - `[Them · Eric]` — that voice is identified. Use that name.
+        - Otherwise, if a personal name for that speaker appears literally in the transcript (on your PEOPLE list, said by either party — e.g. "I'm Dima", "thanks, Sarah") and the transcript unambiguously ties it to that voice, USE that name.
+        - Otherwise that speaker is ANONYMOUS. Do not invent a name for them, and do not label them by their cluster number. Write the bullet about WHAT was said, with no author at all: "Testing on the dashboard filtering update is complete" — NOT "Speaker 1 completed testing on the dashboard filtering update". A concrete role is allowed only when the transcript makes it unambiguous (the recruiter, the candidate, the interviewer). For `[Me]`, use the second-person form natural to the recap language ("ви" in Ukrainian, "you" in English) or leave the bullet authorless.
+        - `[Them · Speaker N]` still means "one distinct person" — keep separate speakers' claims from being merged into one bullet. It just never becomes a label in the text.
+        - Be consistent: pick one label per speaker and use it throughout the recap. Do not mix "Dima" and "the candidate" for the same person, and NEVER pair the two forms — "Andy (Speaker 3)" and "Speaker 2 (Nicola)" are both wrong.
+        - HARD BAN: the literal strings `[Me]`, `[Them]`, `Me:`, `Them:`, and `Speaker` followed by a number must NEVER appear anywhere in the output — not in a section title, not in a bullet, not in a quote attribution. If you catch yourself about to write one, stop and rewrite the sentence with no author instead.
 
         Scan the transcript and build these six lists. Each item must appear LITERALLY in the transcript (or, for DECISIONS / ACTIONS / OPEN_THREADS, be a direct paraphrase of a literal statement).
 
@@ -116,7 +117,7 @@ extension PromptLibrary {
         - Do NOT silently "fix" Whisper transcription errors by guessing what was meant. If a passage looks garbled and you cannot confidently determine what was said, omit it.
         - The `quote` field MUST appear word-for-word in the transcript. If you can't quote it exactly, set `quote` to null and paraphrase in `text` instead.
         - Do NOT expand an acronym (e.g. "MR" → "merge request") unless the expansion appears literally in the transcript.
-        - The literal tokens `[Me]` and `[Them]` are transcript routing hints and must NEVER appear in ANY string in the JSON — see [SPEAKER LABELS] above for what to substitute.
+        - The literal tokens `[Me]`, `[Them]` and `Speaker <number>` are transcript routing hints and must NEVER appear in ANY string in the JSON — see [SPEAKER LABELS] above for what to substitute.
 
         ===========================
         [THRESHOLD] — when to omit, when to fall back
@@ -137,6 +138,8 @@ extension PromptLibrary {
 
         BAD examples (do NOT produce):
         - a bullet echoing the literal `[Me]` / `[Them]` — speaker labels must be resolved per [SPEAKER LABELS].
+        - "Speaker 1 finished testing the dashboard." — a cluster number is not a name; drop the author and state what was done.
+        - "Andy (Speaker 3) opened two PRs." / "Speaker 2 (Nicola) will finish the website." — never pair a name with a cluster number; pick one label, and it is never the number.
         - a decision bullet "The team will maybe start a weekly bug bash." — speculative phrasing belongs under open questions, not decisions.
         - an `action_items` entry with no real commitment behind it ("Follow up on things") — drop it instead of inventing a task.
         - a section titled "Action items" / "Next steps" / "To-dos" — actions belong in the `action_items` array, never in `sections`.

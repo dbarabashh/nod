@@ -342,9 +342,13 @@ final class MeetingStore: ObservableObject {
         return copy
     }
 
-    /// Patches only `speaker_names`. Written by the post-meeting extraction pass
-    /// once the row is on the server, so it never rides the insert payload and
-    /// can't be lost to an outbox re-push that predates it.
+    /// Patches only `speaker_names`, for the late-relabel path.
+    ///
+    /// A meeting whose clustering finished inside the join timeout carries its
+    /// names on the insert instead — they are resolved before the recap, so they
+    /// exist by the time the row is written. This is the other case: clustering
+    /// overran, the row landed unnamed minutes ago, and the names can only be
+    /// patched in.
     func updateSpeakerNames(_ names: [String: String], for meetingID: UUID) async throws {
         guard !names.isEmpty else { return }
         Log.ui.info("MeetingStore.updateSpeakerNames id=\(meetingID.uuidString) count=\(names.count)")
