@@ -501,6 +501,7 @@ final class WhisperTranscriber: @unchecked Sendable {
                     kept = trimmed
                 }
                 let detectedLanguage = result.language
+                let sentences = result.segments.compactMap(\.range)
                 // Emission is resolved on `queue` (generation gate + prompt tail)
                 // but fired after the hop, so `flushPending` still sees the append
                 // before its await returns.
@@ -509,6 +510,12 @@ final class WhisperTranscriber: @unchecked Sendable {
                         guard self.generation == capturedGeneration else {
                             continuation.resume(returning: nil)
                             return
+                        }
+                        // Where Whisper broke this chunk into sentences, so the
+                        // clustering pass can tell a one-speaker chunk from two
+                        // people answering each other without a gap between them.
+                        if let segmentID, kept != nil {
+                            self.diarization?.annotate(segmentID, sentences: sentences)
                         }
                         if retrying { self.inFlightRetries -= 1 }
                         if let kept, !retrying {

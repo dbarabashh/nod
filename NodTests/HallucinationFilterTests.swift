@@ -8,7 +8,15 @@ final class HallucinationFilterTests: XCTestCase {
         logprob: Double? = nil,
         compression: Double? = nil
     ) -> TranscriptionSegment {
-        TranscriptionSegment(text: text, avgLogprob: logprob, noSpeechProb: noSpeech, compressionRatio: compression)
+        // Timings are irrelevant here — the filter reads only quality metrics.
+        TranscriptionSegment(
+            text: text,
+            avgLogprob: logprob,
+            noSpeechProb: noSpeech,
+            compressionRatio: compression,
+            start: nil,
+            end: nil
+        )
     }
 
     // Drops the canned junk we saw in the real transcript.

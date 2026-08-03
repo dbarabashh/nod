@@ -161,8 +161,21 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             let speakers = await buffer.resolveSpeakers(using: diarizer, speakerCount: expectedSpeakerCount)
             let distinct = Set(speakers.values).count
             Log.stt.info(
-                "diarization: \(distinct) speaker(s) over \(Int(buffer.retainedSeconds))s of speech in \(String(format: "%.1f", Date().timeIntervalSince(started)))s — labelled \(speakers.count)/\(buffer.spanCount) lines"
+                "diarization: \(distinct) speaker(s) over \(Int(buffer.retainedSeconds))s of speech in \(String(format: "%.1f", Date().timeIntervalSince(started)))s — labelled \(speakers.count)/\(buffer.spanCount) lines (expected \(expectedSpeakerCount > 0 ? String(expectedSpeakerCount) : "unknown"))"
             )
+            // The count alone hides the failure that matters: eight clusters
+            // where one holds more than half the lines is two people merged, not
+            // eight people separated, and it reads identically to a good result
+            // until you see the split.
+            var lineCounts: [Int: Int] = [:]
+            for speaker in speakers.values {
+                lineCounts[speaker, default: 0] += 1
+            }
+            let ranked: [(speaker: Int, lines: Int)] = lineCounts
+                .map { (speaker: $0.key, lines: $0.value) }
+                .sorted { $0.lines == $1.lines ? $0.speaker < $1.speaker : $0.lines > $1.lines }
+            let perCluster = ranked.map { "\($0.speaker):\($0.lines)" }.joined(separator: " ")
+            Log.stt.info("diarization: lines per speaker — \(perCluster)")
             return speakers
         }.value
     }

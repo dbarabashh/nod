@@ -86,6 +86,120 @@ final class SpeakerAssignmentTests: XCTestCase {
         XCTAssertTrue(resolved.isEmpty)
     }
 
+    /// Two people answering each other without a gap land in one VAD chunk.
+    /// Greatest-overlap used to hand the whole line to whoever occupied more of
+    /// it, which is how a question got attributed to the person answering it.
+    func testAChunkHoldingTwoVoicesIsLeftUnattributed() {
+        let id = UUID()
+        let span = DiarizationBuffer.Span(id: id, startSample: 0, endSample: 64_000)
+        let sentences = [id: [
+            DiarizationBuffer.Sentence(startSample: 0, endSample: 32_000),
+            DiarizationBuffer.Sentence(startSample: 32_000, endSample: 64_000)
+        ]]
+
+        let resolved = DiarizationBuffer.speakers(
+            for: [span],
+            sentences: sentences,
+            in: [turn(0, 2, 1), turn(2, 4, 2)],
+            sampleRate: 16_000
+        )
+
+        XCTAssertTrue(resolved.isEmpty)
+    }
+
+    /// Whisper breaks ordinary single-speaker speech into sentences constantly,
+    /// so agreement must still resolve — otherwise this strips labels off most
+    /// of the transcript.
+    func testSentencesThatAgreeStillResolve() {
+        let id = UUID()
+        let span = DiarizationBuffer.Span(id: id, startSample: 0, endSample: 64_000)
+        let sentences = [id: [
+            DiarizationBuffer.Sentence(startSample: 0, endSample: 32_000),
+            DiarizationBuffer.Sentence(startSample: 32_000, endSample: 64_000)
+        ]]
+
+        let resolved = DiarizationBuffer.speakers(
+            for: [span],
+            sentences: sentences,
+            in: [turn(0, 4, 3)],
+            sampleRate: 16_000
+        )
+
+        XCTAssertEqual(resolved[id], 3)
+    }
+
+    /// A span boundary rarely lands exactly on a sentence boundary, so a
+    /// fraction of a second routinely spills into the neighbour's turn. Counting
+    /// that as disagreement would strip good labels off ordinary lines.
+    func testAShortSpilloverSentenceDoesNotCountAsDisagreement() {
+        let id = UUID()
+        let span = DiarizationBuffer.Span(id: id, startSample: 0, endSample: 36_000)
+        let sentences = [id: [
+            DiarizationBuffer.Sentence(startSample: 0, endSample: 32_000),
+            // 0.25s, under `minimumVotingSeconds`, sitting in the next turn.
+            DiarizationBuffer.Sentence(startSample: 32_000, endSample: 36_000)
+        ]]
+
+        let resolved = DiarizationBuffer.speakers(
+            for: [span],
+            sentences: sentences,
+            in: [turn(0, 2, 1), turn(2, 4, 2)],
+            sampleRate: 16_000
+        )
+
+        XCTAssertEqual(resolved[id], 1)
+    }
+
+    /// A chunk of clipped interjections has nothing long enough to vote; reading
+    /// it whole is better than dropping it.
+    func testAChunkOfOnlyShortSentencesFallsBackToTheWholeSpan() {
+        let id = UUID()
+        let span = DiarizationBuffer.Span(id: id, startSample: 0, endSample: 12_000)
+        let sentences = [id: [
+            DiarizationBuffer.Sentence(startSample: 0, endSample: 6_000),
+            DiarizationBuffer.Sentence(startSample: 6_000, endSample: 12_000)
+        ]]
+
+        let resolved = DiarizationBuffer.speakers(
+            for: [span],
+            sentences: sentences,
+            in: [turn(0, 1, 4)],
+            sampleRate: 16_000
+        )
+
+        XCTAssertEqual(resolved[id], 4)
+    }
+
+    /// Sentence offsets arrive in chunk-relative seconds and have to be placed
+    /// against the span's position in the concatenated timeline, not the origin.
+    func testAnnotateOffsetsSentencesFromTheSpanStart() {
+        let buffer = DiarizationBuffer()
+        _ = buffer.record([Float](repeating: 0.2, count: 32_000))
+        guard let second = buffer.record([Float](repeating: 0.2, count: 64_000)) else {
+            return XCTFail("second segment should record")
+        }
+        // Chunk-relative: 0-2s then 2-4s, i.e. 2-4s then 4-6s absolute.
+        buffer.annotate(second, sentences: [0 ..< 2, 2 ..< 4])
+
+        let resolved = buffer.speakers(in: [turn(0, 4, 1), turn(4, 6, 2)])
+
+        XCTAssertNil(resolved[second], "the two sentences sit in different turns")
+    }
+
+    /// A single sentence is just the chunk — nothing to disagree with, and
+    /// recording it would only cost memory.
+    func testASingleSentenceIsNotRecorded() {
+        let buffer = DiarizationBuffer()
+        guard let id = buffer.record([Float](repeating: 0.2, count: 64_000)) else {
+            return XCTFail("segment should record")
+        }
+        buffer.annotate(id, sentences: [0 ..< 4])
+
+        let resolved = buffer.speakers(in: [turn(0, 2, 1), turn(2, 4, 2)])
+
+        XCTAssertEqual(resolved[id], 1, "still read whole, so greatest overlap applies")
+    }
+
     func testRecordingSegmentsBuildsContiguousSpans() {
         let buffer = DiarizationBuffer()
         let first = buffer.record([Float](repeating: 0.5, count: 16_000))

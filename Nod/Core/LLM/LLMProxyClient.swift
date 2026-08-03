@@ -557,7 +557,9 @@ final class LLMProxyClient: ObservableObject {
                     text: $0.text ?? "",
                     avgLogprob: $0.avg_logprob,
                     noSpeechProb: $0.no_speech_prob,
-                    compressionRatio: $0.compression_ratio
+                    compressionRatio: $0.compression_ratio,
+                    start: $0.start,
+                    end: $0.end
                 )
             }
             Log.llm.info("← Whisper OK len=\(text.count) segs=\(segments.count) lang=\(decoded.language ?? "?")")
@@ -1022,6 +1024,18 @@ struct TranscriptionSegment {
     let avgLogprob: Double?
     let noSpeechProb: Double?
     let compressionRatio: Double?
+    /// Seconds from the start of the submitted chunk. Present whenever the
+    /// provider honored `verbose_json`; diarization uses them to notice that one
+    /// VAD chunk holds two voices.
+    let start: Double?
+    let end: Double?
+
+    /// Where this segment sits inside its chunk, or nil when the provider gave
+    /// no timings or gave a degenerate (non-advancing) pair.
+    var range: Range<TimeInterval>? {
+        guard let start, let end, end > start else { return nil }
+        return start ..< end
+    }
 }
 
 private struct ChatRequest: Encodable {

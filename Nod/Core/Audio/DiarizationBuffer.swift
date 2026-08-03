@@ -29,10 +29,25 @@ final class DiarizationBuffer: @unchecked Sendable {
     /// answer beats an unbounded one.
     static let maxRetainedSeconds: TimeInterval = 5400
 
+    /// A sentence Whisper reported inside one span, in the same concatenated
+    /// timeline. Only recorded when a chunk came back with more than one.
+    struct Sentence: Equatable {
+        let startSample: Int
+        let endSample: Int
+    }
+
+    /// Sentences shorter than this never vote on whether a span holds two
+    /// voices. A span boundary rarely lines up exactly with a sentence boundary,
+    /// so the first or last fraction of a second of a chunk routinely lands in
+    /// the neighbouring speaker's turn. Counting those as disagreement would
+    /// strip good labels off ordinary single-speaker lines.
+    static let minimumVotingSeconds: TimeInterval = 0.6
+
     private let sampleRate: Int
     private let maxSamples: Int
     private var samples: [Int16] = []
     private var spans: [Span] = []
+    private var sentences: [UUID: [Sentence]] = [:]
     private var loggedOverflow = false
 
     init(sampleRate: Int = 16_000, maxRetainedSeconds: TimeInterval = DiarizationBuffer.maxRetainedSeconds) {
@@ -72,6 +87,30 @@ final class DiarizationBuffer: @unchecked Sendable {
         return id
     }
 
+    /// Records where Whisper's own sentence boundaries fell inside an already-
+    /// recorded span, in seconds from the start of that span.
+    ///
+    /// Deferred rather than passed to `record`, because a span is retained the
+    /// moment the VAD emits it and the sentence boundaries only come back with
+    /// the transcription seconds later. One VAD segment is one *acoustic* run of
+    /// speech, not one speaker's turn: two people answering each other without a
+    /// gap land in a single chunk, and greatest-overlap then hands the whole line
+    /// to whoever occupied more of it. These boundaries are what makes that case
+    /// visible.
+    func annotate(_ id: UUID, sentences ranges: [Range<TimeInterval>]) {
+        guard ranges.count > 1, let span = spans.first(where: { $0.id == id }) else { return }
+        let recorded = ranges.compactMap { range -> Sentence? in
+            let start = span.startSample + Int(range.lowerBound * TimeInterval(sampleRate))
+            let end = span.startSample + Int(range.upperBound * TimeInterval(sampleRate))
+            let clampedStart = min(max(start, span.startSample), span.endSample)
+            let clampedEnd = min(max(end, clampedStart), span.endSample)
+            guard clampedEnd > clampedStart else { return nil }
+            return Sentence(startSample: clampedStart, endSample: clampedEnd)
+        }
+        guard recorded.count > 1 else { return }
+        sentences[id] = recorded
+    }
+
     /// Cluster the retained speech and hand back one speaker per recorded span.
     /// Spans the diarizer could not attribute are absent from the result rather
     /// than guessed at.
@@ -80,18 +119,64 @@ final class DiarizationBuffer: @unchecked Sendable {
         let samples = samples.map { Float($0) / 32_767 }
         let turns = await SpeakerAssignment.normalized(diarizer.diarize(samples, speakerCount: speakerCount))
         guard !turns.isEmpty else { return [:] }
-        return Self.speakers(for: spans, in: turns, sampleRate: sampleRate)
+        return speakers(in: turns)
     }
 
-    static func speakers(for spans: [Span], in turns: [DiarizedTurn], sampleRate: Int) -> [UUID: Int] {
+    /// Maps an already-clustered timeline back onto the recorded spans.
+    func speakers(in turns: [DiarizedTurn]) -> [UUID: Int] {
+        Self.speakers(for: spans, sentences: sentences, in: turns, sampleRate: sampleRate)
+    }
+
+    static func speakers(
+        for spans: [Span],
+        sentences: [UUID: [Sentence]] = [:],
+        in turns: [DiarizedTurn],
+        sampleRate: Int
+    ) -> [UUID: Int] {
         var resolved: [UUID: Int] = [:]
+        var mixed = 0
         for span in spans {
-            let start = TimeInterval(span.startSample) / TimeInterval(sampleRate)
-            let end = TimeInterval(span.endSample) / TimeInterval(sampleRate)
-            if let speaker = SpeakerAssignment.speaker(from: start, to: end, in: turns) {
-                resolved[span.id] = speaker
+            guard let voice = speaker(of: span, sentences: sentences[span.id], in: turns, sampleRate: sampleRate) else {
+                if sentences[span.id] != nil { mixed += 1 }
+                continue
             }
+            resolved[span.id] = voice
+        }
+        if mixed > 0 {
+            Log.stt.info("diarization: \(mixed) chunk(s) hold more than one voice — left unattributed")
         }
         return resolved
+    }
+
+    /// One speaker for a span, or nil when the diarizer either could not
+    /// attribute it or attributed its sentences to different people.
+    ///
+    /// Whichever voice occupied more of a two-speaker chunk is not the answer —
+    /// it is a coin flip that reads as certainty, and the recap then quotes one
+    /// person saying the other's words. Unattributed is the honest result: the
+    /// line still shows, it just carries no name.
+    private static func speaker(
+        of span: Span,
+        sentences: [Sentence]?,
+        in turns: [DiarizedTurn],
+        sampleRate: Int
+    ) -> Int? {
+        func voice(from startSample: Int, to endSample: Int) -> Int? {
+            SpeakerAssignment.speaker(
+                from: TimeInterval(startSample) / TimeInterval(sampleRate),
+                to: TimeInterval(endSample) / TimeInterval(sampleRate),
+                in: turns
+            )
+        }
+        guard let sentences else { return voice(from: span.startSample, to: span.endSample) }
+
+        let minimumSamples = Int(minimumVotingSeconds * TimeInterval(sampleRate))
+        let voters = sentences.filter { $0.endSample - $0.startSample >= minimumSamples }
+        // Every sentence too short to vote — a chunk of clipped interjections.
+        // Nothing to compare, so fall back to reading the span whole.
+        guard !voters.isEmpty else { return voice(from: span.startSample, to: span.endSample) }
+
+        let voices = Set(voters.compactMap { voice(from: $0.startSample, to: $0.endSample) })
+        return voices.count == 1 ? voices.first : nil
     }
 }
