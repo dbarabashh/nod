@@ -118,7 +118,7 @@ struct AppServices {
 
         let meetingStore = MeetingStore(supabase: supabase)
         let profileStore = ProfileStore(supabase: supabase, auth: auth)
-        let knowledgeStore = KnowledgeStore(llm: llmClient)
+        let knowledgeStore = KnowledgeStore(llm: llmClient, supabase: supabase)
         let screenExclusions = ScreenExclusions()
         let screenContext = ScreenContextService(supabase: supabase, exclusions: screenExclusions)
         let entitlements = EntitlementService(supabase: supabase)

@@ -438,6 +438,7 @@ final class MeetingSession: ObservableObject {
         Log.ui.info("Start Meeting")
         sessionGeneration += 1
         meeting = .recording
+        knowledgeStore.isCapturing = true
         elapsed = 0
         response = .none
         clearAutoEndPrompt()
@@ -810,6 +811,7 @@ final class MeetingSession: ObservableObject {
     /// used when the post-meeting finalize still needs `store` to snapshot it.
     private func resetPanelForIdle() {
         meeting = .idle
+        knowledgeStore.isCapturing = false
         response = .none
         elapsed = 0
         micMuted = false

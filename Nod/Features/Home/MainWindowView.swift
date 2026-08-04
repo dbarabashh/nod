@@ -115,6 +115,7 @@ struct MainWindowView: View {
             if let id = initialFocusMeetingID {
                 focus(on: id)
             }
+            repairSearchIndex()
         }
         .onReceive(NotificationCenter.default.publisher(for: .nodOpenKnowledgeChats)) { _ in
             focus = nil
@@ -388,6 +389,18 @@ struct MainWindowView: View {
         focus = nil
         surface = .chat
         Task { await knowledgeChat.open(threadID: id) }
+    }
+
+    /// Give the search index a chance to catch up on sessions an interrupted
+    /// indexing run left behind. Detached from the launch `task` and throttled
+    /// inside the store, so it never sits in front of the first paint.
+    private func repairSearchIndex() {
+        Task(priority: .background) {
+            await knowledgeStore.repairUnderIndexed { id in
+                let records = try await meetingStore.fetchTranscript(meetingID: id)
+                return records.promptContext(names: meetingStore.byID[id]?.speakerNames)
+            }
+        }
     }
 
     /// Open the matching session from the in-memory cache. No-op if the id

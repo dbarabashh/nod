@@ -884,6 +884,20 @@ async function handleIndex(payload: unknown, userId: string): Promise<Response> 
     if (pruneError) {
         console.warn(`index prune failed (non-fatal): ${pruneError.message}`);
     }
+    // Record how many chunks the session *should* have, so a later sweep can
+    // spot a run that died part-way (`under_indexed_sessions`) by comparing a
+    // count against this — no transcript read, no guessing from duration.
+    // Written on every batch, unconditionally: batch 0 is not guaranteed to be
+    // the one that lands, and a session is indexed once, so re-writing the same
+    // small int ~30 times costs less than a filter that could silently never
+    // match.
+    const { error: totalError } = await admin
+        .from("meetings")
+        .update({ indexed_chunk_total: total })
+        .eq("id", meetingId);
+    if (totalError) {
+        console.warn(`index total write failed (non-fatal): ${totalError.message}`);
+    }
     await recordEmbedUsage(userId, 200);
     console.log(`index user=${userId} meeting=${meetingId} chunks=${rows.length}`);
     return json({ indexed: rows.length }, 200);

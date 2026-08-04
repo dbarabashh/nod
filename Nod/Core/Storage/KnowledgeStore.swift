@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Supabase
 
 /// One retrieved transcript chunk from cross-session search.
 struct RetrievedChunk: Decodable, Identifiable {
@@ -25,13 +26,15 @@ struct RetrievedChunk: Decodable, Identifiable {
 @MainActor
 final class KnowledgeStore: ObservableObject {
     private let llm: LLMProxyClient
+    private let supabase: SupabaseClient
 
     /// ~1200 chars ≈ a few minutes of dialogue — small enough to be a precise
     /// retrieval unit, large enough to carry context.
     private static let targetChunkChars = 1200
 
-    init(llm: LLMProxyClient) {
+    init(llm: LLMProxyClient, supabase: SupabaseClient) {
         self.llm = llm
+        self.supabase = supabase
     }
 
     /// Indexes the session's transcript for cross-session search. The proxy
@@ -155,6 +158,157 @@ final class KnowledgeStore: ObservableObject {
         } catch {
             Log.ui.error("KnowledgeStore.search failed: \(error.localizedDescription)")
             return []
+        }
+    }
+
+    /// Whether the index covers enough of a session's transcript to answer
+    /// from retrieval alone. An interrupted index run (app quit, a batch that
+    /// never landed) leaves a session with its opening minutes indexed and
+    /// nothing else — retrieval then returns small talk for every question and
+    /// the model reports the rest of the meeting as never discussed. Callers
+    /// fall back to the transcript itself when this is false.
+    /// The margin absorbs chunk-boundary drift: speaker names added after
+    /// indexing change the `[Name]:` prefixes, so the same transcript can chunk
+    /// slightly differently than it did at index time.
+    func coversTranscript(meetingID: UUID, expectedChunks: Int) async -> Bool {
+        guard expectedChunks > 0 else { return false }
+        let indexed = await indexedChunkCount(meetingID: meetingID)
+        return Double(indexed) >= Double(expectedChunks) * 0.85
+    }
+
+    private func indexedChunkCount(meetingID: UUID) async -> Int {
+        #if DEBUG
+            if DemoMode.isEnabled { return Int.max }
+        #endif
+        do {
+            let response = try await supabase
+                .from("session_embeddings")
+                .select("chunk_idx", head: true, count: .exact)
+                .eq("meeting_id", value: meetingID.uuidString)
+                .execute()
+            return response.count ?? 0
+        } catch {
+            Log.ui.error("KnowledgeStore.indexedChunkCount failed: \(error.localizedDescription)")
+            // Unknown coverage reads as complete: a lookup blip shouldn't push
+            // every long session onto the full-transcript path at once.
+            return Int.max
+        }
+    }
+
+    // MARK: - Background repair
+
+    /// Set while a session is capturing. Repair shares the proxy with the live
+    /// Whisper path, where a queued 429 costs a dropped chunk of the meeting the
+    /// user is actually in — so it stands down until capture ends.
+    var isCapturing = false
+
+    /// Sessions repaired per run. Each one is ~30 sequential proxy calls plus
+    /// the embeddings they bill, so this stays small and converges over
+    /// launches, newest first. Users in a hurry have the Rebuild control in the
+    /// sessions list.
+    private static let repairBatchLimit = 3
+    private static let repairInterval: TimeInterval = 6 * 3600
+    private static let lastRepairKey = "knowledge.repair.lastRunAt"
+    private static let clearedRepairKey = "knowledge.repair.cleared"
+
+    private struct UnderIndexedSession: Decodable {
+        let meetingID: UUID
+        /// nil for sessions indexed before the proxy recorded a chunk total —
+        /// those reach the shortlist on a duration heuristic, so the exact call
+        /// happens here, against the transcript.
+        let expectedChunks: Int?
+        let chunkCount: Int
+
+        enum CodingKeys: String, CodingKey {
+            case meetingID = "meeting_id"
+            case expectedChunks = "expected_chunks"
+            case chunkCount = "chunk_count"
+        }
+    }
+
+    /// Re-indexes sessions the index has lost, without waiting for the user to
+    /// open one. `SessionChatView` repairs the session being asked about, but
+    /// corpus-wide retrieval has no such fallback: a session with no chunks
+    /// doesn't exist for "Ask Nod", and nothing else would ever go back for it.
+    ///
+    /// Cost is bounded on both sides. The shortlist is one indexed aggregate in
+    /// Postgres (`under_indexed_sessions`) rather than a walk over the user's
+    /// transcripts, so a multi-year history costs the same as a new account;
+    /// `transcript` is then read only for the handful it returns, and only a
+    /// session that is genuinely short of chunks gets re-embedded — the SQL
+    /// screen is deliberately coarse.
+    func repairUnderIndexed(transcript: (UUID) async throws -> String) async {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+        guard !isCapturing, dueForRepair else { return }
+        var cleared = Self.clearedRepairs
+        guard let candidates = await underIndexedSessions(excluding: cleared) else { return }
+        UserDefaults.standard.set(Date(), forKey: Self.lastRepairKey)
+        guard !candidates.isEmpty else { return }
+        Log.ui.info("KnowledgeStore.repair candidates=\(candidates.count)")
+        for candidate in candidates {
+            guard !isCapturing else { return }
+            do {
+                let text = try await transcript(candidate.meetingID)
+                let expected = candidate.expectedChunks ?? Self.chunk(text).count
+                guard expected > 0, Double(candidate.chunkCount) < Double(expected) * 0.85 else {
+                    // The heuristic shortlist flagged a session that is in fact
+                    // covered. Remember it, or it reaches the front of every
+                    // future shortlist and starves the ones that need work.
+                    cleared.insert(candidate.meetingID)
+                    Self.clearedRepairs = cleared
+                    continue
+                }
+                Log.ui.info(
+                    "KnowledgeStore.repair meeting=\(candidate.meetingID.uuidString) had=\(candidate.chunkCount) expected=\(expected)"
+                )
+                await index(meetingID: candidate.meetingID, transcript: text)
+            } catch {
+                Log.ui.error("KnowledgeStore.repair skipped \(candidate.meetingID.uuidString): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Sessions a previous run measured against their transcript and found
+    /// fully covered — only ever heuristic shortlist entries, since an exact
+    /// total can't produce a false positive. Repairing one writes it a real
+    /// total, so this set stays small and stops growing.
+    private static var clearedRepairs: Set<UUID> {
+        get {
+            Set((UserDefaults.standard.array(forKey: clearedRepairKey) as? [String] ?? []).compactMap(UUID.init))
+        }
+        set {
+            UserDefaults.standard.set(newValue.map(\.uuidString), forKey: clearedRepairKey)
+        }
+    }
+
+    private var dueForRepair: Bool {
+        guard let last = UserDefaults.standard.object(forKey: Self.lastRepairKey) as? Date else { return true }
+        return Date().timeIntervalSince(last) >= Self.repairInterval
+    }
+
+    /// nil distinguishes "couldn't ask" from "nothing to repair" — a failed
+    /// lookup must not stamp the throttle and skip the next six hours.
+    private func underIndexedSessions(excluding cleared: Set<UUID>) async -> [UnderIndexedSession]? {
+        struct Params: Encodable {
+            let p_limit: Int
+            let p_exclude: [String]?
+        }
+        do {
+            return try await supabase
+                .rpc(
+                    "under_indexed_sessions",
+                    params: Params(
+                        p_limit: Self.repairBatchLimit,
+                        p_exclude: cleared.isEmpty ? nil : cleared.map(\.uuidString)
+                    )
+                )
+                .execute()
+                .value
+        } catch {
+            Log.ui.error("KnowledgeStore.underIndexedSessions failed: \(error.localizedDescription)")
+            return nil
         }
     }
 

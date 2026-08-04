@@ -21,10 +21,19 @@ struct SessionChatView: View {
     /// genuinely long sessions now fall back to retrieval.
     private static let longTranscriptChars = 50_000
 
+    /// Ceiling on the transcript we send when retrieval isn't trustworthy.
+    /// ~4 hours of dialogue; beyond it the prompt would cost more than the
+    /// answer is worth, so the head is all that goes.
+    private static let transcriptHardCap = 200_000
+
     @State private var draft: String = ""
     /// nil until the transcript load resolves — the composer stays disabled
     /// until then so the first message is always fully grounded.
     @State private var transcriptText: String?
+    /// Chunks this transcript *should* have in the index — the yardstick for
+    /// whether retrieval can be trusted to stand in for the whole session.
+    @State private var expectedChunks = 0
+    @State private var didRepairIndex = false
     /// The first time saved history lands we jump to the bottom; every later
     /// update animates. Reset per-meeting because the view is rebuilt with
     /// `.id(meeting.id)`.
@@ -233,46 +242,71 @@ struct SessionChatView: View {
         // Match the user's typed language; fall back to the meeting's language.
         let language = AppLanguage.detect(from: query) ?? AppLanguage(rawValue: current.language) ?? .english
         let full = transcriptText ?? ""
-        let grounding: String
+        var grounding = full
+        var isExcerpt = false
         if full.count > Self.longTranscriptChars {
-            // Retrieve the relevant parts of a long meeting. HyDE: resolve the
-            // question (and any follow-up reference) into a standalone query and
-            // embed a hypothetical transcript-style answer. Fall back to the
-            // (truncated) full text if retrieval is empty — e.g. the session
-            // isn't indexed yet.
-            let prepared = await llm.prepareSearchQuery(
-                history: history,
-                query: query,
-                language: language,
-                personalContext: profileStore.promptContext
-            )
-            let chunks = await knowledgeStore.search(
-                query: prepared.standalone,
-                matchCount: 16,
-                meetingID: meeting.id,
-                embedText: prepared.hyde
-            )
-            grounding = chunks.isEmpty
-                ? String(full.prefix(Self.longTranscriptChars))
-                : chunks.map(\.content).joined(separator: "\n…\n")
-        } else {
-            grounding = full
+            // Retrieval only stands in for the transcript when the index
+            // actually covers the session. A run that died part-way leaves the
+            // opening minutes indexed and nothing else, and every question then
+            // retrieves the same small talk — which the model reports as the
+            // whole meeting ("that was never discussed") while the recap, built
+            // from the full transcript, says otherwise.
+            if await knowledgeStore.coversTranscript(meetingID: meeting.id, expectedChunks: expectedChunks) {
+                // HyDE: resolve the question (and any follow-up reference) into a
+                // standalone query and embed a hypothetical transcript-style
+                // answer.
+                let prepared = await llm.prepareSearchQuery(
+                    history: history,
+                    query: query,
+                    language: language,
+                    personalContext: profileStore.promptContext
+                )
+                let chunks = await knowledgeStore.search(
+                    query: prepared.standalone,
+                    matchCount: 16,
+                    meetingID: meeting.id,
+                    embedText: prepared.hyde
+                )
+                if chunks.isEmpty {
+                    grounding = String(full.prefix(Self.transcriptHardCap))
+                    isExcerpt = grounding.count < full.count
+                } else {
+                    grounding = chunks.map(\.content).joined(separator: "\n…\n")
+                    isExcerpt = true
+                }
+            } else {
+                grounding = String(full.prefix(Self.transcriptHardCap))
+                isExcerpt = grounding.count < full.count
+                repairIndex(full)
+            }
         }
         return PromptLibrary.buildChatSystem(
             sessionKind: current.kind,
             title: current.title ?? "",
             summary: current.summary,
             transcript: grounding,
+            transcriptIsExcerpt: isExcerpt,
             language: language,
             personalContext: profileStore.promptContext,
             meetingDate: PromptLibrary.sessionDateString(current.startedAt)
         )
     }
 
+    /// Rebuilds a short index in the background so the next question on this
+    /// session is served by retrieval again instead of the whole transcript.
+    private func repairIndex(_ transcript: String) {
+        guard !didRepairIndex else { return }
+        didRepairIndex = true
+        Log.ui.info("SessionChatView repairing short index meeting=\(meeting.id.uuidString)")
+        Task { await knowledgeStore.index(meetingID: meeting.id, transcript: transcript) }
+    }
+
     private func loadTranscript() async {
         do {
             let records = try await meetingStore.fetchTranscript(meetingID: meeting.id)
-            transcriptText = records.promptContext(names: meeting.speakerNames)
+            let text = records.promptContext(names: meeting.speakerNames)
+            expectedChunks = KnowledgeStore.chunk(text).count
+            transcriptText = text
         } catch {
             Log.ui.error("SessionChatView transcript load failed: \(error.localizedDescription)")
             // Empty (not nil) so chat still works off the recap alone.

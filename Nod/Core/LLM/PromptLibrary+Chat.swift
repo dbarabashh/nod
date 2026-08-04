@@ -16,6 +16,7 @@ extension PromptLibrary {
         title: String,
         summary: String,
         transcript: String,
+        transcriptIsExcerpt: Bool = false,
         language: AppLanguage = .english,
         personalContext: String = "",
         meetingDate: String = ""
@@ -34,7 +35,9 @@ extension PromptLibrary {
         - When the user asks for help that goes beyond the recording (drafting a follow-up, explaining a concept that came up, brainstorming next steps), you may use general knowledge — but never fabricate things as if they were said in the \(
             noun
         ).
-        - If something isn't in the transcript, say so plainly instead of inventing it.
+        - \(
+            transcriptIsExcerpt ? excerptGroundingRule(noun) : "If something isn't in the transcript, say so plainly instead of inventing it."
+        )
         - The labels [Me] (the user) and [Them] (other voices) are routing hints — refer to people naturally, never echo the literal tags.
         - If the user asks you to assess a participant's ability in a language, base the assessment only on transcript passages originally spoken in that language. Do not assess translated, summarized, or paraphrased content as evidence of language ability.
 
@@ -47,12 +50,20 @@ extension PromptLibrary {
         === RECAP ===
         \(summary.isEmpty ? "(No recap available.)" : summary)
 
-        === TRANSCRIPT ===
+        === \(transcriptIsExcerpt ? "TRANSCRIPT EXCERPTS (PARTIAL — retrieved for this question)" : "TRANSCRIPT") ===
         \(transcript.isEmpty ? "(No transcript was saved for this session.)" : transcript)
         """
         return [personalContext, dateBlock(meetingDate), body]
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
+    }
+
+    /// What the model is allowed to conclude when it's holding excerpts rather
+    /// than the whole transcript. Without this it reads a handful of retrieved
+    /// passages as the entire session and answers "that was never discussed" —
+    /// contradicting a recap that was written from the full text.
+    private static func excerptGroundingRule(_ noun: String) -> String {
+        "The transcript section below is only the passages retrieved for this question, NOT the whole \(noun). If something isn't in them, say you couldn't locate that part rather than saying it wasn't discussed, and never treat the excerpts as evidence against the recap — the recap was written from the complete transcript. When the recap covers something the excerpts don't, answer from the recap and say the verbatim passage isn't in the part you can see."
     }
 
     // MARK: - Query router (which session(s) is the question about?)

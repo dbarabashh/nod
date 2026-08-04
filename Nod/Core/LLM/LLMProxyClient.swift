@@ -28,6 +28,7 @@ final class LLMProxyClient: ObservableObject {
         case emptyResponse
         case decodingFailed(String)
         case networkFailed(Error)
+        case indexIncomplete(indexed: Int, total: Int)
 
         var errorDescription: String? {
             switch self {
@@ -47,6 +48,8 @@ final class LLMProxyClient: ObservableObject {
                 "Failed to decode proxy response: \(detail)"
             case let .networkFailed(error):
                 "Network error: \(error.localizedDescription)"
+            case let .indexIncomplete(indexed, total):
+                "Indexed only \(indexed) of \(total) transcript chunks."
             }
         }
     }
@@ -495,7 +498,8 @@ final class LLMProxyClient: ObservableObject {
             status == 429 || (status >= 500 && status < 600)
         case .networkFailed:
             true
-        case .unauthenticated, .updateRequired, .deviceConflict, .entitlementRequired, .emptyResponse, .decodingFailed:
+        case .unauthenticated, .updateRequired, .deviceConflict, .entitlementRequired, .emptyResponse, .decodingFailed,
+             .indexIncomplete:
             false
         }
     }
@@ -585,23 +589,67 @@ final class LLMProxyClient: ObservableObject {
     /// proxy embeds each chunk server-side (gte-small) and writes the vectors —
     /// the client only ships the text, in small sequential batches so no single
     /// invocation embeds enough to exceed the worker CPU budget.
+    ///
+    /// A batch that fails must not take the rest of the session with it. An
+    /// hour-long meeting is ~30 sequential batches, and this used to `throw` out
+    /// of the loop on the first 546 — leaving the opening minutes indexed and
+    /// the substance of the meeting missing forever, which single-session
+    /// retrieval then answered from as if it were the whole transcript.
+    /// Every batch is attempted, the failures are retried once, and the error
+    /// only surfaces after that — except for the errors no batch can survive
+    /// (lapsed plan, signed out, build too old), which end the run immediately.
+    /// Tolerating those would turn one 403 into two per batch, ~60 doomed calls
+    /// for an hour-long session.
     func indexSession(meetingID: UUID, chunks: [String]) async throws {
+        let total = chunks.count
+        guard total > 0 else { return }
+        Log.llm.info("→ index via proxy meeting=\(meetingID.uuidString) chunks=\(total) batch=\(Self.indexBatchSize)")
+        var failedBases: [Int] = []
+        for base in stride(from: 0, to: total, by: Self.indexBatchSize) {
+            let landed = try await sendIndexBatch(meetingID: meetingID, chunks: chunks, base: base, total: total)
+            if !landed { failedBases.append(base) }
+        }
+        var stillFailed = 0
+        for base in failedBases {
+            let landed = try await sendIndexBatch(meetingID: meetingID, chunks: chunks, base: base, total: total)
+            if !landed { stillFailed += 1 }
+        }
+        guard stillFailed == 0 else {
+            let missing = min(stillFailed * Self.indexBatchSize, total)
+            throw ClientError.indexIncomplete(indexed: total - missing, total: total)
+        }
+    }
+
+    /// True for the errors that make every remaining batch pointless: retrying
+    /// can't clear them and the user has to act (or already has).
+    private static func endsIndexing(_ error: ClientError) -> Bool {
+        switch error {
+        case .entitlementRequired, .unauthenticated, .updateRequired, .deviceConflict:
+            true
+        case .requestFailed, .emptyResponse, .decodingFailed, .networkFailed, .indexIncomplete:
+            false
+        }
+    }
+
+    private func sendIndexBatch(meetingID: UUID, chunks: [String], base: Int, total: Int) async throws -> Bool {
         struct Payload: Encodable {
             let meeting_id: UUID
             let chunks: [String]
             let base_idx: Int
             let total: Int
         }
-        let total = chunks.count
-        guard total > 0 else { return }
-        Log.llm.info("→ index via proxy meeting=\(meetingID.uuidString) chunks=\(total) batch=\(Self.indexBatchSize)")
-        var base = 0
-        while base < total {
-            let upper = min(base + Self.indexBatchSize, total)
+        let upper = min(base + Self.indexBatchSize, total)
+        do {
             let payload = Payload(meeting_id: meetingID, chunks: Array(chunks[base ..< upper]), base_idx: base, total: total)
             let body = try JSONEncoder().encode(ProxyEnvelope(kind: "index", payload: payload))
             _ = try await postToProxyWithRetry(body: body)
-            base = upper
+            return true
+        } catch let error as ClientError where Self.endsIndexing(error) {
+            Log.llm.error("index abandoned at batch \(base) of \(total): \(error.localizedDescription)")
+            throw error
+        } catch {
+            Log.llm.error("index batch \(base)–\(upper) of \(total) failed: \(error.localizedDescription)")
+            return false
         }
     }
 
