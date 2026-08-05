@@ -6,6 +6,9 @@ alwaysApply: false
 
 - Always use the Supabase CLI for anything touching the project — schema, functions, secrets, local dev. Never make a change in the dashboard that should live in code.
 - Never hand-roll SQL outside `supabase/migrations/`. Create migrations with `supabase migration new <name>` and apply with `supabase db push`.
+- Grant every new function explicitly — `grant execute on function public.<fn>(<args>) to authenticated;` (add `anon` only when the surface is genuinely public). Since `20260805082210` the schema's default privileges grant nothing, so a function without a grant is callable by nobody.
+- Revoke from `public`, not just from `anon`. Postgres grants `EXECUTE` to the PUBLIC pseudo-role on every new function, and `anon` inherits it — `revoke ... from anon` alone leaves the function wide open.
+- Start every `SECURITY DEFINER` function with its own authorization check (`auth.uid() is null` → raise, or `_assert_founder()`). Grants are the second line of defence, never the first.
 - Never fast-forward migrations between `main` and `develop` — each branch's instance keeps its own history and they legitimately diverge. Read `docs/supabase.md` before touching migrations on either branch.
 - Keep environment-specific data (e.g. `plan_prices.paddle_price_id`) out of migrations — migrations seed `pri_REPLACE_*` placeholders; real ids are set per branch with a one-off `UPDATE`.
 - Set every secret per branch — nothing is inherited from prod. Management commands need the `sbp_` PAT inline plus `--project-ref`, not the `supabase login` session.
