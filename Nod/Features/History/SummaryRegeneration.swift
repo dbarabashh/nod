@@ -154,7 +154,6 @@ final class SummaryRegeneration: ObservableObject {
         let language = AppLanguage(rawValue: meeting.language) ?? .english
         let framing = MeetingFraming.active(for: meeting.kind, mode: modeStore.selected)
         let (system, user) = PromptLibrary.build(
-            kind: .summary,
             transcript: transcript,
             language: language,
             personalContext: profileStore.promptContext,

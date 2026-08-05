@@ -51,11 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.windows = windows
         self.statusBar = statusBar
 
-        // Suggest reply reuses the on-screen pill's notification path (ContentView observes it).
         services.hotkeys.onTrigger = { [weak windows] action in
             switch action {
-            case .suggestReply:
-                NotificationCenter.default.post(name: .nodSuggestHotkey, object: nil)
             case .togglePanel:
                 windows?.toggleFloatingPanel()
             case .openLauncher:
@@ -115,25 +112,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
-        NotificationCenter.default.addObserver(forName: .nodHidePanel, object: nil, queue: nil) { [weak windows] _ in
-            Task { @MainActor in
-                windows?.hidePanel()
-            }
-        }
-        // The main window's way back to the capture panel — the panel is where
-        // recording lives, and it can be hidden by hotkey or sitting on another
-        // Space. Reveal, never toggle: a button that silently hides the thing
-        // the user just asked for reads as broken.
+        // The main window's way back to the capture surface. Open, never toggle:
+        // a button that silently folds away the thing the user just asked for
+        // reads as broken.
         NotificationCenter.default.addObserver(forName: .nodShowPanel, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in
                 windows?.revealPanel()
-            }
-        }
-        NotificationCenter.default.addObserver(forName: .nodSelectCaptureKind, object: nil, queue: nil) { [weak windows] note in
-            let raw = note.userInfo?[Notification.nodCaptureKindKey] as? String
-            Task { @MainActor in
-                guard let kind = raw.flatMap(SessionKind.init(rawValue:)) else { return }
-                windows?.capture(kind)
             }
         }
         NotificationCenter.default.addObserver(forName: .nodCheckForUpdates, object: nil, queue: nil) { [weak self] _ in
@@ -366,7 +350,6 @@ extension Notification.Name {
     /// `Notification.nodMeetingIDKey`.
     static let nodOpenMeetingDetail = Notification.Name("nod.history.openMeetingDetail")
 
-    /// Posted by the panel's overflow (•••) menu.
     static let nodOpenSettings = Notification.Name("nod.app.openSettings")
     static let nodOpenLibrary = Notification.Name("nod.app.openLibrary")
     /// Switch the Meetings window to the saved cross-session chats — posted
@@ -378,23 +361,14 @@ extension Notification.Name {
     /// Posted by the sidebar's ambient row: switching ambient capture ON has to
     /// happen where the disclosure is, not behind a tooltip.
     static let nodOpenPrivacySettings = Notification.Name("nod.app.openPrivacySettings")
-    static let nodHidePanel = Notification.Name("nod.app.hidePanel")
-    /// Posted from the main window to bring the floating capture panel back.
+    /// Posted from the main window, and by the session when a countdown needs
+    /// answering, to open the capture surface.
     static let nodShowPanel = Notification.Name("nod.app.showPanel")
-    /// Posted by the main window's Capture menu — carries the chosen
-    /// `SessionKind` under `Notification.nodCaptureKindKey`.
-    static let nodSelectCaptureKind = Notification.Name("nod.app.selectCaptureKind")
-    /// Posted while the floating panel is being dragged. Header hover tooltips
-    /// listen for this to dismiss themselves — a drag keeps the cursor "over" an
-    /// icon so `.onHover` never fires its exit, leaving the tooltip pill stuck on
-    /// screen mid-drag. Same intent as cancelling an open header menu on drag.
-    static let nodPanelDidMove = Notification.Name("nod.panel.didMove")
-    /// Posted after a completed checkout (and from the panel) to open Settings
-    /// on the Subscription tab — the single home for plan/billing.
+    /// Posted after a completed checkout, and by the paywall gate, to open
+    /// Settings on the Subscription tab — the single home for plan/billing.
     static let nodOpenSubscription = Notification.Name("nod.app.openSubscription")
 }
 
 extension Notification {
     static let nodMeetingIDKey = "meetingID"
-    static let nodCaptureKindKey = "captureKind"
 }

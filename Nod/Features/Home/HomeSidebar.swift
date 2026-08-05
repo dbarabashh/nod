@@ -12,7 +12,7 @@ struct HomeSidebar: View {
     /// Bring the panel up with a kind already chosen. It stops at the panel
     /// rather than starting: consent, permissions and the language prompt live
     /// there, and a sidebar button must not skip them.
-    let onCapture: (SessionKind) -> Void
+    let onCapture: () -> Void
     let panelShortcut: String
     @Binding var contextCollapsed: Bool
 
@@ -106,29 +106,14 @@ struct HomeSidebar: View {
 
     // MARK: - Primary action
 
-    /// Capture, not Record: the panel this opens takes a meeting, a voice note
-    /// or media, and "record" names only the first of the three.
-    ///
-    /// A pull-down menu, not a plain button: the three kinds are the reason the
-    /// word is "capture", and a chevron says so before the click. The ＋ and the
-    /// chevron together also stop the pill from reading as a selected nav row —
-    /// this is the app's main verb, not the section you're in.
-    ///
-    /// A *system* menu: these are one-shot commands, and the drawn popover this
-    /// replaced had to reproduce hover, dismissal and keyboard navigation by
-    /// hand while hanging an arrow off a 232pt sidebar. Matching the trigger's
-    /// width was never worth what it cost.
+    /// The app's main verb. A plain button, not the pull-down it used to be:
+    /// there is one kind of capture now, and a chevron over a one-item menu
+    /// promises a choice that isn't there.
     private var captureButton: some View {
-        Menu {
-            ForEach(SessionKind.allCases) { kind in
-                Button {
-                    // Reaching a kind is the lesson learned; the hint has served.
-                    captureHintSeen = true
-                    onCapture(kind)
-                } label: {
-                    Label(kind.captureMenuTitle, systemImage: kind.icon)
-                }
-            }
+        Button {
+            // Reaching capture is the lesson learned; the hint has served.
+            captureHintSeen = true
+            onCapture()
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "plus")
@@ -136,9 +121,6 @@ struct HomeSidebar: View {
                 Text("Capture")
                     .font(.system(size: 13.5, weight: .semibold))
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Theme.Palette.muted)
             }
             .foregroundStyle(Theme.Palette.ink)
             .padding(.horizontal, 12)
@@ -147,10 +129,6 @@ struct HomeSidebar: View {
             // Filled and bordered, so it reads as a control rather than a
             // heading — but neutral, not the white pill, which made the main
             // action look like the section the user is currently in.
-            //
-            // No hover fill: once the menu opens the button stops receiving
-            // pointer-exit events, and a highlight painted on hover stays lit
-            // after the menu closes.
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                     .fill(Theme.Palette.surface)
@@ -161,8 +139,8 @@ struct HomeSidebar: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous))
         }
-        .plainMenuChrome()
-        .help("Capture a meeting, voice note, or media  ·  \(panelShortcut)")
+        .buttonStyle(.plain)
+        .help("Capture a meeting  ·  \(panelShortcut)")
     }
 
     @ViewBuilder

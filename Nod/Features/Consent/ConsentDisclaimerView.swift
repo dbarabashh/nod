@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Pre-first-meeting consent disclaimer. Overlay-style modal (not a Sheet —
-/// FloatingPanel is a non-activating panel and sheets misbehave attached to
-/// the system keyWindow). Rendered as a full-panel ZStack overlay by the
-/// caller; this view only paints the centred card + backdrop.
+/// Pre-first-meeting consent disclaimer, shown as a state of the notch surface.
+///
+/// Paints only its content: the notch is the card, and a second card drawn
+/// inside it would read as a dialog floating in a dialog.
 struct ConsentDisclaimerView: View {
     let strings: ConsentStrings
     let onCancel: () -> Void
@@ -15,16 +15,7 @@ struct ConsentDisclaimerView: View {
     @State private var dontShowAgain: Bool = true
 
     var body: some View {
-        // No backdrop — the floating panel is non-activating, so a full
-        // black-fill behind the card looks like a heavy iOS sheet rather
-        // than a discreet macOS overlay. Hit-testing for the underlying
-        // controls is gated by the parent ContentView (`allowsHitTesting`).
-        card
-            .transition(.opacity)
-    }
-
-    private var card: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.shield.fill")
                     .font(.system(size: 18, weight: .semibold))
@@ -71,20 +62,6 @@ struct ConsentDisclaimerView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(20)
-        .frame(width: 340)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
-                .fill(Theme.Palette.bgSoft)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
-                        .stroke(Theme.Palette.borderStrong, lineWidth: 0.5)
-                )
-        )
-        // Explicit hit-test so taps inside the card body don't risk falling
-        // through to anything underneath (defence in depth even though the
-        // backdrop no longer cancels on tap).
         .contentShape(Rectangle())
-        .shadow(color: Color.black.opacity(0.4), radius: 24, x: 0, y: 12)
     }
 }

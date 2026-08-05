@@ -25,37 +25,6 @@ enum MeetingState: Equatable {
     }
 }
 
-/// The mid-call generation actions the panel offers. Raw values are the
-/// historical kind strings — ResponseCard's header label and the tap log
-/// lines key off them, so they must not change.
-enum GenerationKind: String {
-    case hero
-    case suggestReply = "Suggest reply"
-    case keyPoints = "Key points"
-    case followUp = "Suggest follow-up questions"
-    case ask = "Ask"
-
-    var promptKind: PromptKind {
-        switch self {
-        case .hero: .hero
-        case .suggestReply: .suggestReply
-        case .keyPoints: .smartReply
-        case .followUp: .followUp
-        case .ask: .ask
-        }
-    }
-}
-
-enum AIResponse: Equatable {
-    case none
-    case generating(kind: GenerationKind)
-    /// A streamed answer still in flight — `text` grows as deltas arrive. Only
-    /// `.suggestReply` uses this; the other pills decode a JSON object in one
-    /// shot and jump straight to `.ready`.
-    case streaming(kind: GenerationKind, text: String)
-    case ready(kind: GenerationKind, text: String)
-}
-
 /// Non-nil while the "still recording?" prompt is showing. `secondsRemaining`
 /// counts down to an automatic, silence-trimmed end unless the user keeps
 /// recording or ends it themselves.
@@ -112,7 +81,6 @@ final class MeetingSession: ObservableObject {
     /// duration of a recording so the recap framing + audio streams stay
     /// consistent from start to stop.
     @Published var selectedKind: SessionKind = .meeting
-    @Published private(set) var response: AIResponse = .none
     @Published private(set) var elapsed: Int = 0
     @Published private(set) var micMuted: Bool = false
     /// Completed meetings still waiting to reach the server — drives the retry
@@ -285,25 +253,6 @@ final class MeetingSession: ObservableObject {
         profileStore.promptContext
     }
 
-    func isGenerating(for kind: GenerationKind) -> Bool {
-        switch response {
-        case let .generating(k), let .streaming(k, _): k == kind
-        default: false
-        }
-    }
-
-    /// Whether `response` is still the in-flight request for `kind` (generating
-    /// or mid-stream). Used to drop late stream deltas after the user dismissed
-    /// the card or fired a different pill. Same predicate as `isGenerating`; the
-    /// name documents intent at the stream call sites.
-    private func isActiveRequest(_ kind: GenerationKind) -> Bool {
-        isGenerating(for: kind)
-    }
-
-    func dismissResponse() {
-        response = .none
-    }
-
     func runSecondsTimer() async {
         while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -440,7 +389,6 @@ final class MeetingSession: ObservableObject {
         meeting = .recording
         knowledgeStore.isCapturing = true
         elapsed = 0
-        response = .none
         clearAutoEndPrompt()
         wantsAutoStart = false
         autoFinishDeclined = false
@@ -685,7 +633,6 @@ final class MeetingSession: ObservableObject {
             named.speakerNames = speakerNames.isEmpty ? nil : speakerNames
 
             let (system, user) = PromptLibrary.build(
-                kind: .summary,
                 transcript: context,
                 language: lang,
                 personalContext: profile,
@@ -812,7 +759,6 @@ final class MeetingSession: ObservableObject {
     private func resetPanelForIdle() {
         meeting = .idle
         knowledgeStore.isCapturing = false
-        response = .none
         elapsed = 0
         micMuted = false
         clearAutoEndPrompt()
@@ -869,248 +815,6 @@ final class MeetingSession: ObservableObject {
         micMuted.toggle()
         audioCapture.setMicMuted(micMuted)
         Log.ui.info(micMuted ? "mic muted" : "mic unmuted")
-    }
-
-    // MARK: - Mid-call generation
-
-    func generate(kind: GenerationKind) {
-        Log.ui.info("user tapped '\(kind.rawValue)' — context.len=\(store.fullContext.count) entries=\(store.entries.count)")
-        response = .generating(kind: kind)
-        #if DEBUG
-            if DemoMode.isEnabled {
-                demoGenerate(kind: kind)
-                return
-            }
-        #endif
-        let requestedKind = kind
-        let promptKind = kind.promptKind
-        // Snapshot the framing at the moment the user invoked this, so a mode
-        // change between tap and generation can't re-frame the in-flight request
-        // (and so it matches the recap path, which also freezes its framing).
-        let framing = MeetingFraming.active(for: selectedKind, mode: modeStore.selected)
-        Task {
-            // Suggest reply is real-time — force the latest chunk into the
-            // transcript before reading context. Other pills tolerate the 5s
-            // staleness.
-            if promptKind == .suggestReply {
-                await store.flushPending()
-            }
-            let context = store.recentContext(maxEntries: promptKind.contextWindow ?? .max)
-            if context.isEmpty {
-                Log.ui.info("⚠️ context is EMPTY — LLM will get only the system prompt")
-            }
-            let (system, user) = PromptLibrary.build(
-                kind: promptKind,
-                transcript: context,
-                language: language.current,
-                personalContext: profileContext,
-                sessionKind: selectedKind,
-                replyContext: framing.reply,
-                modeFocus: framing.focus,
-                meetingDate: recordingStartedAt.map(PromptLibrary.sessionDateString) ?? ""
-            )
-
-            // Suggest reply streams its plain-text answer so the first words land
-            // in ~1s instead of after the whole completion. The other pills emit a
-            // structured JSON object that can't be rendered until it's complete.
-            if promptKind == .suggestReply {
-                await streamPlainAnswer(
-                    system: system,
-                    user: user,
-                    requestedKind: requestedKind,
-                    emptyFallback: Self.suggestReplyEmptyFallback
-                )
-                return
-            }
-
-            do {
-                // Every other pill's prompt emits a structured JSON object; decode
-                // the matching type and render it to markdown the card already
-                // knows how to show (`renderRecapMarkdown`).
-                let text: String = switch promptKind {
-                case .hero:
-                    try await llm.completeJSON(system: system, user: user, as: CatchUp.self).toMarkdown()
-                case .smartReply:
-                    try await llm.completeJSON(system: system, user: user, as: KeyPoints.self).toMarkdown()
-                case .followUp:
-                    try await llm.completeJSON(system: system, user: user, as: FollowUpQuestions.self).toMarkdown()
-                case .summary:
-                    try await recapGenerator.recap(system: system, user: user, transcript: context, language: language.current).toMarkdown()
-                case .suggestReply:
-                    // Unreachable: the early return above routes suggestReply to
-                    // streamPlainAnswer. Fail loudly if that guard is ever removed
-                    // rather than silently rendering a blank card.
-                    preconditionFailure("suggestReply must stream via streamPlainAnswer, not the buffered switch")
-                case .ask:
-                    // Unreachable: the live Ask box calls `ask(_:)` → `streamPlainAnswer`,
-                    // never `generate(kind:)`. Present only to keep the switch total.
-                    preconditionFailure("ask must stream via streamPlainAnswer, not the buffered switch")
-                }
-                if case let .generating(k) = response, k == requestedKind {
-                    response = .ready(kind: requestedKind, text: text)
-                    print("→ \(requestedKind.rawValue) — ready")
-                }
-            } catch {
-                if case let .generating(k) = response, k == requestedKind {
-                    response = .ready(kind: requestedKind, text: "⚠️ \(error.localizedDescription)")
-                    print("→ \(requestedKind.rawValue) — failed: \(error.localizedDescription)")
-                }
-            }
-        }
-    }
-
-    private static let suggestReplyEmptyFallback = "Not enough context yet — keep talking and try again."
-    private static let askEmptyFallback = "Nothing to answer from the session yet — give it a moment and try again."
-
-    /// Streams a plain-text answer into `response`, updating `.streaming` per
-    /// delta and finalizing `.ready`. Shared by "Suggest reply" and the live Ask
-    /// box — they differ only in `emptyFallback`. Late deltas are dropped once the
-    /// user dismisses the card or fires another request (`isActiveRequest`). Any
-    /// stream failure — before the first token or mid-stream — retries once via
-    /// the one-shot path, which yields a guaranteed-complete answer: a truncated
-    /// half-sentence must never be presented as a finished line the user reads
-    /// aloud.
-    private func streamPlainAnswer(
-        system: String,
-        user: String,
-        requestedKind: GenerationKind,
-        emptyFallback: String
-    ) async {
-        var accumulated = ""
-        var lastPublish = Date.distantPast
-        do {
-            for try await delta in llm.streamComplete(system: system, user: user) {
-                guard isActiveRequest(requestedKind) else { return }
-                accumulated += delta
-                // Coalesce to ~20 updates/s. Publishing .streaming on every token
-                // republished @Published response (and the card's onChange) several
-                // times per frame — SwiftUI warns ("update multiple times per
-                // frame") and it needlessly churns the main thread. The trailing
-                // .ready below always carries the complete text, so throttling the
-                // intermediate frames never drops the final words.
-                let now = Date()
-                if now.timeIntervalSince(lastPublish) >= 0.05 {
-                    response = .streaming(kind: requestedKind, text: accumulated)
-                    lastPublish = now
-                }
-            }
-            guard isActiveRequest(requestedKind) else { return }
-            let final = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
-            response = .ready(kind: requestedKind, text: final.isEmpty ? emptyFallback : final)
-            Log.ui.info("\(requestedKind.rawValue) ready (streamed)")
-        } catch {
-            guard isActiveRequest(requestedKind) else { return }
-            // An entitlement 403 already opened the paywall; retrying the
-            // one-shot just re-hits the gate (re-posting the notification), so
-            // surface the human message directly instead of falling back.
-            if case LLMProxyClient.ClientError.entitlementRequired = error {
-                response = .ready(kind: requestedKind, text: "⚠️ \(error.localizedDescription)")
-                return
-            }
-            Log.ui.error(
-                "\(requestedKind.rawValue) stream failed (\(accumulated.isEmpty ? "before first token" : "mid-stream after \(accumulated.count) chars")) — retrying one-shot: \(error.localizedDescription)"
-            )
-            await oneShotPlainAnswer(system: system, user: user, requestedKind: requestedKind, emptyFallback: emptyFallback)
-        }
-    }
-
-    /// One-shot fallback for `streamPlainAnswer` (plain text, no JSON). Used
-    /// whenever the stream fails, to recover a complete answer in a single request.
-    private func oneShotPlainAnswer(
-        system: String,
-        user: String,
-        requestedKind: GenerationKind,
-        emptyFallback: String
-    ) async {
-        do {
-            let text = try await llm.complete(system: system, user: user).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard isActiveRequest(requestedKind) else { return }
-            response = .ready(kind: requestedKind, text: text.isEmpty ? emptyFallback : text)
-        } catch {
-            guard isActiveRequest(requestedKind) else { return }
-            response = .ready(kind: requestedKind, text: "⚠️ \(error.localizedDescription)")
-        }
-    }
-
-    #if DEBUG
-        /// Demo-mode stand-in for the real pill generation. Each pill gets its own
-        /// canned, distinct output so the recording toolbar tells a coherent story
-        /// on camera without any proxy call: "Suggest reply" streams a line like
-        /// the real one; the buffered pills (Catch me up, Key points, Follow-up)
-        /// pop in after a short beat, exactly as they do after a real round-trip.
-        private func demoGenerate(kind: GenerationKind) {
-            Task {
-                if kind == .suggestReply {
-                    await streamDemoAnswer(DemoData.suggestReplyAnswer, requestedKind: kind)
-                    return
-                }
-                try? await Task.sleep(nanoseconds: 700_000_000)
-                guard isActiveRequest(kind) else { return }
-                switch kind {
-                case .hero: response = .ready(kind: kind, text: DemoData.catchUpAnswer)
-                case .keyPoints: response = .ready(kind: kind, text: DemoData.keyPointsAnswer)
-                case .followUp: response = .ready(kind: kind, text: DemoData.followUpAnswer)
-                // Unreachable: suggestReply returns above; ask() never routes here.
-                case .suggestReply, .ask: break
-                }
-            }
-        }
-
-        /// Fakes a streamed answer for demo mode — types the canned text out in
-        /// word-sized deltas so the live Ask card behaves exactly like a real
-        /// stream on camera, without touching the proxy. Honors `isActiveRequest`
-        /// so dismissing the card or asking again mid-stream cancels it.
-        private func streamDemoAnswer(_ answer: String, requestedKind: GenerationKind) async {
-            // A short beat before the first words, like a real request warming up.
-            try? await Task.sleep(nanoseconds: 450_000_000)
-            let words = answer.split(separator: " ", omittingEmptySubsequences: false)
-            var accumulated = ""
-            for (idx, word) in words.enumerated() {
-                guard isActiveRequest(requestedKind) else { return }
-                accumulated += idx == 0 ? String(word) : " \(word)"
-                response = .streaming(kind: requestedKind, text: accumulated)
-                try? await Task.sleep(nanoseconds: 28_000_000)
-            }
-            guard isActiveRequest(requestedKind) else { return }
-            response = .ready(kind: requestedKind, text: accumulated.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-    #endif
-
-    // MARK: - Live "Ask" box
-
-    /// The user typed a free-form question into the live Ask box mid-recording,
-    /// usually because the fixed cards (Catch me up, Key points) don't cover what
-    /// they want to know right now. Answers it grounded in the transcript so far,
-    /// streaming into the same response card the pills use. Ephemeral by design:
-    /// nothing here is remembered or fed into later cards or the end-of-meeting
-    /// recap.
-    func ask(_ text: String) {
-        let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty else { return }
-        Log.ui.info("live ask — len=\(question.count) entries=\(store.entries.count)")
-        response = .generating(kind: .ask)
-        #if DEBUG
-            if DemoMode.isEnabled {
-                Task { await streamDemoAnswer(DemoData.liveAskAnswer(for: question), requestedKind: .ask) }
-                return
-            }
-        #endif
-        let framing = MeetingFraming.active(for: selectedKind, mode: modeStore.selected)
-        Task {
-            await store.flushPending()
-            let context = store.recentContext(maxEntries: PromptKind.ask.contextWindow ?? .max)
-            let (system, user) = PromptLibrary.build(
-                kind: .ask,
-                transcript: context,
-                language: language.current,
-                personalContext: profileContext,
-                sessionKind: selectedKind,
-                modeFocus: framing.focus,
-                meetingDate: recordingStartedAt.map(PromptLibrary.sessionDateString) ?? "",
-                userQuestion: question
-            )
-            await streamPlainAnswer(system: system, user: user, requestedKind: .ask, emptyFallback: Self.askEmptyFallback)
-        }
     }
 
     // MARK: - Meeting persistence (issue #14)

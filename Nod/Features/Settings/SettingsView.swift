@@ -271,14 +271,6 @@ struct SettingsView: View {
     private var shortcutsPane: some View {
         SettingsCard {
             SettingsRow(
-                icon: "bubble.left.and.bubble.right",
-                title: "Suggest reply",
-                subtitle: "Get a real-time reply suggestion during a meeting, in any app. Avoid ⌘S — every app uses it for Save."
-            ) {
-                HotkeyRecorderView(hotkey: hotkey, action: .suggestReply)
-            }
-            SettingsRowDivider()
-            SettingsRow(
                 icon: "macwindow",
                 title: "Show / hide panel",
                 subtitle: "Toggle the floating panel from anywhere, even when another app is focused. Avoid ⌘H — macOS reserves it."

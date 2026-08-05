@@ -8,14 +8,16 @@ enum MeetingLanguagePromptDefaults {
     static let defaultValue = true
 }
 
-/// Inline output-language confirm shown in place of the Start button when the user
-/// taps Start. Catches the "forgot to switch Nod's language" case by surfacing
-/// the current output pin one last time before recording begins. Read-only on purpose
-/// — the only place to change the language is the header chip, so we don't stack
-/// two pickers in the same cramped panel. Full-width dark section matching the
-/// session-kind bar above it.
+/// Output-language confirm, shown as a state of the notch surface on the way
+/// into a recording. Catches the "forgot to switch Nod's language" case by
+/// surfacing the current output pin one last time before capture begins.
+///
+/// Paints only its content — the notch is the card.
 struct MeetingLanguagePrompt: View {
-    let language: AppLanguage
+    /// Writable, not read-only as it was in the old panel: that panel had a
+    /// language chip in its header to change this, and the notch does not. A
+    /// confirm you can only agree with is a dead end when the answer is wrong.
+    @Binding var language: AppLanguage
     @Binding var askEachTime: Bool
     let onStart: () -> Void
     let onCancel: () -> Void
@@ -35,9 +37,7 @@ struct MeetingLanguagePrompt: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white.opacity(0.72))
                 Spacer(minLength: 0)
-                Text(language.nativeName)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.95))
+                picker
             }
 
             // A language confirm shown the instant you press Start reads as
@@ -64,16 +64,25 @@ struct MeetingLanguagePrompt: View {
                     .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(11)
         .frame(maxWidth: .infinity)
-        .background(
-            ZStack {
-                PanelMaterial()
-                Color.white.opacity(0.05)
+    }
+
+    private var picker: some View {
+        Menu {
+            ForEach(AppLanguage.allCases, id: \.self) { option in
+                Button(option.nativeName) { language = option }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        )
-        .transition(.opacity)
+        } label: {
+            HStack(spacing: 4) {
+                Text(language.nativeName)
+                    .font(.system(size: 12.5, weight: .semibold))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundColor(.white.opacity(0.95))
+        }
+        .plainMenuChrome()
+        .fixedSize()
     }
 
     private func actionButton(_ title: String, primary: Bool, action: @escaping () -> Void) -> some View {

@@ -24,10 +24,6 @@ final class AudioCaptureService: NSObject, ObservableObject {
     /// can't show stale activity once capture isn't flowing.
     @Published private(set) var inputLevel: Float = 0
     @Published private(set) var lastError: String?
-    /// Live list of selectable input devices, kept current by an always-on Core
-    /// Audio topology listener so the picker reflects plug/unplug and default
-    /// changes without a manual refresh. `refreshInputs()` forces a re-scan.
-    @Published private(set) var availableInputs: [AudioInputDevice] = []
     @Published var preferredInputUID: String? {
         didSet {
             if let preferredInputUID {
@@ -100,7 +96,6 @@ final class AudioCaptureService: NSObject, ObservableObject {
         outputHandler.onPCMBuffer = { [weak self] buffer in
             self?.onSystemBuffer?(buffer)
         }
-        refreshAvailableInputs()
         registerInputDeviceListener()
     }
 
@@ -399,30 +394,18 @@ final class AudioCaptureService: NSObject, ObservableObject {
         micRestartInFlight = false
     }
 
-    /// Selectors that change the input-device menu: the device set (plug /
-    /// unplug) and which one is the system default (the "(default)" tag + the
-    /// System Default target).
+    /// Selectors that can move capture off the device it is bound to: the
+    /// device set (plug / unplug) and which one is the system default.
     private static let monitoredDeviceSelectors: [AudioObjectPropertySelector] = [
         kAudioHardwarePropertyDevices,
         kAudioHardwarePropertyDefaultInputDevice
     ]
 
-    /// Re-scans the input devices and re-publishes only on an actual change, so
-    /// duplicate topology callbacks don't needlessly invalidate the picker.
-    func refreshInputs() {
-        refreshAvailableInputs()
-    }
-
-    private func refreshAvailableInputs() {
-        let latest = AudioDeviceCatalog.inputDevices()
-        if latest != availableInputs { availableInputs = latest }
-    }
-
     private func registerInputDeviceListener() {
         guard !deviceListenerActive else { return }
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task { @MainActor [weak self] in
-                await self?.onDeviceTopologyChanged()
+                await self?.handleInputDeviceChange()
             }
         }
         for selector in Self.monitoredDeviceSelectors {
@@ -440,14 +423,6 @@ final class AudioCaptureService: NSObject, ObservableObject {
         }
         deviceListenerBlock = block
         deviceListenerActive = true
-    }
-
-    /// One callback for both the live picker list and the capture-recovery path:
-    /// keep `availableInputs` current always, and rebind capture only if it's
-    /// running and the active device diverged.
-    private func onDeviceTopologyChanged() async {
-        refreshAvailableInputs()
-        await handleInputDeviceChange()
     }
 
     /// Compares the device the engine is bound to against the one it *should* be

@@ -5,9 +5,11 @@ import Supabase
 /// Server-driven update gate. On launch it reads the single `app_config` row
 /// and compares the running `AppVersion.build` against two thresholds:
 ///
-/// - below `minimum_build`  → `.required`: a blocking screen, because a
-///   backend change has (or soon will) break this build.
-/// - below `recommended_build` → `.recommended`: a dismissible nudge.
+/// Below `minimum_build` → `.required`: the notch blocks a capture from
+/// starting, because a backend change has (or soon will) break this build.
+/// `recommended_build` is read but no longer surfaced — Sparkle raises its own
+/// prompt for a non-blocking update, and two nudges for one thing is one too
+/// many.
 ///
 /// The proxy is the backstop: if a stale client slips past the launch check
 /// and the `llm-proxy` rejects it with 426, `LLMProxyClient` posts
@@ -16,7 +18,6 @@ import Supabase
 final class UpdateGate: ObservableObject {
     enum Status: Equatable {
         case ok
-        case recommended(latestBuild: Int)
         case required
     }
 
@@ -24,7 +25,6 @@ final class UpdateGate: ObservableObject {
 
     private let supabase: SupabaseClient?
     private static let tableName = "app_config"
-    private static let dismissedKey = "update.recommendedDismissedBuild"
 
     init(supabase: SupabaseClient?) {
         self.supabase = supabase
@@ -39,11 +39,9 @@ final class UpdateGate: ObservableObject {
 
     private struct AppConfig: Decodable {
         let minimumBuild: Int
-        let recommendedBuild: Int
 
         enum CodingKeys: String, CodingKey {
             case minimumBuild = "minimum_build"
-            case recommendedBuild = "recommended_build"
         }
     }
 
@@ -69,23 +67,7 @@ final class UpdateGate: ObservableObject {
     }
 
     private func resolve(_ config: AppConfig) -> Status {
-        if AppVersion.build < config.minimumBuild {
-            return .required
-        }
-        if AppVersion.build < config.recommendedBuild,
-           UserDefaults.standard.integer(forKey: Self.dismissedKey) < config.recommendedBuild {
-            return .recommended(latestBuild: config.recommendedBuild)
-        }
-        return .ok
-    }
-
-    /// Dismiss the recommended nudge for this build so it doesn't re-nag until
-    /// a newer one ships.
-    func dismissRecommended() {
-        if case let .recommended(latestBuild) = status {
-            UserDefaults.standard.set(latestBuild, forKey: Self.dismissedKey)
-        }
-        status = .ok
+        AppVersion.build < config.minimumBuild ? .required : .ok
     }
 
     /// Hand off to Sparkle (owned by AppDelegate) to fetch + install.

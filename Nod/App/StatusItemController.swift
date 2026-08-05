@@ -21,7 +21,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.updaterController = updaterController
         super.init()
 
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
@@ -29,18 +29,37 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         update(for: .idle)
     }
 
-    /// Surfaces capture state in the menu bar so a recording stays visible
-    /// when the panel is hidden via the toggle hotkey.
+    /// Surfaces capture state in the menu bar.
+    ///
+    /// It carries a word, not just a coloured dot, while transcription is
+    /// running: the notch sits at the top centre of one screen, and the user is
+    /// as likely to be looking at a call on another. The menu bar is the one
+    /// place on every screen that can say it out loud.
     func update(for state: CaptureState) {
         guard let button = statusItem?.button else { return }
-        let (dotColor, toolTip): (NSColor?, String)
+        let (dotColor, label, toolTip): (NSColor?, String?, String)
         switch state {
-        case .idle: (dotColor, toolTip) = (nil, "Nod")
-        case .capturing: (dotColor, toolTip) = (.systemRed, "Nod — Recording")
-        case .paused: (dotColor, toolTip) = (.systemOrange, "Nod — Paused")
+        case .idle: (dotColor, label, toolTip) = (nil, nil, "Nod")
+        case .capturing: (dotColor, label, toolTip) = (.systemRed, "Transcribing", "Nod — transcribing this call")
+        case .paused: (dotColor, label, toolTip) = (.systemOrange, "Paused", "Nod — transcription paused")
         }
         button.image = Self.statusItemImage(dotColor: dotColor)
+        button.imagePosition = label == nil ? .imageOnly : .imageLeading
+        button.attributedTitle = Self.title(label)
         button.toolTip = toolTip
+    }
+
+    /// The state word, at the menu bar's own small size and a hair dimmer than
+    /// the glyph so it reads as a status rather than a second app name.
+    private static func title(_ label: String?) -> NSAttributedString {
+        guard let label else { return NSAttributedString(string: "") }
+        return NSAttributedString(
+            string: " \(label)",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium),
+                .foregroundColor: NSColor.labelColor.withAlphaComponent(0.85)
+            ]
+        )
     }
 
     private static func statusItemImage(dotColor: NSColor?) -> NSImage? {
@@ -145,9 +164,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 }
             }
 
-            if signedIn, let panel = windows.panel {
+            if signedIn {
                 let toggle = NSMenuItem(
-                    title: panel.isVisible ? "Hide Panel" : "Show Panel",
+                    title: "Open Capture",
                     action: #selector(toggleFloatingPanel),
                     keyEquivalent: ""
                 )

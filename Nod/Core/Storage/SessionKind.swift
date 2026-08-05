@@ -36,12 +36,6 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable {
         capturesSystem
     }
 
-    /// Meeting-only live cards (Suggest reply / follow-up) assume a dialogue
-    /// with a [Me] side to coach. Hidden for the listen-only kinds.
-    var supportsReplyCoaching: Bool {
-        self == .meeting
-    }
-
     /// Whether the recap should be mined for first-class to-dos. A meeting or a
     /// voice note carries the user's own commitments ("call the bank", "ship the
     /// fix"); `media` is passive listening — a podcast/video has no personal
@@ -66,18 +60,6 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable {
         case .meeting: "Start meeting"
         case .voiceNote: "Start voice note"
         case .media: "Capture media"
-        }
-    }
-
-    /// Label in the main window's Capture menu. Says what the kind IS, since
-    /// the menu's own title already carries the verb.
-    var captureMenuTitle: String {
-        switch self {
-        case .meeting: "Meeting"
-        case .voiceNote: "Voice note"
-        // The other two name what you're capturing; this one has to name the
-        // verb, because you don't record media — you bring it in.
-        case .media: "Import media"
         }
     }
 

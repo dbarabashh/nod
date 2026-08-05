@@ -1,47 +1,5 @@
 import Foundation
 
-enum PromptKind {
-    case hero // "Catch me up"
-    case smartReply // "Key points"
-    case followUp // "Suggest follow-up questions"
-    case summary // "Recap so far" / "Meeting Summary"
-    case suggestReply // "Suggest reply" — real-time response suggestion
-    case ask // live "Ask" box — free-form question / context during recording
-
-    /// How many recent transcript entries this prompt actually needs. `nil`
-    /// means "everything" — only `.summary` (end-of-meeting recap) and the
-    /// kinds whose prompts explicitly anchor on the entire history qualify.
-    /// Mid-call cards bounded to a recent window cut input tokens on long
-    /// meetings without degrading the answer (the prompt itself constrains
-    /// what's relevant — see each `case` for the justification).
-    var contextWindow: Int? {
-        switch self {
-        // Both prompts say "current topic" / "current meeting" — anything
-        // older than the recent window is by design out of scope for them.
-        // ~80 entries ≈ 5-10 min of dialogue at typical 5s Whisper chunks.
-        case .hero, .followUp:
-            80
-        // "Pull out 3-5 most important points discussed SO FAR" — needs
-        // more history than hero. End-of-meeting summary still uses full.
-        case .smartReply:
-            200
-        // suggestReply's prompt explicitly requires the ENTIRE transcript
-        // ("Previous [Me] answers are LOAD-BEARING") — truncating breaks
-        // the persona/consistency property the suggestion depends on.
-        case .suggestReply:
-            nil
-        // A live question can reach back anywhere in the call ("what did we
-        // decide at the start?"), so give it the full transcript like the recap.
-        case .ask:
-            nil
-        // End-of-meeting recap must surface decisions and actions that
-        // happened anywhere in the call.
-        case .summary:
-            nil
-        }
-    }
-}
-
 enum PromptLibrary {
     /// Shared [STYLE] rule keeping chat replies within what the inline-only
     /// `renderRecapMarkdown` can render — block syntax leaks through as raw
@@ -49,12 +7,10 @@ enum PromptLibrary {
     static let inlineMarkdownStyle = "Formatting: use **bold** for any section label and \"- \" for bullet items. Do NOT use \"#\"/\"##\" headings, numbered lists, tables, or code fences — the app renders only inline Markdown, so those show up as raw characters."
 
     static func build(
-        kind: PromptKind,
         transcript: String,
         language: AppLanguage = .english,
         personalContext: String = "",
         sessionKind: SessionKind = .meeting,
-        replyContext: ReplyContext = .auto,
         summaryTemplate: SummaryTemplate = .auto,
         modeFocus: String = "",
         meetingDate: String = "",
@@ -64,12 +20,10 @@ enum PromptLibrary {
         let context = transcript.isEmpty
             ? "(No transcript captured yet.)"
             : transcript
-        let base = system(
-            for: kind,
-            language: language,
+        let base = summaryPrompt(
+            language: language.promptName,
             sessionKind: sessionKind,
-            replyContext: replyContext,
-            summaryTemplate: summaryTemplate
+            template: summaryTemplate
         )
         // Layer the user-level context blocks ahead of the task prompt: who the
         // user is, when the session happened (the relative-date anchor), then
@@ -83,7 +37,7 @@ enum PromptLibrary {
         ]
         .filter { !$0.isEmpty }
         .joined(separator: "\n\n")
-        return (system, userMessage(for: kind, context: context, question: userQuestion))
+        return (system, userMessage(context: context))
     }
 
     /// Absolute, unambiguous date string for a session, used as the
@@ -245,29 +199,7 @@ enum PromptLibrary {
         }
     }
 
-    /// "Catch me up" framing per session kind. The JSON contract
-    /// (`current_topic` / `positions` / `status`) is fixed — only the framing
-    /// and what each slot means shift, since a solo note has no "positions in
-    /// play" and media has no [Me] side. `CatchUp.toMarkdown` joins the three
-    /// slots into one paragraph, so the relabelling is invisible downstream.
-
-    private static func userMessage(for kind: PromptKind, context: String, question: String = "") -> String {
-        switch kind {
-        case .ask:
-            let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
-            return """
-            Transcript so far:
-
-            \(context)
-
-            The user just sent you this message:
-
-            \(trimmed.isEmpty ? "(empty)" : trimmed)
-
-            Respond now.
-            """
-        default:
-            return "Transcript so far:\n\n\(context)\n\nRespond now."
-        }
+    private static func userMessage(context: String) -> String {
+        "Transcript so far:\n\n\(context)\n\nRespond now."
     }
 }

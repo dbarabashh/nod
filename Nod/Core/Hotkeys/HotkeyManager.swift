@@ -7,7 +7,6 @@ import Foundation
 /// own persisted combo, so they all funnel through the one installed event
 /// handler — differentiated by id — instead of one manager per hotkey.
 enum HotkeyAction: String, CaseIterable, Identifiable {
-    case suggestReply
     case togglePanel
     case openLauncher
 
@@ -20,22 +19,19 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         self = match
     }
 
-    /// Stable Carbon `EventHotKeyID.id`. suggestReply == 1 to match what was
-    /// already registered before this became multi-action; new actions take
-    /// fresh ids and must never reuse a retired one.
+    /// Stable Carbon `EventHotKeyID.id`. A retired action's id is never reused
+    /// — 1 belonged to the mid-call "Suggest reply" binding.
     var hotKeyID: UInt32 {
         switch self {
-        case .suggestReply: 1
         case .togglePanel: 2
         case .openLauncher: 3
         }
     }
 
-    /// UserDefaults slug. suggestReply keeps the legacy "suggest" slug so an
-    /// upgrading user's existing custom binding is read back unchanged.
+    /// UserDefaults slug, kept stable so an upgrading user's existing custom
+    /// binding is read back unchanged.
     private var slug: String {
         switch self {
-        case .suggestReply: "suggest"
         case .togglePanel: "togglePanel"
         case .openLauncher: "launcher"
         }
@@ -53,7 +49,6 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
     /// system-wide (Save / Hide) and a global hotkey would hijack them.
     var defaultCombo: HotkeyManager.Combo {
         switch self {
-        case .suggestReply: .init(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey | shiftKey))
         case .togglePanel: .init(keyCode: UInt32(kVK_ANSI_H), modifiers: UInt32(cmdKey | shiftKey))
         // ⌘Space is Spotlight and ⌥Space is Raycast's own; ⌘⇧K stays clear of
         // both and matches the ⌘K command-bar convention.
@@ -63,7 +58,6 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
 
     var settingsLabel: String {
         switch self {
-        case .suggestReply: "Suggest reply"
         case .togglePanel: "Show / hide panel"
         case .openLauncher: "Search & ask"
         }
@@ -392,10 +386,4 @@ private func keyName(_ keyCode: UInt32) -> String {
     case kVK_ANSI_Grave: "`"
     default: "?"
     }
-}
-
-// MARK: - Notification
-
-extension Notification.Name {
-    static let nodSuggestHotkey = Notification.Name("nod.hotkey.suggestReply")
 }

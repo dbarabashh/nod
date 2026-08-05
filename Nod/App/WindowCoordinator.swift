@@ -8,16 +8,11 @@ import SwiftUI
 @MainActor
 final class WindowCoordinator: NSObject, NSWindowDelegate {
     private let services: AppServices
-    private(set) var panel: NSPanel?
-    /// The panel's session. Held so the window can hand it a capture kind —
-    /// the alternative was routing that through the panel's *view*, which made
-    /// a view the app's intent router.
-    private var meetingSession: MeetingSession?
-    /// Watches for a call starting and ending. Lives with the panel's session,
+    /// The capture surface: a notch hanging off the menu bar.
+    private let notch = NotchController()
+    /// Watches for a call starting and ending. Lives with the notch's session,
     /// which is the thing it can act on.
     private var detector: MeetingDetector?
-    private var detectionCard: FloatingPanel<MeetingDetectedCard>?
-    private var detectionObserver: AnyCancellable?
     private var onboardingWindow: NSWindow?
     private var signInWindow: NSWindow?
     private var mainWindow: NSWindow?
@@ -30,27 +25,27 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     /// Idempotent show*/close* methods make repeat calls safe.
     func reconcile() {
         if services.auth.session == nil {
-            closeFloatingPanel()
+            closeNotch()
             closeOnboardingWindow()
             showSignInWindow()
         } else if !services.onboarding.isCompleted {
-            closeFloatingPanel()
+            closeNotch()
             closeSignInWindow()
             showOnboardingWindow()
         } else {
             closeSignInWindow()
             closeOnboardingWindow()
-            buildFloatingPanel()
+            buildNotch()
             applyLaunchBehavior()
         }
     }
 
     /// What launch puts on screen. Opening the app is not the same as asking to
-    /// capture, so the panel only arrives when the user chose that — or asks for
-    /// it later by hotkey, menu bar, or the Capture button.
+    /// capture, so the notch only opens up when the user chose that — or asks
+    /// for it later by hotkey, menu bar, or the Capture button.
     ///
     /// Runs once per signed-in run: the auth publisher emits on every token
-    /// refresh, and a window the user closed must stay closed.
+    /// refresh, and a surface the user folded away must stay folded.
     private func applyLaunchBehavior() {
         guard !didApplyLaunchBehavior else { return }
         didApplyLaunchBehavior = true
@@ -79,50 +74,39 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         launcher.toggle()
     }
 
+    /// The toggle hotkey and the menu-bar item: pull the notch open, or fold it
+    /// back. The surface itself is always on screen — at rest it is the bare
+    /// cut-out — so there is nothing to show or hide, only to open or close.
     func toggleFloatingPanel() {
-        guard let panel else { return }
-        if panel.isVisible {
-            panel.orderOut(nil)
-        } else {
-            panel.orderFrontRegardless()
-        }
+        notch.toggleOpen()
     }
 
-    func hidePanel() {
-        panel?.orderOut(nil)
-    }
-
-    /// Order an existing (possibly hotkey-hidden) panel back to the front.
-    /// Unlike `showFloatingPanel`, this never creates one — it's the Dock
-    /// re-open path, where `reconcile` has already ensured the right surface
-    /// exists.
+    /// Open the capture surface. The Dock re-open path and the main window's
+    /// way back; never creates the notch, because `reconcile` has already
+    /// ensured the right surface exists.
     func revealPanel() {
-        panel?.orderFrontRegardless()
+        notch.open()
     }
 
     func setPanelVisibleWhenSharing(_ visible: Bool) {
-        panel?.sharingType = visible ? .readOnly : .none
+        notch.setSharing(visible ? .readOnly : .none)
         mainWindow?.sharingType = visible ? .readOnly : .none
         syncActivationPolicy()
     }
 
     /// Dock icon and ⌘-Tab entry follow whichever surface is actually up.
     ///
-    /// A panel-only session in stealth stays `.accessory`: excluding the panel
+    /// A notch-only session in stealth stays `.accessory`: excluding the surface
     /// from captures is pointless if the Dock still announces Nod. A main window
     /// the user opened is not stealth — without `.regular` it has no Dock tile
     /// and no ⌘-Tab entry, so clicking any other app leaves the menu-bar item as
     /// the only way back, and `applicationShouldHandleReopen` can never fire.
     ///
-    /// The old check was `if panel != nil`, which read as "while the panel is the
-    /// active surface" but means "while the panel exists" — and it is built at
-    /// launch regardless of which surface the user chose.
-    ///
     /// Sign-in / onboarding set `.regular` directly and are not routed here.
     private func syncActivationPolicy() {
         if mainWindow != nil {
             NSApp.setActivationPolicy(.regular)
-        } else if panel != nil {
+        } else if notch.isBuilt {
             NSApp.setActivationPolicy(services.panelSharing.visibleWhenSharing ? .regular : .accessory)
         }
     }
@@ -214,28 +198,25 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         close(&onboardingWindow)
     }
 
-    // MARK: - Floating panel
+    // MARK: - Notch
 
-    /// Builds the panel without putting it on screen. It has to exist — it owns
-    /// the `MeetingSession` and the whole recording surface — but showing it is
-    /// a separate decision (`applyLaunchBehavior`, the hotkey, the menu bar, or
-    /// the Capture button).
-    private func buildFloatingPanel() {
+    /// Builds the capture surface. At rest it is the bare cut-out, so putting it
+    /// on screen costs the user nothing — opening it up is the separate decision
+    /// (`applyLaunchBehavior`, the hotkey, the menu bar, a detected call).
+    private func buildNotch() {
         // Idempotent — re-entrant from the auth observer is normal.
-        guard panel == nil else { return }
+        guard !notch.isBuilt else { return }
 
         // Dock icon presence tracks share visibility. When Nod is visible in
-        // shares, show the icon so a user who hid the panel via the toggle
-        // hotkey can click it to bring the panel back (see
-        // AppDelegate.applicationShouldHandleReopen). In stealth mode the panel
-        // is excluded from screen captures, so a Dock icon (and ⌘-Tab entry)
-        // would leak Nod's presence anyway — go accessory to match.
+        // shares, show the icon so a user can click it to bring the surface
+        // forward (see AppDelegate.applicationShouldHandleReopen). In stealth
+        // mode the surface is excluded from screen captures, so a Dock icon (and
+        // ⌘-Tab entry) would leak Nod's presence anyway — go accessory to match.
         syncActivationPolicy()
 
-        // One session per panel — its lifetime matches the old view-local
-        // @State (created with the panel, dropped on sign-out teardown), so
-        // a mid-recording sign-out can't leak a stale REC state into the
-        // next user's panel.
+        // One session per notch — created with it, dropped on sign-out teardown,
+        // so a mid-recording sign-out can't leak a stale capture state into the
+        // next user's surface.
         let meetingSession = MeetingSession(
             audioCapture: services.audioCapture,
             store: services.transcriptStore,
@@ -252,108 +233,37 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             screenExclusions: services.screenExclusions
         )
 
-        self.meetingSession = meetingSession
-
-        let content = ContentView(
-            onPreferredWidthChange: { [weak self] width in self?.panel?.setWidth(to: width) },
-            onRedrawNeeded: { [weak self] in self?.panel?.forceRedraw() }
-        )
-        .environmentObject(meetingSession)
-        .environmentObject(services.audioCapture)
-        .environmentObject(services.languagePreference)
-        .environmentObject(services.consent)
-        .environmentObject(services.entitlements)
-        .environmentObject(services.updateGate)
-        .environmentObject(services.hotkeys)
-        .environmentObject(services.panelSharing)
-        .environmentObject(services.modeStore)
-
-        // Start at the compact width — the panel launches idle. ContentView
-        // reports the desired width as the layout changes and the panel
-        // animates the frame, keeping the left edge anchored.
-        let panel = FloatingPanel(
-            contentRect: NSRect(x: 0, y: 0, width: PanelWidth.compact, height: 560),
-            content: content
-        )
-        panel.sharingType = services.panelSharing.sharingType
-        panel.positionOnLeftCenter()
-        self.panel = panel
-
-        startDetecting(for: meetingSession)
-    }
-
-    private func closeFloatingPanel() {
-        panel?.close()
-        panel = nil
-        stopDetecting()
-        meetingSession = nil
-    }
-
-    // MARK: - Meeting detection
-
-    private func startDetecting(for session: MeetingSession) {
+        // The detector belongs to the session it can act on, and the notch
+        // renders its invitation as one of its own states — so unlike the old
+        // detection card there is no second window to raise, position and tear
+        // down for every call.
         let detector = MeetingDetector(
-            session: session,
+            session: meetingSession,
             exclusions: services.screenExclusions,
             preference: services.meetingDetection
         )
         self.detector = detector
-        detectionObserver = detector.$invitation.sink { [weak self] app in
-            guard let app else { return self?.closeDetectionCard() ?? () }
-            self?.showDetectionCard(for: app)
-        }
+
+        notch.build(
+            model: NotchModel(
+                session: meetingSession,
+                detector: detector,
+                audioCapture: services.audioCapture,
+                language: services.languagePreference,
+                updateGate: services.updateGate,
+                consent: services.consent,
+                entitlements: services.entitlements
+            ),
+            sharing: services.panelSharing.sharingType
+        )
+
         detector.start()
     }
 
-    private func stopDetecting() {
-        detectionObserver = nil
+    private func closeNotch() {
+        notch.teardown()
         detector?.stop()
         detector = nil
-        closeDetectionCard()
-    }
-
-    private func closeDetectionCard() {
-        detectionCard?.close()
-        detectionCard = nil
-    }
-
-    /// The card is rebuilt per call rather than kept around and re-bound: it
-    /// appears a few times a day at most, and a window held open all day to
-    /// save one allocation is the wrong trade.
-    private func showDetectionCard(for app: ConferencingApp) {
-        closeDetectionCard()
-        guard let detector else { return }
-
-        let card = FloatingPanel(
-            contentRect: NSRect(origin: .zero, size: MeetingDetectedCard.initialWindowSize),
-            content: MeetingDetectedCard(
-                app: app,
-                onStart: { [weak detector] in detector?.accept() },
-                onDismiss: { [weak detector] in detector?.decline() },
-                onMute: { [weak detector] in detector?.mute(app) }
-            ),
-            sizesToContent: true
-        )
-        // Never in a screen share, whatever the panel's own preference is: this
-        // window names the call the user is in, on top of that same call.
-        card.sharingType = .none
-        // Lay the content out before anchoring: the panel is created at a
-        // placeholder height and only takes its real one once hosted.
-        card.contentViewController?.view.layoutSubtreeIfNeeded()
-        card.positionOnTopRight()
-        card.orderFrontRegardless()
-        detectionCard = card
-    }
-
-    /// Pick what the next capture is and bring the panel forward. It stops
-    /// there on purpose: consent, the permission prompts and the language check
-    /// live in the panel, and no shortcut into recording may skip them. A kind
-    /// arriving mid-recording is ignored — the streams are already chosen.
-    func capture(_ kind: SessionKind) {
-        if meetingSession?.meeting == .idle {
-            meetingSession?.selectedKind = kind
-        }
-        revealPanel()
     }
 
     /// Settings renders inside the main window as one of its sections, so it is

@@ -235,7 +235,7 @@ struct MainWindowView: View {
             SessionsListView(
                 filterLabelID: $filterLabelID,
                 onOpen: { focus = .session($0) },
-                onStartCapture: { capture(.meeting) },
+                onStartCapture: capture,
                 panelShortcut: hotkeys.combo(for: .togglePanel).displayString
             )
             .transition(.opacity)
@@ -375,14 +375,10 @@ struct MainWindowView: View {
         show(.chat)
     }
 
-    /// Ask for a capture of this kind. The window coordinator owns the panel
-    /// and its session, so it decides what "capture" means from here.
-    private func capture(_ kind: SessionKind) {
-        NotificationCenter.default.post(
-            name: .nodSelectCaptureKind,
-            object: nil,
-            userInfo: [Notification.nodCaptureKindKey: kind.rawValue]
-        )
+    /// Ask for a capture. The window coordinator owns the notch and its session,
+    /// so it decides what "capture" means from here.
+    private func capture() {
+        NotificationCenter.default.post(name: .nodShowPanel, object: nil)
     }
 
     private func openThread(_ id: UUID) {
