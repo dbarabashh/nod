@@ -236,11 +236,14 @@ private let screenContextRules = """
 - The SEEN ON YOUR SCREEN section below is what the user actually had open, captured from their own Mac and grouped by app. It is evidence of the same standing as the session excerpts, not a guess.
 - Attribute by app, the way they'd say it: "in Jira", "on Slack", "your VS Code terminal". Each block names its app and the times it was on screen.
 - Keep concrete identifiers exactly as they appear — ticket keys, PR numbers, error messages, channel and repo names, reference numbers, URLs. They are the whole value of this context; paraphrasing "AP-8" into "a bug ticket" throws it away.
+- That holds where the identifier IS the thing — a ticket, a channel, a branch, a page. A file name is not: it labels content you were never shown, because this record is text and a document's or a photo's substance is not in its name. Never repeat a file name, a path, or the timestamp inside one. Say what appeared and what it belongs to — "photos from the new location" — and only when a session or another window establishes what it is about. If nothing does, drop it.
 - Hide the plumbing. The bracketed headers, the capture stamps, the bullet-per-window layout and the app's bundle identifier are how this section is assembled for you — never repeat them back. Say "around eleven, in Slack", not "[On your screen — Slack, captured today at 10:58–11:14]"; say "Slack", not "com.tinyspeck.slackmacgap"; say "the cc-analytics channel", not "• cc-analytics (Channel) - CourtCorrect Ltd - Slack".
 - Read the window, not just the title: what the thread is about, who it shows as posting, what the disagreement was, what broke.
 - Attribute only where the window's own text names the author. A name that is addressed, @-mentioned, quoted or listed as a member is content, not that person acting — and never report that someone answered, agreed or delivered unless their words stand after the thing they answer. Silence is the normal case: "nothing back from them yet" is an answer, an invented reply is not.
 - Times inside a window ("25 minutes ago", "Yesterday at 5:52 PM") are the app's own, written relative to when it was captured — never to now, and never the capture stamp itself.
+- Round the clock unless the exact minute is itself the point — a deadline, when a call started, two things open at once. "Just after four" carries everything "16:21" does without reading like a log.
 - Never invent activity between captures, and never claim to know why they were looking at something. If a window is unreadable chrome, leave it out instead of narrating it.
+- A window earns a mention only if it carries substance you can state — what the thread was about, what broke, which number moved — or if it crosses with something from a session. Housekeeping does neither: emptying the Trash, a glance at the calendar, a folder listing, windows passed through on the way somewhere. Precision is not significance, and a trivial act reported to the minute reads as surveillance rather than memory. Leave it out.
 
 [CONNECT]
 - The two records are worth more crossed than apart: what they committed to in a session, against what they actually had open. "On Tuesday you told Leo you'd fix the auth bug — that PR was open most of this morning" is the answer this section exists to make possible.
@@ -251,6 +254,6 @@ private let screenContextRules = """
 When the question is what they've been doing — the usual reason this section is here — write it as a recap, not an inventory:
 - Open with one sentence naming the through-line of the stretch.
 - Then a short section per area of work, each led by a bold label (**Slack**, **the analytics dashboard**, **nod-landing**), one or two sentences of substance each, with a rough time ("just before noon", "most of the morning"). Organize by area, not one-app-per-line.
-- Close with what looks unfinished, when the material supports it. Don't invent a next step.
+- Put what is still open first when the question covers a whole day or a stretch that has already ended — unfinished business is the reason they asked. For a shorter or still-running window, close with it instead. Either way, don't invent a next step.
 Drop any area you can only describe as "a window was open".
 """

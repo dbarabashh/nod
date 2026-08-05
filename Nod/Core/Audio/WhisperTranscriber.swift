@@ -51,6 +51,10 @@ final class WhisperTranscriber: @unchecked Sendable {
     /// `repromptOnLanguageSwitch`, default off — see below.)
     private var promptTail: String = ""
     private var promptLanguage: String?
+    /// The candidate language a run of deviating chunks is arguing for, and how
+    /// many have argued for it — the switch lands only once it's confirmed.
+    private var pendingLanguage: String?
+    private var pendingLanguageRun = 0
     private static let maxPromptTailChars = 200
 
     /// On a detected language switch, re-transcribe the chunk with NO prompt so
@@ -63,6 +67,21 @@ final class WhisperTranscriber: @unchecked Sendable {
     /// `defaults write com.example.nod stt.repromptOnLanguageSwitch -bool YES`.
     private static var repromptOnLanguageSwitch: Bool {
         UserDefaults.standard.object(forKey: "stt.repromptOnLanguageSwitch") as? Bool ?? false
+    }
+
+    /// Re-transcribe a chunk whose detected language deviates from the tail's,
+    /// this time pinning `language` to the tail's, so Whisper transcribes the
+    /// speech instead of translating it into the language it mis-detected.
+    ///
+    /// Attacks the other half of the problem from `languageSwitchConfirmations`:
+    /// that one stops a flipped chunk from carrying the rest of the meeting with
+    /// it, this one tries to recover the flipped chunk itself. Defaults OFF, and
+    /// wants an A/B before it ships on — it costs one extra call per deviating
+    /// chunk, and where the speaker genuinely did say an English sentence it
+    /// forces that sentence through a Ukrainian decode. Flip on with:
+    /// `defaults write com.example.nod stt.pinLanguageOnDeviation -bool YES`.
+    private static var pinLanguageOnDeviation: Bool {
+        UserDefaults.standard.object(forKey: "stt.pinLanguageOnDeviation") as? Bool ?? false
     }
 
     // In-flight transcription Tasks; flushPending awaits these so a Suggest-reply
@@ -207,6 +226,8 @@ final class WhisperTranscriber: @unchecked Sendable {
             )
             self.promptTail = ""
             self.promptLanguage = nil
+            self.pendingLanguage = nil
+            self.pendingLanguageRun = 0
             if !self.retryQueue.isEmpty {
                 Log.stt.error("[\(self.source.label)] discarding \(self.retryQueue.count) undelivered segment(s) from a previous session")
                 self.retryQueue.removeAll(keepingCapacity: false)
@@ -482,6 +503,17 @@ final class WhisperTranscriber: @unchecked Sendable {
                         result = reprompted
                     }
                 }
+                if Self.pinLanguageOnDeviation,
+                   let detected = result.language,
+                   let promptLang,
+                   detected.caseInsensitiveCompare(promptLang) != .orderedSame {
+                    Log.stt.info(
+                        "[\(src.label)] chunk #\(chunkID) detected \(detected) against a \(promptLang) tail — re-transcribing pinned to \(promptLang)"
+                    )
+                    if let pinned = try? await self.client.transcribe(audio: wav, language: promptLang, prompt: prompt) {
+                        result = pinned
+                    }
+                }
                 let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 let kept: String?
                 if trimmed.isEmpty {
@@ -616,18 +648,87 @@ final class WhisperTranscriber: @unchecked Sendable {
         }
     }
 
-    /// Append kept text to the rolling prompt and trim to the tail window. On a
-    /// detected language switch the tail is replaced (not appended), so the prior
-    /// language can't keep biasing the new one. Must be on `queue`.
+    /// Append kept text to the rolling prompt and trim to the tail window.
+    /// A chunk whose detected language deviates from the one the tail is in
+    /// leaves the tail alone until the switch is confirmed — see
+    /// `promptTailAction`. Must be on `queue`.
     private func appendPromptTail(_ text: String, language: String?) {
-        if let language, let promptLanguage, language.caseInsensitiveCompare(promptLanguage) != .orderedSame {
-            promptTail = String(text.suffix(Self.maxPromptTailChars))
-            self.promptLanguage = language
+        let action = Self.promptTailAction(
+            detected: language,
+            tailLanguage: promptLanguage,
+            pending: &pendingLanguage,
+            pendingRun: &pendingLanguageRun
+        )
+        switch action {
+        case .ignore:
             return
+        case .append:
+            if promptLanguage == nil { promptLanguage = language }
+            let combined = promptTail.isEmpty ? text : promptTail + " " + text
+            promptTail = String(combined.suffix(Self.maxPromptTailChars))
+        case .replace:
+            promptTail = String(text.suffix(Self.maxPromptTailChars))
+            promptLanguage = language
         }
-        if promptLanguage == nil { promptLanguage = language }
-        let combined = promptTail.isEmpty ? text : promptTail + " " + text
-        promptTail = String(combined.suffix(Self.maxPromptTailChars))
+    }
+
+    enum PromptTailAction: Equatable {
+        /// Extend the tail with this chunk — same language, or the first one.
+        case append
+        /// Adopt this chunk's language and start the tail over in it.
+        case replace
+        /// Leave the tail untouched: this chunk's language deviates from the
+        /// tail's and the switch isn't confirmed yet.
+        case ignore
+    }
+
+    /// How many consecutive chunks must agree on a new language before the
+    /// prompt tail follows them. Whisper decides the language per chunk, and on
+    /// speech dense with English loanwords ("рілс", "апрувнути", "арт-дірекшн")
+    /// it flips to `en` and *translates* the Ukrainian rather than transcribing
+    /// it. The old behaviour adopted that language immediately, so the tail
+    /// itself became English and prompted the following chunks into English too
+    /// — measured on prod, English arrived in runs averaging 2.5–4.9 chunks and
+    /// reaching 19, where independent per-chunk detection would average ~1.7.
+    /// Requiring confirmation keeps the tail in the language actually being
+    /// spoken, so a one-chunk flip can't carry the rest of the meeting with it.
+    private static let languageSwitchConfirmations = 3
+
+    /// Pure decision behind `appendPromptTail`, split out so the confirmation
+    /// window is testable without a transcriber and a network.
+    ///
+    /// Deliberately conservative in the same direction as the earlier
+    /// re-transcribe-without-prompt A/B, which found that KEEPING the
+    /// established tail beats dropping it — a tail in the dominant language
+    /// fixes topic-critical words, at the minor cost of pulling a genuinely
+    /// foreign turn toward it. A real switch still lands, just a few chunks
+    /// later.
+    static func promptTailAction(
+        detected: String?,
+        tailLanguage: String?,
+        pending: inout String?,
+        pendingRun: inout Int
+    ) -> PromptTailAction {
+        guard let detected, let tailLanguage else {
+            pending = nil
+            pendingRun = 0
+            return .append
+        }
+        if detected.caseInsensitiveCompare(tailLanguage) == .orderedSame {
+            pending = nil
+            pendingRun = 0
+            return .append
+        }
+        if let pending, pending.caseInsensitiveCompare(detected) == .orderedSame {
+            pendingRun += 1
+        } else {
+            pending = detected
+            pendingRun = 1
+        }
+        guard pendingRun >= languageSwitchConfirmations else { return .ignore }
+        pending = nil
+        pendingRun = 0
+        return .replace
     }
 
     /// Wrap raw 16 kHz mono float PCM (a VAD segment) into a 16-bit WAV.
