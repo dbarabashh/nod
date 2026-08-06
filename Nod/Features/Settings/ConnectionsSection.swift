@@ -225,7 +225,6 @@ struct ConnectionsSection: View {
         .padding(.vertical, 12)
     }
 
-    @ViewBuilder
     private func providerIcon(_ client: ConnectionClient, size: CGFloat) -> some View {
         Image(systemName: client.fallbackSymbol)
             .font(.system(size: size * 0.64, weight: .medium))
