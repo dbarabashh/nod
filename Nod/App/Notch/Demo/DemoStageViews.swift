@@ -12,6 +12,8 @@ struct DemoStageView: View {
 
     var body: some View {
         switch stage {
+        case .opening:
+            DemoOpeningCard()
         case let .listening(label):
             DemoRestingBar(label: label, director: director, geometry: geometry)
         case let .transcript(line):
@@ -155,6 +157,21 @@ private struct DemoSearchingLine: View {
         }
         .onAppear { sweep = true }
         .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: sweep)
+    }
+}
+
+/// The first thing the demo shows, and the whole argument for the product in
+/// two lines: not "a meeting was detected" — which is a sensor reporting — but
+/// the assistant saying it is already at work.
+private struct DemoOpeningCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            DemoCardHead(systemImage: "waveform", title: "Meeting in progress")
+            Text("I'm already looking for relevant context.")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.Palette.graphite)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

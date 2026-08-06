@@ -9,6 +9,9 @@ import Foundation
 /// the notch renders them through the same silhouette, springs and fold-between
 /// transitions as the real surface.
 enum DemoStage: Equatable {
+    /// The first card, and the only one that arrives unasked: the assistant
+    /// saying it has already started rather than reporting a detection.
+    case opening
     /// Resting: the elapsed clock and a waveform, with a word for what Nod is
     /// doing. The state the demo returns to between cards.
     case listening(String)
@@ -49,6 +52,7 @@ enum DemoStage: Equatable {
 
     var form: Form {
         switch self {
+        case .opening: .card
         case .listening: .resting
         case .transcript, .searching, .acknowledgement, .ended: .line
         case .context, .insight, .workflow, .workflowResult, .brief, .summary: .card
@@ -60,6 +64,7 @@ enum DemoStage: Equatable {
     /// with no animation at all.
     var contentID: String {
         switch self {
+        case .opening: "demo.opening"
         case let .listening(label): "demo.listening.\(label)"
         case let .transcript(line): "demo.transcript.\(line.prefix(24))"
         case let .searching(label): "demo.searching.\(label)"
@@ -76,6 +81,7 @@ enum DemoStage: Equatable {
 
     var surfaceWidth: CGFloat {
         switch self {
+        case .opening: 300
         case .listening: 0
         case .transcript, .acknowledgement: 420
         case .searching, .ended: 320

@@ -109,7 +109,19 @@ enum DemoScenario: String, CaseIterable, Identifiable {
         59
     }
 
+    /// Every scenario opens the same way — the assistant speaking first, before
+    /// a word has been said. Written once so the four scripts cannot drift on
+    /// the one beat that carries the product's whole claim.
+    static let openingBeats: [DemoBeat] = [
+        .init(at: 0, action: .stage(.opening)),
+        .init(at: 1.6, action: .stage(.listening("Following along…")))
+    ]
+
     var beats: [DemoBeat] {
+        Self.openingBeats + scenarioBeats
+    }
+
+    private var scenarioBeats: [DemoBeat] {
         switch self {
         case .productEngineering: Self.productEngineeringBeats
         case .recruiting: Self.recruitingBeats

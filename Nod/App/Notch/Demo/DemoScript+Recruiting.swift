@@ -4,8 +4,6 @@ import Foundation
 
 extension DemoScenario {
     static let recruitingBeats: [DemoBeat] = [
-        .init(at: 0, action: .stage(.listening("Listening…"))),
-
         .init(at: 3.2, action: .stage(.transcript("She walked through the migration really clearly."))),
         .init(at: 6.2, action: .stage(.transcript("Has anyone else interviewed her for this loop?"))),
 
@@ -30,7 +28,7 @@ extension DemoScenario {
 
         .init(at: 16.2, action: .stage(.transcript("Technically she's clearly strong enough for the level."))),
         .init(at: 19.2, action: .stage(.transcript("I'm just not sure how much she's owned end to end."))),
-        .init(at: 21.4, action: .stage(.listening("Thinking…"))),
+        .init(at: 21.4, action: .stage(.listening("Following along…"))),
 
         .init(at: 22.3, action: .stage(.insight(DemoInsight(
             title: "Gap in the loop",
@@ -153,7 +151,7 @@ extension DemoScenario {
             event: DemoEvent(
                 title: "Backend hire debrief",
                 when: "Thursday, 16:00–16:30",
-                attendees: ["Hiring manager", "Engineering", "Recruiting", "Panel"],
+                attendees: ["Maya Ostrowski", "Jonas Hedlund", "Priya Nair"],
                 attachments: [
                     "3 interview write-ups",
                     "Candidate scorecard",

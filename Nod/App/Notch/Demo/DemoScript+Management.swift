@@ -4,8 +4,6 @@ import Foundation
 
 extension DemoScenario {
     static let managementBeats: [DemoBeat] = [
-        .init(at: 0, action: .stage(.listening("Listening…"))),
-
         .init(at: 3.2, action: .stage(.transcript("Are we still good for the release at the end of the month?"))),
         .init(at: 6.2, action: .stage(.transcript("Everyone says yes, but nothing has moved in two weeks."))),
 
@@ -30,7 +28,7 @@ extension DemoScenario {
 
         .init(at: 16.2, action: .stage(.transcript("Each team on its own says they're on track."))),
         .init(at: 19.2, action: .stage(.transcript("So where is the month actually going?"))),
-        .init(at: 21.4, action: .stage(.listening("Thinking…"))),
+        .init(at: 21.4, action: .stage(.listening("Following along…"))),
 
         .init(at: 22.3, action: .stage(.insight(DemoInsight(
             title: "Launch date is at risk",
@@ -154,7 +152,7 @@ extension DemoScenario {
             event: DemoEvent(
                 title: "Release 4.2 launch-risk review",
                 when: "Monday, 09:30–10:00",
-                attendees: ["Engineering", "Product", "QA", "Release management"],
+                attendees: ["Elena Vasquez", "Tobias Krause", "Ayesha Rahman", "Nils Berger", "Clara Jensen"],
                 attachments: [
                     "Mitigation plan",
                     "Jira PLAT-92, PLAT-97",

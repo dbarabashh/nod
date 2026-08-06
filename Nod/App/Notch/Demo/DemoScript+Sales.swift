@@ -4,8 +4,6 @@ import Foundation
 
 extension DemoScenario {
     static let salesBeats: [DemoBeat] = [
-        .init(at: 0, action: .stage(.listening("Listening…"))),
-
         .init(at: 3.2, action: .stage(.transcript("The team likes it — we just can't sign this quarter."))),
         .init(at: 6.2, action: .stage(.transcript("There's a process we have to go through first."))),
 
@@ -22,7 +20,7 @@ extension DemoScenario {
                 DemoSource(
                     tool: .slack,
                     reference: "#deal-northwind",
-                    detail: "Their IT lead asked for a security questionnaire on the 12th."
+                    detail: "Ines Duarte asked for a security questionnaire on the 12th."
                 )
             ],
             actions: ["View context", "Add to notes"]
@@ -30,7 +28,7 @@ extension DemoScenario {
 
         .init(at: 16.2, action: .stage(.transcript("We keep hearing it's a budget timing question."))),
         .init(at: 19.2, action: .stage(.transcript("But the date has moved twice now for different reasons."))),
-        .init(at: 21.4, action: .stage(.listening("Thinking…"))),
+        .init(at: 21.4, action: .stage(.listening("Following along…"))),
 
         .init(at: 22.3, action: .stage(.insight(DemoInsight(
             title: "Likely blocker isn't budget",
@@ -80,7 +78,7 @@ extension DemoScenario {
                     details: [
                         "Northwind security review",
                         "Tuesday, 15:00–15:45",
-                        "Their technical lead invited"
+                        "5 attendees · video call added"
                     ],
                     progressIndex: 0
                 )
@@ -154,7 +152,7 @@ extension DemoScenario {
             event: DemoEvent(
                 title: "Northwind security review",
                 when: "Tuesday, 15:00–15:45",
-                attendees: ["Account team", "Solutions engineering", "Their technical lead", "Their infosec"],
+                attendees: ["Rachel Adeyemi", "Tom Weller", "Ines Duarte", "Mark Sullivan"],
                 attachments: [
                     "Security questionnaire",
                     "SOC 2 documentation",

@@ -4,12 +4,10 @@ import Foundation
 
 extension DemoScenario {
     static let productEngineeringBeats: [DemoBeat] = [
-        .init(at: 0, action: .stage(.listening("Listening…"))),
-
         .init(at: 3.2, action: .stage(.transcript("We're still seeing users drop off during onboarding."))),
         .init(at: 6.2, action: .stage(.transcript("Has anyone already looked into the permissions step?"))),
 
-        .init(at: 8.8, action: .stage(.searching("Checking company context…"))),
+        .init(at: 8.8, action: .stage(.searching("Looking for relevant context…"))),
         .init(at: 10.0, action: .stage(.context(DemoContext(
             lead: "Peter raised this in Slack — and there's already a ticket open for it.",
             sources: [
@@ -30,7 +28,7 @@ extension DemoScenario {
 
         .init(at: 16.2, action: .stage(.transcript("We assumed the problem was that onboarding has too many steps."))),
         .init(at: 19.2, action: .stage(.transcript("But we still don't know which step actually loses people."))),
-        .init(at: 21.4, action: .stage(.listening("Thinking…"))),
+        .init(at: 21.4, action: .stage(.listening("Following along…"))),
 
         .init(at: 22.3, action: .stage(.insight(DemoInsight(
             title: "Possible root cause found",
@@ -155,7 +153,7 @@ extension DemoScenario {
             event: DemoEvent(
                 title: "Onboarding permissions review",
                 when: "Friday, 10:30–11:00",
-                attendees: ["Product", "Design", "Engineering", "Support"],
+                attendees: ["Peter Lang", "Sofia Marchetti", "Daniel Okoye", "Hanna Bauer"],
                 attachments: [
                     "Jira ONB-184",
                     "Notion redesign task",
