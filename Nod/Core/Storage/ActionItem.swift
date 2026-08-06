@@ -25,6 +25,13 @@ struct ActionItem: Codable, Identifiable, Equatable {
     let updatedAt: Date?
     let deletedAt: Date?
 
+    /// Still outstanding: not ticked off, not in the trash. Both halves matter
+    /// — the notch card and the Home count read the same data and used to
+    /// disagree about the second one.
+    var isOpen: Bool {
+        !done && deletedAt == nil
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case meetingID = "meeting_id"

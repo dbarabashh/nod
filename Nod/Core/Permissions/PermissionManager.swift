@@ -59,7 +59,7 @@ final class PermissionManager: ObservableObject {
     }
 
     func openMicrophoneSettings() {
-        open("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+        SystemSettings.open(privacyPane: "Privacy_Microphone")
     }
 
     // MARK: - Screen Recording
@@ -108,7 +108,7 @@ final class PermissionManager: ObservableObject {
     /// back, and are never told a restart is what's still missing.
     func openScreenRecordingSettings() {
         requestedScreenRecordingThisSession = true
-        open("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        SystemSettings.open(privacyPane: "Privacy_ScreenCapture")
     }
 
     #if DEBUG
@@ -161,10 +161,5 @@ final class PermissionManager: ObservableObject {
         if CGPreflightScreenCaptureAccess() { return .authorized }
         let prompted = UserDefaults.standard.bool(forKey: Self.screenPromptedKey)
         return prompted ? .denied : .notDetermined
-    }
-
-    private func open(_ urlString: String) {
-        guard let url = URL(string: urlString) else { return }
-        NSWorkspace.shared.open(url)
     }
 }

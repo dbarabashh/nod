@@ -48,6 +48,9 @@ struct AppServices {
     /// Whether Nod offers to record a call it sees starting, and which apps it
     /// stays quiet about. The detector itself lives with the panel's session.
     let meetingDetection: MeetingDetectionPreference
+    /// Reads the user's own calendar, on the device, so a detected call can be
+    /// named. Off until switched on in Settings.
+    let calendar: CalendarService
     /// Arms the scripted landing-page demo. Reads its own defaults, so a
     /// recording session survives relaunches between takes.
     let demoPlayback: DemoPlayback
@@ -185,6 +188,7 @@ struct AppServices {
             panelSharing: PanelSharingPreference(),
             launchBehavior: LaunchBehavior(),
             meetingDetection: MeetingDetectionPreference(),
+            calendar: CalendarService(),
             demoPlayback: DemoPlayback(),
             updateGate: UpdateGate(supabase: supabase),
             releaseChannel: ReleaseChannelStore(supabase: supabase, auth: auth),

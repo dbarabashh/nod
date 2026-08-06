@@ -39,7 +39,7 @@ enum TodayDigest {
         limit: Int = 6
     ) -> [OpenAction] {
         let byID = Dictionary(
-            meetings.filter { $0.deletedAt == nil }.map { ($0.id, $0) },
+            meetings.live().map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         return items

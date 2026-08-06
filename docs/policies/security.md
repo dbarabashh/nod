@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-08-01_
+_Last updated: 2026-08-06_
 
 > **Nod is built and operated by an individual** (Dima Barabash), not a
 > registered company. We've made the security and privacy decisions
@@ -54,9 +54,9 @@ the EU. This page documents exactly how that works.
 
 ## The basics
 
-Nod is a macOS app that sits in a small floating panel on the left of your
-screen. You start a recording manually — Nod never records without you pressing
-record. While a meeting is running, Nod captures two audio streams locally:
+Nod is a macOS app that lives in the notch at the top of your screen. You start
+a recording manually — Nod never records without you pressing record. While a
+meeting is running, Nod captures two audio streams locally:
 
 1. Your microphone (via macOS `AVAudioEngine`).
 2. The other side of the conversation, via system audio (`ScreenCaptureKit`).
@@ -73,9 +73,11 @@ Zero Data Retention — and the audio bytes are discarded immediately after the
 transcript comes back. Transcription and summarization are not on-device. The
 transcript and the AI-generated summary are saved to your private Nod account.
 
-Nod doesn't join meetings as a bot. There is no calendar integration, no
-Zoom/Meet/Teams hook, no automated chat message. It works with any app that
-plays audio on your Mac.
+Nod doesn't join meetings as a bot. No Zoom/Meet/Teams hook, no automated chat
+message, and no connected calendar account — Nod can read the calendar already
+on your Mac, on the device and only if you switch it on
+([Calendar access](#calendar-access)), but it never signs in to Google or
+Microsoft on your behalf. It works with any app that plays audio on your Mac.
 
 ---
 
@@ -186,6 +188,34 @@ is yours to delete.
   visible countdown and a keep-recording button.
 - **Off in one click.** Settings → General disables it; the card offers "Never
   for <app>"; a blocklisted app is never detected.
+
+### Calendar access
+
+Separate from screen access, and off until you switch it on. It exists for one
+job: to name the meeting a detected call belongs to, so the offer to record can
+tell you what you already discussed and what was left open.
+
+- **Not a connected account.** No Google or Microsoft sign-in, no OAuth, no
+  token, no calendar API. Nod reads the calendar already on your Mac, through
+  the macOS **Calendars** permission — the same kind of grant as the
+  microphone.
+- **Off by default.** You switch it on in Settings → General, and macOS asks
+  you separately. An app update never turns it on.
+- **Twice per meeting, never otherwise.** Once when a call is detected, and
+  once when the recording finishes — invitations are often written after a call
+  has already started, and the second read is what finds them. Not on a
+  schedule, not in the background.
+- **The entry and who was invited.** Title, start and end, whether you
+  declined, whether it holds a video-call link, and each invitee's name (or
+  address, where the invitation carries no name) plus which one is you. Rooms
+  and equipment are skipped, and so is anyone who declined.
+- **The names go where the conferencing app's already did.** They are used to
+  count how many voices other than yours the recording should hold, and to put
+  a name to a voice in your summary — the same path and protections as the
+  participant list described under Screen access, and a replacement for it.
+  Nothing else is kept: the title is compared against your own past sessions on
+  the device and dropped, and no record of the event is ever written.
+- **Read-only, always.** Nod never creates, edits, or deletes a calendar entry.
 
 ### What we do store
 

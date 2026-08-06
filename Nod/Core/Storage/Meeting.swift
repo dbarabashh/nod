@@ -268,11 +268,18 @@ struct Meeting: Codable, Identifiable {
 }
 
 extension [Meeting] {
-    /// Live sessions, newest first — the trash-visibility invariant in one
-    /// place. A copy of this that forgets `deletedAt` leaks a deleted session
-    /// into whatever surface re-rolled it.
+    /// Sessions that are not in the trash — the trash-visibility invariant in
+    /// one place. A copy of this that forgets `deletedAt` leaks a deleted
+    /// session into whatever surface re-rolled it.
+    func live() -> [Meeting] {
+        filter { $0.deletedAt == nil }
+    }
+
+    /// The same, ordered for the surfaces that list sessions. Callers that only
+    /// need the newest one, or no order at all, should take `live()` and say so
+    /// — this sort is not free at the store's five-hundred-row cap.
     func liveNewestFirst() -> [Meeting] {
-        filter { $0.deletedAt == nil }.sorted { $0.startedAt > $1.startedAt }
+        live().sorted { $0.startedAt > $1.startedAt }
     }
 }
 

@@ -20,6 +20,7 @@ struct SettingsView: View {
     private let screenExclusions: ScreenExclusions?
     private let screenContext: ScreenContextService?
     private let meetingDetection: MeetingDetectionPreference?
+    private let calendar: CalendarService?
     private let demoPlayback: DemoPlayback?
 
     init(
@@ -38,6 +39,7 @@ struct SettingsView: View {
         screenExclusions: ScreenExclusions? = nil,
         screenContext: ScreenContextService? = nil,
         meetingDetection: MeetingDetectionPreference? = nil,
+        calendar: CalendarService? = nil,
         demoPlayback: DemoPlayback? = nil,
         focusSubscription: Bool = false,
         focusModes: Bool = false
@@ -57,6 +59,7 @@ struct SettingsView: View {
         self.screenExclusions = screenExclusions
         self.screenContext = screenContext
         self.meetingDetection = meetingDetection
+        self.calendar = calendar
         self.demoPlayback = demoPlayback
         _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .profile))
     }
@@ -232,6 +235,7 @@ struct SettingsView: View {
     private var generalPane: some View {
         GeneralSettingsPane(
             meetingDetection: meetingDetection,
+            calendar: calendar,
             launchBehavior: launchBehavior,
             panelSharing: panelSharing,
             granolaImporter: granolaImporter,

@@ -5,6 +5,19 @@
     <key>com.apple.security.device.audio-input</key>
     <true/>
     <!--
+      Required by the hardened runtime, not by the sandbox — Nod is not
+      sandboxed, and this is still mandatory. Without it `tccd` refuses to put
+      the question to the user at all: "Prompting policy for hardened runtime;
+      service: kTCCServiceCalendar requires entitlement
+      com.apple.security.personal-information.calendars but it is missing",
+      followed by "Policy disallows prompt ... denied". EventKit then returns
+      false without throwing and the authorization status stays notDetermined,
+      so from inside the app a missing entitlement is indistinguishable from a
+      user who said no.
+    -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+    <!--
       Sparkle is shipped via SPM and signed by the Sparkle Project. When the
       app is built with a self-signed dev cert that has no Team Identifier,
       re-signing the embedded framework can't satisfy the hardened runtime's

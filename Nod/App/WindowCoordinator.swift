@@ -230,7 +230,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             profileStore: services.profileStore,
             outbox: services.meetingOutbox,
             modeStore: services.modeStore,
-            screenExclusions: services.screenExclusions
+            screenExclusions: services.screenExclusions,
+            calendar: services.calendar
         )
 
         // The detector belongs to the session it can act on, and the notch
@@ -252,6 +253,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 language: services.languagePreference,
                 updateGate: services.updateGate,
                 playback: services.demoPlayback,
+                briefing: CallBriefing(
+                    meetings: services.meetingStore,
+                    actionItems: services.actionItemStore,
+                    calendar: services.calendar
+                ),
                 consent: services.consent,
                 entitlements: services.entitlements
             ),
@@ -287,6 +293,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 screenExclusions: services.screenExclusions,
                 screenContext: services.screenContext,
                 meetingDetection: services.meetingDetection,
+                calendar: services.calendar,
                 demoPlayback: services.demoPlayback
             )
         )

@@ -56,6 +56,12 @@ targets:
         NSMicrophoneUsageDescription: "Nod needs access to your microphone to capture meeting audio."
         NSScreenCaptureUsageDescription: "Nod needs screen recording permission to capture system audio during meetings."
         NSSpeechRecognitionUsageDescription: "Nod uses speech recognition to transcribe what is said during meetings."
+        # Both keys are required: macOS 14 reads the FullAccess one, macOS 13
+        # only knows the plain one, and a missing key on either is a crash at
+        # the moment the prompt would appear. Nod never writes an event — full
+        # access is EventKit's only read tier.
+        NSCalendarsUsageDescription: "Nod reads your calendar on this Mac to recognise which meeting is starting. Nothing is stored or sent."
+        NSCalendarsFullAccessUsageDescription: "Nod reads your calendar on this Mac to recognise which meeting is starting. Nothing is stored or sent."
         CFBundleURLTypes:
           - CFBundleURLName: com.example.nod.auth
             CFBundleURLSchemes:

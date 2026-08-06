@@ -92,6 +92,69 @@ struct MeetingDetectionSection: View {
     }
 }
 
+/// Reading the calendar so a detected call can be named.
+///
+/// Its own switch rather than a line under meeting detection: this is the one
+/// place in Settings that asks for a system grant the app can work without, and
+/// the row has to be able to say what it is for before the prompt appears —
+/// a macOS permission dialog that arrives unexplained gets refused.
+struct CalendarSettingsSection: View {
+    @ObservedObject var calendar: CalendarService
+
+    var body: some View {
+        SettingsCard {
+            SettingsRow(
+                icon: "calendar",
+                title: "Recognise meetings from your calendar",
+                subtitle: "Names the call Nod is offering to record, so it can tell you when you have had "
+                    + "the same meeting before and what was left open. Reads your Mac's own calendar, "
+                    + "on this Mac — no account is connected and nothing is stored or sent."
+            ) {
+                Toggle("", isOn: $calendar.isEnabled)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+
+            // The switch on its own is not the whole story: it says what the user
+            // wants, and macOS separately decides whether Nod may. Whenever those
+            // two disagree the row says so and offers the way out — without it
+            // the switch reads "on" while nothing works and nothing explains why.
+            if calendar.isEnabled, calendar.status != .authorized {
+                SettingsRowDivider()
+                if calendar.status == .denied { blockedRow } else { notAskedRow }
+            }
+        }
+    }
+
+    private var blockedRow: some View {
+        SettingsRow(
+            icon: "exclamationmark.triangle",
+            title: "macOS is blocking calendar access",
+            subtitle: "Nod can't read your calendar until you allow it in System Settings → Privacy & Security → Calendars."
+        ) {
+            Button("Open Settings", action: calendar.openSystemSettings)
+                .controlSize(.small)
+        }
+    }
+
+    /// macOS has never been asked — normally because the prompt was dismissed or
+    /// Nod was quit before it was answered. It only ever appears once on its
+    /// own, so there has to be a way to ask for it again.
+    private var notAskedRow: some View {
+        SettingsRow(
+            icon: "hand.raised",
+            title: "macOS hasn't been asked yet",
+            subtitle: "Nod needs your permission before it can read the calendar on this Mac."
+        ) {
+            Button("Allow access") {
+                Task { await calendar.ensureAccess() }
+            }
+            .controlSize(.small)
+        }
+    }
+}
+
 /// What Nod puts on screen at launch. Default is the main window alone: the
 /// floating panel arriving by itself, over whatever the user was doing, reads
 /// as "I've already started recording".
@@ -141,6 +204,7 @@ struct ScreenShareSettingsSection: View {
 /// which pane to show, not being one.
 struct GeneralSettingsPane: View {
     let meetingDetection: MeetingDetectionPreference?
+    let calendar: CalendarService?
     let launchBehavior: LaunchBehavior?
     let panelSharing: PanelSharingPreference?
     let granolaImporter: GranolaImporter?
@@ -152,6 +216,9 @@ struct GeneralSettingsPane: View {
         VStack(alignment: .leading, spacing: 16) {
             if let meetingDetection {
                 MeetingDetectionSection(preference: meetingDetection)
+            }
+            if let calendar {
+                CalendarSettingsSection(calendar: calendar)
             }
             if let launchBehavior {
                 LaunchBehaviorSection(behavior: launchBehavior)

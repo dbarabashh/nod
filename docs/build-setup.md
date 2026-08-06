@@ -92,6 +92,40 @@ When you upgrade your local SwiftFormat/SwiftLint, bump
 `SWIFTFORMAT_VERSION`/`SWIFTLINT_VERSION` in `ci.yml` to match, or CI and the
 pre-commit hook will disagree.
 
+## Adding a macOS permission
+
+**The hardened runtime needs its own entitlement, even though Nod is not
+sandboxed.** This is the trap: the entitlements are documented as App Sandbox
+keys, and every instinct says an unsandboxed app doesn't need them. It does —
+`ENABLE_HARDENED_RUNTIME` is on, and `tccd` refuses to *put the question to the
+user at all* without the matching key in `Nod/Nod.entitlements`
+(`com.apple.security.device.audio-input` for the microphone,
+`com.apple.security.personal-information.calendars` for the calendar).
+
+The failure mode is silent and reads exactly like a bug in the app: the request
+returns `false` **without throwing**, the authorization status stays
+`notDetermined` however many times you ask, and the app never appears in System
+Settings → Privacy & Security. Nothing distinguishes it from a user saying no.
+
+`tccd` is the only place that says what happened. `log` is shadowed by a shell
+function in some setups — call it by path:
+
+```sh
+/usr/bin/log show --last 5m --predicate 'subsystem == "com.apple.TCC"' --info --debug \
+  | grep -iE "com.example.nod|Policy disallows|Prompting policy"
+```
+
+The line to look for names the missing key outright:
+
+```
+Prompting policy for hardened runtime; service: kTCCServiceCalendar requires
+entitlement com.apple.security.personal-information.calendars but it is missing
+Policy disallows prompt for Sub:{com.example.nod}; access to kTCCServiceCalendar denied
+```
+
+Usage-description strings in `project.yml` are necessary but not sufficient: a
+missing string crashes at the prompt, a missing entitlement suppresses it.
+
 ## Logs
 
 All app logs flow through `Nod/Core/Log.swift` — namespaced by subsystem

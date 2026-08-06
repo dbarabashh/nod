@@ -1,4 +1,3 @@
-import AppKit
 import ApplicationServices
 import Foundation
 
@@ -23,8 +22,6 @@ enum AccessibilityAccess {
     }
 
     static func openSystemSettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-        guard let url else { return }
-        NSWorkspace.shared.open(url)
+        SystemSettings.open(privacyPane: "Privacy_Accessibility")
     }
 }

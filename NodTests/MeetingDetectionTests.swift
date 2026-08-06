@@ -5,7 +5,7 @@ final class MeetingDetectionTests: XCTestCase {
     // MARK: - Which app is in a call
 
     func testNativeAppWithACallWindowIsTheCall() {
-        let signals = CallSignals(running: [.zoom, .chrome], inCall: [.zoom])
+        let signals = CallSignals(running: [.zoom, .chrome], titles: [.zoom: "Zoom Meeting"])
         XCTAssertEqual(MeetingDetection.call(in: signals), .zoom)
     }
 
@@ -34,19 +34,19 @@ final class MeetingDetectionTests: XCTestCase {
     }
 
     func testBrowserNeedsItsWindowTitle() {
-        let signals = CallSignals(running: [.chrome], inCall: [.chrome])
+        let signals = CallSignals(running: [.chrome], titles: [.chrome: "Meet – abc-defg-hij"])
         XCTAssertEqual(MeetingDetection.call(in: signals), .chrome)
     }
 
     func testAHelperBackedCallIsAlsoJustACall() {
         // `helperBacked` is a narrowing of `inCall`, not a separate way in: the
         // helper still has to confirm the call before it can arm anything.
-        let signals = CallSignals(running: [.zoom], inCall: [.zoom], helperBacked: [.zoom])
+        let signals = CallSignals(running: [.zoom], helperBacked: [.zoom])
         XCTAssertEqual(MeetingDetection.call(in: signals), .zoom)
     }
 
     func testAConfirmedCallOutranksAMicrophoneGuess() {
-        let signals = CallSignals(running: [.slack, .chrome], inCall: [.chrome], micUsers: [.slack])
+        let signals = CallSignals(running: [.slack, .chrome], micUsers: [.slack], titles: [.chrome: "Meet – abc-defg-hij"])
         XCTAssertEqual(MeetingDetection.call(in: signals), .chrome)
     }
 

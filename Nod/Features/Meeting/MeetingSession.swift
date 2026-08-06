@@ -182,6 +182,7 @@ final class MeetingSession: ObservableObject {
     private let outbox: MeetingOutbox
     private let modeStore: ModeStore
     private let screenExclusions: ScreenExclusions
+    private let calendar: CalendarService
     private let recapGenerator: RecapGenerator
 
     init(
@@ -197,7 +198,8 @@ final class MeetingSession: ObservableObject {
         profileStore: ProfileStore,
         outbox: MeetingOutbox,
         modeStore: ModeStore,
-        screenExclusions: ScreenExclusions
+        screenExclusions: ScreenExclusions,
+        calendar: CalendarService
     ) {
         self.audioCapture = audioCapture
         self.store = store
@@ -212,6 +214,7 @@ final class MeetingSession: ObservableObject {
         self.outbox = outbox
         self.modeStore = modeStore
         self.screenExclusions = screenExclusions
+        self.calendar = calendar
         recapGenerator = RecapGenerator(llm: llm)
     }
 
@@ -576,6 +579,17 @@ final class MeetingSession: ObservableObject {
         // an inflated speaker count here, and its participants' names in this
         // meeting's recap prompt.
         let pinnedRoster = consumeRoster()
+        // Asked here rather than when the recording started, because the entry
+        // often does not exist yet at that point — people create the invite two
+        // minutes before, or halfway through. By now the span is final, so one
+        // query answers "created before" and "created during" alike, and it
+        // answers against what was actually captured instead of a guess made at
+        // the first second.
+        let scheduled = calendar.meetings(
+            overlapping: DateInterval(start: draft.startedAt, end: max(draft.startedAt, draft.endedAt))
+        ).first
+        let people = MeetingParticipants.resolve(calendar: scheduled, roster: pinnedRoster)
+        Log.stt.info("participants: \(people.names.count) name(s), \(people.expectedOtherVoices) other voice(s) — \(people.source)")
         if shouldDiarize { meetingStore.beginResolvingSpeakers(id: draft.id) }
         Task {
             // Every exit of this Task clears the "labels still resolving" flag —
@@ -597,8 +611,8 @@ final class MeetingSession: ObservableObject {
             // unlabelled transcript rather than making the user watch
             // "Generating…" for minutes, and a result that lands late relabels
             // the persisted rows in `applyLateSpeakers`.
-            let expectedSpeakers = Self.expectedThemSpeakers(in: pinnedRoster)
-            let participants = pinnedRoster?.participants ?? []
+            let expectedSpeakers = people.expectedOtherVoices
+            let participants = people.names
             let speakerTask = Task { await store.resolveSpeakers(expectedSpeakerCount: expectedSpeakers) }
             let speakers = await Self.value(of: speakerTask, within: Self.speakerJoinTimeout) ?? [:]
 
@@ -972,19 +986,6 @@ final class MeetingSession: ObservableObject {
     private func stopRosterSampling() {
         rosterTask?.cancel()
         rosterTask = nil
-    }
-
-    /// How many distinct voices the `them` stream should contain: everyone on
-    /// the call except the user, whose own voice arrives on the mic instead.
-    /// Zero means "unknown" — diarization then clusters by threshold.
-    ///
-    /// Takes what sampling accumulated while the call was live, rather than
-    /// walking again: by the time a finalize runs, the user has hung up and the
-    /// conferencing window is gone, so a fresh walk finds nothing and would
-    /// overwrite a good count with none.
-    nonisolated static func expectedThemSpeakers(in roster: MeetingRoster?) -> Int {
-        guard let roster, roster.speakerCount > 1 else { return 0 }
-        return roster.speakerCount - 1
     }
 
     /// Hands this session's roster to its finalize and clears the field.

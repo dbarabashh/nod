@@ -65,7 +65,7 @@ final class ActionItemStore: ObservableObject {
     }
 
     var openItems: [ActionItem] {
-        items.filter { !$0.done }
+        items.filter(\.isOpen)
     }
 
     /// Promote recap actions for meetings that never got theirs — a finalize

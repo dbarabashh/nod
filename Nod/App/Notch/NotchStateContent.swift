@@ -39,6 +39,7 @@ struct NotchStateContent: View {
         case let .invitation(app):
             NotchInvitation(
                 app: app,
+                context: model.callContext,
                 onStart: model.acceptInvitation,
                 onDismiss: model.declineInvitation,
                 onMute: { model.muteInvitation(app) }

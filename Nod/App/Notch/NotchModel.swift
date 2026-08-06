@@ -12,6 +12,11 @@ import SwiftUI
 final class NotchModel: ObservableObject {
     @Published private(set) var presentation: NotchPresentation = .dormant
     @Published private(set) var geometry: NotchGeometry = .island
+    /// What Nod already knows about the call being offered.
+    ///
+    /// Beside the presentation rather than inside it: the presentation is an
+    /// identity, and a change to it folds the surface shut and expands it again.
+    @Published private(set) var callContext: CallContext = .none
     /// Whether Start pauses on the language confirm. Bound by the checkbox in
     /// that confirm and mirrored by the Settings toggle, so both write the one
     /// defaults key rather than each keeping a copy that drifts.
@@ -30,6 +35,7 @@ final class NotchModel: ObservableObject {
     let language: LanguagePreference
     let updateGate: UpdateGate
 
+    private let briefing: CallBriefing
     private let consent: ConsentPreference
     private let entitlements: EntitlementService
     private let defaults: UserDefaults
@@ -63,6 +69,7 @@ final class NotchModel: ObservableObject {
         language: LanguagePreference,
         updateGate: UpdateGate,
         playback: DemoPlayback,
+        briefing: CallBriefing,
         consent: ConsentPreference,
         entitlements: EntitlementService,
         defaults: UserDefaults = .standard
@@ -73,6 +80,7 @@ final class NotchModel: ObservableObject {
         self.language = language
         self.updateGate = updateGate
         self.playback = playback
+        self.briefing = briefing
         self.consent = consent
         self.entitlements = entitlements
         self.defaults = defaults
@@ -270,6 +278,20 @@ final class NotchModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Recomputed once per offer, not per derivation: `refresh()` runs on
+        // every tick of the session clock, and this walks the library.
+        //
+        // No `receive(on:)`, unlike the derivation below: this reads only the
+        // value the publisher hands it, so it is ready for the card's first
+        // frame instead of appearing under it a moment later.
+        detector.$invitation
+            .removeDuplicates()
+            .sink { [weak self] call in
+                guard let self else { return }
+                callContext = call.map { self.briefing.context(for: $0) } ?? .none
+            }
+            .store(in: &cancellables)
+
         Publishers.MergeMany(
             demo.$stage.map { _ in () }.eraseToAnyPublisher(),
             session.$meeting.map { _ in () }.eraseToAnyPublisher(),
@@ -357,7 +379,7 @@ final class NotchModel: ObservableObject {
             return .alert(.saveFailed(message))
         }
         if let invitation = detector.invitation {
-            return .invitation(invitation)
+            return .invitation(invitation.app)
         }
         if session.meeting != .idle {
             return isOpened ? .controls : .capturing

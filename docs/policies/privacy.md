@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-03_
+_Last updated: 2026-08-06_
 
 > This policy describes the data practices that already exist in the
 > product today — every claim is tied to code you can inspect.
@@ -33,8 +33,8 @@ your full card details.
 
 Nod is a macOS app that records meetings playing through your Mac's
 speakers and microphone, transcribes them via Whisper, and produces an
-AI-generated summary using a large language model. It runs as a small
-floating panel and never records without you pressing record.
+AI-generated summary using a large language model. It lives in the notch at the
+top of your screen and never records without you pressing record.
 
 The data flow is summarised in our [Security page](./security.md) and the
 list of third parties in our [Subprocessors list](./subprocessors.md).
@@ -178,7 +178,11 @@ in the same `eu-west-1` region.
 - We do **not** track which features you use, which screens you open, or how
   long you spend in the app once setup is finished.
 - We do **not** track you across the web or use advertising cookies.
-- We do **not** read your calendar, email, or other Google services.
+- We do **not** connect to Google, Microsoft, or any other account to read your
+  email, calendar, or files. Nod can read the calendar **already set up on your
+  own Mac** — on the device, and only if you switch it on (§ 3.11). That is a
+  macOS permission, not a connected account, and nothing read from it is stored
+  or sent anywhere.
 - We do **not** collect your contacts or address book.
 - We do **not** record video of your screen, and we do **not** save an image
   of it — ever. What Nod keeps from your screen is always **text**. With
@@ -308,8 +312,14 @@ steps as pressing Start yourself.
   window, in any app. It does not use the accessibility
   interface at all; window titles come from the same **Screen Recording**
   permission Nod already needs to hear a meeting.
-- **What it stores.** Nothing. A title is matched in memory and dropped. There
-  is no row, no file, and nothing leaves your Mac.
+- **What it stores.** Nothing. A title is matched in memory and dropped when the
+  offer goes away. There is no row, no file, and nothing leaves your Mac.
+- **What it is matched against.** The call-marker words above, and — on your Mac
+  only — the titles of sessions you have already recorded, so the offer can tell
+  you that you have had this conversation before and how much of it is still
+  open. That comparison runs entirely on your device, against sessions Nod has
+  already loaded: nothing is sent anywhere, no search is run on our servers, and
+  no model ever sees the title.
 - **Which apps.** Zoom, Microsoft Teams, Webex, Slack and Discord, plus a
   browser window whose title names a call (for example "Meet – abc-defg-hij").
   Windows belonging to any other app are not looked at.
@@ -337,6 +347,29 @@ Legal basis for (a): Legitimate interest (Art. 6(1)(f)) — attributing speech t
 speakers is the feature you are using Nod for. Participants' names are read
 locally, used transiently, and travel no further than the summarising model
 already handling the transcript of the same conversation.
+
+### 3.11 Your calendar — only if you switch it on
+
+A window title is a poor way to tell *which* meeting is starting: Microsoft
+Teams names it, Zoom usually says only "Zoom Meeting", and Google Meet often
+shows nothing but a room code. Your calendar names it every time. With this on,
+the offer to record can tell you that you have had the same meeting before and
+how much of it is still open, instead of just that a call is happening.
+
+| | |
+|---|---|
+| **Default** | **Off.** You switch it on yourself in Settings → General, and macOS then asks you separately. It is never switched on by an app update. |
+| **What it is not** | **Not a connected account.** There is no Google or Microsoft sign-in, no OAuth, no token, and no calendar API. Nod reads the calendar database already on your Mac — the same one the Calendar app shows you — through the macOS **Calendars** permission, exactly like the microphone permission you already granted. |
+| **When it reads** | Twice for a given meeting, and never otherwise: when Nod has just detected a call and is about to offer to record it, and once more when a recording finishes — an invitation is often written minutes *after* the call started, so the second read is what finds it. Not on a schedule, not in the background, and never while nothing is happening. |
+| **What it reads** | Events overlapping the call — the title, the start and end times, whether you declined it, whether the entry contains a video-call link, and **who was invited**: each person's name (or, where the invitation carries no name, their address), and which of them is you. Rooms and equipment are skipped, as is anyone who declined. Nothing else about the event is looked at. |
+| **What it stores** | The **names of the people invited** go into the recording's own summary, the same way the participant list read from a conferencing app already does (§ 3.10(a)) — so a summary can say "Alina" instead of "Speaker 2". Nothing else is kept: the title is compared against your existing sessions on your Mac and dropped, and no separate record of the event or its invitees is ever written. |
+| **Why the names** | To count how many people other than you should be heard in the recording, which is what makes speaker separation accurate, and to put a name to a voice. This replaces reading the conferencing app's window for the same thing — the calendar is both more accurate and far less intrusive, since it needs no access to what is on your screen. |
+| **Writing** | Never. Nod does not create, change, or delete anything in your calendar. |
+| **Turning it off** | The same switch in Settings → General. Nod stops reading immediately, whether or not macOS still shows the permission as granted — and you can revoke the permission itself in System Settings → Privacy & Security → Calendars. |
+
+Legal basis: Consent (Art. 6(1)(a)) — this one is opt-in, and you withdraw it by
+switching it off, which stops the reading immediately. Nothing was retained to
+delete.
 
 ---
 

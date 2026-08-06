@@ -8,9 +8,6 @@ struct CallSignals: Equatable {
     /// Conferencing apps that are running, native ones first — a native app *is*
     /// the call, a browser merely contains one.
     var running: [ConferencingApp] = []
-    /// Apps a strong signal puts in a call right now: a window titled like one,
-    /// or a helper process that exists only while a call is up.
-    var inCall: Set<ConferencingApp> = []
     /// Apps whose call is held up by a process that exists *only* while the call
     /// does. Narrower than `inCall` on purpose: a window title disappears for
     /// reasons that have nothing to do with the call ending — the user switched
@@ -25,6 +22,23 @@ struct CallSignals: Equatable {
     /// wrong one: Slack is open all day, so a global "the mic is busy" made
     /// every Google Meet call look like a Slack call.
     var micUsers: Set<ConferencingApp> = []
+    /// The window title that put an app in a call, for the apps confirmed that
+    /// way. Held for the length of one tick and never written anywhere — the
+    /// notch reads it to recognise a call it has recorded before, entirely
+    /// against sessions already on this Mac (`privacy.md` § 3.10(c)).
+    var titles: [ConferencingApp: String] = [:]
+
+    /// Apps a strong signal puts in a call right now: a window titled like one,
+    /// or a helper process that exists only while a call is up.
+    ///
+    /// Derived, not stored. Held as its own set it had to be kept in step with
+    /// `titles` by whoever built it — the same invariant-nothing-enforces that
+    /// `DetectedCall` exists to kill one layer up, and the same failure: a new
+    /// evidence source that adds to one and forgets the other reads as a call
+    /// with no title, or a title for a call that isn't happening.
+    var inCall: Set<ConferencingApp> {
+        helperBacked.union(titles.keys)
+    }
 }
 
 /// The rules that turn system signals into "a call is happening", and back out
@@ -74,6 +88,19 @@ enum MeetingDetection {
     /// Notion document as a Slack window. A huddle is still offered — Slack plus
     /// a busy microphone — it just isn't confirmed by a title.
     private static let leadingMarkers = MeetingRosterReader.meetLeadingTokens
+}
+
+/// A call Nod is offering to record.
+///
+/// One value rather than an app and a loose title beside it: the title is only
+/// meaningful for the call it came from, and held separately the two had to be
+/// assigned and cleared in a particular order to stay in step — an invariant
+/// nothing could enforce and no test could catch.
+struct DetectedCall: Equatable {
+    let app: ConferencingApp
+    /// The window title that confirmed this call, when a title is what confirmed
+    /// it — a call proved only by a helper process or a busy microphone has none.
+    let title: String?
 }
 
 /// The detector's memory between ticks: how long a call has been visible, what
@@ -204,8 +231,8 @@ final class MeetingDetectionPreference: ObservableObject {
 ///
 /// Three properties keep this defensible, and all three are enforced here:
 ///
-///  * **Nothing is stored.** A window title is matched in memory and dropped;
-///    no row, no file, nothing leaves the Mac.
+///  * **Nothing is stored.** A window title is matched in memory and dropped
+///    with the offer it raised; no row, no file, nothing leaves the Mac.
 ///  * **The blocklist wins.** An excluded or muted app is dropped from the scan
 ///    before any window is looked at.
 ///  * **It cannot start a recording on its own.** Accepting the card raises the
@@ -214,7 +241,7 @@ final class MeetingDetectionPreference: ObservableObject {
 @MainActor
 final class MeetingDetector: ObservableObject {
     /// The call being offered, if any.
-    @Published private(set) var invitation: ConferencingApp?
+    @Published private(set) var invitation: DetectedCall?
 
     private let session: MeetingSession
     private let exclusions: ScreenExclusions
@@ -304,7 +331,7 @@ final class MeetingDetector: ObservableObject {
     /// Start recording this call — through the panel, never around it.
     func accept() {
         guard let invitation else { return }
-        Log.screen.info("detect: accepted \(invitation.displayName)")
+        Log.screen.info("detect: accepted \(invitation.app.displayName)")
         state.markHandled()
         withdraw()
         session.requestAutoStart()
@@ -314,7 +341,7 @@ final class MeetingDetector: ObservableObject {
     /// "Not now" — this call is answered, and it won't ask again.
     func decline() {
         guard let invitation else { return }
-        Log.screen.info("detect: declined \(invitation.displayName)")
+        Log.screen.info("detect: declined \(invitation.app.displayName)")
         state.markHandled()
         withdraw()
     }
@@ -360,7 +387,7 @@ final class MeetingDetector: ObservableObject {
             // The card sits in a screen corner while the user is looking at the
             // call — unheard, it is only found by accident.
             UISound.meetingDetected.play(recording: isRecording)
-            invitation = app
+            invitation = DetectedCall(app: app, title: signals.titles[app])
             invitationRaisedAt = Date()
         case .withdraw:
             withdraw()
@@ -390,12 +417,11 @@ final class MeetingDetector: ObservableObject {
 
         let present = Set(candidates.map(\.0))
         let pids = Dictionary(candidates, uniquingKeysWith: { first, _ in first })
-        let helperBacked = helpers.intersection(present)
         return CallSignals(
             running: candidates.map(\.0),
-            inCall: helperBacked.union(Self.appsShowingACall(pids: pids, rules: rules)),
-            helperBacked: helperBacked,
-            micUsers: micUsers(among: present)
+            helperBacked: helpers.intersection(present),
+            micUsers: micUsers(among: present),
+            titles: Self.appsShowingACall(pids: pids, rules: rules)
         )
     }
 
@@ -429,9 +455,9 @@ final class MeetingDetector: ObservableObject {
     private nonisolated static func appsShowingACall(
         pids: [ConferencingApp: pid_t],
         rules: ScreenExclusionRules
-    ) -> Set<ConferencingApp> {
+    ) -> [ConferencingApp: String] {
         // Never prompts: the grant is asked for where the user expects it.
-        guard CGPreflightScreenCaptureAccess() else { return [] }
+        guard CGPreflightScreenCaptureAccess() else { return [:] }
         let byPID = Dictionary(pids.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
 
         let windows = CGWindowListCopyWindowInfo(
@@ -439,16 +465,16 @@ final class MeetingDetector: ObservableObject {
             kCGNullWindowID
         ) as? [[String: Any]] ?? []
 
-        var found: Set<ConferencingApp> = []
+        var found: [ConferencingApp: String] = [:]
         for window in windows {
             guard let pid = window[kCGWindowOwnerPID as String] as? pid_t,
                   let app = byPID[pid],
-                  !found.contains(app),
+                  found[app] == nil,
                   let title = window[kCGWindowName as String] as? String,
                   !rules.excludesWindow(title: title),
                   MeetingDetection.namesActiveCall(title)
             else { continue }
-            found.insert(app)
+            found[app] = title
         }
         return found
     }

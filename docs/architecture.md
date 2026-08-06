@@ -95,6 +95,19 @@ UI is this floating non-activating panel, anchored to the left of the screen.
   Relaunch" button for this — see issue
   [#3](https://github.com/dbarabashh/Nod/issues/3).
 
+Calendar (EventKit) is deliberately **outside** `PermissionManager`, in
+`CalendarService`: mic and Screen Recording are what the product needs to work
+at all and are asked for in onboarding, while calendar access is optional and
+opt-in from Settings → General. `CalendarService` carries its own switch alongside the grant, because
+a TCC grant can't be handed back from inside the app. `requestFullAccessToEvents`
+is macOS 14+; the 13.0 path uses `requestAccess(to:)`. Both
+`NSCalendarsUsageDescription` and `NSCalendarsFullAccessUsageDescription` must
+stay in `project.yml` — each OS reads a different one, and a missing key crashes
+at the prompt — **and** `com.apple.security.personal-information.calendars` must
+stay in `Nod/Nod.entitlements`: the hardened runtime requires it even though Nod
+is unsandboxed, and without it `tccd` silently refuses to show the prompt at all.
+See `docs/build-setup.md` § "Adding a macOS permission".
+
 ## Language model
 
 `LanguagePreference` is a user-facing output-language preference, not a

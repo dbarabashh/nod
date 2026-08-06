@@ -10,6 +10,9 @@ import SwiftUI
 /// decline is permanent.
 struct NotchInvitation: View {
     let app: ConferencingApp
+    /// What Nod already knows about this call. Empty is the ordinary case — a
+    /// first conversation, or a meeting nothing on this Mac can put a name to.
+    let context: CallContext
     let onStart: () -> Void
     let onDismiss: () -> Void
     let onMute: () -> Void
@@ -22,16 +25,41 @@ struct NotchInvitation: View {
                     Text("\(app.displayName) call detected")
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(Theme.Palette.ink)
-                    Text("Nod will transcribe it and write the summary.")
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(Theme.Palette.muted)
-                        .fixedSize(horizontal: false, vertical: true)
+                    subtitle
                 }
                 Spacer(minLength: 0)
                 NotchGlyphButton(systemName: "xmark", help: "Not now", action: onDismiss)
             }
             actions
         }
+    }
+
+    /// What Nod knows, when it knows something; what it is about to do
+    /// otherwise. Never both — a recognised meeting shown alongside a
+    /// description of the product buries the half the user has not seen before.
+    ///
+    /// Who is on the call leads when the calendar knows it. That is the question
+    /// being answered in the two seconds before someone clicks Start, and it is
+    /// the one thing here that no other surface in the app can tell them.
+    @ViewBuilder
+    private var subtitle: some View {
+        if context.isEmpty {
+            line("Nod will transcribe it and write the summary.", weight: .regular, tint: Theme.Palette.muted)
+        } else {
+            if let withLine = context.withLine {
+                line(withLine, weight: .medium, tint: Theme.Palette.ink.opacity(0.78))
+            }
+            if let brief = context.brief {
+                line(brief, weight: .regular, tint: Theme.Palette.muted)
+            }
+        }
+    }
+
+    private func line(_ text: String, weight: Font.Weight, tint: Color) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: weight))
+            .foregroundStyle(tint)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// The app's own icon, so the surface is recognisable before it is read.

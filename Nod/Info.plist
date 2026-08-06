@@ -31,6 +31,10 @@
 	<string>62</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Nod reads your calendar on this Mac to recognise which meeting is starting. Nothing is stored or sent.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Nod reads your calendar on this Mac to recognise which meeting is starting. Nothing is stored or sent.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 	<key>NSMicrophoneUsageDescription</key>

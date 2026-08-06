@@ -42,12 +42,11 @@ enum ChatHomeSuggestions {
     /// The scoped projects read as prose — "Hiring", "Hiring and Pricing",
     /// "Hiring, Pricing and Roadmap". Nil when nothing is scoped.
     static func scopeName(_ projects: [String]) -> String? {
-        let names = projects
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard let last = names.last else { return nil }
-        guard names.count > 1 else { return last }
-        return names.dropLast().joined(separator: ", ") + " and " + last
+        TextList.prose(
+            projects
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
     }
 
     /// What the chat is pointed at, spelled out above the openers. An empty
