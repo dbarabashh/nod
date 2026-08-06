@@ -7,8 +7,7 @@ import Foundation
 /// Modes apply to meetings only. A voice note (talking to yourself) or a media
 /// capture (transcribing a lecture) has no recap/reply framing to choose, so
 /// they aren't modes — the panel's recording-type picker owns that axis. A mode
-/// bundles the recap layout (`SummaryTemplate`), the suggest-reply framing
-/// (`ReplyContext`), and a free-text `focus`. The active mode is resolved into a
+/// bundles the recap layout (`SummaryTemplate`) and a free-text `focus`. The active mode is resolved into a
 /// `MeetingFraming` at generation time (see `MeetingSession`); the `focus` is
 /// injected as a `[MEETING FOCUS]` block in the meeting prompts.
 struct MeetingMode: Identifiable, Codable, Equatable {
@@ -16,7 +15,6 @@ struct MeetingMode: Identifiable, Codable, Equatable {
     var name: String
     var icon: String
     var summary: SummaryTemplate
-    var reply: ReplyContext
     var focus: String
 
     init(
@@ -24,14 +22,12 @@ struct MeetingMode: Identifiable, Codable, Equatable {
         name: String,
         icon: String,
         summary: SummaryTemplate,
-        reply: ReplyContext,
         focus: String = ""
     ) {
         self.id = id
         self.name = name
         self.icon = icon
         self.summary = summary
-        self.reply = reply
         self.focus = focus
     }
 }
@@ -43,14 +39,13 @@ struct MeetingMode: Identifiable, Codable, Equatable {
 /// meeting mode: every consumer asks `MeetingFraming.active(for:mode:)`.
 struct MeetingFraming {
     let summary: SummaryTemplate
-    let reply: ReplyContext
     let focus: String
 
-    static let neutral = MeetingFraming(summary: .auto, reply: .auto, focus: "")
+    static let neutral = MeetingFraming(summary: .auto, focus: "")
 
     static func active(for kind: SessionKind, mode: MeetingMode) -> MeetingFraming {
         guard kind == .meeting else { return .neutral }
-        return MeetingFraming(summary: mode.summary, reply: mode.reply, focus: mode.focus)
+        return MeetingFraming(summary: mode.summary, focus: mode.focus)
     }
 }
 
@@ -60,24 +55,22 @@ extension MeetingMode {
     static let fallback = MeetingMode(
         name: "General",
         icon: "circle.grid.2x2",
-        summary: .auto,
-        reply: .auto
+        summary: .auto
     )
 
     /// The modes a fresh install starts with — one neutral default plus the
     /// meeting shapes the recap/reply enums already special-case.
     static let presets: [MeetingMode] = [
-        MeetingMode(name: "General", icon: "circle.grid.2x2", summary: .auto, reply: .auto),
+        MeetingMode(name: "General", icon: "circle.grid.2x2", summary: .auto),
         MeetingMode(
             name: "Interview",
             icon: "person.crop.rectangle.stack",
             summary: .interview,
-            reply: .interview,
             focus: "Senior backend candidate. Probe system-design depth, ownership, and how they handle ambiguity. Flag anything that suggests they oversell."
         ),
-        MeetingMode(name: "Sales call", icon: "chart.line.uptrend.xyaxis", summary: .salesCall, reply: .salesCall),
-        MeetingMode(name: "1:1", icon: "bubble.left.and.bubble.right", summary: .oneOnOne, reply: .oneOnOne),
-        MeetingMode(name: "Standup", icon: "checklist", summary: .standup, reply: .meeting)
+        MeetingMode(name: "Sales call", icon: "chart.line.uptrend.xyaxis", summary: .salesCall),
+        MeetingMode(name: "1:1", icon: "bubble.left.and.bubble.right", summary: .oneOnOne),
+        MeetingMode(name: "Standup", icon: "checklist", summary: .standup)
     ]
 }
 

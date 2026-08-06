@@ -27,22 +27,17 @@ final class ModeStore: ObservableObject {
         let hadPersisted = (loaded?.isEmpty == false)
         var modes = hadPersisted ? (loaded ?? []) : MeetingMode.presets
 
-        // First run of the modes feature: adopt whatever framing the user had set
-        // through the now-removed standalone "Summary style" / "Conversation type"
-        // pickers, so the upgrade doesn't silently reset their recap/reply choice.
-        // Match an existing preset; if the combination matches none, keep it as a
-        // one-off custom mode.
+        // First run of the modes feature: adopt whatever recap layout the user
+        // had set through the now-removed standalone "Summary style" picker, so
+        // the upgrade doesn't silently reset it. Match an existing preset; if it
+        // matches none, keep it as a one-off custom mode.
         var migratedSelection: UUID?
         if !hadPersisted {
-            let legacySummary = defaults.string(forKey: SummaryTemplate.defaultsKey).flatMap(SummaryTemplate.init)
-            let legacyReply = defaults.string(forKey: ReplyContext.defaultsKey).flatMap(ReplyContext.init)
-            if legacySummary != nil || legacyReply != nil {
-                let summary = legacySummary ?? .auto
-                let reply = legacyReply ?? .auto
-                if let match = modes.first(where: { $0.summary == summary && $0.reply == reply }) {
+            if let summary = defaults.string(forKey: SummaryTemplate.defaultsKey).flatMap(SummaryTemplate.init) {
+                if let match = modes.first(where: { $0.summary == summary }) {
                     migratedSelection = match.id
                 } else {
-                    let custom = MeetingMode(name: "Custom", icon: "star", summary: summary, reply: reply)
+                    let custom = MeetingMode(name: "Custom", icon: "star", summary: summary)
                     modes.append(custom)
                     migratedSelection = custom.id
                 }
@@ -88,7 +83,7 @@ final class ModeStore: ObservableObject {
 
     @discardableResult
     func addMode() -> UUID {
-        let mode = MeetingMode(name: "New mode", icon: "star", summary: .auto, reply: .auto)
+        let mode = MeetingMode(name: "New mode", icon: "star", summary: .auto)
         modes.append(mode)
         // Make the new mode active so authoring it and using it are the same act —
         // otherwise a freshly created mode is edited but silently inert.

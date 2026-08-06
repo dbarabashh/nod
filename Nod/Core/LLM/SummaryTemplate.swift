@@ -4,7 +4,7 @@ import Foundation
 /// end-of-meeting summary is organized into. `.auto` lets the model choose the
 /// sections from the content (anarlog-style); every other case supplies a
 /// concrete section list the model must use. Persisted as a global default in
-/// `UserDefaults` (key `summary.template`), mirroring `ReplyContext`.
+/// `UserDefaults` (key `summary.template`).
 ///
 /// The titles below are written in English; the prompt tells the model to
 /// translate them into the recap output language so a Ukrainian recap gets

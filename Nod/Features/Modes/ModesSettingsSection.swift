@@ -201,19 +201,6 @@ private struct ModeEditorForm: View {
                 hint(draft.summary.settingsHint)
             }
 
-            field("Reply framing") {
-                Picker("", selection: binding(\.reply)) {
-                    ForEach(ReplyContext.allCases) { context in
-                        Text(context.displayName).tag(context)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .tint(Theme.Palette.ink)
-                .fixedSize()
-                hint(draft.reply.settingsHint)
-            }
-
             field("Focus") {
                 ZStack(alignment: .topLeading) {
                     if draft.focus.isEmpty {
