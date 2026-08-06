@@ -111,6 +111,28 @@ extension PromptLibrary {
 /// meetings — still decodes.
 struct NamedSpeakers: Decodable {
     var speakers: [String: String]?
+
+    private enum CodingKeys: String, CodingKey {
+        case speakers
+    }
+
+    /// Read for what models actually send rather than for what the prompt asks.
+    ///
+    /// "Nothing to report" is the expected answer here, and it comes back
+    /// spelled several ways: `{}`, `[]`, `null`, or an object whose values are
+    /// null. Only the first decodes as `[String: String]`, and a strict decode
+    /// turned the *correct* answer into a thrown error that lost the whole
+    /// naming pass — including the entries a partly-usable reply did contain.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // `decode`, not `decodeIfPresent`: a missing key, a null and a list all
+        // throw here, and all three mean the same thing — nothing to report.
+        guard let raw = try? container.decode([String: String?].self, forKey: .speakers) else {
+            speakers = nil
+            return
+        }
+        speakers = raw.compactMapValues { $0 }
+    }
 }
 
 /// How to read and attribute the ambient screen capture, and how to cross it

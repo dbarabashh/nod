@@ -355,3 +355,34 @@ final class TranscriptPromptContextTests: XCTestCase {
         )
     }
 }
+
+/// The naming pass answers "nothing to report" far more often than it answers
+/// with names, and models spell that several ways. A strict decode turned the
+/// correct answer into a thrown error that lost the whole pass.
+final class NamedSpeakersDecodingTests: XCTestCase {
+    private func decode(_ json: String) throws -> [String: String] {
+        let data = try XCTUnwrap(json.data(using: .utf8))
+        return try JSONDecoder().decode(NamedSpeakers.self, from: data).speakers ?? [:]
+    }
+
+    func testReadsAWellFormedMap() throws {
+        XCTAssertEqual(try decode(#"{"speakers": {"2": "Eric Johnson"}}"#), ["2": "Eric Johnson"])
+    }
+
+    func testAnEmptyObjectIsNoNames() throws {
+        XCTAssertTrue(try decode(#"{"speakers": {}}"#).isEmpty)
+    }
+
+    /// The shape that lost a whole meeting's speaker names.
+    func testAnEmptyListIsNoNames() throws {
+        XCTAssertTrue(try decode(#"{"speakers": []}"#).isEmpty)
+    }
+
+    func testANullMapIsNoNames() throws {
+        XCTAssertTrue(try decode(#"{"speakers": null}"#).isEmpty)
+    }
+
+    func testAMissingKeyIsNoNames() throws {
+        XCTAssertTrue(try decode(#"{}"#).isEmpty)
+    }
+}

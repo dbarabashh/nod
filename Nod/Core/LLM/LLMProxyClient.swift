@@ -328,7 +328,12 @@ final class LLMProxyClient: ObservableObject {
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
-            Log.llm.error("JSON decode failed: \(error.localizedDescription)")
+            // Shape, not content: the body is the user's meeting, so it can only
+            // be logged behind DEBUG — and `.debug` entries are evicted from the
+            // log store within minutes, which is exactly when a failure report
+            // arrives too late to reproduce. What survives here names the field
+            // that did not fit, and field names are ours, not the user's.
+            Log.llm.error("JSON decode failed: \(Self.shape(of: data)) — \(error.localizedDescription)")
             Log.llm.sensitive("JSON decode failed body[0..200]=\(String(cleaned.prefix(200)))")
             throw ClientError.decodingFailed(error.localizedDescription)
         }
@@ -468,6 +473,28 @@ final class LLMProxyClient: ObservableObject {
     /// transcript is too vague…" *after* the closing ```). Drops the fence
     /// (everything from the closing ``` onward), then narrows to the outermost
     /// `{…}` / `[…]` so leading or trailing prose can't reach the decoder.
+    /// What a payload *is*, without saying what it contains — "object{speakers:
+    /// array}" is enough to see that a model answered `{"speakers": []}` and
+    /// nothing about the meeting it answered for. Keys are our own schema field
+    /// names; values are described by type only, and never printed.
+    static func shape(of data: Data) -> String {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return "not-json" }
+        guard let object = json as? [String: Any] else { return kind(of: json) }
+        let fields = object.keys.sorted().prefix(8).map { "\($0):\(kind(of: object[$0] as Any))" }
+        return "object{\(fields.joined(separator: ","))}"
+    }
+
+    private static func kind(of value: Any) -> String {
+        switch value {
+        case is [String: Any]: "object"
+        case let array as [Any]: "array[\(array.count)]"
+        case is String: "string"
+        case is NSNull: "null"
+        case is NSNumber: "number"
+        default: "?"
+        }
+    }
+
     static func extractJSON(_ s: String) -> String {
         var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.hasPrefix("```") {
