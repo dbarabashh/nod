@@ -144,6 +144,7 @@ struct GeneralSettingsPane: View {
     let launchBehavior: LaunchBehavior?
     let panelSharing: PanelSharingPreference?
     let granolaImporter: GranolaImporter?
+    let demoPlayback: DemoPlayback?
     @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting = MeetingLanguagePromptDefaults.defaultValue
     @AppStorage(UISound.defaultsKey) private var soundsEnabled = true
 
@@ -154,6 +155,9 @@ struct GeneralSettingsPane: View {
             }
             if let launchBehavior {
                 LaunchBehaviorSection(behavior: launchBehavior)
+            }
+            if let demoPlayback {
+                DemoSettingsSection(playback: demoPlayback)
             }
             SettingsCard {
                 SettingsRow(

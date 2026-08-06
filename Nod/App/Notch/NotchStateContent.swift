@@ -57,6 +57,8 @@ struct NotchStateContent: View {
             )
         case let .alert(alert):
             alertBody(alert)
+        case let .demo(stage):
+            DemoStageView(stage: stage, director: model.demo, geometry: model.geometry)
         }
     }
 

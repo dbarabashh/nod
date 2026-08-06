@@ -26,6 +26,10 @@ enum NotchPresentation: Equatable {
     case consent
     /// Something that needs an answer and then goes away again.
     case alert(NotchAlert)
+    /// A frame of the scripted demo. Routed through the same enum as everything
+    /// else so it inherits the silhouette, the springs and the fold-between
+    /// transition rather than being a second notch bolted alongside the first.
+    case demo(DemoStage)
 }
 
 /// The transient states: raised over whatever the notch was showing, and gone
@@ -51,7 +55,16 @@ extension NotchPresentation {
         case .consent: "consent"
         case .alert(.autoEnd): "alert.autoEnd"
         case .alert(.saveFailed): "alert.saveFailed"
+        case let .demo(stage): stage.contentID
         }
+    }
+
+    /// Whether this state is a full card, as opposed to a line or the bare
+    /// surface. Only a card has to get out of the way before the next thing
+    /// arrives — see `NotchModel.apply`.
+    var occupiesCard: Bool {
+        guard case let .demo(stage) = self else { return isOpen }
+        return stage.form == .card
     }
 
     /// Whether this state is opened up rather than resting on the menu bar.
@@ -61,6 +74,7 @@ extension NotchPresentation {
         switch self {
         case .dormant, .capturing: false
         case .updateRequired, .invitation, .controls, .launch, .languageConfirm, .consent, .alert: true
+        case let .demo(stage): stage.form != .resting
         }
     }
 
@@ -78,6 +92,14 @@ extension NotchPresentation {
         case .languageConfirm: 340
         case .consent: 380
         case .alert: 396
+        case let .demo(stage):
+            // Wider than a real capture's resting bar: that one carries a meter
+            // and a clock, this one adds the word for what Nod is doing. At the
+            // capture width the content overran the surface and shoved the clock
+            // past its own padding.
+            stage.form == .resting
+                ? geometry.collapsedSize.width + flare + 232
+                : stage.surfaceWidth
         }
     }
 
@@ -97,6 +119,8 @@ extension NotchPresentation {
         case .updateRequired, .invitation, .controls, .launch,
              .languageConfirm, .consent, .alert:
             nil
+        case let .demo(stage):
+            stage.form == .resting ? geometry.collapsedSize.height : nil
         }
     }
 

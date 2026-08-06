@@ -20,6 +20,7 @@ struct SettingsView: View {
     private let screenExclusions: ScreenExclusions?
     private let screenContext: ScreenContextService?
     private let meetingDetection: MeetingDetectionPreference?
+    private let demoPlayback: DemoPlayback?
 
     init(
         hotkey: HotkeyManager,
@@ -37,6 +38,7 @@ struct SettingsView: View {
         screenExclusions: ScreenExclusions? = nil,
         screenContext: ScreenContextService? = nil,
         meetingDetection: MeetingDetectionPreference? = nil,
+        demoPlayback: DemoPlayback? = nil,
         focusSubscription: Bool = false,
         focusModes: Bool = false
     ) {
@@ -55,6 +57,7 @@ struct SettingsView: View {
         self.screenExclusions = screenExclusions
         self.screenContext = screenContext
         self.meetingDetection = meetingDetection
+        self.demoPlayback = demoPlayback
         _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .profile))
     }
 
@@ -231,7 +234,8 @@ struct SettingsView: View {
             meetingDetection: meetingDetection,
             launchBehavior: launchBehavior,
             panelSharing: panelSharing,
-            granolaImporter: granolaImporter
+            granolaImporter: granolaImporter,
+            demoPlayback: demoPlayback
         )
     }
 

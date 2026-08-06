@@ -70,11 +70,10 @@ struct NotchView: View {
             // the content invalidates, so a generous one is paid for continuously.
             .background(Color.black.padding(-40))
             .mask(shape)
-            // The shadow goes on the silhouette, behind everything, rather than
-            // on the finished surface: applied on top, its source layer is the
-            // live content, and a 22pt gaussian would be recomputed every time
-            // the level meter moves. Here it rasterizes once per morph.
-            .background(shadow(shape))
+            // No drop shadow. The surface hangs off the menu bar, and against
+            // the light bar either side of the cut-out a shadow reads as a grey
+            // halo tracing the notch — announcing that the black shape is a
+            // window rather than part of the machine.
             .overlay(edge(shape))
             .contentShape(shape)
             .onTapGesture(perform: model.toggleOpen)
@@ -95,12 +94,6 @@ struct NotchView: View {
     /// hardware, and a click costs the user nothing.
     private var isInteractive: Bool {
         presentation != .dormant || geometry.hasCutout
-    }
-
-    private func shadow(_ shape: AnyShape) -> some View {
-        shape
-            .fill(Color.black)
-            .shadow(color: .black.opacity(presentation.isOpen ? 0.45 : 0), radius: 22, x: 0, y: 10)
     }
 
     /// A hairline that only exists when the surface is opened — it is what

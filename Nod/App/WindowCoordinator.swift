@@ -251,6 +251,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 audioCapture: services.audioCapture,
                 language: services.languagePreference,
                 updateGate: services.updateGate,
+                playback: services.demoPlayback,
                 consent: services.consent,
                 entitlements: services.entitlements
             ),
@@ -285,7 +286,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 referral: services.referral,
                 screenExclusions: services.screenExclusions,
                 screenContext: services.screenContext,
-                meetingDetection: services.meetingDetection
+                meetingDetection: services.meetingDetection,
+                demoPlayback: services.demoPlayback
             )
         )
     }

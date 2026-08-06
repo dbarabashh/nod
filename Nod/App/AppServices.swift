@@ -48,6 +48,9 @@ struct AppServices {
     /// Whether Nod offers to record a call it sees starting, and which apps it
     /// stays quiet about. The detector itself lives with the panel's session.
     let meetingDetection: MeetingDetectionPreference
+    /// Arms the scripted landing-page demo. Reads its own defaults, so a
+    /// recording session survives relaunches between takes.
+    let demoPlayback: DemoPlayback
     let updateGate: UpdateGate
     /// Which Sparkle channel this account may see builds from. Refreshed at
     /// launch so the answer is cached before Sparkle's first update check.
@@ -182,6 +185,7 @@ struct AppServices {
             panelSharing: PanelSharingPreference(),
             launchBehavior: LaunchBehavior(),
             meetingDetection: MeetingDetectionPreference(),
+            demoPlayback: DemoPlayback(),
             updateGate: UpdateGate(supabase: supabase),
             releaseChannel: ReleaseChannelStore(supabase: supabase, auth: auth),
             hotkeys: hotkeys,

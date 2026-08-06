@@ -19,6 +19,11 @@ final class NotchModel: ObservableObject {
         didSet { defaults.set(askLanguageEachTime, forKey: MeetingLanguagePromptDefaults.defaultsKey) }
     }
 
+    /// Drives the scripted landing-page demo. Only ever running when the demo
+    /// is armed in Settings; the real capture path never sees it.
+    let demo = DemoDirector()
+    let playback: DemoPlayback
+
     let session: MeetingSession
     let detector: MeetingDetector
     let audioCapture: AudioCaptureService
@@ -57,6 +62,7 @@ final class NotchModel: ObservableObject {
         audioCapture: AudioCaptureService,
         language: LanguagePreference,
         updateGate: UpdateGate,
+        playback: DemoPlayback,
         consent: ConsentPreference,
         entitlements: EntitlementService,
         defaults: UserDefaults = .standard
@@ -66,6 +72,7 @@ final class NotchModel: ObservableObject {
         self.audioCapture = audioCapture
         self.language = language
         self.updateGate = updateGate
+        self.playback = playback
         self.consent = consent
         self.entitlements = entitlements
         self.defaults = defaults
@@ -85,6 +92,15 @@ final class NotchModel: ObservableObject {
     // MARK: - Opening and closing
 
     func toggleOpen() {
+        // During a take the hotkey is how you get out. Without this the demo
+        // owns the surface to the last beat and the only way back to the real
+        // notch is relaunching the app.
+        if demo.isRunning {
+            demo.stop()
+            isOpened = false
+            refresh()
+            return
+        }
         isOpened.toggle()
         refresh()
     }
@@ -98,7 +114,9 @@ final class NotchModel: ObservableObject {
     var closesOnOutsideClick: Bool {
         switch presentation {
         case .launch, .controls: true
-        case .updateRequired, .dormant, .capturing, .invitation, .languageConfirm, .consent, .alert: false
+        // The demo never closes on a click: a stray cursor must not cut a take.
+        case .updateRequired, .dormant, .capturing, .invitation,
+             .languageConfirm, .consent, .alert, .demo: false
         }
     }
 
@@ -123,6 +141,15 @@ final class NotchModel: ObservableObject {
     /// accepted invitation, the auto-start request — comes through here, so the
     /// subscription, consent and language checks cannot be skipped by any of them.
     func requestStart() {
+        // Armed for a recording: Start plays the script instead of opening a
+        // microphone. The whole point is a take that is identical every time.
+        if let scenario = playback.armed {
+            isOpened = false
+            demo.start(scenario, pace: playback.pace)
+            refresh()
+            return
+        }
+
         Task { @MainActor in
             // The proxy keeps serving `transcribe` on a lapsed plan so a live
             // meeting is never cut; this client check is the only thing that
@@ -221,7 +248,30 @@ final class NotchModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Switching scenario mid-take restarts on the new one rather than
+        // waiting for a relaunch — a recording session is a dozen takes, and
+        // quitting between each is the whole friction being removed here.
+        playback.$scenario
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] scenario in
+                guard let self, demo.isRunning else { return }
+                demo.start(scenario, pace: playback.pace)
+            }
+            .store(in: &cancellables)
+
+        playback.$isEnabled
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] enabled in
+                guard let self, !enabled, demo.isRunning else { return }
+                demo.stop()
+                refresh()
+            }
+            .store(in: &cancellables)
+
         Publishers.MergeMany(
+            demo.$stage.map { _ in () }.eraseToAnyPublisher(),
             session.$meeting.map { _ in () }.eraseToAnyPublisher(),
             session.$autoEndPrompt.map { _ in () }.eraseToAnyPublisher(),
             session.$saveErrorToast.map { _ in () }.eraseToAnyPublisher(),
@@ -254,7 +304,10 @@ final class NotchModel: ObservableObject {
         transition = nil
         pendingTarget = nil
 
-        guard presentation.isOpen, next.isOpen else {
+        // Only a card has to be folded away first. A line replacing a line —
+        // one spoken sentence after another — folding between each would read
+        // as a stutter rather than as the notch thinking.
+        guard presentation.occupiesCard, next.isOpen else {
             presentation = next
             return
         }
@@ -280,6 +333,13 @@ final class NotchModel: ObservableObject {
     /// is the user's own half-finished action; an alert outranks the ambient
     /// states because ignoring it ends or loses a recording.
     private func derived() -> NotchPresentation {
+        // The demo owns the surface outright while it runs — it is a recording
+        // of a scripted story, and a real alert cutting into it would ruin the
+        // take.
+        if let stage = demo.stage {
+            return .demo(stage)
+        }
+
         if updateGate.status == .required {
             return .updateRequired
         }
