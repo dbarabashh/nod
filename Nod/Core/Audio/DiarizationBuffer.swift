@@ -111,11 +111,51 @@ final class DiarizationBuffer: @unchecked Sendable {
         sentences[id] = recorded
     }
 
+    #if DEBUG
+        /// Writes what the diarizer is about to receive — the concatenated
+        /// speech and the span boundaries inside it — so a change can be
+        /// replayed against a real meeting offline.
+        ///
+        /// The whole buffer, not the raw stream: the diarizer never sees silence
+        /// and never sees wall-clock time, so a fixture built from the recorded
+        /// stream would be measuring a pipeline we do not run. See
+        /// `docs/build-setup.md`.
+        func dumpFixture(label: String) -> URL? {
+            let dump = DebugAudioDump(label: label)
+            let floats = samples.map { Float($0) / 32_767 }
+            floats.withUnsafeBufferPointer { buffer in
+                guard let base = buffer.baseAddress else { return }
+                dump.append(base, count: buffer.count)
+            }
+            guard let audio = dump.finish() else { return nil }
+
+            let manifest = audio.deletingPathExtension().appendingPathExtension("spans.json")
+            let rate = sampleRate
+            let payload = spans.map { span in
+                [
+                    "id": span.id.uuidString,
+                    "start": String(format: "%.3f", Double(span.startSample) / Double(rate)),
+                    "end": String(format: "%.3f", Double(span.endSample) / Double(rate))
+                ]
+            }
+            guard let data = try? JSONSerialization.data(
+                withJSONObject: ["sampleRate": rate, "spans": payload],
+                options: [.prettyPrinted, .sortedKeys]
+            ) else { return audio }
+            try? data.write(to: manifest)
+            Log.stt.info("diarization: fixture written — \(spans.count) span(s) beside \(audio.lastPathComponent)")
+            return audio
+        }
+    #endif
+
     /// Cluster the retained speech and hand back one speaker per recorded span.
     /// Spans the diarizer could not attribute are absent from the result rather
     /// than guessed at.
     func resolveSpeakers(using diarizer: SpeakerDiarizer, speakerCount: Int) async -> [UUID: Int] {
         guard !spans.isEmpty else { return [:] }
+        #if DEBUG
+            if DebugAudioDump.isEnabled { _ = dumpFixture(label: "diarization") }
+        #endif
         let samples = samples.map { Float($0) / 32_767 }
         let turns = await SpeakerAssignment.normalized(diarizer.diarize(samples, speakerCount: speakerCount))
         guard !turns.isEmpty else { return [:] }
