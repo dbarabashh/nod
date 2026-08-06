@@ -185,6 +185,11 @@ final class MeetingSession: ObservableObject {
     private let calendar: CalendarService
     private let recapGenerator: RecapGenerator
 
+    /// What Nod hears while the meeting is still running. Built here rather than
+    /// injected because its life is exactly this session's — like
+    /// `recapGenerator` — and because the finalize below needs what it found.
+    let analyst: LiveMeetingAnalyst
+
     init(
         audioCapture: AudioCaptureService,
         store: TranscriptStore,
@@ -216,6 +221,7 @@ final class MeetingSession: ObservableObject {
         self.screenExclusions = screenExclusions
         self.calendar = calendar
         recapGenerator = RecapGenerator(llm: llm)
+        analyst = LiveMeetingAnalyst(llm: llm, store: store)
     }
 
     deinit {
@@ -395,6 +401,10 @@ final class MeetingSession: ObservableObject {
         Log.ui.info("Start Meeting")
         sessionGeneration += 1
         meeting = .recording
+        // Only kinds that carry personal to-dos are worth listening to live —
+        // the same gate the finalize applies before writing any of this down.
+        analyst.reset()
+        if selectedKind.extractsActionItems { analyst.start() }
         knowledgeStore.isCapturing = true
         elapsed = 0
         clearAutoEndPrompt()
@@ -501,6 +511,9 @@ final class MeetingSession: ObservableObject {
         guard meeting != .idle else { return }
         Log.ui.info("End Meeting — entries=\(store.entries.count)")
         store.stop()
+        // Stopped, not reset: the finalize still has to write down what it
+        // found, and that runs after the surface is back at rest.
+        analyst.stop()
         Task { await audioCapture.stop() }
         streamTask?.cancel()
         streamTask = nil
@@ -584,6 +597,11 @@ final class MeetingSession: ObservableObject {
         // an inflated speaker count here, and its participants' names in this
         // meeting's recap prompt.
         let pinnedRoster = consumeRoster()
+        // And pinned for the third time for the same reason. `beginRecording`
+        // resets the analyst, so a meeting started while this one summarises
+        // would empty these — and worse, by the time `enrich` runs they would be
+        // the *next* meeting's findings, written as this meeting's rows.
+        let pinnedFindings = analyst.findings
         // Asked here rather than when the recording started, because the entry
         // often does not exist yet at that point — people create the invite two
         // minutes before, or halfway through. By now the span is final, so one
@@ -641,7 +659,11 @@ final class MeetingSession: ObservableObject {
             // — one meeting, two views, permanently disagreeing.
             let speakerNames = speakers.isEmpty
                 ? [:]
-                : await nameSpeakers(in: clustered, participants: participants)
+                : await nameSpeakers(
+                    in: clustered,
+                    people: people,
+                    clusters: Array(Set(speakers.values))
+                )
             let context = speakerNames.isEmpty
                 ? clustered
                 : Self.transcriptContext(from: entriesSnapshot, speakers: speakers, names: speakerNames)
@@ -659,7 +681,8 @@ final class MeetingSession: ObservableObject {
                 summaryTemplate: framing.summary,
                 modeFocus: framing.focus,
                 meetingDate: PromptLibrary.sessionDateString(startedAt),
-                participants: participants
+                participants: participants,
+                liveNotes: LiveFinding.notes(from: pinnedFindings)
             )
 
             do {
@@ -712,7 +735,7 @@ final class MeetingSession: ObservableObject {
                             from: speakerTask,
                             entries: entriesSnapshot,
                             meeting: updated,
-                            participants: participants
+                            people: people
                         )
                     }
                 }
@@ -736,7 +759,8 @@ final class MeetingSession: ObservableObject {
                         userID: userID,
                         transcript: context,
                         recap: recap,
-                        participants: participants
+                        participants: participants,
+                        live: pinnedFindings
                     )
                 }
             } catch {
@@ -795,6 +819,9 @@ final class MeetingSession: ObservableObject {
         roster = nil
         resetPanelForIdle()
         store.clear()
+        // The findings themselves outlive this — `enrich` has not necessarily
+        // run yet — but nothing should still be showing one.
+        analyst.dismissNotice()
     }
 
     func toggleRecording() {
@@ -802,12 +829,15 @@ final class MeetingSession: ObservableObject {
         case .idle:
             break
         case .recording:
-            print("→ Pause")
+            Log.ui.info("Pause")
             meeting = .paused
             audioCapture.pause()
+            // A paused recording hears nothing, so it must cost nothing.
+            analyst.stop()
         case .paused:
-            print("→ Resume")
+            Log.ui.info("Resume")
             meeting = .recording
+            if selectedKind.extractsActionItems { analyst.start() }
             // Measure post-resume silence from now, not from the last pre-pause
             // speech, so resuming doesn't instantly trip the inactivity prompt.
             inactivityResetAt = Date()
@@ -929,7 +959,7 @@ final class MeetingSession: ObservableObject {
         from task: Task<[UUID: Int], Never>,
         entries: [TranscriptEntry],
         meeting: Meeting,
-        participants: [String]
+        people: MeetingParticipants
     ) async {
         defer { meetingStore.finishResolvingSpeakers(id: meeting.id) }
         let speakers = await task.value
@@ -950,7 +980,11 @@ final class MeetingSession: ObservableObject {
         // and this is the only pass that can put them there. Patched rather than
         // written with the row, which landed long before clustering finished.
         let context = Self.transcriptContext(from: entries, speakers: speakers)
-        let names = await nameSpeakers(in: context, participants: participants)
+        let names = await nameSpeakers(
+            in: context,
+            people: people,
+            clusters: Array(Set(speakers.values))
+        )
         guard !names.isEmpty else { return }
         do {
             try await meetingStore.updateSpeakerNames(names, for: meeting.id)
@@ -1015,12 +1049,18 @@ final class MeetingSession: ObservableObject {
         userID: UUID,
         transcript: String,
         recap: MeetingRecap,
-        participants: [String]
+        participants: [String],
+        live: [LiveFinding]
     ) async {
         // Only kinds that carry personal to-dos (meeting / voice note) —
         // passive media has none.
         if meeting.kind.extractsActionItems {
-            await actionItemStore.saveExtracted(recap.actionItems, meetingID: meeting.id, userID: userID)
+            await actionItemStore.saveExtracted(
+                recap.actionItems,
+                live: live,
+                meetingID: meeting.id,
+                userID: userID
+            )
         }
         await extractEntities(
             meetingID: meeting.id,
@@ -1065,21 +1105,31 @@ final class MeetingSession: ObservableObject {
     /// Best-effort by design, and an empty map is the expected answer for most
     /// meetings: unnamed clusters make the recap authorless, which is honest,
     /// while a guessed name ships a lie into something the user shares.
-    private func nameSpeakers(in transcript: String, participants: [String]) async -> [String: String] {
+    private func nameSpeakers(
+        in transcript: String,
+        people: MeetingParticipants,
+        clusters: [Int]
+    ) async -> [String: String] {
         guard !transcript.isEmpty else { return [:] }
         let (system, user) = PromptLibrary.buildSpeakerNaming(
             transcript: transcript,
-            participants: participants
+            participants: people.names
         )
+        var named: [String: String] = [:]
         do {
-            let named = try await llm.completeJSON(system: system, user: user, as: NamedSpeakers.self)
-            let speakers = Self.namedSpeakers(in: named.speakers)
-            Log.stt.info("diarization: named \(speakers.count) cluster(s) from \(participants.count) roster name(s)")
-            return speakers
+            let response = try await llm.completeJSON(system: system, user: user, as: NamedSpeakers.self)
+            named = Self.namedSpeakers(in: response.speakers)
         } catch {
+            // Not a return: the arithmetic below can still name a 1:1 outright,
+            // and it is the case this pass fails on most often anyway.
             Log.ui.error("speaker naming failed (non-fatal): \(error.localizedDescription)")
-            return [:]
         }
+        let closed = MeetingParticipants.closingTheGap(named, clusters: clusters, people: people)
+        if closed.count > named.count {
+            Log.stt.info("diarization: closed the last cluster by elimination")
+        }
+        Log.stt.info("diarization: named \(closed.count) cluster(s) from \(people.names.count) roster name(s)")
+        return closed
     }
 
     /// Cluster→name pairs worth persisting: a positive cluster number and a

@@ -70,6 +70,15 @@ Calendar, Drive, or contacts.
 | Your optional **role** (founder, recruiter, sales, …), asked once during setup | To pick a sensible default meeting mode for you, and to understand who Nod is for. It is **not** sent to the assistant | Legitimate interest (Art. 6(1)(f)): setting the product up for you and knowing who uses it; you may leave it blank |
 | Your optional answer to **"how did you hear about us?"** | To know which channels bring people to Nod, so we know where to spend | Legitimate interest (Art. 6(1)(f)): running the business; you may leave it blank |
 
+While a meeting is recording, Nod also reads the **last few minutes of the
+transcript as the meeting goes**, through the same EU proxy and the same
+subprocessors as the summary, to spot what the room commits to, decides, or
+leaves open. It runs only after enough new speech has landed and at most once a
+minute, so silence and a paused recording send nothing. Nothing extra is stored:
+what it finds is held in memory for the length of the meeting and saved with the
+session's action items at the end. No new recipient sees your transcript because
+of this — it is the same summarising model, asked earlier and more often.
+
 The embeddings, chat messages, and entities are derived from transcript
 content you already chose to record; they are stored in the same
 Supabase database, in the same `eu-west-1` region, under the same per-user

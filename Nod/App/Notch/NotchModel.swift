@@ -113,6 +113,7 @@ final class NotchModel: ObservableObject {
             return
         }
         isOpened.toggle()
+        if isOpened { session.analyst.dismissNotice() }
         refresh()
     }
 
@@ -126,14 +127,22 @@ final class NotchModel: ObservableObject {
         switch presentation {
         case .launch, .controls: true
         // The demo never closes on a click: a stray cursor must not cut a take.
-        case .updateRequired, .dormant, .capturing, .offer,
+        // A notice has its own dismiss and goes away on its own; a stray click
+        // in another app is not the user answering it.
+        case .updateRequired, .dormant, .capturing, .offer, .noticed,
              .languageConfirm, .consent, .alert, .demo: false
         }
     }
 
+    /// Opening the surface is the user engaging with it, so the notice goes with
+    /// it — left pending it would flash back for whatever is left of its
+    /// lifetime the moment the transport is folded away again. Done on both
+    /// paths because the click and the hotkey come through `toggleOpen`, and
+    /// only `WindowCoordinator` reaches this one.
     func open() {
         guard !isOpened else { return }
         isOpened = true
+        session.analyst.dismissNotice()
         refresh()
     }
 
@@ -144,6 +153,13 @@ final class NotchModel: ObservableObject {
         isOpened = false
         gate = nil
         refresh()
+    }
+
+    /// Take the notice down. It goes on its own anyway — this is for the user
+    /// who wants it gone now, and it forgets nothing: what it said is already
+    /// saved and reaches the summary either way.
+    func dismissNotice() {
+        session.analyst.dismissNotice()
     }
 
     // MARK: - Starting a capture
@@ -306,6 +322,7 @@ final class NotchModel: ObservableObject {
             session.$autoEndPrompt.map { _ in () }.eraseToAnyPublisher(),
             session.$saveErrorToast.map { _ in () }.eraseToAnyPublisher(),
             offers.$current.map { _ in () }.eraseToAnyPublisher(),
+            session.analyst.$notice.map { _ in () }.eraseToAnyPublisher(),
             // The greeting reads the profile, which loads after the notch is built.
             profiles.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             updateGate.$status.map { _ in () }.eraseToAnyPublisher()
@@ -392,6 +409,12 @@ final class NotchModel: ObservableObject {
             return .offer(offer)
         }
         if session.meeting != .idle {
+            // Never over the transport. The controls are open because the user
+            // opened them, and taking that away to say something they did not
+            // ask for is the difference between proactive and rude.
+            if let notice = session.analyst.notice, !isOpened {
+                return .noticed(notice)
+            }
             return isOpened ? .controls : .capturing
         }
         return isOpened ? .launch : .dormant

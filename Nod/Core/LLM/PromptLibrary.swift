@@ -15,7 +15,8 @@ enum PromptLibrary {
         modeFocus: String = "",
         meetingDate: String = "",
         userQuestion: String = "",
-        participants: [String] = []
+        participants: [String] = [],
+        liveNotes: [String] = []
     ) -> (system: String, user: String) {
         let context = transcript.isEmpty
             ? "(No transcript captured yet.)"
@@ -33,6 +34,7 @@ enum PromptLibrary {
             dateBlock(meetingDate),
             focusBlock(modeFocus),
             participantsBlock(participants),
+            liveNotesBlock(liveNotes),
             base
         ]
         .filter { !$0.isEmpty }
@@ -53,6 +55,24 @@ enum PromptLibrary {
         [CALL PARTICIPANTS]
         The conferencing app listed these people on the call: \(participants.joined(separator: ", ")).
         Some of them may not have spoken. Use this only to put a name to a voice when the transcript makes it unambiguous.
+        """
+    }
+
+    /// What a pass over the conversation flagged while it was still running.
+    ///
+    /// Framed as a hint and never as a fact, for the same reason as the
+    /// participant list: it read a few minutes at a time and can have over-read,
+    /// where the recap has the whole transcript in front of it. What it is
+    /// genuinely better at is noticing that two distant moments are one decision
+    /// said twice — which a single cold read reports as two, or as whichever it
+    /// happened to weigh more.
+    private static func liveNotesBlock(_ notes: [String]) -> String {
+        guard !notes.isEmpty else { return "" }
+        let lines = notes.map { "- \($0)" }.joined(separator: "\n")
+        return """
+        [NOTED WHILE THE MEETING RAN]
+        \(lines)
+        These were flagged live, a few minutes of conversation at a time, so some may be over-read — the transcript is the authority and overrules any of them. Use them to catch what one read-through misses, above all where the meeting reversed itself: where a line says one thing became another, report the outcome, not both.
         """
     }
 

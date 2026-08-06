@@ -16,6 +16,10 @@ enum NotchPresentation: Equatable {
     /// can see running. One state, because it is one question: two of them
     /// meant one meeting could be asked about twice.
     case offer(MeetingOffer)
+    /// Capturing, and Nod has something to say about what was just said. The
+    /// only state the app raises on its own while the user is mid-conversation,
+    /// which is why `LiveMeetingAnalyst` is strict about what reaches it.
+    case noticed(LiveFinding)
     /// Capturing, at rest — a pulse and the elapsed clock.
     case capturing
     /// Capturing, opened — the transport controls.
@@ -50,6 +54,7 @@ extension NotchPresentation {
         case .updateRequired: "updateRequired"
         case .dormant: "dormant"
         case let .offer(offer): "offer.\(offer.identity)"
+        case let .noticed(finding): "noticed.\(finding.id.uuidString)"
         case .capturing: "capturing"
         case .controls: "controls"
         case .launch: "launch"
@@ -75,7 +80,7 @@ extension NotchPresentation {
     var isOpen: Bool {
         switch self {
         case .dormant, .capturing: false
-        case .updateRequired, .offer, .controls, .launch, .languageConfirm, .consent, .alert: true
+        case .updateRequired, .offer, .noticed, .controls, .launch, .languageConfirm, .consent, .alert: true
         case let .demo(stage): stage.form != .resting
         }
     }
@@ -92,6 +97,7 @@ extension NotchPresentation {
         switch self {
         case .updateRequired: return 400
         case .offer: return 384
+        case .noticed: return 360
         case .controls: return 340
         case .launch: return 384
         case .languageConfirm: return 340
@@ -123,7 +129,7 @@ extension NotchPresentation {
         switch self {
         case .dormant, .capturing:
             geometry.collapsedSize.height
-        case .updateRequired, .offer, .controls, .launch,
+        case .updateRequired, .offer, .noticed, .controls, .launch,
              .languageConfirm, .consent, .alert:
             nil
         case let .demo(stage):

@@ -117,6 +117,55 @@ struct NotchOffer: View {
     }
 }
 
+// MARK: - What Nod just heard
+
+/// "Noted — send the updated deck before Friday."
+///
+/// The only card Nod raises on its own while somebody is mid-conversation, so
+/// it is built to be read without being answered: no buttons, no decision, gone
+/// on its own in a few seconds. What it says is already in the meeting's record
+/// and reaches the summary whether or not anybody looks at it, which is what
+/// lets it be dismissed without consequence — a glance away costs nothing.
+///
+/// A revision reads differently on purpose. "Changed —" is the one thing here
+/// the room itself may not have registered, and stating it flatly alongside a
+/// new task would waste the only moment Nod knows something the user doesn't.
+struct NotchNotice: View {
+    let finding: LiveFinding
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: finding.revisionOf == nil ? "checkmark.circle.fill" : "arrow.triangle.2.circlepath")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.Palette.brand)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(lead)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.Palette.muted)
+                Text(finding.text)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let deadline = finding.deadline {
+                    Text(deadline)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(Theme.Palette.muted)
+                }
+            }
+
+            Spacer(minLength: 0)
+            NotchGlyphButton(systemName: "xmark", help: "Dismiss", action: onDismiss)
+        }
+    }
+
+    private var lead: String {
+        finding.revisionOf == nil ? "Noted" : "Changed"
+    }
+}
+
 // MARK: - Live input level
 
 /// The live microphone level, as five bars that move with what Nod is hearing.

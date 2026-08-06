@@ -197,11 +197,10 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     }
 
     /// Last `maxEntries` finalised entries plus live partials, joined into the
-    /// same `[Me]:` / `[Them]:` text the LLM expects. Used by mid-call cards
-    /// (`hero`, `followUp`) whose prompts only need the recent window — sending
-    /// the entire transcript on a long meeting balloons input tokens without
-    /// improving answer quality. `maxEntries: .max` degrades to the full
-    /// history (`fullContext`).
+    /// same `[Me]:` / `[Them]:` text the LLM expects. For anything that runs
+    /// during the meeting and only needs the recent window — sending the entire
+    /// transcript on a long call balloons input tokens without improving the
+    /// answer. `maxEntries: .max` degrades to the full history (`fullContext`).
     func recentContext(maxEntries: Int) -> String {
         let included = Array(entries.suffix(maxEntries))
         var lines: [String] = []

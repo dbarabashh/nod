@@ -36,6 +36,8 @@ struct NotchStateContent: View {
                 audioCapture: model.audioCapture,
                 geometry: model.geometry
             )
+        case let .noticed(finding):
+            NotchNotice(finding: finding, onDismiss: model.dismissNotice)
         case let .offer(offer):
             NotchOffer(
                 offer: offer,
