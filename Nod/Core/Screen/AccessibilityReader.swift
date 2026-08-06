@@ -31,8 +31,22 @@ struct AccessibilityReader {
     /// conferencing app *is* the meeting, but a browser holds the call in one
     /// window among many, and only that window is ours to look at.
     ///
+    /// `descendingInto` reads only the subtree under the first element with
+    /// that accessibility role, and nothing above it. A browser passes
+    /// `AXWebArea` so the page is read without the toolbar, the tab strip or the
+    /// bookmarks bar — without it a call in a browser reports the *browser's*
+    /// labels as participants: a Google Meet call came back as "Back, Forward,
+    /// Reload, Extensions, Bookmarks, Tab Search" plus the names of the user's
+    /// bookmarks, sixteen of them, not one a person. No blocklist can fix that,
+    /// since bookmarks are arbitrary text. A window with no such role is read as
+    /// nothing rather than as furniture.
+    ///
     /// Blocking — call it off the main actor.
-    func texts(forProcessID pid: pid_t, windowTitleFilter: ((String) -> Bool)? = nil) -> [String] {
+    func texts(
+        forProcessID pid: pid_t,
+        windowTitleFilter: ((String) -> Bool)? = nil,
+        descendingInto role: String? = nil
+    ) -> [String] {
         let application = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(application, messagingTimeout)
 
@@ -45,10 +59,40 @@ struct AccessibilityReader {
                 let title = copyString(window, kAXTitleAttribute) ?? ""
                 guard windowTitleFilter(title) else { continue }
             }
-            walk(window, depth: 0, visited: &visited, into: &collected)
+            let root = role.map { firstDescendant(of: window, role: $0) } ?? window
+            guard let root else { continue }
+            walk(root, depth: 0, visited: &visited, into: &collected)
         }
         return collected
     }
+
+    /// Breadth-first: the page sits a couple of levels under the window while
+    /// the toolbar beside it is the deepest thing there, so depth-first would
+    /// walk all of the chrome before finding any of the content.
+    ///
+    /// On a budget of its own, separate from the walk's. Sharing one made the
+    /// search's cost the collection's loss — and a search that spent the budget
+    /// returned nil, so the window read as *nothing at all* rather than as the
+    /// page.
+    private func firstDescendant(of window: AXUIElement, role: String) -> AXUIElement? {
+        var queue = [window]
+        var index = 0
+        while index < queue.count, index < Self.descentBudget {
+            let element = queue[index]
+            index += 1
+            if copyString(element, kAXRoleAttribute) == role { return element }
+            // Only what the budget can still reach: one level of a browser
+            // window is hundreds of children, and every one of them costs an
+            // IPC round trip to fetch and is retained until the search ends.
+            guard queue.count < Self.descentBudget else { continue }
+            queue += copyElements(element, kAXChildrenAttribute) ?? []
+        }
+        return nil
+    }
+
+    /// Enough to cross a browser's chrome and no more. Past this the search
+    /// would be walking the page's own contents, which is the walk's job.
+    private static let descentBudget = 400
 
     /// The text of the one window the user is actually in.
     ///

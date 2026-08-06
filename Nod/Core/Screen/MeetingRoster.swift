@@ -169,10 +169,17 @@ struct MeetingRosterReader {
     /// One app's participant list, or nil when its windows name no one.
     private func roster(of app: ConferencingApp, pid: pid_t) -> MeetingRoster? {
         let exclusions = exclusions
-        let texts = reader.texts(forProcessID: pid) { title in
-            guard !exclusions.excludesWindow(title: title) else { return false }
-            return app.isBrowser ? Self.isMeetingWindowTitle(title) : true
-        }
+        let texts = reader.texts(
+            forProcessID: pid,
+            windowTitleFilter: { title in
+                guard !exclusions.excludesWindow(title: title) else { return false }
+                return app.isBrowser ? Self.isMeetingWindowTitle(title) : true
+            },
+            // A native app's window *is* the meeting. A browser's is a page
+            // wrapped in a toolbar, a tab strip and the user's bookmarks, and
+            // all three read as participants.
+            descendingInto: app.isBrowser ? "AXWebArea" : nil
+        )
         let names = Self.participantNames(in: texts)
         guard !names.isEmpty else { return nil }
         return MeetingRoster(app: app, participants: names)

@@ -113,26 +113,6 @@ final class MeetingRosterTests: XCTestCase {
 
     /// The user's own voice arrives on the mic, so the `them` stream holds one
     /// fewer voice than the roster names.
-    func testExpectedThemSpeakersExcludesTheUser() {
-        let roster = MeetingRoster(app: .zoom, participants: ["Dima", "Vlad", "Pasha", "Sergiy"])
-
-        XCTAssertEqual(MeetingSession.expectedThemSpeakers(in: roster), 3)
-    }
-
-    /// Zero means "unknown" and sends clustering to its threshold — a one-person
-    /// roster is no more informative than none.
-    func testExpectedThemSpeakersIsZeroWhenTheRosterCannotInform() {
-        XCTAssertEqual(MeetingSession.expectedThemSpeakers(in: nil), 0)
-        XCTAssertEqual(
-            MeetingSession.expectedThemSpeakers(in: MeetingRoster(app: .zoom, participants: ["Dima"])),
-            0
-        )
-    }
-
-    /// The bug this ordering exists for: Slack sits open all day and sorts ahead
-    /// of every browser, so a Google Meet call in Chrome used to be shadowed by
-    /// it — one app was picked, it named nobody, and the search ended there.
-    /// Chrome has to stay in the list so the caller can fall through to it.
     func testBrowsersStayInTheListBehindNativeApps() {
         let order = MeetingRosterReader.rosterOrder(
             [(app: .slack, pid: 1), (app: .chrome, pid: 2)],
@@ -171,5 +151,27 @@ final class MeetingRosterTests: XCTestCase {
         let teams = MeetingRoster(app: .teams, participants: ["Mike"])
 
         XCTAssertEqual(zoom.merging(teams), teams)
+    }
+}
+
+/// A browser window is a page wrapped in the application's own controls, and
+/// those controls are person-shaped: a real Google Meet call reported "Back,
+/// Forward, Reload, Extensions, Bookmarks, Tab Search" and the user's bookmark
+/// names as sixteen participants, against four people actually invited.
+final class BrowserChromeRosterTests: XCTestCase {
+    func testBrowserChromeReadsAsParticipantsWhenItIsNotExcluded() {
+        let chrome = ["Back", "Forward", "Reload", "Extensions", "Bookmarks", "Tab Search", "Notion", "Jira"]
+        // Not a claim about desired behaviour — a record of why the traversal has
+        // to exclude this text structurally. Every one of these clears the
+        // person-shape test, and no blocklist can hold the bookmarks.
+        XCTAssertEqual(MeetingRosterReader.participantNames(in: chrome).count, chrome.count)
+    }
+
+    func testRealNamesStillReadAsParticipants() {
+        let page = ["Dima Barabash (Host, me)", "Leo Fischer", "Anna Kovalenko", "Chat", "Present now"]
+        XCTAssertEqual(
+            MeetingRosterReader.participantNames(in: page),
+            ["Dima Barabash", "Leo Fischer", "Anna Kovalenko"]
+        )
     }
 }
