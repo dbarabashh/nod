@@ -138,3 +138,16 @@ private extension String {
         trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+extension Profile {
+    /// First name only, or nil. Two surfaces address the user by name — the
+    /// chat's opener and the notch card for a meeting that is starting — and a
+    /// full name reads like a form letter in both.
+    var firstName: String? {
+        Self.firstName(in: displayName)
+    }
+
+    static func firstName(in displayName: String?) -> String? {
+        displayName?.trimmed.split(separator: " ").first.map(String.init)
+    }
+}

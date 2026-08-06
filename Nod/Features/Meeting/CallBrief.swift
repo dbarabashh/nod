@@ -136,7 +136,25 @@ struct CallBriefing {
     /// and carries none of the product's own furniture — where a window title is
     /// "Zoom Meeting" about half the time and a room code most of the rest. The
     /// window title is the fallback for a call nobody put in a calendar.
-    func context(for call: DetectedCall) -> CallContext {
+    func context(for offer: MeetingOffer) -> CallContext {
+        switch offer {
+        case let .scheduled(meeting):
+            // The calendar already answered both halves — no second query, and
+            // the proactive card gets the brief the detected one always had.
+            CallContext(
+                brief: CallBrief.build(
+                    named: meeting.title,
+                    meetings: meetings.meetings,
+                    actionItems: actionItems.items
+                )?.line(),
+                attendees: meeting.others
+            )
+        case let .detected(call):
+            context(forDetected: call)
+        }
+    }
+
+    private func context(forDetected call: DetectedCall) -> CallContext {
         // One query, both answers: the name to match on and the people invited
         // come from the same entry, and asking twice would run the calendar
         // twice on the frame the card appears.
@@ -175,6 +193,10 @@ struct CallContext: Equatable {
     /// and the count carries the rest — knowing there are six people is the part
     /// that changes how you walk in.
     var withLine: String? {
+        Self.withLine(attendees)
+    }
+
+    static func withLine(_ attendees: [String]) -> String? {
         guard !attendees.isEmpty else { return nil }
         guard attendees.count > 3 else {
             return TextList.prose(attendees).map { "With \($0)" }

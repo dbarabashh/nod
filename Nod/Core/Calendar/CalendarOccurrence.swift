@@ -58,6 +58,20 @@ enum ConferencingHost: CaseIterable {
         return allCases.first { host in host.markers.contains { haystack.contains($0) } }
     }
 
+    /// The Mac app a product runs in, when it has one — the inverse of
+    /// `implied(by:)`, and what lets "Never for Zoom" reach a calendar entry
+    /// that links to Zoom. Meet and Whereby live only in a browser, so there is
+    /// no app to name and nothing to mute.
+    static func nativeApp(_ host: ConferencingHost) -> ConferencingApp? {
+        switch host {
+        case .zoom: .zoom
+        case .teams: .teams
+        case .webex: .webex
+        case .discord: .discord
+        case .meet, .whereby: nil
+        }
+    }
+
     /// The product a running app implies — for a *native* app only.
     ///
     /// A browser implies nothing: Chrome hosts Meet, Teams, Webex and Whereby

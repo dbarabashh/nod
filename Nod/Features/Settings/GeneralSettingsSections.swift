@@ -73,8 +73,8 @@ struct MeetingDetectionSection: View {
                 SettingsRowDivider()
                 SettingsRow(
                     icon: "bell.slash",
-                    title: "Never detected",
-                    subtitle: "Calls in these apps are never offered."
+                    title: "Never offered",
+                    subtitle: "Nod stays quiet for calls in these apps."
                 ) {
                     HStack(spacing: 6) {
                         ForEach(preference.mutedApps, id: \.rawValue) { app in
@@ -105,10 +105,10 @@ struct CalendarSettingsSection: View {
         SettingsCard {
             SettingsRow(
                 icon: "calendar",
-                title: "Recognise meetings from your calendar",
-                subtitle: "Names the call Nod is offering to record, so it can tell you when you have had "
-                    + "the same meeting before and what was left open. Reads your Mac's own calendar, "
-                    + "on this Mac — no account is connected and nothing is stored or sent."
+                title: "Tell me when a meeting starts",
+                subtitle: "Nod speaks up when something in your calendar is about to begin, names who it is "
+                    + "with, and offers to record it. It also uses the invitation to tell speakers apart. "
+                    + "Reads your Mac's own calendar, on this Mac — no account is connected, nothing stored."
             ) {
                 Toggle("", isOn: $calendar.isEnabled)
                     .toggleStyle(.switch)
@@ -241,7 +241,7 @@ struct GeneralSettingsPane: View {
                 SettingsRow(
                     icon: "speaker.wave.2",
                     title: "Sound effects",
-                    subtitle: "A quiet cue when a call is detected, when a recap is ready, and when Nod is about to stop on its own. Nod stays silent while it records."
+                    subtitle: "A quiet cue when a meeting starts, when a recap is ready, and when Nod is about to stop on its own. Nod stays silent while it records."
                 ) {
                     Toggle("", isOn: $soundsEnabled)
                         .labelsHidden()

@@ -12,8 +12,10 @@ enum NotchPresentation: Equatable {
     case updateRequired
     /// Out of the way: the bare cut-out with no Nod chrome on it at all.
     case dormant
-    /// A call is running and nobody has answered the offer to record it.
-    case invitation(ConferencingApp)
+    /// Nod is asking whether to record — from the calendar, or from a call it
+    /// can see running. One state, because it is one question: two of them
+    /// meant one meeting could be asked about twice.
+    case offer(MeetingOffer)
     /// Capturing, at rest — a pulse and the elapsed clock.
     case capturing
     /// Capturing, opened — the transport controls.
@@ -47,7 +49,7 @@ extension NotchPresentation {
         switch self {
         case .updateRequired: "updateRequired"
         case .dormant: "dormant"
-        case let .invitation(app): "invitation.\(app.rawValue)"
+        case let .offer(offer): "offer.\(offer.identity)"
         case .capturing: "capturing"
         case .controls: "controls"
         case .launch: "launch"
@@ -73,7 +75,7 @@ extension NotchPresentation {
     var isOpen: Bool {
         switch self {
         case .dormant, .capturing: false
-        case .updateRequired, .invitation, .controls, .launch, .languageConfirm, .consent, .alert: true
+        case .updateRequired, .offer, .controls, .launch, .languageConfirm, .consent, .alert: true
         case let .demo(stage): stage.form != .resting
         }
     }
@@ -89,7 +91,7 @@ extension NotchPresentation {
         let flare = geometry.flare * 2
         switch self {
         case .updateRequired: return 400
-        case .invitation: return 384
+        case .offer: return 384
         case .controls: return 340
         case .launch: return 384
         case .languageConfirm: return 340
@@ -121,7 +123,7 @@ extension NotchPresentation {
         switch self {
         case .dormant, .capturing:
             geometry.collapsedSize.height
-        case .updateRequired, .invitation, .controls, .launch,
+        case .updateRequired, .offer, .controls, .launch,
              .languageConfirm, .consent, .alert:
             nil
         case let .demo(stage):

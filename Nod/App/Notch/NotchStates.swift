@@ -1,30 +1,47 @@
 import AppKit
 import SwiftUI
 
-// MARK: - Detected call
+// MARK: - The offer to record
 
-/// "Zoom call detected — record it?", hanging off the menu bar.
+/// "Hey Dima — Analytics Platform Catch Up starts now. With Leo and Anna."
 ///
-/// One action and two ways to say no. A detector that reads the room wrong is
+/// One card for the one question, however Nod came to ask it. From the calendar
+/// it can greet the user by name and say who the meeting is with; from a running
+/// call it has only the app. Two cards meant one meeting could be asked about
+/// twice, which is the thing a proactive app can least afford.
+///
+/// One action and two ways to say no — a detector that reads the room wrong is
 /// only tolerable if declining costs as little as accepting, and if the second
 /// decline is permanent.
-struct NotchInvitation: View {
-    let app: ConferencingApp
-    /// What Nod already knows about this call. Empty is the ordinary case — a
-    /// first conversation, or a meeting nothing on this Mac can put a name to.
+///
+/// Nothing here claims Nod is already working. It says the *meeting* is under
+/// way, never that the assistant is — because at this moment it is not: no audio
+/// is captured and nothing is read until Start is pressed, which is the promise
+/// `privacy.md` § 3.10(c) makes in those words.
+struct NotchOffer: View {
+    let offer: MeetingOffer
+    /// The user's first name, when the profile has one. Without it the greeting
+    /// drops rather than saying "Hey there" — a stand-in name is worse than no
+    /// name, because it is the one word that proves this was meant for them.
+    let userName: String?
+    /// What Nod already knows about this meeting. Empty is the ordinary case — a
+    /// first conversation, or one nothing on this Mac can put a name to.
     let context: CallContext
+    /// The app "Never for …" would silence, when the offer names one.
+    let mutableApp: ConferencingApp?
     let onStart: () -> Void
     let onDismiss: () -> Void
-    let onMute: () -> Void
+    let onMute: (ConferencingApp) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
                 icon
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(app.displayName) call detected")
+                    Text(title)
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(Theme.Palette.ink)
+                        .fixedSize(horizontal: false, vertical: true)
                     subtitle
                 }
                 Spacer(minLength: 0)
@@ -34,17 +51,19 @@ struct NotchInvitation: View {
         }
     }
 
+    private var title: String {
+        guard case let .scheduled(meeting) = offer else { return "Meeting in progress" }
+        guard let userName else { return "\(meeting.title) starts now" }
+        return "Hey \(userName) — \(meeting.title) starts now"
+    }
+
     /// What Nod knows, when it knows something; what it is about to do
     /// otherwise. Never both — a recognised meeting shown alongside a
     /// description of the product buries the half the user has not seen before.
-    ///
-    /// Who is on the call leads when the calendar knows it. That is the question
-    /// being answered in the two seconds before someone clicks Start, and it is
-    /// the one thing here that no other surface in the app can tell them.
     @ViewBuilder
     private var subtitle: some View {
         if context.isEmpty {
-            line("Nod will transcribe it and write the summary.", weight: .regular, tint: Theme.Palette.muted)
+            line("I'll follow along and surface anything useful.", weight: .regular, tint: Theme.Palette.muted)
         } else {
             if let withLine = context.withLine {
                 line(withLine, weight: .medium, tint: Theme.Palette.ink.opacity(0.78))
@@ -62,15 +81,17 @@ struct NotchInvitation: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// The app's own icon, so the surface is recognisable before it is read.
+    /// The app's own icon when a running call is what told us, so the surface is
+    /// recognisable before it is read. A calendar entry has no app to show.
     @ViewBuilder
     private var icon: some View {
-        if let image = AppDirectory.icon(for: AppDirectory.identity(forBundleID: app.rawValue)) {
+        if case let .detected(call) = offer,
+           let image = AppDirectory.icon(for: AppDirectory.identity(forBundleID: call.app.rawValue)) {
             Image(nsImage: image)
                 .resizable()
                 .frame(width: 24, height: 24)
         } else {
-            Image(systemName: "video.fill")
+            Image(systemName: offer.isRicher ? "calendar.badge.clock" : "video.fill")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.brand)
                 .frame(width: 24, height: 24)
@@ -81,15 +102,17 @@ struct NotchInvitation: View {
         HStack(spacing: 8) {
             NotchActionButton(title: "Start transcription", action: onStart)
 
-            Button(action: onMute) {
-                Text("Never for \(app.displayName)")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+            if let mutableApp {
+                Button { onMute(mutableApp) } label: {
+                    Text("Never for \(mutableApp.displayName)")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .buttonStyle(.pressable)
+                .linkCursor()
             }
-            .buttonStyle(.pressable)
-            .linkCursor()
         }
     }
 }
@@ -264,7 +287,7 @@ private struct NotchControlButton: View {
 
 /// The idle opened state.
 ///
-/// Built to the same rhythm as `NotchInvitation` — glyph, what this is, what it
+/// Built to the same rhythm as `NotchOffer` — glyph, what this is, what it
 /// will do, then the action — so the surface the user summons and the surface
 /// that offers itself read as one thing. A single full-width button filling the
 /// notch said nothing except "press me", which is a lot of screen for one verb.

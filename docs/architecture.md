@@ -95,6 +95,29 @@ UI is this floating non-activating panel, anchored to the left of the screen.
   Relaunch" button for this — see issue
   [#3](https://github.com/dbarabashh/Nod/issues/3).
 
+Two sources can say a meeting is happening — `MeetingDetector` (a call is
+running on this Mac) and `ScheduledMeetingWatcher` (the calendar says one is
+starting, on a 20-second timer). Neither raises an offer. Both publish a
+*candidate*, and **`MeetingOffers` is the only thing that asks the user**: it
+owns the sound, the 45-second expiry, accept/decline/mute, and the memory of
+what has been answered.
+
+That memory is a **quiet period, not a key**. The two sources cannot share an
+identity — the calendar knows `title@start`, the detector a bundle id, and
+neither can compute the other's — so once a meeting is answered nothing asks
+again until it would be over (the invitation's `endsAt`, or a flat ten minutes
+when only the Mac told us). Without it, declining the calendar's card at 13:59
+and opening the call at 14:01 produced a second offer, with a second sound, as
+if the first had never happened.
+
+The calendar's candidate wins wherever both exist, and a richer one arriving
+mid-offer upgrades the card in place **without sounding again** — it is the same
+question, better answered.
+
+`ScheduledMeetingWatcher`'s timer is owned by the Settings switch —
+`CalendarService.isEnabled` starts and stops it — because `privacy.md` § 3.11
+promises the timer stops, not merely that the query is skipped.
+
 Calendar (EventKit) is deliberately **outside** `PermissionManager`, in
 `CalendarService`: mic and Screen Recording are what the product needs to work
 at all and are asked for in onboarding, while calendar access is optional and

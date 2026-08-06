@@ -114,11 +114,9 @@ enum ChatHomeSuggestions {
     /// "What's on your mind, Dima?" — first name only; a full name reads like a
     /// form letter. Falls back to the nameless form rather than an empty comma.
     static func greeting(for displayName: String?) -> String {
-        let first = displayName?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: " ")
-            .first
-            .map(String.init) ?? ""
-        return first.isEmpty ? "What's on your mind?" : "What's on your mind, \(first)?"
+        guard let first = Profile.firstName(in: displayName) else {
+            return "What's on your mind?"
+        }
+        return "What's on your mind, \(first)?"
     }
 }

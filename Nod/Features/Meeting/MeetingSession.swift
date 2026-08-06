@@ -376,8 +376,13 @@ final class MeetingSession: ObservableObject {
     /// It deliberately stops one step short of recording: the subscription
     /// check, the consent disclaimer and the language confirm all live on the
     /// panel's Start path, and nothing may reach `beginRecording` around them.
+    /// Raises the surface as well as setting the flag. The consent and language
+    /// gates render *in* the notch, so a caller that asks for a recording
+    /// without raising it sets the flag with nowhere for the gate to appear —
+    /// an invariant two offer surfaces used to restate side by side.
     func requestAutoStart() {
         guard meeting == .idle else { return }
+        NotificationCenter.default.post(name: .nodShowPanel, object: nil)
         selectedKind = .meeting
         wantsAutoStart = true
     }

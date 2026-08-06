@@ -36,13 +36,15 @@ struct NotchStateContent: View {
                 audioCapture: model.audioCapture,
                 geometry: model.geometry
             )
-        case let .invitation(app):
-            NotchInvitation(
-                app: app,
+        case let .offer(offer):
+            NotchOffer(
+                offer: offer,
+                userName: model.userName,
                 context: model.callContext,
-                onStart: model.acceptInvitation,
-                onDismiss: model.declineInvitation,
-                onMute: { model.muteInvitation(app) }
+                mutableApp: model.offers.mutableApp,
+                onStart: model.acceptOffer,
+                onDismiss: model.declineOffer,
+                onMute: model.muteOffer
             )
         case .controls:
             NotchControls(

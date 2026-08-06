@@ -13,6 +13,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     /// Watches for a call starting and ending. Lives with the notch's session,
     /// which is the thing it can act on.
     private var detector: MeetingDetector?
+    private var schedule: ScheduledMeetingWatcher?
     private var onboardingWindow: NSWindow?
     private var signInWindow: NSWindow?
     private var mainWindow: NSWindow?
@@ -245,14 +246,29 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         )
         self.detector = detector
 
+        // The calendar's own offer, raised from the invitation rather than from
+        // anything running on the Mac — see `ScheduledMeetingWatcher`. It starts
+        // and stops itself from the Settings switch, so nothing starts it here.
+        let schedule = ScheduledMeetingWatcher(calendar: services.calendar, session: meetingSession)
+        self.schedule = schedule
+
+        // One owner of "should we ask?", fed by both sources — see `MeetingOffers`.
+        let offers = MeetingOffers(
+            detector: detector,
+            schedule: schedule,
+            session: meetingSession,
+            preference: services.meetingDetection
+        )
+
         notch.build(
             model: NotchModel(
                 session: meetingSession,
-                detector: detector,
+                offers: offers,
                 audioCapture: services.audioCapture,
                 language: services.languagePreference,
                 updateGate: services.updateGate,
                 playback: services.demoPlayback,
+                profiles: services.profileStore,
                 briefing: CallBriefing(
                     meetings: services.meetingStore,
                     actionItems: services.actionItemStore,
@@ -271,6 +287,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         notch.teardown()
         detector?.stop()
         detector = nil
+        schedule?.stop()
+        schedule = nil
     }
 
     /// Settings renders inside the main window as one of its sections, so it is

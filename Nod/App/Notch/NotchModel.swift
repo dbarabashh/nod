@@ -30,11 +30,12 @@ final class NotchModel: ObservableObject {
     let playback: DemoPlayback
 
     let session: MeetingSession
-    let detector: MeetingDetector
+    let offers: MeetingOffers
     let audioCapture: AudioCaptureService
     let language: LanguagePreference
     let updateGate: UpdateGate
 
+    private let profiles: ProfileStore
     private let briefing: CallBriefing
     private let consent: ConsentPreference
     private let entitlements: EntitlementService
@@ -64,22 +65,24 @@ final class NotchModel: ObservableObject {
 
     init(
         session: MeetingSession,
-        detector: MeetingDetector,
+        offers: MeetingOffers,
         audioCapture: AudioCaptureService,
         language: LanguagePreference,
         updateGate: UpdateGate,
         playback: DemoPlayback,
+        profiles: ProfileStore,
         briefing: CallBriefing,
         consent: ConsentPreference,
         entitlements: EntitlementService,
         defaults: UserDefaults = .standard
     ) {
         self.session = session
-        self.detector = detector
+        self.offers = offers
         self.audioCapture = audioCapture
         self.language = language
         self.updateGate = updateGate
         self.playback = playback
+        self.profiles = profiles
         self.briefing = briefing
         self.consent = consent
         self.entitlements = entitlements
@@ -123,7 +126,7 @@ final class NotchModel: ObservableObject {
         switch presentation {
         case .launch, .controls: true
         // The demo never closes on a click: a stray cursor must not cut a take.
-        case .updateRequired, .dormant, .capturing, .invitation,
+        case .updateRequired, .dormant, .capturing, .offer,
              .languageConfirm, .consent, .alert, .demo: false
         }
     }
@@ -223,16 +226,21 @@ final class NotchModel: ObservableObject {
 
     // MARK: - The detected call
 
-    func acceptInvitation() {
-        detector.accept()
+    func acceptOffer() {
+        offers.accept()
     }
 
-    func declineInvitation() {
-        detector.decline()
+    func declineOffer() {
+        offers.decline()
     }
 
-    func muteInvitation(_ app: ConferencingApp) {
-        detector.mute(app)
+    func muteOffer(_ app: ConferencingApp) {
+        offers.mute(app)
+    }
+
+    /// What to call the user in the one card that speaks to them directly.
+    var userName: String? {
+        profiles.profile?.firstName
     }
 
     /// Pushed in by `NotchController`, which owns the window and therefore the
@@ -284,11 +292,11 @@ final class NotchModel: ObservableObject {
         // No `receive(on:)`, unlike the derivation below: this reads only the
         // value the publisher hands it, so it is ready for the card's first
         // frame instead of appearing under it a moment later.
-        detector.$invitation
+        offers.$current
             .removeDuplicates()
-            .sink { [weak self] call in
+            .sink { [weak self] offer in
                 guard let self else { return }
-                callContext = call.map { self.briefing.context(for: $0) } ?? .none
+                callContext = offer.map { self.briefing.context(for: $0) } ?? .none
             }
             .store(in: &cancellables)
 
@@ -297,7 +305,9 @@ final class NotchModel: ObservableObject {
             session.$meeting.map { _ in () }.eraseToAnyPublisher(),
             session.$autoEndPrompt.map { _ in () }.eraseToAnyPublisher(),
             session.$saveErrorToast.map { _ in () }.eraseToAnyPublisher(),
-            detector.$invitation.map { _ in () }.eraseToAnyPublisher(),
+            offers.$current.map { _ in () }.eraseToAnyPublisher(),
+            // The greeting reads the profile, which loads after the notch is built.
+            profiles.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             updateGate.$status.map { _ in () }.eraseToAnyPublisher()
         )
         // `@Published` fires in `willSet`, so the new value isn't readable until
@@ -378,8 +388,8 @@ final class NotchModel: ObservableObject {
         if let message = session.saveErrorToast, !session.pendingMeetingSaves.isEmpty {
             return .alert(.saveFailed(message))
         }
-        if let invitation = detector.invitation {
-            return .invitation(invitation.app)
+        if let offer = offers.current {
+            return .offer(offer)
         }
         if session.meeting != .idle {
             return isOpened ? .controls : .capturing

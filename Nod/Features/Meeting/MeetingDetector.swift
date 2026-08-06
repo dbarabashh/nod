@@ -240,14 +240,18 @@ final class MeetingDetectionPreference: ObservableObject {
 ///    gates all still run — see `MeetingSession.requestAutoStart`.
 @MainActor
 final class MeetingDetector: ObservableObject {
-    /// The call being offered, if any.
-    @Published private(set) var invitation: DetectedCall?
+    /// A call this Mac says is running, if any.
+    ///
+    /// A *candidate*, never an offer: whether the user is asked, with what sound
+    /// and how often, belongs to `MeetingOffers` — the one place that can see
+    /// this source and the calendar at the same time. Two objects each deciding
+    /// to ask is how one meeting gets offered twice.
+    @Published private(set) var candidate: DetectedCall?
 
     private let session: MeetingSession
     private let exclusions: ScreenExclusions
     private let preference: MeetingDetectionPreference
     private var state = MeetingDetectionState()
-    private var invitationRaisedAt: Date?
     private var timerTask: Task<Void, Never>?
     private var preferenceObserver: AnyCancellable?
     private var sleepObservers: [NSObjectProtocol] = []
@@ -262,7 +266,10 @@ final class MeetingDetector: ObservableObject {
     /// How long an unanswered card stays up. Past this the user has seen it and
     /// chosen not to act; the panel's own Start button is two clicks away, and a
     /// card that sits there for the whole call is just clutter.
-    private static let invitationLifetime: TimeInterval = 45
+    /// Shared with `ScheduledMeetingWatcher`: both surfaces ask the same
+    /// question and an offer that lingers longer on one than the other is a
+    /// difference nobody chose.
+    static let offerLifetime: TimeInterval = 45
 
     init(session: MeetingSession, exclusions: ScreenExclusions, preference: MeetingDetectionPreference) {
         self.session = session
@@ -328,20 +335,9 @@ final class MeetingDetector: ObservableObject {
         Log.screen.info("detect: meeting detection off")
     }
 
-    /// Start recording this call — through the panel, never around it.
-    func accept() {
-        guard let invitation else { return }
-        Log.screen.info("detect: accepted \(invitation.app.displayName)")
-        state.markHandled()
-        withdraw()
-        session.requestAutoStart()
-        NotificationCenter.default.post(name: .nodShowPanel, object: nil)
-    }
-
-    /// "Not now" — this call is answered, and it won't ask again.
-    func decline() {
-        guard let invitation else { return }
-        Log.screen.info("detect: declined \(invitation.app.displayName)")
+    /// The offer for this candidate has been answered — however. The call is not
+    /// raised again, however long it runs.
+    func answered() {
         state.markHandled()
         withdraw()
     }
@@ -355,13 +351,12 @@ final class MeetingDetector: ObservableObject {
     }
 
     private func withdraw() {
-        invitation = nil
-        invitationRaisedAt = nil
+        guard candidate != nil else { return }
+        candidate = nil
     }
 
     private func tick() {
         guard preference.isEnabled else { return stop() }
-        expireInvitation()
 
         let isRecording = session.meeting != .idle
         let signals = signals()
@@ -386,9 +381,7 @@ final class MeetingDetector: ObservableObject {
             Log.screen.info("detect: \(app.displayName) call in progress (\(evidence)) — offering to record")
             // The card sits in a screen corner while the user is looking at the
             // call — unheard, it is only found by accident.
-            UISound.meetingDetected.play(recording: isRecording)
-            invitation = DetectedCall(app: app, title: signals.titles[app])
-            invitationRaisedAt = Date()
+            candidate = DetectedCall(app: app, title: signals.titles[app])
         case .withdraw:
             withdraw()
         case let .callEnded(app):
@@ -397,15 +390,6 @@ final class MeetingDetector: ObservableObject {
         case nil:
             break
         }
-    }
-
-    private func expireInvitation() {
-        guard let invitationRaisedAt,
-              Date().timeIntervalSince(invitationRaisedAt) >= Self.invitationLifetime
-        else { return }
-        Log.screen.info("detect: invitation timed out")
-        state.markHandled()
-        withdraw()
     }
 
     private func signals() -> CallSignals {

@@ -201,10 +201,14 @@ tell you what you already discussed and what was left open.
   microphone.
 - **Off by default.** You switch it on in Settings → General, and macOS asks
   you separately. An app update never turns it on.
-- **Twice per meeting, never otherwise.** Once when a call is detected, and
-  once when the recording finishes — invitations are often written after a call
-  has already started, and the second read is what finds them. Not on a
-  schedule, not in the background.
+- **On a timer while it is switched on.** About every 20 seconds, so Nod can
+  tell you a meeting is starting before you have opened anything — plus once
+  when a call is detected and once when a recording finishes, since invitations
+  are often written after a call has already begun. Switching the feature off
+  stops the timer.
+- **It still cannot start a recording.** A meeting that is starting raises a
+  card with a button, exactly like a detected call. Nothing records until you
+  press it.
 - **The entry and who was invited.** Title, start and end, whether you
   declined, whether it holds a video-call link, and each invitee's name (or
   address, where the invitation carries no name) plus which one is you. Rooms

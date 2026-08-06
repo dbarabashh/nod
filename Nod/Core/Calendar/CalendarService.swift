@@ -206,6 +206,23 @@ final class CalendarService: ObservableObject {
         return meetings(overlapping: DateInterval(start: now, duration: 0), app: app)
     }
 
+    /// Entries whose *start* is near enough to now to be announced.
+    ///
+    /// A window of its own, an order of magnitude narrower than the one a
+    /// finalize needs: that caller has to reach back for an entry the recording
+    /// began inside, this one only wants the next few minutes. Asked on a timer,
+    /// so every event the wider window returned would be decoded — notes
+    /// lowercased, attendees read and name-parsed — and then thrown away.
+    func meetingsStarting(at now: Date) -> [CalendarOccurrence] {
+        guard isReadable, let store else { return [] }
+        let predicate = store.predicateForEvents(
+            withStart: now.addingTimeInterval(-ScheduledMeeting.grace),
+            end: now.addingTimeInterval(ScheduledMeeting.lead),
+            calendars: nil
+        )
+        return store.events(matching: predicate).compactMap(Self.occurrence)
+    }
+
     /// Pays the event store's first-query cost somewhere the user is not
     /// watching.
     ///
