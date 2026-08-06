@@ -64,7 +64,11 @@ final class NotchController {
     private func anchor() {
         guard let screen = NSScreen.nodNotchHost else { return }
         panel?.anchor(to: screen)
-        model?.setGeometry(screen.nodNotchGeometry)
+        // The preview override forces the no-cut-out silhouette on a screen that
+        // does have one, so the fallback can be checked without unplugging a
+        // display or dragging the menu bar to another screen.
+        let previewing = model?.playback.previewWithoutNotch ?? false
+        model?.setGeometry(previewing ? screen.nodIslandGeometry : screen.nodNotchGeometry)
     }
 
     /// Plugging in a display, unplugging one, or changing the arrangement can
@@ -73,6 +77,13 @@ final class NotchController {
     private func observeScreens() {
         NotificationCenter.default
             .publisher(for: NSApplication.didChangeScreenParametersNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.anchor() }
+            .store(in: &cancellables)
+
+        model?.playback.$previewWithoutNotch
+            .dropFirst()
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.anchor() }
             .store(in: &cancellables)

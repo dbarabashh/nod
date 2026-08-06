@@ -78,28 +78,33 @@ extension NotchPresentation {
         }
     }
 
-    /// The whole surface's width, including the flare margin the top curves
-    /// need on a notched Mac.
-    func surfaceWidth(in geometry: NotchGeometry) -> CGFloat {
+    /// The whole surface's width, or nil to let the content decide.
+    ///
+    /// A resting state is only pinned when there is a cut-out to straddle: the
+    /// width has to reach past the hardware on both sides, so it is computed
+    /// from the hole. Without a hole there is nothing to reach past, and a
+    /// pinned width just leaves a gap of empty black in the middle where the
+    /// notch used to be — so the content sizes itself instead.
+    func surfaceWidth(in geometry: NotchGeometry) -> CGFloat? {
         let flare = geometry.flare * 2
-        return switch self {
-        case .updateRequired: 400
-        case .dormant: geometry.collapsedSize.width + flare
-        case .capturing: geometry.collapsedSize.width + flare + 124
-        case .invitation: 384
-        case .controls: 340
-        case .launch: 384
-        case .languageConfirm: 340
-        case .consent: 380
-        case .alert: 396
+        switch self {
+        case .updateRequired: return 400
+        case .invitation: return 384
+        case .controls: return 340
+        case .launch: return 384
+        case .languageConfirm: return 340
+        case .consent: return 380
+        case .alert: return 396
+        case .dormant:
+            return geometry.hasCutout ? geometry.collapsedSize.width + flare : nil
+        case .capturing:
+            return geometry.hasCutout ? geometry.collapsedSize.width + flare + 124 : nil
         case let .demo(stage):
-            // Wider than a real capture's resting bar: that one carries a meter
-            // and a clock, this one adds the word for what Nod is doing. At the
-            // capture width the content overran the surface and shoved the clock
-            // past its own padding.
-            stage.form == .resting
-                ? geometry.collapsedSize.width + flare + 232
-                : stage.surfaceWidth
+            guard stage.form == .resting else { return stage.surfaceWidth }
+            // Wider than a real capture's resting bar even on a notched Mac:
+            // that one carries a meter and a clock, this one adds the word for
+            // what Nod is doing.
+            return geometry.hasCutout ? geometry.collapsedSize.width + flare + 232 : nil
         }
     }
 
@@ -124,11 +129,18 @@ extension NotchPresentation {
         }
     }
 
-    /// How rounded the bottom corners are. The resting surface takes its radius
-    /// from the cut-out it is covering so the two read as one shape; an opened
-    /// one is a card and rounds like one.
+    /// How rounded the corners are.
+    ///
+    /// An opened surface is a card either way. At rest the two cases diverge:
+    /// over a cut-out the radius has to match the hardware's own curvature, so
+    /// it is derived from the cut-out's height and stays a shallow rounding.
+    /// Free-floating there is nothing to match, and a shallow rounding on a
+    /// 26pt bar reads as a rounded rectangle rather than the pill it should be —
+    /// so it goes fully round.
     func bottomRadius(in geometry: NotchGeometry) -> CGFloat {
-        isOpen ? Theme.Radii.card : geometry.collapsedSize.height / 3
+        guard !isOpen else { return Theme.Radii.card }
+        let height = geometry.collapsedSize.height
+        return geometry.hasCutout ? height / 3 : height / 2
     }
 }
 

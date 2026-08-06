@@ -25,7 +25,11 @@ struct NotchStateContent: View {
         case .updateRequired:
             UpdateRequiredNotice(onUpdate: model.updateGate.startUpdate)
         case .dormant:
-            Color.clear
+            // Zero-sized, not `Color.clear`: a bare `Color` has no intrinsic
+            // size and expands to whatever it is offered, so without a cut-out
+            // to pin the width against it filled the entire canvas and painted
+            // an empty black slab under the menu bar.
+            Color.clear.frame(width: 0, height: 0)
         case .capturing:
             NotchCapturing(
                 session: model.session,
@@ -112,19 +116,23 @@ private struct NotchCapturing: View {
     @ObservedObject var audioCapture: AudioCaptureService
     let geometry: NotchGeometry
 
-    /// Both halves are anchored to the surface's **outer** edges, not to the
-    /// cut-out. Anchored inward, the slack lands on the outside — and since the
-    /// two are never the same width, a five-bar meter against a five-glyph
-    /// clock, the outer margins come out visibly unequal.
+    /// Straddling the cut-out, the two halves are anchored to the surface's
+    /// **outer** edges: anchored inward the slack lands on the outside, and
+    /// since a five-bar meter and a five-glyph clock are never the same width,
+    /// the outer margins come out visibly unequal.
+    ///
+    /// Without a cut-out there is nothing to straddle, so they simply sit
+    /// together. Spreading them then would leave a gap of empty black in the
+    /// middle exactly where the hardware isn't.
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: geometry.hasCutout ? 0 : 8) {
             NotchLevelMeter(
                 audioCapture: audioCapture,
                 paused: session.meeting == .paused,
                 barWidth: 2,
                 span: 9
             )
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .leading)
 
             if geometry.hasCutout {
                 Color.clear.frame(width: geometry.cutoutWidth)
@@ -135,7 +143,7 @@ private struct NotchCapturing: View {
                 .foregroundColor(session.meeting == .paused ? Theme.Palette.warning : Theme.Palette.ink)
                 .monospacedDigit()
                 .fixedSize()
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .trailing)
         }
         .padding(.horizontal, geometry.flare + 12)
     }

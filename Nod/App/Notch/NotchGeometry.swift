@@ -2,30 +2,55 @@ import AppKit
 
 /// The hardware cut-out on one screen, or its absence.
 ///
-/// A Mac without a notch — an external display, an Air before 2022, a Mac mini —
-/// gets a free-standing rounded pill in the same place instead, so every code
-/// path downstream has a surface to draw and only the silhouette changes.
+/// Two genuinely different surfaces come out of this, not one with a tweak. With
+/// a cut-out, Nod continues the machine: the shape hangs *from* the bezel, fills
+/// dead space, and wears no outline because an outline would give the illusion
+/// away. Without one — every external display, and every Mac older than 2021 —
+/// there is no dead space to occupy and no bezel to continue, so it stops
+/// pretending: a floating card that sits *below* the menu bar and admits it is
+/// an app.
 struct NotchGeometry: Equatable {
     let cutoutWidth: CGFloat
     let cutoutHeight: CGFloat
+    /// How much of the top of the screen the menu bar owns. Only meaningful
+    /// without a cut-out, where it is what the surface has to clear.
+    let menuBarHeight: CGFloat
 
-    static let island = NotchGeometry(cutoutWidth: 0, cutoutHeight: 0)
+    static let island = NotchGeometry(cutoutWidth: 0, cutoutHeight: 0, menuBarHeight: 24)
 
     var hasCutout: Bool {
         cutoutWidth > 0
     }
 
-    /// The resting surface — just wide enough to cover the cut-out on a notched
-    /// Mac, a deliberate pill everywhere else.
+    /// The resting surface. With a cut-out it must match the hardware exactly —
+    /// a pixel of daylight around a notch is instantly visible. Without one it
+    /// is a compact pill, sized for a glance rather than to cover anything.
     var collapsedSize: CGSize {
-        guard hasCutout else { return CGSize(width: 168, height: 30) }
+        guard hasCutout else { return CGSize(width: 132, height: 26) }
         return CGSize(width: cutoutWidth, height: cutoutHeight)
     }
 
-    /// How far the top corners flare outward to meet the menu bar. Zero in
-    /// island mode, where the surface floats free and has no bar to meet.
+    /// How far the top corners flare outward to meet the menu bar. Zero without
+    /// a cut-out: nothing to meet, and a flare on a free-floating card reads as
+    /// a rendering fault.
     var flare: CGFloat {
         hasCutout ? 10 : 0
+    }
+
+    /// Where the surface starts, measured down from the top of the screen.
+    ///
+    /// Zero with a cut-out — it hangs from the very top, through the bezel.
+    /// Without one it clears the menu bar entirely, because the middle of that
+    /// bar is not dead space: on a wide app it is still menu titles, and in a
+    /// full-screen call it is the content itself.
+    var topInset: CGFloat {
+        hasCutout ? 0 : menuBarHeight + 6
+    }
+
+    /// A free-floating card needs a hairline at rest; a shape continuing the
+    /// bezel must not have one.
+    var showsEdgeAtRest: Bool {
+        !hasCutout
     }
 }
 
@@ -35,12 +60,25 @@ extension NSScreen {
     /// is the cut-out. Both read nil on a screen that has none, which is also
     /// how every external display answers.
     var nodNotchGeometry: NotchGeometry {
+        let menuBar = max(0, frame.maxY - visibleFrame.maxY)
         guard let left = auxiliaryTopLeftArea, let right = auxiliaryTopRightArea else {
-            return .island
+            return NotchGeometry(cutoutWidth: 0, cutoutHeight: 0, menuBarHeight: menuBar)
         }
         let width = frame.width - (left.width + right.width)
-        guard width > 0, left.height > 0 else { return .island }
-        return NotchGeometry(cutoutWidth: width, cutoutHeight: left.height)
+        guard width > 0, left.height > 0 else {
+            return NotchGeometry(cutoutWidth: 0, cutoutHeight: 0, menuBarHeight: menuBar)
+        }
+        return NotchGeometry(cutoutWidth: width, cutoutHeight: left.height, menuBarHeight: menuBar)
+    }
+
+    /// The same screen seen as though it had no cut-out — what the preview
+    /// toggle shows, and what every external display genuinely is.
+    var nodIslandGeometry: NotchGeometry {
+        NotchGeometry(
+            cutoutWidth: 0,
+            cutoutHeight: 0,
+            menuBarHeight: max(0, frame.maxY - visibleFrame.maxY)
+        )
     }
 
     /// Where the notch surface belongs: the display that actually has a cut-out,

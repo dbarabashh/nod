@@ -43,9 +43,20 @@ final class DemoPlayback: ObservableObject {
         didSet { defaults.set(pace, forKey: Self.paceKey) }
     }
 
+    /// Draw the surface as though this screen had no cut-out.
+    ///
+    /// Every external display is already this case, and so is any Mac older than
+    /// the notch — but checking it otherwise means unplugging a monitor or
+    /// dragging the menu bar between screens. This shows the same fallback on
+    /// the built-in display.
+    @Published var previewWithoutNotch: Bool {
+        didSet { defaults.set(previewWithoutNotch, forKey: Self.previewKey) }
+    }
+
     static let enabledKey = "demo.script.enabled"
     static let scenarioKey = "demo.script.scenario"
     static let paceKey = "demo.script.pace"
+    static let previewKey = "notch.previewWithoutNotch"
 
     /// Sensible ends of the dial: below this the cards can't be read, above it
     /// the recording outstays a landing page's attention.
@@ -59,6 +70,7 @@ final class DemoPlayback: ObservableObject {
         scenario = defaults.string(forKey: Self.scenarioKey)
             .flatMap(DemoScenario.init(rawValue:)) ?? .productEngineering
         pace = defaults.object(forKey: Self.paceKey) as? Double ?? 1.0
+        previewWithoutNotch = defaults.bool(forKey: Self.previewKey)
     }
 
     /// The scenario to play, or nil when Start should open a real microphone.

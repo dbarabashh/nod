@@ -47,8 +47,11 @@ private struct DemoRestingBar: View {
     @ObservedObject var director: DemoDirector
     let geometry: NotchGeometry
 
+    /// Straddles the cut-out where there is one, and sits together where there
+    /// isn't — spreading the halves on a screen with no hardware in the middle
+    /// leaves a band of empty black exactly where the notch would have been.
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: geometry.hasCutout ? 0 : 10) {
             HStack(spacing: 7) {
                 DemoWaveform(level: director.level)
                 Text(label)
@@ -56,7 +59,7 @@ private struct DemoRestingBar: View {
                     .foregroundStyle(Theme.Palette.muted)
                     .fixedSize()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .leading)
 
             if geometry.hasCutout {
                 Color.clear.frame(width: geometry.cutoutWidth)
@@ -67,7 +70,7 @@ private struct DemoRestingBar: View {
                 .foregroundStyle(Theme.Palette.ink)
                 .monospacedDigit()
                 .fixedSize()
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .trailing)
         }
         .padding(.horizontal, geometry.flare + 12)
     }

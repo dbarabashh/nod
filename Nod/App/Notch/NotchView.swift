@@ -19,6 +19,11 @@ struct NotchView: View {
             surface
             Spacer(minLength: 0)
         }
+        // With a cut-out this is zero and the surface hangs from the very top,
+        // through the bezel. Without one it drops clear of the menu bar — whose
+        // middle is not dead space: on a wide app those are still menu titles,
+        // and in a full-screen call it is the call.
+        .padding(.top, geometry.topInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(
             NotchAnimation.morph(from: previous, to: presentation, reduceMotion: reduceMotion),
@@ -96,13 +101,16 @@ struct NotchView: View {
         presentation != .dormant || geometry.hasCutout
     }
 
-    /// A hairline that only exists when the surface is opened — it is what
-    /// separates a card from the black bezel above it. At rest there is nothing
-    /// to separate, and an outline around the cut-out would give the illusion
-    /// away instantly.
+    /// The hairline that separates the surface from what is behind it.
+    ///
+    /// On a notched Mac it appears only when the surface opens: at rest the
+    /// shape is continuing the bezel, and an outline traced around a hardware
+    /// cut-out gives the illusion away instantly. A free-floating card is not
+    /// pretending to be anything, so it keeps its edge at every size — without
+    /// one it reads as a hole punched in the desktop.
     private func edge(_ shape: AnyShape) -> some View {
         shape.stroke(
-            Theme.Palette.border.opacity(presentation.isOpen ? 1 : 0),
+            Theme.Palette.border.opacity(presentation.isOpen || geometry.showsEdgeAtRest ? 1 : 0),
             lineWidth: 0.5
         )
     }
