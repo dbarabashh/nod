@@ -61,7 +61,9 @@ final class ActionItemStore: ObservableObject {
     }
 
     func items(forMeeting meetingID: UUID) -> [ActionItem] {
-        items.filter { $0.meetingID == meetingID }.sorted { $0.position < $1.position }
+        items
+            .filter { $0.meetingID == meetingID }
+            .sorted { $0.order < $1.order }
     }
 
     var openItems: [ActionItem] {
@@ -70,8 +72,8 @@ final class ActionItemStore: ObservableObject {
 
     /// Promote recap actions for meetings that never got theirs — a finalize
     /// that ran offline, or one whose save raced and lost. `saveExtracted`
-    /// no-ops when the meeting already has rows, so this only writes for real
-    /// gaps and never resurrects deleted tasks.
+    /// writes only what the meeting does not already have, in whatever state,
+    /// so this fills real gaps and never resurrects deleted tasks.
     func promoteMissing(in meetings: [Meeting]) async {
         await refresh()
         let present = Set(items.map(\.meetingID))
@@ -102,54 +104,124 @@ final class ActionItemStore: ObservableObject {
     /// Best-effort: a failed insert is logged, not surfaced — the recap is
     /// already saved.
     ///
-    /// Idempotent and non-resurrecting: it no-ops when the meeting already has
-    /// any rows (even trashed ones), so a re-run, a view backfill racing the
+    /// Idempotent and non-resurrecting: every recap action is matched against
+    /// what the meeting already has — in any state, including trashed — and only
+    /// the unmatched ones are inserted. So a re-run, a view backfill racing the
     /// finalize save, or a meeting whose items the user deleted never produces
     /// duplicates or brings deleted tasks back. The partial-unique index on
     /// `(meeting_id, position) where deleted_at is null` is the atomic backstop
-    /// for two callers that both pass this check at the same instant.
-    func saveExtracted(_ actions: [MeetingRecap.Action], meetingID: UUID, userID: UUID) async {
+    /// for two callers that reach this at the same instant.
+    ///
+    /// This used to be a flat "does the meeting have any rows" gate, which was
+    /// simpler and is no longer possible: `live` arrives alongside the recap and
+    /// has to be merged with it, not refused because the other one got there.
+    ///
+    /// `live` is what `LiveMeetingAnalyst` heard during the call. The recap read
+    /// the whole transcript afterwards, so where the two agree the live finding
+    /// is corroborated and becomes a real task; where the recap is silent about
+    /// something the live pass called an action, the live pass over-read and the
+    /// row is written `dropped`. Both are kept — a task Nod caught mid-meeting
+    /// and one it talked itself out of are both part of what happened, and
+    /// neither costs the user anything, because only `confirmed` actions are
+    /// ever counted or shown.
+    func saveExtracted(
+        _ actions: [MeetingRecap.Action],
+        live: [LiveFinding] = [],
+        meetingID: UUID,
+        userID: UUID
+    ) async {
         #if DEBUG
             if DemoMode.isEnabled { return }
         #endif
-        let rows = actions.enumerated().compactMap { idx, action -> ActionItem? in
+        let recap = actions.enumerated().compactMap { idx, action -> (position: Int, action: MeetingRecap.Action)? in
+            action.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : (idx, action)
+        }
+        guard !recap.isEmpty || !live.isEmpty else { return }
+        guard let existing = await existingRows(forMeeting: meetingID) else { return }
+
+        var rows = Self.rows(for: live, meetingID: meetingID, userID: userID)
+        // Superseded findings are history and cannot be what the recap means;
+        // only what still stands is open to corroboration.
+        var unclaimed = live
+            .filter { $0.kind == .action && !$0.isSuperseded }
+            .compactMap { rows[$0.id] }
+
+        for (position, action) in recap {
             let text = action.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
-            return ActionItem.new(
+            // Already on the server, in whatever state — an earlier run's row,
+            // or one the user deleted. Left exactly as it is.
+            if existing.contains(where: { ActionItemDedup.same($0.text, text) }) { continue }
+
+            if let matchIndex = unclaimed.firstIndex(where: { ActionItemDedup.same($0.text, text) }) {
+                let match = unclaimed.remove(at: matchIndex)
+                rows[match.id] = match.confirmed(position: position)
+                continue
+            }
+            rows[UUID()] = ActionItem.new(
                 meetingID: meetingID,
                 userID: userID,
                 text: text,
                 deadline: action.deadline?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                position: idx
+                position: position
             )
         }
-        guard !rows.isEmpty else { return }
-        guard await !hasAnyRows(forMeeting: meetingID) else { return }
+
+        for orphan in unclaimed {
+            rows[orphan.id]?.status = .dropped
+        }
+
+        let inserts = Array(rows.values)
+        guard !inserts.isEmpty else { return }
         do {
-            try await supabase.from(Self.tableName).insert(rows).execute()
+            try await supabase.from(Self.tableName).insert(inserts).execute()
         } catch {
             Log.ui.error("ActionItemStore.saveExtracted failed (non-fatal): \(error.localizedDescription)")
         }
     }
 
-    /// True if the meeting has ANY action-item rows, including trashed ones —
-    /// the resurrection / duplication guard for `saveExtracted`.
-    private func hasAnyRows(forMeeting meetingID: UUID) async -> Bool {
-        struct Row: Decodable { let id: UUID }
+    /// Live findings as rows, keyed by the finding's own id so `revision_of`
+    /// keeps pointing at the right one.
+    ///
+    /// Only actions start out unconfirmed. The recap emits nothing but tasks, so
+    /// its silence about a decision or an open question is not evidence against
+    /// it — those stand on the quote the analyst already verified against the
+    /// transcript, and `isOpen` keeps them out of the user's task list anyway.
+    private static func rows(for live: [LiveFinding], meetingID: UUID, userID: UUID) -> [UUID: ActionItem] {
+        var rows: [UUID: ActionItem] = [:]
+        for finding in live {
+            let row = ActionItem.new(
+                id: finding.id,
+                meetingID: meetingID,
+                userID: userID,
+                text: finding.text,
+                deadline: finding.deadline,
+                position: nil,
+                kind: finding.kind,
+                status: finding.isSuperseded ? .superseded : (finding.kind == .action ? .proposed : .confirmed),
+                source: .live,
+                revisionOf: finding.revisionOf,
+                evidenceIdx: finding.evidenceIdx
+            )
+            rows[finding.id] = row
+        }
+        return rows
+    }
+
+    /// Every row the meeting already has, trashed ones included — the input to
+    /// `saveExtracted`'s reconciliation. Nil means the read failed, and the
+    /// caller must then write nothing: without knowing what is there, an insert
+    /// risks a duplicate or a resurrected-after-delete task.
+    private func existingRows(forMeeting meetingID: UUID) async -> [ActionItem]? {
         do {
-            let rows: [Row] = try await supabase
+            return try await supabase
                 .from(Self.tableName)
-                .select("id")
+                .select()
                 .eq("meeting_id", value: meetingID.uuidString)
-                .limit(1)
                 .execute()
                 .value
-            return !rows.isEmpty
         } catch {
-            // On a read failure, assume rows exist so we never risk a duplicate
-            // or a resurrected-after-delete insert.
-            Log.ui.error("ActionItemStore.hasAnyRows failed — skipping extract: \(error.localizedDescription)")
-            return true
+            Log.ui.error("ActionItemStore.existingRows failed — skipping extract: \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -165,9 +237,35 @@ final class ActionItemStore: ObservableObject {
             .from(Self.tableName)
             .select()
             .is("deleted_at", value: nil)
+            .eq("kind", value: ActionItem.Kind.action.rawValue)
+            .eq("status", value: ActionItem.Status.confirmed.rawValue)
             .order("created_at", ascending: false)
             .order("position", ascending: true)
             .limit(2000)
+            .execute()
+            .value
+    }
+
+    /// What a meeting produced that is NOT a task — the decisions it settled,
+    /// the questions it left open, the risks somebody named.
+    ///
+    /// Its own fetch rather than a slice of `items`, because these are not the
+    /// user's to-do list and must never be counted as one: `items` feeds the
+    /// attention column, the cross-meeting checklist and the open-commitments
+    /// count, and a decision landing in any of those is wrong. Loaded per
+    /// meeting, where they are read, and nowhere else.
+    func notes(forMeeting meetingID: UUID) async throws -> [ActionItem] {
+        #if DEBUG
+            if DemoMode.isEnabled { return [] }
+        #endif
+        return try await supabase
+            .from(Self.tableName)
+            .select()
+            .eq("meeting_id", value: meetingID.uuidString)
+            .neq("kind", value: ActionItem.Kind.action.rawValue)
+            .eq("status", value: ActionItem.Status.confirmed.rawValue)
+            .is("deleted_at", value: nil)
+            .order("created_at", ascending: true)
             .execute()
             .value
     }
@@ -189,6 +287,8 @@ final class ActionItemStore: ObservableObject {
             .select("*, meetings!inner(deleted_at)")
             .is("meetings.deleted_at", value: nil)
             .is("deleted_at", value: nil)
+            .eq("kind", value: ActionItem.Kind.action.rawValue)
+            .eq("status", value: ActionItem.Status.confirmed.rawValue)
             .eq("done", value: false)
             .order("created_at", ascending: false)
             .order("position", ascending: true)
@@ -320,7 +420,8 @@ final class ActionItemStore: ObservableObject {
             userID: userID,
             text: text,
             deadline: nil,
-            position: position
+            position: position,
+            source: .user
         )
         try await supabase.from(Self.tableName).insert(item).execute()
         return item

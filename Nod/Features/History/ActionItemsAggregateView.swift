@@ -584,7 +584,7 @@ struct ActionItemsAggregateView: View {
         let buckets = Dictionary(grouping: visibleItems, by: \.meetingID)
         return meetings.compactMap { meeting in
             guard let group = buckets[meeting.id], !group.isEmpty else { return nil }
-            return ItemGroup(meetingID: meeting.id, items: group.sorted { $0.position < $1.position })
+            return ItemGroup(meetingID: meeting.id, items: group.sorted { $0.order < $1.order })
         }
     }
 
@@ -700,7 +700,7 @@ struct ActionItemsAggregateView: View {
     private func commitAdd(_ meetingID: UUID) async {
         let text = newItemText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { cancelAdd(); return }
-        let position = (items.filter { $0.meetingID == meetingID }.map(\.position).max() ?? -1) + 1
+        let position = (items.filter { $0.meetingID == meetingID }.compactMap(\.position).max() ?? -1) + 1
         await actionItemStore.add(text: text, meetingID: meetingID, position: position)
         cancelAdd()
     }

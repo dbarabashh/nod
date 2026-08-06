@@ -59,7 +59,7 @@ enum TodayDigest {
                 if a.meeting.startedAt != b.meeting.startedAt {
                     return a.meeting.startedAt > b.meeting.startedAt
                 }
-                return a.item.position < b.item.position
+                return a.item.order < b.item.order
             }
             .prefix(limit)
             .map { $0 }
