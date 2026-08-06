@@ -13,16 +13,6 @@ enum SupabaseConfig {
         static let anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxwdHF2bml6andnbGlsZ2V1a3d4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk0NTkyOTYsImV4cCI6MjA5NTAzNTI5Nn0.Y0TsCG7TwUM8T1XuUPPecHHNLQBzBRAkaqvAGBWpkbY"
     #endif
 
-    /// Remote MCP server endpoint for browser/desktop AI connectors (ChatGPT,
-    /// Claude, Gemini). The personal token is appended as a path segment
-    /// (`…/mcp/<token>`).
-    ///
-    /// Release routes through the landing domain rather than the Supabase
-    /// gateway: Claude probes `/.well-known/oauth-protected-resource/<path>`
-    /// on the same origin before connecting, and the gateway answers 401 on
-    /// every unrouted path — which Claude reads as "this resource needs OAuth"
-    /// and then fails at dynamic client registration. Vercel returns a plain
-    /// 404 there, so the connector stays authless.
     static var mcpBaseURL: URL {
         #if DEBUG
             url.appending(path: "functions/v1/mcp")

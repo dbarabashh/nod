@@ -1,5 +1,10 @@
 # @nod/mcp
 
+> **Legacy connector.** New installations move to the official hosted ChatGPT
+> and Claude connectors at [hellonod.app/connectors](https://hellonod.app/connectors).
+> Existing `nod_pat_` credentials remain usable during the published 90-day
+> migration window and can still be revoked in Nod Settings.
+
 Connect your **Nod** meetings, recaps and transcripts to **Claude**, **ChatGPT**,
 **Gemini**, and any other MCP-capable client — so you can ask your AI about a
 meeting instead of copy-pasting transcripts into it.
@@ -23,6 +28,11 @@ data access, authentication and per-user scoping happen server-side in Nod's
 **Settings → Connections → pick your client → Connect.** For Claude Desktop and
 the Gemini CLI, Nod writes the config for you (token included) — just restart the
 client. No terminal, no paths. This is the path for non-technical users.
+
+This PAT-based setup is retained for existing installations only. The official
+hosted connectors use OAuth 2.1, require no copied token, expose the same
+read-only meeting data, and can be revoked at
+[hellonod.app/oauth/authorized-apps](https://hellonod.app/oauth/authorized-apps).
 
 ## Manual setup
 

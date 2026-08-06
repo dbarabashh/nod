@@ -57,5 +57,8 @@ grant select on private.connector_oauth_config to supabase_auth_admin;
 grant execute on function public.custom_access_token_hook(jsonb) to supabase_auth_admin;
 revoke execute on function public.custom_access_token_hook(jsonb) from public, anon, authenticated, mcp_connector;
 
+grant select on table public.meetings, public.meeting_transcripts, public.connections to service_role;
+grant update (last_used_at) on table public.connections to service_role;
+
 comment on table private.connector_oauth_config is
 'Environment-specific OAuth resource binding. Update the singleton on each preview branch before enabling OAuth.';

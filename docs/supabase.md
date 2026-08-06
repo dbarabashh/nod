@@ -27,6 +27,46 @@ supabase stop
 The project is already linked (`supabase/config.toml`) to ref
 `lptqvnizjwglilgeukwx`, so CLI commands target the right project automatically.
 
+## Connector OAuth and previews
+
+The OAuth server configuration is committed in `supabase/config.toml` but ships
+disabled. The custom access-token hook is installed by migration and only
+changes tokens that contain `client_id`: it sets the exact MCP resource as
+`aud`, grants only `meetings:read`, and assigns the no-direct-access
+`mcp_connector` role. Dynamic client registration and PKCE S256 are used by
+ChatGPT; Anthropic can use hosted pre-registered credentials if review requires
+them. Refresh-token reuse detection and rotation remain enabled in Auth config.
+
+Test connector migrations against the pull request's Supabase Preview branch,
+not the divergent long-lived `develop` branch. For preview ref `<preview-ref>`:
+
+```text
+resource: https://<preview-ref>.supabase.co/functions/v1/mcp
+issuer:   https://<preview-ref>.supabase.co/auth/v1
+consent:  the nod-landing Vercel preview /oauth/consent URL
+```
+
+Set the Edge Function environment per preview or production deployment:
+
+```sh
+supabase secrets set --project-ref <ref> \
+  MCP_OAUTH_ENABLED=false \
+  MCP_RESOURCE_URI=https://<ref>.supabase.co/functions/v1/mcp \
+  MCP_AUTH_ISSUER=https://<ref>.supabase.co/auth/v1 \
+  MCP_RESOURCE_METADATA_URI=https://<landing-host>/.well-known/oauth-protected-resource \
+  MCP_APP_SCRIPT_URL=https://<landing-host>/assets/mcp-app-v1.js \
+  MCP_APP_STYLE_URL=https://<landing-host>/assets/mcp-app-v1.css \
+  MCP_APP_DOMAIN=https://<landing-host> \
+  MCP_MIGRATION_URL=https://<landing-host>/connectors
+```
+
+Keep `MCP_OAUTH_ENABLED=false` until both deployments are live. Enable the
+Supabase OAuth server and the function kill switch only for private smoke tests,
+then set `official_connectors_enabled` and a 90-day
+`legacy_pat_sunset_at`/`LEGACY_MCP_PAT_DISABLE_AFTER` when a listing becomes
+public. Rollback is disabling OAuth and the function switch while leaving the
+legacy path available until its configured sunset.
+
 ## Branches — sandbox (`develop`) vs production (`main`)
 
 We use [Supabase

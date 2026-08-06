@@ -356,10 +356,9 @@ verify_jwt = false
 [functions.connect]
 verify_jwt = false
 
-# Remote MCP server (Streamable HTTP) for browser/desktop AI clients (ChatGPT,
-# Claude, Gemini). Auth is a connection token in the URL path (`…/mcp/<token>`),
-# not a Supabase JWT, so the gateway check is disabled — the function resolves
-# the token to a single user before serving any data.
+# Remote MCP server (Streamable HTTP) for ChatGPT and Claude. The universal
+# route validates OAuth Bearer tokens itself; legacy URL-path PATs remain during
+# migration. Both paths require the gateway check to stay disabled.
 [functions.mcp]
 verify_jwt = false
 

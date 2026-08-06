@@ -18,6 +18,7 @@ started, no per-jurisdiction governing-law set. All contact emails resolve to
 | What changed in code/infra | Update in `docs/policies/` |
 |---|---|
 | New/changed subprocessor (third-party API, OAuth provider, billing, analytics) | `subprocessors.md`, `privacy.md` § 3/5/6 |
+| Connector OAuth scopes, token claims, grant revocation, MCP tools, or the user data returned by `supabase/functions/mcp` changes | `privacy.md` § 3.11/5, `security.md` "Official AI connectors" + "Access control", `subprocessors.md` "What we do not use", and the matching pages in `../nod-landing` |
 | Audio is ever persisted (today: never; `WhisperTranscriber` discards chunks) | `security.md` "Audio recordings", `privacy.md` § 3.2 |
 | OpenRouter privacy toggles flipped (ZDR off, "may train on request data" enabled, first-party endpoints re-enabled) | `security.md` § Model training, `privacy.md` § 4 |
 | New table in `public.*` schema, or RLS dropped on any table | `security.md` "Infrastructure", `privacy.md` § 3 |

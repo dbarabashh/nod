@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-03_
+_Last updated: 2026-08-06_
 
 > This policy describes the data practices that already exist in the
 > product today — every claim is tied to code you can inspect.
@@ -338,6 +338,24 @@ speakers is the feature you are using Nod for. Participants' names are read
 locally, used transiently, and travel no further than the summarising model
 already handling the transcript of the same conversation.
 
+### 3.11 Official ChatGPT and Claude connectors
+
+You can authorize a supported AI client to read your Nod meetings. The consent
+screen identifies the client, redirect address, and single read-only permission
+before anything is shared. The connector can return meeting titles, dates,
+summaries, and transcript text for your account; it cannot create, edit, or
+delete Nod data. Transcript access is paginated and bounded.
+
+Supabase Auth stores the OAuth grant and rotating refresh-token state. Access
+tokens are bound to Nod's exact MCP resource and carry only
+`meetings:read`. The connector's database role has no direct table access;
+server-side queries are filtered by the authenticated user ID. You can list and
+revoke grants at `/oauth/authorized-apps`, after which refresh and reconnect
+require authorization again.
+
+Legal basis: Contract (Art. 6(1)(b)) — this processing occurs only when you ask
+Nod to connect your account to a client and approve the displayed access.
+
 ---
 
 ## 4. Model training
@@ -379,7 +397,10 @@ third parties only when one of the following applies:
 - We're legally compelled (court order, lawful subpoena). We will notify
   you unless prohibited by law.
 - You explicitly ask us to (for example, exporting your data to another
-  service at your request).
+  service at your request, or authorizing ChatGPT or Claude to read your Nod
+  meetings). OpenAI and Anthropic act as user-selected recipients in that
+  connector flow, not as Nod subprocessors; their own terms and privacy notices
+  apply after the selected client receives the data.
 - As part of a business transfer (merger, acquisition, asset sale). We
   will notify you with at least 30 days' notice and you can delete your
   data before any transfer.
@@ -422,6 +443,7 @@ We can provide our SCCs and transfer impact assessments on request to
 | Data                                 | Retention                                                            |
 |--------------------------------------|----------------------------------------------------------------------|
 | Account (auth profile)               | Until you delete your account.                                       |
+| Connector OAuth grants and refresh-token state | Until you revoke the authorized app, the grant expires, or you delete your account. |
 | Device bindings (`user_devices`)     | Until the device signs out, is evicted by the inactivity timeout, or you delete your account (cascade). |
 | Meetings (active)                    | Until you delete them.                                               |
 | Meetings (in trash)                  | 30 days. A nightly Postgres job permanently deletes anything older. |
