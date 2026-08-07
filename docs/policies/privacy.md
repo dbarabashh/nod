@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-06_
+_Last updated: 2026-08-07_
 
 > This policy describes the data practices that already exist in the
 > product today — every claim is tied to code you can inspect.
@@ -60,7 +60,7 @@ Calendar, Drive, or contacts.
 |----------------------------------------|--------------------------------------------------|-------------|
 | Meeting **transcripts** (per-chunk text, with speaker side and timestamp) | To show you what was said and feed it to the summariser | Contract (Art. 6(1)(b)) |
 | Meeting **summaries** (AI-generated text) | The core feature — that's what you're using Nod for | Contract (Art. 6(1)(b)) |
-| Meeting metadata (start/end time, title, language, session **kind**: meeting / voice note / media) | To list and organise your sessions | Contract (Art. 6(1)(b)) |
+| Meeting metadata (start/end time, title, language, source platform: macOS / iOS, session **kind**: meeting / voice note / media) | To list and organise your sessions and understand which client created them | Contract (Art. 6(1)(b)) |
 | Transcript **embeddings** (vector + chunk text, in `session_embeddings`) | To let you ask questions across your past sessions ("Ask Nod") | Contract (Art. 6(1)(b)) |
 | **Chat messages** with the per-session assistant (`chat_messages`) | To answer your questions about a session and keep the thread | Contract (Art. 6(1)(b)) |
 | **Cross-session chats** (`knowledge_threads`, `knowledge_messages`) — your questions, the answers, and the sessions/excerpts each answer used | To let you reopen and continue an "Ask Nod" conversation instead of losing it on quit | Contract (Art. 6(1)(b)) |
@@ -171,13 +171,13 @@ in the same `eu-west-1` region.
 
 - The macOS app embeds **no** analytics SDKs (PostHog, Mixpanel, Amplitude,
   Segment, Google Analytics, Sentry, etc.). The only in-app product telemetry
-  is the first-party setup log described in § 3.5, which goes to our own
-  database and no one else's. The marketing website uses only **Vercel Web
-  Analytics** — cookieless, aggregate page-view and download-click counts, no
-  cross-site tracking (see the Subprocessors page).
+  is first-party operational and funnel data stored in our own database. The
+  marketing website analytics described in § 3.12 is optional and stays off
+  until you consent.
 - We do **not** track which features you use, which screens you open, or how
   long you spend in the app once setup is finished.
-- We do **not** track you across the web or use advertising cookies.
+- We do **not** send meeting content, transcript text, account email, name, or
+  Supabase user ID to website analytics or Google Ads.
 - We do **not** read your calendar, email, or other Google services.
 - We do **not** collect your contacts or address book.
 - We do **not** record video of your screen, and we do **not** save an image
@@ -356,6 +356,35 @@ require authorization again.
 Legal basis: Contract (Art. 6(1)(b)) — this processing occurs only when you ask
 Nod to connect your account to a client and approve the displayed access.
 
+### 3.12 Website analytics and acquisition attribution
+
+The marketing website offers optional analytics so we can understand which
+pages and campaigns lead to a download, trial, first completed session, and
+paid subscription. All analytics and advertising storage is denied by default.
+Google Tag Manager, Google Analytics 4, Google Ads measurement, and Vercel Web
+Analytics load only after you choose **Allow analytics**. You can decline or
+withdraw that choice at any time from **Privacy settings** in the site footer.
+
+When enabled, the website records random first-party visitor and browser-session IDs, the
+sanitised page path, event name, broad CTA placement, external referrer host,
+UTM campaign parameters, Google click identifiers when present, and the Google
+Analytics client ID. Invite tokens, OAuth data, checkout transaction query
+parameters, meeting content, and account identity are excluded. Sensitive
+routes do not load Google or Vercel analytics.
+
+If you begin Google sign-in from the macOS app, the default browser briefly
+opens a Nod page. With analytics consent, that page links the browser visitor
+ID to a random, 24-hour sign-in relay. After authentication, Nod claims the
+relay and stores the selected first and last campaign touches against your Nod
+account. This lets us count trials, first completed sessions within seven days,
+and paid conversions by campaign. Server-side Google Analytics events use only
+the consented Analytics client ID and event details; they do not contain your
+Nod user ID, email, or name.
+
+Legal basis: Consent (Art. 6(1)(a)). Withholding or withdrawing consent does not
+affect the website, sign-in, download, trial, or paid service. Attribution will
+then be incomplete, which we report as coverage rather than guessing.
+
 ---
 
 ## 4. Model training
@@ -450,6 +479,7 @@ We can provide our SCCs and transfer impact assessments on request to
 | Meeting transcripts                  | Same as the parent meeting (cascade delete).                         |
 | Transcript embeddings, session chats, entity links | Same as the parent meeting (cascade delete). Extracted entities themselves are per-user and removed on account deletion. |
 | Onboarding progress (`onboarding_events`) | Until you delete your account (cascade).                        |
+| Website acquisition touches, account attribution, and aggregate Google Ads campaign data | 400 days. A scheduled job deletes older rows. Sign-in relays expire after 24 hours and are removed after expiry. |
 | Screen observations (`screen_observations`) | The expiry set when captured — **14 days by default**, changeable in Settings. A scheduled job deletes expired rows. Empty unless you switched ambient context on; deletable at any time; removed on account deletion (cascade). |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |
 | Usage metadata                       | 24 months, then aggregated and anonymised.                           |
@@ -530,12 +560,11 @@ up, contact us and we will delete the account.
 ## 11. Cookies
 
 The Nod macOS app does not use cookies (it's a native app, not a
-website). Our marketing site at `hellonod.app` is a static site that sets
-**no cookies** — it uses Vercel Web Analytics, which is cookieless and stores
-no cross-site identifier, and self-hosts its fonts and app icons so visiting a
-page sends no request (and no IP) to any third-party CDN. We use no advertising
-or third-party analytics cookies. If this changes we will publish a separate
-Cookie Policy.
+website). The marketing site stores your analytics choice and a random
+first-party visitor ID in browser local storage. If you allow analytics,
+Google Analytics and Google Ads may set measurement and advertising cookies.
+They do not load after a decline. The complete names, purposes, durations, and
+controls are in our [Cookie Policy](./cookies.md).
 
 ---
 
