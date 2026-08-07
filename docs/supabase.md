@@ -52,10 +52,9 @@ Set the Edge Function environment per preview or production deployment:
 supabase secrets set --project-ref <ref> \
   MCP_OAUTH_ENABLED=false \
   MCP_RESOURCE_URI=https://<ref>.supabase.co/functions/v1/mcp \
-  MCP_AUTH_ISSUER=https://<ref>.supabase.co/auth/v1 \
+  MCP_AUTHORIZATION_SERVER=https://<ref>.supabase.co/auth/v1 \
   MCP_RESOURCE_METADATA_URI=https://<landing-host>/.well-known/oauth-protected-resource \
-  MCP_APP_SCRIPT_URL=https://<landing-host>/assets/mcp-app-v1.js \
-  MCP_APP_STYLE_URL=https://<landing-host>/assets/mcp-app-v1.css \
+  MCP_APP_ASSET_ORIGIN=https://<landing-host> \
   MCP_APP_DOMAIN=https://<landing-host> \
   MCP_MIGRATION_URL=https://<landing-host>/connectors
 ```

@@ -137,9 +137,10 @@ function transcriptPageLimit(value: unknown): number {
     return Math.max(1, Math.min(MAX_TRANSCRIPT_PAGE, requested));
 }
 
-function transcriptCursor(value: string | undefined): number | null {
+export function parseTranscriptCursor(value: string | undefined): number | null {
     if (!value) return null;
-    const decoded = Number.parseInt(value, 10);
+    if (!/^\d+$/.test(value)) throw new Error("Invalid transcript cursor");
+    const decoded = Number(value);
     if (!Number.isSafeInteger(decoded) || decoded < 0) throw new Error("Invalid transcript cursor");
     return decoded;
 }
@@ -178,7 +179,7 @@ export async function getTranscriptPage(
     if (!meeting) return null;
 
     const limit = transcriptPageLimit(options.limit);
-    const cursor = transcriptCursor(options.cursor);
+    const cursor = parseTranscriptCursor(options.cursor);
     let query = admin
         .from("meeting_transcripts")
         .select("source, text, idx, ts")

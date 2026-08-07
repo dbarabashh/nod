@@ -309,7 +309,7 @@ function createServer(admin: SupabaseClient, userId: string): McpServer {
         "Get one page of a meeting transcript. Pass nextCursor to continue.",
       inputSchema: z.object({
         id: z.string().min(1),
-        cursor: z.string().optional(),
+        cursor: z.string().regex(/^\d+$/).optional(),
         limit: z.number().int().min(1).max(250).optional(),
       }),
       outputSchema: z.object({
