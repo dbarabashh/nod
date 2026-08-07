@@ -172,7 +172,7 @@ final class AuthService: NSObject, ObservableObject {
         var fragment = URLComponents()
         fragment.queryItems = [
             URLQueryItem(name: "relay", value: relayID.uuidString),
-            URLQueryItem(name: "oauth", value: oauthURL.absoluteString),
+            URLQueryItem(name: "oauth", value: oauthURL.absoluteString)
         ]
         components?.percentEncodedFragment = fragment.percentEncodedQuery
         return components?.url
