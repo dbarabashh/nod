@@ -24,6 +24,8 @@ state.
   participants, jurisdiction quick reference, copy-paste template.
 - [Subprocessors](./subprocessors.md) — every third party that touches
   your data, plus the no-train basis for each.
+- [Cookie Policy](./cookies.md) — optional website analytics storage,
+  purposes, retention, and controls.
 
 ## Legal
 
@@ -63,7 +65,6 @@ state.
 
 | Item | Notes |
 |---|---|
-| Cookie Policy | only if marketing site adds analytics; static site = skip for now |
 | DPA template PDF | only needed when a B2B buyer asks; happy to draft on request |
 | Status page | once we have paying users; until then a tweet works |
 
