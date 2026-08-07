@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-08-01_
+_Last updated: 2026-08-06_
 
 A subprocessor is a third party that processes personal data on our behalf
 when you use Nod. We use the minimum number of subprocessors required to
@@ -57,6 +57,11 @@ entirely by Paddle as Merchant of Record.
   speakers, then caches it on disk. The download discloses your IP and app
   version, as any download does; no audio, transcript, or account data is sent,
   and Hugging Face processes nothing on our behalf.
+- **Official connector clients are user-selected recipients.** When you
+  authorize ChatGPT or Claude, Nod sends the meeting data you request directly
+  to that client under a read-only OAuth grant. OpenAI or Anthropic processes
+  that data under its own relationship with you, not on Nod's behalf, so this
+  connector use does not make either company a Nod subprocessor.
 
 ---
 
@@ -91,6 +96,7 @@ forwarded once and never written to durable storage anywhere in this chain.
 | 2026-06-24 | Added Groq, Inc. as the primary Whisper speech-to-text provider (audio transient, no retention by default). OpenAI/OpenRouter Whisper are now fallbacks. |
 | 2026-06-25 | LLM summaries & chat now default to Anthropic Claude (Sonnet 4.6, Haiku 4.5 fallback), routed via AWS Bedrock / Google Vertex AI (no-train). Google Gemini becomes an optional model rather than the default. No change to data shared or retention. |
 | 2026-07-30 | Speaker separation moved to an on-device Core ML model fetched once from a public Hugging Face repository. Noted as an outbound download, not a subprocessor — no audio, transcript, or account data is sent. |
+| 2026-08-06 | Documented official ChatGPT and Claude connectors as user-authorized recipients, with read-only OAuth access rather than subprocessors acting for Nod. |
 
 ---
 

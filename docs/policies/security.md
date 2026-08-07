@@ -46,6 +46,10 @@ the EU. This page documents exactly how that works.
 - **Private by default.** No team workspaces and no shared notes. Your
   meetings are visible only to you, unless you create a share link yourself
   (see [Access control](#access-control)).
+- **Connectors are read-only and resource-bound.** Official ChatGPT and Claude
+  access uses OAuth 2.1 with PKCE, rotating refresh tokens, exact audience
+  validation, and only `meetings:read`. Connector tokens cannot query database
+  tables directly.
 - **No SOC 2 yet.** It's planned, but the independent audit hasn't started, so
   there's no report to send. We'll publish progress here when that changes.
   GDPR DPA available on request.
@@ -302,6 +306,28 @@ user's data.
 - You can export any single meeting yourself as a local **Markdown** file
   (YAML frontmatter + summary + transcript) from the app — your notes are
   yours to take out, in a plain-text format any editor (e.g. Obsidian) reads.
+
+### Official AI connectors
+
+The hosted MCP server accepts OAuth Bearer tokens only after Supabase Auth
+confirms the token is active and its issuer, audience, expiry, subject,
+`client_id`, database role, and `meetings:read` permission all match the active
+environment. Missing or invalid credentials receive the protected-resource
+metadata challenge required by OAuth clients.
+
+The `mcp_connector` database role has no direct table, sequence, or function
+privileges. The MCP Edge Function uses server credentials only after
+authentication and applies the token subject as a mandatory `user_id` filter to
+every meeting and transcript query. Tools are annotated read-only and
+non-destructive. Transcript responses default to 100 segments, never exceed 250
+segments or 100,000 characters, and use an opaque continuation cursor.
+
+Users see the client and redirect address on the consent page and can deny the
+request, revoke a grant, or reconnect. Supabase rotates refresh tokens and
+rejects revoked grants. OAuth has an independent server-side kill switch. The
+older `nod_pat_` route remains isolated behind deprecation and sunset headers
+during migration, then returns `410 Gone`; disabling OAuth before that sunset
+preserves it as the rollback path.
 
 ### Importing from other apps
 
