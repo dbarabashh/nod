@@ -10,7 +10,22 @@ import Supabase
 /// recovered afterwards, only revoked and reissued.
 @MainActor
 final class ConnectionService: ObservableObject {
+    struct Rollout: Equatable {
+        let officialConnectorsEnabled: Bool
+        let chatGPTURL: URL?
+        let claudeURL: URL?
+        let legacyPATSunsetAt: Date?
+
+        static let disabled = Rollout(
+            officialConnectorsEnabled: false,
+            chatGPTURL: nil,
+            claudeURL: nil,
+            legacyPATSunsetAt: nil
+        )
+    }
+
     @Published private(set) var connections: [Connection] = []
+    @Published private(set) var rollout = Rollout.disabled
     @Published private(set) var isLoading = false
     @Published var lastError: String?
 
@@ -35,6 +50,40 @@ final class ConnectionService: ObservableObject {
         } catch {
             lastError = "Couldn't load your connections."
             Log.ui.error("ConnectionService.refresh failed: \(error.localizedDescription)")
+        }
+        do {
+            struct Config: Decodable {
+                let officialConnectorsEnabled: Bool
+                let chatGPTConnectorURL: String?
+                let claudeConnectorURL: String?
+                let legacyPATSunsetAt: Date?
+
+                enum CodingKeys: String, CodingKey {
+                    case officialConnectorsEnabled = "official_connectors_enabled"
+                    case chatGPTConnectorURL = "chatgpt_connector_url"
+                    case claudeConnectorURL = "claude_connector_url"
+                    case legacyPATSunsetAt = "legacy_pat_sunset_at"
+                }
+            }
+            let configs: [Config] = try await supabase
+                .from("app_config")
+                .select("official_connectors_enabled,chatgpt_connector_url,claude_connector_url,legacy_pat_sunset_at")
+                .limit(1)
+                .execute()
+                .value
+            guard let config = configs.first else {
+                rollout = .disabled
+                return
+            }
+            rollout = Rollout(
+                officialConnectorsEnabled: config.officialConnectorsEnabled,
+                chatGPTURL: config.chatGPTConnectorURL.flatMap(URL.init(string:)),
+                claudeURL: config.claudeConnectorURL.flatMap(URL.init(string:)),
+                legacyPATSunsetAt: config.legacyPATSunsetAt
+            )
+        } catch {
+            rollout = .disabled
+            Log.ui.error("ConnectionService rollout refresh failed: \(error.localizedDescription)")
         }
     }
 

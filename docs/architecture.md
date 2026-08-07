@@ -139,3 +139,31 @@ evaluate the candidate's English from the original passages.
   speech is preserved in the transcript.
 - **Meeting persistence (#14)** — meetings are stored in a Supabase `meetings`
   table from day 1 (no local JSON), with soft delete + 30-day trash (#16).
+
+## Official AI connectors
+
+The remote MCP endpoint is `supabase/functions/mcp`. Its universal `/mcp`
+route accepts only Supabase OAuth access tokens with the exact environment
+resource URI as `aud`, `nod_permissions: ["meetings:read"]`, a `client_id`, and
+the database role `mcp_connector`. OAuth remains disabled by default through
+both Supabase configuration and `MCP_OAUTH_ENABLED`; production can therefore
+deploy the code before the public listing is enabled.
+
+`mcp_connector` has no direct table, sequence, or function privileges. The Edge
+Function verifies the token with Supabase Auth, then reads with service
+credentials while applying the authenticated `user_id` to every meeting and
+transcript query. This is the boundary that prevents a connector token from
+using PostgREST or reading another account.
+
+The server uses the official Model Context Protocol TypeScript SDK and MCP Apps
+extension. It exposes read-only `search`, `fetch`, `list_meetings`, and
+`get_transcript` tools plus the `ui://nod/meeting-browser.html` app resource.
+Clients without MCP Apps render the text fallback. Transcript pages contain 100
+segments by default, accept at most 250, stop at 100,000 characters, and return
+`nextCursor` when more content remains.
+
+Legacy `nod_pat_` credentials continue through `/mcp/<token>` and `connect`
+during the migration window. Those responses carry deprecation, sunset, and
+migration-link headers; after `LEGACY_MCP_PAT_DISABLE_AFTER`, they return
+`410 Gone`. New PAT issuance stops only when `official_connectors_enabled` is
+set in `app_config`, so disabling that flag restores the rollback path.
