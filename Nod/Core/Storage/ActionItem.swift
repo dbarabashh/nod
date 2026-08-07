@@ -19,7 +19,7 @@ struct ActionItem: Codable, Identifiable, Equatable {
     let userID: UUID
     var text: String
     /// Free-text deadline as stated in the meeting ("by Friday"), or nil.
-    let deadline: String?
+    var deadline: String?
     /// What kind of thing a meeting produced. Tasks are the majority and the
     /// only kind the recap has ever emitted; the rest come from the live pass,
     /// which hears decisions and open questions too.
@@ -178,11 +178,20 @@ struct ActionItem: Codable, Identifiable, Equatable {
     }
 
     /// A copy the recap has corroborated: a live guess that turned out to be
-    /// right, taking its place in the recap's order.
-    func confirmed(position: Int?) -> ActionItem {
+    /// right, restated in the recap's words and taking its place in the recap's
+    /// order.
+    ///
+    /// The text comes from the recap because the recap is the better writer —
+    /// whole transcript, stronger model. What survives from the live row is its
+    /// `evidenceIdx` and its `source`, which is the half the recap cannot know:
+    /// the line this came from, and that Nod caught it while the meeting ran.
+    func corroborating(_ action: MeetingRecap.Action, position: Int?) -> ActionItem {
         var copy = self
         copy.status = .confirmed
         copy.position = position
+        copy.text = action.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let restated = action.deadline?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        copy.deadline = restated.isEmpty ? deadline : restated
         return copy
     }
 }

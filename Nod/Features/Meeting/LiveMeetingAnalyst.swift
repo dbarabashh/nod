@@ -256,15 +256,23 @@ final class LiveMeetingAnalyst: ObservableObject {
             return nil
         }
 
-        let revisionOf = item.supersedes
+        let claimed = item.supersedes
             .map { $0 - 1 }
-            .flatMap { standing.indices.contains($0) ? standing[$0].id : nil }
+            .flatMap { standing.indices.contains($0) ? standing[$0] : nil }
+
+        // A revision has to actually revise something. Observed on a real call:
+        // the model re-emitted a finding word for word and marked it as
+        // superseding its own original, which retired a good row for nothing and
+        // — because revisions bypass the notice cooldown — put a "Changed"
+        // card in front of the user that said what the last one said.
+        if let claimed, ActionItemDedup.same(claimed.text, text) { return nil }
 
         // A restatement the model didn't flag as one. Cheaper to catch here than
         // to show the user the same task twice and ask them to tell them apart.
-        if revisionOf == nil, standing.contains(where: { ActionItemDedup.same($0.text, text) }) {
+        if claimed == nil, standing.contains(where: { ActionItemDedup.same($0.text, text) }) {
             return nil
         }
+        let revisionOf = claimed?.id
 
         return LiveFinding(
             kind: kind,

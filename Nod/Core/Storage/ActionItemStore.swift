@@ -154,7 +154,14 @@ final class ActionItemStore: ObservableObject {
 
             if let matchIndex = unclaimed.firstIndex(where: { ActionItemDedup.same($0.text, text) }) {
                 let match = unclaimed.remove(at: matchIndex)
-                rows[match.id] = match.confirmed(position: position)
+                // The recap's wording wins. It read the whole transcript with the
+                // stronger model where the live pass had a few minutes and a
+                // weaker one, and on a real call the difference is visible:
+                // "Start the Blend vs. Telnyx comparison and send it to Mike by
+                // Monday" against "Create a comparison table for Blend research
+                // (comparing Telnyx and the server)". What the live row keeps is
+                // what the recap has no way to know — which line it came from.
+                rows[match.id] = match.corroborating(action, position: position)
                 continue
             }
             rows[UUID()] = ActionItem.new(

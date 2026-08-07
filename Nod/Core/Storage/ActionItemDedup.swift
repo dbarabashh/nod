@@ -80,7 +80,17 @@ enum ActionItemDedup {
     /// High enough that it takes a near-restatement, not a shared topic: the
     /// recap paraphrasing ("Send Anna the pricing deck by Friday" for "send the
     /// deck to Anna") matches, two different tasks about the same deck do not.
-    private static let sameThreshold = 0.7
+    /// Measured, not guessed. On a real call the live pass and the recap
+    /// described one commitment as "Create a comparison table for Blend research
+    /// (comparing Telnyx and the server) and send it to Mike" and "Start the
+    /// Blend vs. Telnyx/server comparison table and send it to Mike by Monday"
+    /// — the same task, scoring 0.67. Every unrelated pair on that call scored
+    /// 0.23 or below, so the gap is wide and this sits inside it.
+    ///
+    /// It can afford to be lower than it was because a match no longer decides
+    /// the wording: the recap's text wins either way, and what a match moves is
+    /// the evidence pointer.
+    private static let sameThreshold = 0.6
 
     /// Stable key for a pair of ids, order-independent — used to persist
     /// dismissed ("not a duplicate") pairs.
