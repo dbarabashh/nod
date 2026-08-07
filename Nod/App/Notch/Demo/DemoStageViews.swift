@@ -44,17 +44,24 @@ struct DemoStageView: View {
 
 /// The state the demo returns to between cards: a waveform, what Nod is doing,
 /// and the meeting clock — laid out around the hardware cut-out.
-private struct DemoRestingBar: View {
+struct DemoRestingBar: View {
     let label: String
     @ObservedObject var director: DemoDirector
     let geometry: NotchGeometry
+
+    /// The gap between the waveform and the label, and the padding around the
+    /// whole bar. Shared with `DemoStage.restingSideWidth`, which sizes the
+    /// surface from them — a second copy of either number is how the label ends
+    /// up wider than the space it was given.
+    static let gap: CGFloat = 7
+    static let inset: CGFloat = 12
 
     /// Straddles the cut-out where there is one, and sits together where there
     /// isn't — spreading the halves on a screen with no hardware in the middle
     /// leaves a band of empty black exactly where the notch would have been.
     var body: some View {
         HStack(spacing: geometry.hasCutout ? 0 : 10) {
-            HStack(spacing: 7) {
+            HStack(spacing: Self.gap) {
                 DemoWaveform(level: director.level)
                 Text(label)
                     .font(.system(size: 11, weight: .medium))
@@ -74,7 +81,7 @@ private struct DemoRestingBar: View {
                 .fixedSize()
                 .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .trailing)
         }
-        .padding(.horizontal, geometry.flare + 12)
+        .padding(.horizontal, geometry.flare + Self.inset)
     }
 }
 
@@ -90,6 +97,10 @@ struct DemoWaveform: View {
     let level: Float
     var barWidth: CGFloat = 2
     var span: CGFloat = 10
+
+    /// Six bars with a bar's width between them. Stated because the resting
+    /// surface has to be sized around it before this view is ever laid out.
+    static let intrinsicWidth: CGFloat = 11 * 2
 
     private static let weights: [CGFloat] = [0.42, 0.72, 1.0, 0.84, 0.56, 0.3]
     private static let floorHeight: CGFloat = 3
@@ -142,7 +153,6 @@ private struct DemoSpokenLine: View {
 /// Nod looking something up, with the shimmer that says it is working.
 private struct DemoSearchingLine: View {
     let label: String
-    @State private var sweep = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -152,11 +162,11 @@ private struct DemoSearchingLine: View {
             Text(label)
                 .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(Theme.Palette.ink)
-                .opacity(sweep ? 1 : 0.55)
+            // Instead of pulsing the whole sentence, which made the words
+            // themselves look uncertain rather than the work look ongoing.
+            ThreeBalls()
             Spacer(minLength: 0)
         }
-        .onAppear { sweep = true }
-        .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: sweep)
     }
 }
 
@@ -186,6 +196,7 @@ private struct DemoAcknowledgement: View {
             Text(line)
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
+            ThreeBalls()
             Spacer(minLength: 0)
         }
     }
@@ -424,7 +435,7 @@ private struct DemoWorkflowRow: View {
                             .foregroundStyle(Theme.Palette.success)
                             .transition(.scale.combined(with: .opacity))
                     } else {
-                        DemoSpinner()
+                        ThreeBalls(diameter: 3, color: Theme.Palette.muted)
                     }
                 }
 
@@ -444,20 +455,6 @@ private struct DemoWorkflowRow: View {
         }
         .animation(.spring(response: 0.45, dampingFraction: 0.82), value: step.isDone)
         .animation(.easeInOut(duration: 0.22), value: step.currentLabel)
-    }
-}
-
-private struct DemoSpinner: View {
-    @State private var spinning = false
-
-    var body: some View {
-        Circle()
-            .trim(from: 0, to: 0.7)
-            .stroke(Theme.Palette.muted.opacity(0.8), style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
-            .frame(width: 10, height: 10)
-            .rotationEffect(.degrees(spinning ? 360 : 0))
-            .onAppear { spinning = true }
-            .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: spinning)
     }
 }
 

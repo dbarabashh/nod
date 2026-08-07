@@ -109,10 +109,15 @@ extension NotchPresentation {
             return geometry.hasCutout ? geometry.collapsedSize.width + flare + 124 : nil
         case let .demo(stage):
             guard stage.form == .resting else { return stage.surfaceWidth }
-            // Wider than a real capture's resting bar even on a notched Mac:
-            // that one carries a meter and a clock, this one adds the word for
-            // what Nod is doing.
-            return geometry.hasCutout ? geometry.collapsedSize.width + flare + 232 : nil
+            guard geometry.hasCutout else { return nil }
+            // Both halves are `maxWidth: .infinity`, so the surface has to carry
+            // the cut-out, the bar's own padding, and twice the wider half —
+            // which is the label side. Derived from the label itself: the tail
+            // of a word that does not fit is drawn under the hardware rather
+            // than truncated, so nothing on screen says it went wrong.
+            return geometry.collapsedSize.width + flare
+                + DemoRestingBar.inset * 2
+                + stage.restingSideWidth * 2
         }
     }
 

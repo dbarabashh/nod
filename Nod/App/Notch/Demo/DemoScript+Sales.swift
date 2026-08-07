@@ -7,7 +7,7 @@ extension DemoScenario {
         .init(at: 3.2, action: .stage(.transcript("The team likes it — we just can't sign this quarter."))),
         .init(at: 6.2, action: .stage(.transcript("There's a process we have to go through first."))),
 
-        .init(at: 8.8, action: .stage(.searching("Checking account history…"))),
+        .init(at: 8.8, action: .stage(.searching("Checking account history"))),
         .init(at: 10.0, action: .stage(.context(DemoContext(
             lead: "Their procurement team already asked about this three weeks ago.",
             sources: [
@@ -28,7 +28,7 @@ extension DemoScenario {
 
         .init(at: 16.2, action: .stage(.transcript("We keep hearing it's a budget timing question."))),
         .init(at: 19.2, action: .stage(.transcript("But the date has moved twice now for different reasons."))),
-        .init(at: 21.4, action: .stage(.listening("Following along…"))),
+        .init(at: 21.4, action: .stage(.listening("Following along"))),
 
         .init(at: 22.3, action: .stage(.insight(DemoInsight(
             title: "Likely blocker isn't budget",
@@ -44,14 +44,14 @@ extension DemoScenario {
 
         .init(at: 30.0, action: .stage(.transcript("Let's get their security review moving this week."))),
         .init(at: 33.0, action: .stage(.transcript("Send the questionnaire and book time with their technical lead."))),
-        .init(at: 34.5, action: .stage(.acknowledgement("Got it — setting everything up…"))),
+        .init(at: 34.5, action: .stage(.acknowledgement("Got it — setting everything up"))),
 
         .init(at: 35.5, action: .stage(.workflow(DemoWorkflow(
             title: "Setting things up",
             steps: [
                 DemoWorkflowStep(
                     tool: .crm,
-                    progress: ["Creating follow-up task…"],
+                    progress: ["Creating follow-up task"],
                     completed: "Task created",
                     details: [
                         "Drive security review to sign-off",
@@ -62,7 +62,7 @@ extension DemoScenario {
                 ),
                 DemoWorkflowStep(
                     tool: .slack,
-                    progress: ["Drafting the follow-up…"],
+                    progress: ["Drafting the follow-up"],
                     completed: "Draft ready",
                     details: [
                         "Follow-up message drafted",
@@ -73,7 +73,7 @@ extension DemoScenario {
                 ),
                 DemoWorkflowStep(
                     tool: .calendar,
-                    progress: ["Finding time for the review…", "Checking availability…"],
+                    progress: ["Finding time for the review", "Checking availability"],
                     completed: "Review scheduled",
                     details: [
                         "Northwind security review",

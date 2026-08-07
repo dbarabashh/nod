@@ -114,7 +114,7 @@ enum DemoScenario: String, CaseIterable, Identifiable {
     /// the one beat that carries the product's whole claim.
     static let openingBeats: [DemoBeat] = [
         .init(at: 0, action: .stage(.opening)),
-        .init(at: 1.6, action: .stage(.listening("Following along…")))
+        .init(at: 1.6, action: .stage(.listening("Following along")))
     ]
 
     var beats: [DemoBeat] {

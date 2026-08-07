@@ -7,7 +7,7 @@ extension DemoScenario {
         .init(at: 3.2, action: .stage(.transcript("She walked through the migration really clearly."))),
         .init(at: 6.2, action: .stage(.transcript("Has anyone else interviewed her for this loop?"))),
 
-        .init(at: 8.8, action: .stage(.searching("Checking interview history…"))),
+        .init(at: 8.8, action: .stage(.searching("Checking interview history"))),
         .init(at: 10.0, action: .stage(.context(DemoContext(
             lead: "Two earlier interviewers left notes — and they land on the same strength.",
             sources: [
@@ -28,7 +28,7 @@ extension DemoScenario {
 
         .init(at: 16.2, action: .stage(.transcript("Technically she's clearly strong enough for the level."))),
         .init(at: 19.2, action: .stage(.transcript("I'm just not sure how much she's owned end to end."))),
-        .init(at: 21.4, action: .stage(.listening("Following along…"))),
+        .init(at: 21.4, action: .stage(.listening("Following along"))),
 
         .init(at: 22.3, action: .stage(.insight(DemoInsight(
             title: "Gap in the loop",
@@ -44,14 +44,14 @@ extension DemoScenario {
 
         .init(at: 30.0, action: .stage(.transcript("Let's add an ownership question to the final round."))),
         .init(at: 33.0, action: .stage(.transcript("Tell the next interviewer and get the debrief on the calendar."))),
-        .init(at: 34.5, action: .stage(.acknowledgement("Got it — setting everything up…"))),
+        .init(at: 34.5, action: .stage(.acknowledgement("Got it — setting everything up"))),
 
         .init(at: 35.5, action: .stage(.workflow(DemoWorkflow(
             title: "Setting things up",
             steps: [
                 DemoWorkflowStep(
                     tool: .notion,
-                    progress: ["Updating scorecard…"],
+                    progress: ["Updating scorecard"],
                     completed: "Scorecard updated",
                     details: [
                         "Architecture ownership added",
@@ -62,7 +62,7 @@ extension DemoScenario {
                 ),
                 DemoWorkflowStep(
                     tool: .slack,
-                    progress: ["Notifying next interviewer…"],
+                    progress: ["Notifying next interviewer"],
                     completed: "Interviewer notified",
                     details: [
                         "Direct message sent",
@@ -73,7 +73,7 @@ extension DemoScenario {
                 ),
                 DemoWorkflowStep(
                     tool: .calendar,
-                    progress: ["Finding time for the debrief…", "Checking availability…"],
+                    progress: ["Finding time for the debrief", "Checking availability"],
                     completed: "Debrief scheduled",
                     details: [
                         "Backend hire debrief",

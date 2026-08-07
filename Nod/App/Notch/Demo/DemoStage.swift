@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// One frame of the scripted demo: everything the notch shows at a given
@@ -79,6 +80,39 @@ enum DemoStage: Equatable {
         }
     }
 
+    /// How wide each half of the resting bar has to be, measured rather than
+    /// guessed.
+    ///
+    /// The bar is symmetric around the cut-out — both halves are
+    /// `maxWidth: .infinity` — so the surface must fit twice the wider one, and
+    /// the label is always the wider one. It was a hardcoded number, and the
+    /// number was too small: `.fixedSize()` on the label means it never
+    /// truncates, it simply keeps drawing, and the tail of "Following along…"
+    /// ran underneath the hardware where nobody could read it. Nothing warns
+    /// about that, which is exactly why this is computed from the string.
+    var restingSideWidth: CGFloat {
+        guard case let .listening(label) = self else { return 0 }
+        let text = Self.width(of: label, size: 11, weight: .medium)
+        return max(DemoWaveform.intrinsicWidth + DemoRestingBar.gap + text, Self.restingClockWidth)
+    }
+
+    /// The other half. Both are `maxWidth: .infinity`, so a label short enough
+    /// to be narrower than the clock must not shrink the surface out from under
+    /// it.
+    static let restingClockWidth = width(of: "00:00", size: 13, weight: .semibold, monospaced: true)
+
+    private static func width(
+        of text: String,
+        size: CGFloat,
+        weight: NSFont.Weight,
+        monospaced: Bool = false
+    ) -> CGFloat {
+        let font = monospaced
+            ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
+            : NSFont.systemFont(ofSize: size, weight: weight)
+        return (text as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
+    }
+
     var surfaceWidth: CGFloat {
         switch self {
         case .opening: 300
@@ -138,7 +172,7 @@ struct DemoEvidence: Equatable, Identifiable {
 struct DemoWorkflowStep: Equatable, Identifiable {
     let tool: DemoTool
     /// What it says while working. More than one when the step visibly
-    /// progresses ("Finding time…" → "Checking availability…").
+    /// progresses ("Finding time" → "Checking availability").
     let progress: [String]
     let completed: String
     let details: [String]

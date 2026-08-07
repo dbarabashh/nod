@@ -7,7 +7,7 @@ extension DemoScenario {
         .init(at: 3.2, action: .stage(.transcript("We're still seeing users drop off during onboarding."))),
         .init(at: 6.2, action: .stage(.transcript("Has anyone already looked into the permissions step?"))),
 
-        .init(at: 8.8, action: .stage(.searching("Looking for relevant context…"))),
+        .init(at: 8.8, action: .stage(.searching("Looking for relevant context"))),
         .init(at: 10.0, action: .stage(.context(DemoContext(
             lead: "Peter raised this in Slack — and there's already a ticket open for it.",
             sources: [
@@ -28,7 +28,7 @@ extension DemoScenario {
 
         .init(at: 16.2, action: .stage(.transcript("We assumed the problem was that onboarding has too many steps."))),
         .init(at: 19.2, action: .stage(.transcript("But we still don't know which step actually loses people."))),
-        .init(at: 21.4, action: .stage(.listening("Following along…"))),
+        .init(at: 21.4, action: .stage(.listening("Following along"))),
 
         .init(at: 22.3, action: .stage(.insight(DemoInsight(
             title: "Possible root cause found",
@@ -44,14 +44,14 @@ extension DemoScenario {
 
         .init(at: 30.0, action: .stage(.transcript("Let's redesign the permissions step and review it Friday."))),
         .init(at: 33.0, action: .stage(.transcript("Spin up a Slack channel and pull in product, design, engineering and support."))),
-        .init(at: 34.5, action: .stage(.acknowledgement("Got it — setting everything up…"))),
+        .init(at: 34.5, action: .stage(.acknowledgement("Got it — setting everything up"))),
 
         .init(at: 35.5, action: .stage(.workflow(DemoWorkflow(
             title: "Setting things up",
             steps: [
                 DemoWorkflowStep(
                     tool: .notion,
-                    progress: ["Creating redesign task…"],
+                    progress: ["Creating redesign task"],
                     completed: "Task created",
                     details: [
                         "Redesign onboarding permissions step",
@@ -62,7 +62,7 @@ extension DemoScenario {
                 ),
                 DemoWorkflowStep(
                     tool: .slack,
-                    progress: ["Setting up working group…"],
+                    progress: ["Setting up working group"],
                     completed: "Channel created",
                     details: [
                         "#onboarding-fix",
@@ -73,7 +73,7 @@ extension DemoScenario {
                 ),
                 DemoWorkflowStep(
                     tool: .calendar,
-                    progress: ["Finding time for the review…", "Checking availability…"],
+                    progress: ["Finding time for the review", "Checking availability"],
                     completed: "Follow-up scheduled",
                     details: [
                         "Onboarding permissions review",
