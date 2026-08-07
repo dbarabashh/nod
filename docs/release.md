@@ -200,6 +200,73 @@ Two properties keep this from turning into a second release train:
 - a **general** release is written into `appcast.xml` *and* every existing
   `appcast-*.xml`, so a Mac left on a private feed still receives it.
 
+## A build on the sandbox database (`--sandbox`)
+
+```sh
+./scripts/release.sh patch --sandbox
+```
+
+Channels and private feeds both narrow *who gets a build of the app*. This
+narrows *which database the app talks to*, which is a different axis and needs a
+different mechanism: a third Xcode configuration, `Sandbox`, optimised exactly
+like Release but compiled with `NOD_SANDBOX`.
+
+What that produces is a genuinely separate app:
+
+| | Release | Sandbox |
+|---|---|---|
+| Bundle id | `com.example.nod` | `com.example.nod.sandbox` |
+| Name on disk | `Nod.app` | `Nod Sandbox.app` |
+| Icon | `AppIcon` | `AppIcon-Sandbox` (the same art with a label across the foot) |
+| Database | prod | the `develop` branch |
+| OAuth callback | `nod://auth-callback` | `nod-sandbox://auth-callback` |
+| MCP connector | `hellonod.app/mcp` | `hellonod.app/mcp-sandbox` |
+| Updates from | `appcast.xml` | `appcast-sandbox.xml` |
+
+They install side by side, take their permissions separately, and neither can be
+offered the other's update. The separate URL scheme is not cosmetic: two
+installed apps registering `nod://` would leave macOS to pick one for the OAuth
+callback, and the loser would never finish signing in.
+
+**The sandbox feed is quarantined in both directions.** A general release is
+written into `appcast.xml` and every private `appcast-*.xml` — that fan-out is
+what keeps a tester from being stranded, and it explicitly skips
+`appcast-sandbox.xml`. Going the other way, a new private feed is normally seeded
+from the public one; the sandbox feed starts empty instead. Either leak would end
+with a prod-built binary installing over the sandbox app, which would then come
+back up on production data without anyone touching a setting.
+
+It also differs from a normal run in what it does *not* do: no git tag, no push,
+no GitHub Release, no `recommended_build` bump, and the version stamp is put back
+afterwards, because a sandbox build is not a release of anything the team owns.
+For the same reason it is the one mode cuttable from a branch — handing someone
+work before it merges is the point.
+
+Build numbers are counted against the sandbox feed alone, so the two tracks never
+burn each other's numbers.
+
+### Before the first one
+
+Three things live outside this repo and are not checked by the script:
+
+- the sandbox branch's auth allowlist and the Google OAuth client both need
+  `nod-sandbox://auth-callback`, or sign-in fails at the provider;
+- `nod-landing` needs the `/mcp-sandbox/:token` rewrite deployed, or the
+  connector fails its OAuth probe (see the comment in `SupabaseConfig.swift`);
+- edge-function secrets are per branch and inherit nothing from prod.
+
+### Regenerating the icon
+
+`AppIcon-Sandbox.appiconset` is derived, not drawn:
+
+```sh
+swift scripts/make-sandbox-icon.swift
+```
+
+Run it after any change to `AppIcon.appiconset`. Note that `actool` reports a
+wrong-sized icon as a *warning* and then ships no icon at all, so check for
+`AppIcon-Sandbox.icns` in the built bundle rather than trusting a green build.
+
 ### How the tracks converge
 
 Build numbers are global: the script takes `max(Info.plist, every

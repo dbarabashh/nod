@@ -1,10 +1,16 @@
 import Foundation
 
 enum SupabaseConfig {
-    #if DEBUG
+    #if DEBUG || NOD_SANDBOX
         // Sandbox — the `develop` Supabase branch. Paddle runs in sandbox here, so
         // a Debug build exercises the full billing flow against test data without
         // touching the live project. The branch has its own URL + publishable key.
+        //
+        // `NOD_SANDBOX` is the Sandbox configuration: an optimised, notarized,
+        // self-updating build that lands here rather than on prod, for someone
+        // outside the team. It is the only reason this branch is not `#if DEBUG`
+        // alone — everything else gated on DEBUG (demo data, dev tooling) stays
+        // gated on DEBUG, because a sandbox build is a real build.
         static let url = URL(string: "https://zdpvmwqauczsfwlgflas.supabase.co")!
         static let anonKey = "sb_publishable_XuN9ztrE7sRMBZiWu_E-Ng_5AlfkUpb"
     #else
@@ -23,8 +29,15 @@ enum SupabaseConfig {
     /// every unrouted path — which Claude reads as "this resource needs OAuth"
     /// and then fails at dynamic client registration. Vercel returns a plain
     /// 404 there, so the connector stays authless.
+    /// The sandbox build routes through the landing domain for the same reason
+    /// Release does, against a `/mcp-sandbox/:token` rewrite that points at the
+    /// branch's function. Handing it the Supabase gateway directly — which is
+    /// what Debug does, and what is fine there — would fail the probe above and
+    /// leave the connector unusable for the one person we gave the build to.
     static var mcpBaseURL: URL {
-        #if DEBUG
+        #if NOD_SANDBOX
+            URL(string: "https://hellonod.app/mcp-sandbox")!
+        #elseif DEBUG
             url.appending(path: "functions/v1/mcp")
         #else
             URL(string: "https://hellonod.app/mcp")!

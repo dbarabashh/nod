@@ -5,7 +5,15 @@ import Supabase
 
 @MainActor
 final class AuthService: NSObject, ObservableObject {
-    static let callbackURL = URL(string: "nod://auth-callback")!
+    // Must match `NOD_URL_SCHEME` for the configuration — the sandbox app
+    // registers its own scheme so two installed builds can't both claim the
+    // callback. Supabase rejects a redirect that is not on the branch's
+    // allowlist, so a mismatch here fails at the provider, not at launch.
+    #if NOD_SANDBOX
+        static let callbackURL = URL(string: "nod-sandbox://auth-callback")!
+    #else
+        static let callbackURL = URL(string: "nod://auth-callback")!
+    #endif
 
     @Published private(set) var session: Session?
     @Published private(set) var isSigningIn = false

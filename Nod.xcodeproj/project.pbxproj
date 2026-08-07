@@ -1518,6 +1518,23 @@
 			};
 			name = Release;
 		};
+		281547A0AF5698B94AB281AF /* Sandbox */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.nodTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nod.app/Contents/MacOS/Nod";
+			};
+			name = Sandbox;
+		};
 		372497C21BD518D769C8DED2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1536,6 +1553,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				NOD_FEED_URL = "https://hellonod.app/appcast.xml";
+				NOD_URL_SCHEME = nod;
 				OTHER_LDFLAGS = (
 					"-lc++",
 				);
@@ -1546,6 +1565,67 @@
 				SWIFT_OBJC_BRIDGING_HEADER = "Nod/Core/Audio/Nod-Bridging-Header.h";
 			};
 			name = Release;
+		};
+		48C436F7D342E76834142EE5 /* Sandbox */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = M44384588U;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.nod;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Sandbox;
 		};
 		7614A23000721C3AD9A7A4D8 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -1710,6 +1790,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				NOD_FEED_URL = "https://hellonod.app/appcast.xml";
+				NOD_URL_SCHEME = nod;
 				OTHER_LDFLAGS = (
 					"-lc++",
 				);
@@ -1717,6 +1799,40 @@
 				SWIFT_OBJC_BRIDGING_HEADER = "Nod/Core/Audio/Nod-Bridging-Header.h";
 			};
 			name = Debug;
+		};
+		E85431629FA42D607A1608F4 /* Sandbox */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Sandbox";
+				CODE_SIGN_ENTITLEMENTS = Nod/Nod.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEPLOYMENT_POSTPROCESSING = YES;
+				ENABLE_DEBUG_DYLIB = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Vendor\"",
+				);
+				INFOPLIST_FILE = Nod/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				NOD_FEED_URL = "https://hellonod.app/appcast-sandbox.xml";
+				NOD_URL_SCHEME = "nod-sandbox";
+				OTHER_LDFLAGS = (
+					"-lc++",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.nod.sandbox;
+				PRODUCT_NAME = "Nod Sandbox";
+				SDKROOT = macosx;
+				STRIP_INSTALLED_PRODUCT = YES;
+				STRIP_STYLE = all;
+				STRIP_SWIFT_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = NOD_SANDBOX;
+				SWIFT_OBJC_BRIDGING_HEADER = "Nod/Core/Audio/Nod-Bridging-Header.h";
+			};
+			name = Sandbox;
 		};
 /* End XCBuildConfiguration section */
 
@@ -1726,6 +1842,7 @@
 			buildConfigurations = (
 				D070EF4F24107CDE938B2A6E /* Debug */,
 				962E348EDEE94E4139FACBE7 /* Release */,
+				48C436F7D342E76834142EE5 /* Sandbox */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
@@ -1735,6 +1852,7 @@
 			buildConfigurations = (
 				7614A23000721C3AD9A7A4D8 /* Debug */,
 				0A1EC60DCFEB68C7643A8C3F /* Release */,
+				281547A0AF5698B94AB281AF /* Sandbox */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
@@ -1744,6 +1862,7 @@
 			buildConfigurations = (
 				E53582A6B76C5B03FF6577F2 /* Debug */,
 				372497C21BD518D769C8DED2 /* Release */,
+				E85431629FA42D607A1608F4 /* Sandbox */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

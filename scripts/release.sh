@@ -16,6 +16,8 @@
 #   ./scripts/release.sh patch --feed beta   # private feed, for Macs whose build
 #                                            # predates channel support
 #
+#   ./scripts/release.sh patch --sandbox     # separate app on the sandbox database
+#
 # Two ways to narrow the audience:
 #
 #   --channel  one feed, item tagged, membership decided server-side by account.
@@ -43,6 +45,15 @@
 #                     and enrolment only saves doing that again once the account
 #                     runs a channel-aware build. Either way, a single unknown
 #                     address aborts the release before it builds.
+#   --sandbox         build the Sandbox configuration: a separate app
+#                     ("Nod Sandbox", com.example.nod.sandbox) that talks to the
+#                     sandbox Supabase branch instead of prod, and updates from
+#                     appcast-sandbox.xml only. That feed is quarantined in both
+#                     directions — it is never seeded from the public feed, and a
+#                     general release is never written into it — because a prod
+#                     build arriving there would install over the sandbox app and
+#                     bring it up on production data. Cuttable from any branch,
+#                     and it neither tags, pushes, nor moves recommended_build.
 #   --skip-notarize   build + sign + DMG, skip Apple notarization
 #                     (use when Apple Developer Program is still pending; the
 #                     resulting DMG will show "developer cannot be verified"
@@ -81,10 +92,16 @@ SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}"
 SKIP_NOTARIZE=0
 NO_PUBLISH=0
 DRY_RUN=0
+SANDBOX=0
 VERSION_ARG=""
 CHANNEL=""
 FEED_NAME=""
 TO_EMAILS=""
+
+# The feed the sandbox app polls. Named here because two separate guards need to
+# recognise it: the fan-out that writes a general release into every private feed
+# must skip it, and it must never be seeded from the public one.
+SANDBOX_FEED="appcast-sandbox.xml"
 
 usage() {
   sed -n '2,/^set -euo/p' "$0" | grep -E '^#( |$)' | sed 's/^# \{0,1\}//'
@@ -98,6 +115,7 @@ while [ $# -gt 0 ]; do
     --dry-run)       DRY_RUN=1 ;;
     --channel)       shift; CHANNEL="${1:-}" ;;
     --feed)          shift; FEED_NAME="${1:-}" ;;
+    --sandbox)       SANDBOX=1 ;;
     --to)            shift; TO_EMAILS="${1:-}" ;;
     -h|--help)       usage ;;
     *)               VERSION_ARG="$1" ;;
@@ -108,6 +126,23 @@ done
 [ -n "$VERSION_ARG" ] || { echo "ERROR: version arg required (patch/minor/major, X.Y.Z, enroll or unenroll)" >&2; usage; }
 [ -z "$TO_EMAILS" ] || [ -n "$CHANNEL" ] || [ -n "$FEED_NAME" ] || [ "$VERSION_ARG" = "unenroll" ] \
   || { echo "ERROR: --to needs --channel or --feed (which one are they joining?)" >&2; usage; }
+
+CONFIGURATION="Release"
+APP_NAME="Nod"
+DMG_STEM="Nod"
+
+if [ "$SANDBOX" = 1 ]; then
+  # Channels are membership rows in the PROD database, read by the prod app.
+  # A sandbox build reads its own database and would never see them, so asking
+  # for both means one of the two is not doing what the caller thinks.
+  [ -z "$CHANNEL" ] || { echo "ERROR: --sandbox has no use for --channel — the sandbox app reads a different database" >&2; usage; }
+  [ -z "$FEED_NAME" ] || [ "$FEED_NAME" = "sandbox" ] \
+    || { echo "ERROR: --sandbox publishes into ${SANDBOX_FEED}; drop --feed ${FEED_NAME}" >&2; usage; }
+  CONFIGURATION="Sandbox"
+  APP_NAME="Nod Sandbox"
+  DMG_STEM="Nod-Sandbox"
+  FEED_NAME="sandbox"
+fi
 
 # Both flags narrow the audience, and everything that must not happen for a
 # narrow release — moving the website's download, nudging the whole install base,
@@ -198,13 +233,30 @@ esac
 # so a later default release numbered from Info.plist alone would come out older
 # than the outstanding beta — and the testers on it would never be offered it.
 feed_max_build() {
-  local xml=""
+  local xml="" f base
   # Every feed counts, private ones included: a build handed to one tester
   # through appcast-beta.xml still has to be outranked by the next general one.
-  if ls "${NOD_LANDING_REPO}"/public/appcast*.xml >/dev/null 2>&1; then
-    xml=$(cat "${NOD_LANDING_REPO}"/public/appcast*.xml)
-  else
-    xml=$(curl -fsSL "https://hellonod.app/appcast.xml" 2>/dev/null || true)
+  #
+  # The sandbox feed is the exception in both directions. It ships a different
+  # app with its own bundle identifier, so neither track can ever be offered the
+  # other's build — and letting them share a counter would mean every sandbox
+  # build silently burns a build number off the release line.
+  for f in "${NOD_LANDING_REPO}"/public/appcast*.xml; do
+    [ -f "$f" ] || continue
+    base="$(basename "$f")"
+    if [ "$SANDBOX" = 1 ]; then
+      if [ "$base" != "$SANDBOX_FEED" ]; then continue; fi
+    else
+      if [ "$base" = "$SANDBOX_FEED" ]; then continue; fi
+    fi
+    xml="${xml}$(cat "$f")"
+  done
+  if [ -z "$xml" ]; then
+    if [ "$SANDBOX" = 1 ]; then
+      xml=$(curl -fsSL "https://hellonod.app/${SANDBOX_FEED}" 2>/dev/null || true)
+    else
+      xml=$(curl -fsSL "https://hellonod.app/appcast.xml" 2>/dev/null || true)
+    fi
   fi
   {
     printf '%s' "$xml" | grep -oE 'sparkle:version="[0-9]+"' || true
@@ -251,9 +303,15 @@ if [ -n "$(git status --porcelain)" ]; then
   die "working tree has uncommitted changes; commit or stash first"
 fi
 
-# On main?
+# On main? A sandbox build is exempt: handing someone a branch to try before it
+# merges is the reason the configuration exists, and it tags nothing and pushes
+# nothing, so there is no history for an unmerged branch to corrupt.
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-[ "$BRANCH" = "main" ] || die "release must be cut from main (currently on '$BRANCH')"
+if [ "$SANDBOX" = 1 ]; then
+  say "Sandbox build from '${BRANCH}' — separate app, sandbox database, ${SANDBOX_FEED}"
+else
+  [ "$BRANCH" = "main" ] || die "release must be cut from main (currently on '$BRANCH')"
+fi
 
 # Sparkle bin?
 [ -x "$SPARKLE_BIN_DIR/generate_appcast" ] \
@@ -331,10 +389,10 @@ fi
 # ───────────────────────── paths ─────────────────────────
 
 DIST_DIR="dist"
-ARCHIVE_PATH="${DIST_DIR}/Nod-${VERSION}.xcarchive"
+ARCHIVE_PATH="${DIST_DIR}/${DMG_STEM}-${VERSION}.xcarchive"
 EXPORT_DIR="${DIST_DIR}/export"
-APP_PATH="${EXPORT_DIR}/Nod.app"
-DMG_PATH="${DIST_DIR}/Nod-${VERSION}.dmg"
+APP_PATH="${EXPORT_DIR}/${APP_NAME}.app"
+DMG_PATH="${DIST_DIR}/${DMG_STEM}-${VERSION}.dmg"
 LATEST_DMG_PATH="${DIST_DIR}/Nod-latest.dmg"
 # Feed filenames are decided later (a run may write more than one); dist/ just
 # mirrors whatever gets published.
@@ -362,16 +420,24 @@ plist_set CFBundleVersion "${BUILD}"
 # Keep project.yml in lockstep. Without this, the next manual `xcodegen generate`
 # would overwrite Info.plist with the previous (now-stale) version from project.yml,
 # silently downgrading the bundle and breaking Sparkle's appcast comparison.
-/usr/bin/sed -i '' -E "s/(CFBundleShortVersionString: )\"[^\"]*\"/\1\"${VERSION}\"/" project.yml
-/usr/bin/sed -i '' -E "s/(CFBundleVersion: )\"[^\"]*\"/\1\"${BUILD}\"/"             project.yml
+#
+#
+# A sandbox build stamps the bundle it is about to make and puts both files back
+# when it is done (see the end of this script): the version line belongs to the
+# app that ships, and advancing it from a throwaway build handed to one person
+# would make the next real release look like it had already happened.
+if [ "$SANDBOX" = 0 ]; then
+  /usr/bin/sed -i '' -E "s/(CFBundleShortVersionString: )\"[^\"]*\"/\1\"${VERSION}\"/" project.yml
+  /usr/bin/sed -i '' -E "s/(CFBundleVersion: )\"[^\"]*\"/\1\"${BUILD}\"/"             project.yml
+fi
 
 # ───────────────────────── archive + export ─────────────────────────
 
-say "Archive (Release)"
+say "Archive (${CONFIGURATION})"
 xcodebuild \
   -project Nod.xcodeproj \
   -scheme Nod \
-  -configuration Release \
+  -configuration "${CONFIGURATION}" \
   -archivePath "${ARCHIVE_PATH}" \
   archive \
   CODE_SIGN_STYLE=Manual \
@@ -449,6 +515,13 @@ else
   TARGET_FEEDS=("appcast.xml")
   for existing in "${NOD_LANDING_REPO}"/public/appcast-*.xml; do
     if [ -f "$existing" ]; then
+      # Never the sandbox feed. Everywhere else this fan-out is the thing that
+      # keeps a tester from being stranded on an old build; here it would hand
+      # the sandbox app an update built against prod, which Sparkle would
+      # install without complaint — and the app would come back up on
+      # production data, which is the one outcome this whole setup exists to
+      # prevent.
+      if [ "$(basename "$existing")" = "$SANDBOX_FEED" ]; then continue; fi
       TARGET_FEEDS+=("$(basename "$existing")")
     fi
   done
@@ -466,6 +539,9 @@ for feed in "${TARGET_FEEDS[@]}"; do
   # entitled to instead of being cut down to this single item.
   if [ -f "${NOD_LANDING_REPO}/public/${feed}" ]; then
     cp "${NOD_LANDING_REPO}/public/${feed}" "${APPCAST_STAGE}/${feed}"
+  elif [ "$feed" = "$SANDBOX_FEED" ]; then
+    : # Starts empty, on purpose. Seeding it from the public feed would put
+      # prod items into the sandbox app's feed on the very first run.
   elif [ -f "${NOD_LANDING_REPO}/public/appcast.xml" ]; then
     cp "${NOD_LANDING_REPO}/public/appcast.xml" "${APPCAST_STAGE}/${feed}"
   elif [ -f "${DIST_DIR}/${feed}" ]; then
@@ -513,6 +589,13 @@ fi
 
 # ───────────────────────── publish ─────────────────────────
 
+if [ "$SANDBOX" = 1 ]; then
+  # Before the --no-publish gate below, so an inspection run leaves the tree as
+  # clean as a full one. The preflight proved it was clean, so this is exact.
+  say "Restore version stamp (sandbox build leaves no trace in git)"
+  git checkout -- Nod/Info.plist project.yml
+fi
+
 if [ "$NO_PUBLISH" = 1 ]; then
   say "Skipping publish (--no-publish)"
   echo
@@ -523,40 +606,52 @@ if [ "$NO_PUBLISH" = 1 ]; then
   exit 0
 fi
 
-say "Commit version bump"
-# Stamp both files (Info.plist + project.yml, kept in lockstep above) into ONE
-# commit and push it. Committing only Info.plist used to leave project.yml's bump
-# staged-but-uncommitted forever, tripping the next run's clean-tree check.
-git add Nod/Info.plist project.yml 2>/dev/null || true
-if [ -n "$(git status --porcelain Nod/Info.plist project.yml)" ]; then
-  git commit -m "release ${VERSION}" -- Nod/Info.plist project.yml
+if [ "$SANDBOX" = 1 ]; then
+  # No commit, no tag, no push. A sandbox build is not a release of anything:
+  # it carries no version the team owns, and `v${VERSION}` is a name the real
+  # release of that version will want later. The stamp was already put back
+  # above, before the --no-publish gate.
+  :
+else
+  say "Commit version bump"
+  # Stamp both files (Info.plist + project.yml, kept in lockstep above) into ONE
+  # commit and push it. Committing only Info.plist used to leave project.yml's bump
+  # staged-but-uncommitted forever, tripping the next run's clean-tree check.
+  git add Nod/Info.plist project.yml 2>/dev/null || true
+  if [ -n "$(git status --porcelain Nod/Info.plist project.yml)" ]; then
+    git commit -m "release ${VERSION}" -- Nod/Info.plist project.yml
+  fi
+
+  say "Tag v${VERSION}"
+  git tag -a "v${VERSION}" -m "Nod ${VERSION}"
+
+  say "Push commits + tags to origin"
+  git push origin main
+  git push origin "v${VERSION}"
 fi
-
-say "Tag v${VERSION}"
-git tag -a "v${VERSION}" -m "Nod ${VERSION}"
-
-say "Push commits + tags to origin"
-git push origin main
-git push origin "v${VERSION}"
 
 # GitHub Release exists for tag visibility + as an authenticated backup mirror
 # of the binary (`gh release download`). The DMG attachment here is NOT what
 # Sparkle downloads — Sparkle's URL points at Vercel below. This is just
 # belt-and-braces: if nod-landing ever gets deleted, you can still pull DMGs
 # out of GitHub with `gh` CLI.
-say "Create GitHub Release"
 RELEASE_NOTES_FLAG="--generate-notes"
 [ -f CHANGELOG.md ] && RELEASE_NOTES_FLAG="--notes-file CHANGELOG.md"
 # A channel build is attached alone and marked prerelease: GitHub excludes
 # prereleases from /releases/latest, so the website's download link keeps
 # resolving to the last build everyone is allowed to have.
-if [ -n "$LIMITED" ]; then
+if [ "$SANDBOX" = 1 ]; then
+  # `gh release create` needs the tag this run deliberately did not make.
+  say "Skipping GitHub Release (sandbox build is not tagged)"
+elif [ -n "$LIMITED" ]; then
+  say "Create GitHub Release"
   gh release create "v${VERSION}" \
     "${DMG_PATH}" \
     --title "Nod ${VERSION} (${CHANNEL:-$FEED_NAME})" \
     --prerelease \
     ${RELEASE_NOTES_FLAG}
 else
+  say "Create GitHub Release"
   gh release create "v${VERSION}" \
     "${DMG_PATH}" \
     "${LATEST_DMG_PATH}" \
@@ -568,7 +663,7 @@ fi
 # files behind its public CDN, which is what Sparkle's HTTP client will hit.
 say "Stage release on nod-landing"
 mkdir -p "${NOD_LANDING_REPO}/public/dmg"
-cp "${DMG_PATH}"        "${NOD_LANDING_REPO}/public/dmg/Nod-${VERSION}.dmg"
+cp "${DMG_PATH}"        "${NOD_LANDING_REPO}/public/dmg/${DMG_STEM}-${VERSION}.dmg"
 if [ -z "$LIMITED" ]; then
   cp "${LATEST_DMG_PATH}" "${NOD_LANDING_REPO}/public/dmg/Nod-latest.dmg"
 fi
@@ -578,7 +673,7 @@ done
 (
   cd "${NOD_LANDING_REPO}"
   git add public/appcast*.xml public/dmg
-  git commit -m "release ${VERSION}"
+  git commit -m "release ${DMG_STEM} ${VERSION}"
   git push
 )
 
@@ -605,7 +700,7 @@ say "Wait for appcast + DMG ${VERSION} to go live"
 # private one, and appcast.xml will (correctly) never mention this version.
 PRIMARY_FEED="${PUBLISHED_FEEDS[0]}"
 APPCAST_URL="https://hellonod.app/${PRIMARY_FEED}"
-DMG_URL="https://hellonod.app/dmg/Nod-${VERSION}.dmg"
+DMG_URL="https://hellonod.app/dmg/${DMG_STEM}-${VERSION}.dmg"
 DEADLINE=$(( $(date +%s) + 180 ))
 APPCAST_OK=0
 DMG_OK=0
@@ -664,7 +759,9 @@ fi
 # ───────────────────────── done ─────────────────────────
 
 echo
-if [ -n "$CHANNEL" ]; then
+if [ "$SANDBOX" = 1 ]; then
+  echo "🎉 Nod Sandbox ${VERSION} (${BUILD}) built against the sandbox database."
+elif [ -n "$CHANNEL" ]; then
   echo "🎉 Nod ${VERSION} (${BUILD}) released on the '${CHANNEL}' channel."
 elif [ -n "$FEED_NAME" ]; then
   echo "🎉 Nod ${VERSION} (${BUILD}) released to the '${FEED_NAME}' feed."
@@ -672,7 +769,7 @@ else
   echo "🎉 Nod ${VERSION} (${BUILD}) released."
 fi
 echo
-echo "  DMG:     ${APPCAST_BASE_URL}/Nod-${VERSION}.dmg"
+echo "  DMG:     ${APPCAST_BASE_URL}/${DMG_STEM}-${VERSION}.dmg"
 if [ -z "$LIMITED" ]; then echo "  Latest:  https://hellonod.app/dmg/Nod-latest.dmg"; fi
 for feed in "${PUBLISHED_FEEDS[@]}"; do echo "  Appcast: https://hellonod.app/${feed}"; done
 echo
@@ -682,7 +779,17 @@ if [ -n "$CHANNEL" ]; then
   echo "numbered above ${BUILD}) pulls the channel back in automatically."
   echo
 fi
-if [ -n "$FEED_NAME" ]; then
+if [ "$SANDBOX" = 1 ]; then
+  echo "Nothing changed for anyone on the real app — different bundle identifier,"
+  echo "different feed, different database. The two install side by side."
+  echo
+  echo "First install (hand them this link):"
+  echo "  ${APPCAST_BASE_URL}/${DMG_STEM}-${VERSION}.dmg"
+  echo
+  echo "Every build after this one reaches them through Sparkle on its own — the"
+  echo "feed is baked into the bundle, so there is nothing to run on their Mac."
+  echo
+elif [ -n "$FEED_NAME" ]; then
   echo "Nothing changed for anyone still on the public feed."
   if [ -n "$TO_EMAILS" ]; then
     echo "${TO_EMAILS} is on the '${FEED_NAME}' channel for later, but that is not what"

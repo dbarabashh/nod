@@ -20,10 +20,10 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.example.nod.auth</string>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).auth</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>nod</string>
+				<string>$(NOD_URL_SCHEME)</string>
 			</array>
 		</dict>
 	</array>
@@ -48,7 +48,7 @@
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://hellonod.app/appcast.xml</string>
+	<string>$(NOD_FEED_URL)</string>
 	<key>SUPublicEDKey</key>
 	<string>/uu8USNElUMN+Bbw/SPdJywlJq2XfEVI/Rf+W7XzFBw=</string>
 	<key>SUScheduledCheckInterval</key>

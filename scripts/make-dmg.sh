@@ -8,7 +8,11 @@ set -euo pipefail
 
 APP="${1:?usage: make-dmg.sh <Nod.app> <out.dmg>}"
 OUT="${2:?usage: make-dmg.sh <Nod.app> <out.dmg>}"
-VOL="Nod"
+# Everything below follows the bundle it was handed rather than the name "Nod":
+# the sandbox configuration builds "Nod Sandbox.app", and a volume named after
+# the wrong app collides on the desktop the moment both are mounted.
+APP_BUNDLE="$(basename "${APP}")"
+VOL="${APP_BUNDLE%.app}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BG_TIFF="${HERE}/dmg/background.tiff"
 
@@ -25,8 +29,10 @@ mkdir -p "${STAGE}/.background"
 cp -R "${APP}" "${STAGE}/"
 ln -s /Applications "${STAGE}/Applications"
 cp "${BG_TIFF}" "${STAGE}/.background/background.tiff"
-# Brand the mounted volume's own icon with the app icon, if present.
-cp "${APP}/Contents/Resources/AppIcon.icns" "${STAGE}/.VolumeIcon.icns" 2>/dev/null || true
+# Brand the mounted volume's own icon with the app icon, if present. Which icns
+# that is comes from the bundle — Sandbox builds ship AppIcon-Sandbox.icns.
+ICON_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "${APP}/Contents/Info.plist" 2>/dev/null || echo AppIcon)"
+cp "${APP}/Contents/Resources/${ICON_NAME}.icns" "${STAGE}/.VolumeIcon.icns" 2>/dev/null || true
 
 # A leftover mount from a previous run would push our mount to "Nod 1" and
 # desync every AppleScript reference — detach it first.
@@ -53,7 +59,7 @@ tell application "Finder"
     set icon size of opts to ${ICON_SIZE}
     set text size of opts to 13
     set background picture of opts to file ".background:background.tiff"
-    set position of item "Nod.app" of container window to {${NOD_X}, ${NOD_Y}}
+    set position of item "${APP_BUNDLE}" of container window to {${NOD_X}, ${NOD_Y}}
     set position of item "Applications" of container window to {${APP_X}, ${APP_Y}}
     update without registering applications
     delay 1
