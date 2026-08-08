@@ -15,9 +15,36 @@ import Foundation
 /// finalize, with its history intact — which is what `revision_of`, `source` and
 /// `evidence_idx` on the table are for.
 struct LiveFinding: Identifiable, Equatable {
+    /// How sure the live pass was. A "strict" finding was stated outright and is
+    /// written to the record on its own; a "soft" one was hedged or implied —
+    /// real enough to flag mid-meeting, not confident enough to survive without
+    /// the user's own say-so, so dismissing one actually drops it. See
+    /// `LiveMeetingAnalyst.rejectNotice`.
+    enum Tier: String, Equatable {
+        case strict
+        case soft
+    }
+
+    /// Whether this is still what the live pass would tell you right now.
+    /// A single property rather than two independent flags, because the two
+    /// ways of falling out of standing — the room moving on, the user vetoing
+    /// it — are mutually exclusive by nature, not by accident of call order.
+    enum State: Equatable {
+        /// Still standing: current, live, open to being read as memory.
+        case standing
+        /// Replaced by something said later — see `revisionOf` on the
+        /// replacement. Kept rather than removed: the two halves of a change
+        /// of mind are the interesting part.
+        case superseded
+        /// The user's own tap on a soft suggestion's dismiss glyph — see
+        /// `Tier` and `LiveMeetingAnalyst.dismissNotice(userRejected:)`.
+        case dismissed
+    }
+
     let id: UUID
     let kind: ActionItem.Kind
     let text: String
+    let tier: Tier
     /// A deadline as it was said out loud ("by Friday"), when one was.
     let deadline: String?
     /// The transcript line this came from, as a best-effort anchor for "why
@@ -30,9 +57,19 @@ struct LiveFinding: Identifiable, Equatable {
     let revisionOf: UUID?
     let foundAt: Date
 
-    /// Replaced by something said later. Kept rather than removed: the two
-    /// halves of a change of mind are the interesting part.
-    var isSuperseded = false
+    var state: State = .standing
+
+    /// The row this becomes at finalize. Superseded and dismissed both retire
+    /// the row, but into the same `dropped` column value — `action_items.status`
+    /// has no room today to tell "the room moved on" from "the user said no",
+    /// and adding that distinction is a schema change, not a live-pass one.
+    var resolvedStatus: ActionItem.Status {
+        switch state {
+        case .superseded: .superseded
+        case .dismissed: .dropped
+        case .standing: kind == .action ? .proposed : .confirmed
+        }
+    }
 
     /// What the live pass heard, as lines for the recap prompt.
     ///
@@ -46,10 +83,11 @@ struct LiveFinding: Identifiable, Equatable {
     static func notes(from findings: [LiveFinding]) -> [String] {
         let byID = Dictionary(findings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return findings.compactMap { finding -> String? in
+            guard finding.state != .dismissed else { return nil }
             if let earlierID = finding.revisionOf, let earlier = byID[earlierID] {
                 return "changed: \"\(earlier.text)\" became \"\(finding.text)\""
             }
-            guard !finding.isSuperseded else { return nil }
+            guard finding.state != .superseded else { return nil }
             let deadline = finding.deadline.map { " (\($0))" } ?? ""
             return "\(finding.kind.rawValue): \(finding.text)\(deadline)"
         }
@@ -58,6 +96,7 @@ struct LiveFinding: Identifiable, Equatable {
     init(
         kind: ActionItem.Kind,
         text: String,
+        tier: Tier = .strict,
         deadline: String? = nil,
         evidenceIdx: Int? = nil,
         revisionOf: UUID? = nil,
@@ -66,6 +105,7 @@ struct LiveFinding: Identifiable, Equatable {
         id = UUID()
         self.kind = kind
         self.text = text
+        self.tier = tier
         self.deadline = deadline
         self.evidenceIdx = evidenceIdx
         self.revisionOf = revisionOf

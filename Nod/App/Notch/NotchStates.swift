@@ -119,30 +119,76 @@ struct NotchOffer: View {
 
 // MARK: - What Nod just heard
 
-/// "Noted — send the updated deck before Friday."
+/// "Noted — send the updated deck before Friday." Or, hedged:
+/// "Might be — probably have that by Friday."
 ///
-/// The only card Nod raises on its own while somebody is mid-conversation, so
-/// it is built to be read without being answered: no buttons, no decision, gone
-/// on its own in a few seconds. What it says is already in the meeting's record
-/// and reaches the summary whether or not anybody looks at it, which is what
-/// lets it be dismissed without consequence — a glance away costs nothing.
+/// The only card Nod raises on its own while somebody is mid-conversation. A
+/// strict finding is built to be read without being answered: it is already in
+/// the meeting's record and reaches the summary whether or not anybody looks at
+/// it, which is what lets its glyph be dismissed without consequence — a glance
+/// away costs nothing. A soft one is the exception: the same glyph is this
+/// finding's only "no," so tapping it actually drops it — see
+/// `LiveMeetingAnalyst.dismissNotice(userRejected:)`.
 ///
 /// A revision reads differently on purpose. "Changed —" is the one thing here
 /// the room itself may not have registered, and stating it flatly alongside a
 /// new task would waste the only moment Nod knows something the user doesn't.
 struct NotchNotice: View {
+    /// The three ways this card can read, in one place rather than one
+    /// judgement repeated per string — a revision outranks tier because a
+    /// finding that changed its mind is never also the one under review.
+    private enum Style: Equatable {
+        case revision
+        case soft
+        case strict
+
+        init(_ finding: LiveFinding) {
+            if finding.revisionOf != nil {
+                self = .revision
+            } else if finding.tier == .soft {
+                self = .soft
+            } else {
+                self = .strict
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .revision: "arrow.triangle.2.circlepath"
+            case .soft: "questionmark.circle.fill"
+            case .strict: "checkmark.circle.fill"
+            }
+        }
+
+        var lead: String {
+            switch self {
+            case .revision: "Changed"
+            case .soft: "Might be"
+            case .strict: "Noted"
+            }
+        }
+
+        var dismissHelp: String {
+            self == .soft ? "Not this" : "Dismiss"
+        }
+    }
+
     let finding: LiveFinding
     let onDismiss: () -> Void
 
+    private var style: Style {
+        Style(finding)
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: finding.revisionOf == nil ? "checkmark.circle.fill" : "arrow.triangle.2.circlepath")
+            Image(systemName: style.icon)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.brand)
                 .frame(width: 24, height: 24)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(lead)
+                Text(style.lead)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Theme.Palette.muted)
                 Text(finding.text)
@@ -157,12 +203,8 @@ struct NotchNotice: View {
             }
 
             Spacer(minLength: 0)
-            NotchGlyphButton(systemName: "xmark", help: "Dismiss", action: onDismiss)
+            NotchGlyphButton(systemName: "xmark", help: style.dismissHelp, action: onDismiss)
         }
-    }
-
-    private var lead: String {
-        finding.revisionOf == nil ? "Noted" : "Changed"
     }
 }
 

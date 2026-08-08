@@ -155,11 +155,11 @@ final class NotchModel: ObservableObject {
         refresh()
     }
 
-    /// Take the notice down. It goes on its own anyway — this is for the user
-    /// who wants it gone now, and it forgets nothing: what it said is already
-    /// saved and reaches the summary either way.
-    func dismissNotice() {
-        session.analyst.dismissNotice()
+    /// The notice's own dismiss glyph, tapped — the user answering the card,
+    /// as opposed to it timing out or the panel opening for something else.
+    /// See `LiveMeetingAnalyst.dismissNotice(userRejected:)`.
+    func rejectNotice() {
+        session.analyst.dismissNotice(userRejected: true)
     }
 
     // MARK: - Starting a capture

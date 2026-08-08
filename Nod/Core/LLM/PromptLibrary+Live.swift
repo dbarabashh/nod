@@ -28,10 +28,13 @@ extension PromptLibrary {
         - "risk": a stated threat to the plan ("if the API isn't ready by Friday we can't ship").
         - "follow_up": a commitment to talk again about something specific.
 
-        [RETURN NOTHING] — return an empty list, which is the usual and expected outcome, when the window is:
-        - small talk, greetings, scheduling, or thinking out loud,
-        - somebody describing a situation, however important, without deciding anything,
-        - a possibility being weighed ("we could maybe...", "one option is..."), which is not a decision,
+        [TIER] — every item also carries a "tier":
+        - "strict": stated outright, nothing to infer — a real commitment, a settled decision, an explicitly open question.
+        - "soft": the same five kinds, but hedged or implied rather than said outright — "I'll probably have that by Friday", "we should probably just go with Postgres", somebody thinking out loud about doing something specific and real. Worth flagging, not worth writing into the record on its own — the user gets to say yes or no.
+
+        [RETURN NOTHING] — return an empty list, which is still the usual and expected outcome, when the window is:
+        - small talk, greetings, scheduling, or thinking out loud with nothing specific attached,
+        - somebody describing a situation, however important, with nothing committed and nothing even hedged,
         - a restatement of something already in [ALREADY FOUND] with no new information.
 
         [SUPERSEDES] — when the window changes something already in [ALREADY FOUND] — a new date, a different owner, a reversal, a cancellation — do NOT emit a second item. Emit ONE item with the full, corrected wording and set "supersedes" to that entry's number. This is the single most valuable thing you do: a meeting that changes its mind is exactly what the user could not reconstruct afterwards.
@@ -42,10 +45,10 @@ extension PromptLibrary {
         - "text" is one imperative sentence in the language of the meeting, self-contained enough to read a week later without the transcript.
         - "deadline" is the timing as it was SAID ("by Friday", "end of the month"), or null. Never convert it to a date, never infer one.
         - At most 2 items per window. If more seem to qualify, the window is being over-read — return the strongest.
-        - Speech-to-text is imperfect. When a line is garbled enough that you are guessing at the commitment, that is a reason to skip it.
+        - Speech-to-text is imperfect. When a line is garbled enough that you are guessing at the commitment, that is a reason to skip it entirely — garbled is not the same as hedged, so it is never "soft" either.
 
         [OUTPUT] Respond with ONLY this JSON object, no prose, no code fence:
-        {"items": [{"kind": "action", "text": "", "deadline": null, "quote": "", "supersedes": null}]}
+        {"items": [{"kind": "action", "tier": "strict", "text": "", "deadline": null, "quote": "", "supersedes": null}]}
         """
 
         let memory = known.isEmpty
@@ -73,6 +76,10 @@ extension PromptLibrary {
 
     struct LivePassItem: Decodable {
         let kind: String
+        /// Nullable because the model is free-text underneath the schema, and a
+        /// missing or malformed value is treated as "strict" by the caller — the
+        /// bar the whole feature ran on before tiering existed.
+        let tier: String?
         let text: String
         let deadline: String?
         let quote: String

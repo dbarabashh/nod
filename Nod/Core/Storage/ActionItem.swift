@@ -78,8 +78,11 @@ struct ActionItem: Codable, Identifiable, Equatable {
         case confirmed
         /// A later moment in the meeting replaced it.
         case superseded
-        /// The meeting decided against it. Not the same as the user deleting
-        /// it — this is a thing the room said, and it belongs in the record.
+        /// Retired without ever becoming a real task — the recap stayed
+        /// silent on a live guess, or the user rejected a soft one on the
+        /// spot (`LiveMeetingAnalyst.dismissNotice(userRejected:)`). Not the
+        /// same as the user deleting a *confirmed* item — this is a thing
+        /// that never made it into the record in the first place.
         case dropped
     }
 

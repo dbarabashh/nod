@@ -37,7 +37,7 @@ struct NotchStateContent: View {
                 geometry: model.geometry
             )
         case let .noticed(finding):
-            NotchNotice(finding: finding, onDismiss: model.dismissNotice)
+            NotchNotice(finding: finding, onDismiss: model.rejectNotice)
         case let .offer(offer):
             NotchOffer(
                 offer: offer,

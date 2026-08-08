@@ -141,9 +141,11 @@ final class ActionItemStore: ObservableObject {
 
         var rows = Self.rows(for: live, meetingID: meetingID, userID: userID)
         // Superseded findings are history and cannot be what the recap means;
-        // only what still stands is open to corroboration.
+        // a dismissed one is the user's own veto and must not be silently
+        // resurrected because the recap happens to mention something similar.
+        // Only what still stands, unrejected, is open to corroboration.
         var unclaimed = live
-            .filter { $0.kind == .action && !$0.isSuperseded }
+            .filter { $0.kind == .action && $0.state == .standing }
             .compactMap { rows[$0.id] }
 
         for (position, action) in recap {
@@ -204,7 +206,7 @@ final class ActionItemStore: ObservableObject {
                 deadline: finding.deadline,
                 position: nil,
                 kind: finding.kind,
-                status: finding.isSuperseded ? .superseded : (finding.kind == .action ? .proposed : .confirmed),
+                status: finding.resolvedStatus,
                 source: .live,
                 revisionOf: finding.revisionOf,
                 evidenceIdx: finding.evidenceIdx

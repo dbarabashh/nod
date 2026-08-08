@@ -79,6 +79,11 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// wonders whether they have to do something about it.
     private static let noticeLifetime: TimeInterval = 12
 
+    /// A soft finding's own, longer lifetime — reading it is not the whole job,
+    /// deciding whether to dismiss it is, and 12 seconds is not enough to do
+    /// both mid-sentence.
+    private static let softNoticeLifetime: TimeInterval = 20
+
     /// The quiet stretch after a notice. A meeting can produce three worth
     /// showing inside a minute; showing all three is how a proactive app starts
     /// being ignored. The rest are still recorded and still reach the summary.
@@ -137,8 +142,23 @@ final class LiveMeetingAnalyst: ObservableObject {
         findings = []
     }
 
-    /// Take the notice down without forgetting what it said.
-    func dismissNotice() {
+    /// Take the notice down. Defaults to forgetting nothing — what it said is
+    /// already saved and reaches the summary either way — which is the only
+    /// safe default: this is called from a timeout and from the user opening
+    /// the panel for an unrelated reason, and neither of those is the user
+    /// answering the card.
+    ///
+    /// `userRejected` is the one path that means something different: the
+    /// user's own tap on the dismiss glyph. For a soft finding that is the
+    /// veto its tier exists for — it is dropped and will never become a task.
+    /// A strict finding is already trustworthy on its own reading, so even a
+    /// rejected tap only takes the card down.
+    func dismissNotice(userRejected: Bool = false) {
+        if userRejected, let notice, notice.tier == .soft,
+           let index = findings.firstIndex(where: { $0.id == notice.id }) {
+            findings[index].state = .dismissed
+            Log.llm.info("live: soft finding dismissed")
+        }
         noticeExpiry?.cancel()
         noticeExpiry = nil
         guard notice != nil else { return }
@@ -171,7 +191,10 @@ final class LiveMeetingAnalyst: ObservableObject {
         let window = store.recentContext(maxEntries: Self.windowLines)
         guard !window.isEmpty else { return }
 
-        let standing = Array(findings.filter { !$0.isSuperseded }.suffix(Self.memoryDepth))
+        // A dismissed finding is the user's own veto — it must not block a later,
+        // genuine version of the same thing from registering as new, and it has
+        // no business being restated as [ALREADY FOUND].
+        let standing = Array(findings.filter { $0.state == .standing }.suffix(Self.memoryDepth))
         let prompt = PromptLibrary.buildLivePass(window: window, known: standing.map(\.text))
         do {
             let result = try await llm.completeJSON(
@@ -199,7 +222,7 @@ final class LiveMeetingAnalyst: ObservableObject {
             guard let finding = verify(item, window: window, standing: standing) else { continue }
             if let supersededID = finding.revisionOf,
                let index = findings.firstIndex(where: { $0.id == supersededID }) {
-                findings[index].isSuperseded = true
+                findings[index].state = .superseded
             }
             findings.append(finding)
             accepted.append(finding)
@@ -232,8 +255,9 @@ final class LiveMeetingAnalyst: ObservableObject {
         noticeExpiry?.cancel()
         lastNoticeAt = Date()
         notice = finding
+        let lifetime = finding.tier == .soft ? Self.softNoticeLifetime : Self.noticeLifetime
         noticeExpiry = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(Self.noticeLifetime * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(lifetime * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
             dismissNotice()
         }
@@ -247,6 +271,7 @@ final class LiveMeetingAnalyst: ObservableObject {
         standing: [LiveFinding]
     ) -> LiveFinding? {
         guard let kind = ActionItem.Kind(rawValue: item.kind) else { return nil }
+        let tier = LiveFinding.Tier(rawValue: item.tier ?? "") ?? .strict
         let text = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
 
@@ -277,6 +302,7 @@ final class LiveMeetingAnalyst: ObservableObject {
         return LiveFinding(
             kind: kind,
             text: text,
+            tier: tier,
             deadline: item.deadline?.trimmingCharacters(in: .whitespacesAndNewlines).nilWhenEmpty,
             evidenceIdx: evidenceIndex(for: quote),
             revisionOf: revisionOf

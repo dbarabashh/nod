@@ -20,7 +20,7 @@ final class LiveFindingNotesTests: XCTestCase {
 
     func testRevisionIsOneLineNamingBothSides() {
         var original = LiveFinding(kind: .action, text: "Ship on Thursday")
-        original.isSuperseded = true
+        original.state = .superseded
         let replacement = LiveFinding(kind: .action, text: "Ship on Monday", revisionOf: original.id)
 
         XCTAssertEqual(
@@ -34,15 +34,38 @@ final class LiveFindingNotesTests: XCTestCase {
         // original alone would ground the recap on the version the meeting
         // abandoned — worse than saying nothing.
         var original = LiveFinding(kind: .action, text: "Ship on Thursday")
-        original.isSuperseded = true
+        original.state = .superseded
         XCTAssertTrue(LiveFinding.notes(from: [original]).isEmpty)
+    }
+
+    func testDefaultTierIsStrict() {
+        XCTAssertEqual(LiveFinding(kind: .action, text: "Send the deck").tier, .strict)
+    }
+
+    func testDismissedFindingIsExcludedFromNotes() {
+        var finding = LiveFinding(kind: .action, text: "Ask about the Blend pricing", tier: .soft)
+        finding.state = .dismissed
+        XCTAssertTrue(LiveFinding.notes(from: [finding]).isEmpty)
+    }
+
+    func testResolvedStatusForEachState() {
+        XCTAssertEqual(LiveFinding(kind: .action, text: "Send the deck").resolvedStatus, .proposed)
+        XCTAssertEqual(LiveFinding(kind: .decision, text: "Ship on Monday").resolvedStatus, .confirmed)
+
+        var superseded = LiveFinding(kind: .action, text: "Ship on Thursday")
+        superseded.state = .superseded
+        XCTAssertEqual(superseded.resolvedStatus, .superseded)
+
+        var dismissed = LiveFinding(kind: .action, text: "Ask about pricing", tier: .soft)
+        dismissed.state = .dismissed
+        XCTAssertEqual(dismissed.resolvedStatus, .dropped)
     }
 
     func testChainOfRevisionsReportsEachHop() {
         var first = LiveFinding(kind: .action, text: "Ship on Thursday")
-        first.isSuperseded = true
+        first.state = .superseded
         var second = LiveFinding(kind: .action, text: "Ship on Monday", revisionOf: first.id)
-        second.isSuperseded = true
+        second.state = .superseded
         let third = LiveFinding(kind: .action, text: "Ship next sprint", revisionOf: second.id)
 
         XCTAssertEqual(LiveFinding.notes(from: [first, second, third]), [
