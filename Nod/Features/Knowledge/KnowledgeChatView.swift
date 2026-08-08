@@ -21,6 +21,7 @@ struct KnowledgeChatView: View {
     /// The thread itself — shared with any other surface onto the same
     /// conversation, so a question asked in the launcher can be continued here.
     @EnvironmentObject private var chat: KnowledgeChatStore
+    @EnvironmentObject private var analytics: ProductAnalytics
 
     private typealias SessionRef = KnowledgeChatStore.SessionRef
 
@@ -513,7 +514,22 @@ struct KnowledgeChatView: View {
         draft = ""
         mentions = []
         let scope = scopeLabels
-        Task { await chat.ask(text, pinned: active, scope: scope) }
+        let baseline = chat.messages.count
+        Task {
+            await chat.ask(text, pinned: active, scope: scope)
+            if chat.answer(after: baseline) != nil {
+                analytics.record(
+                    .aiActionCompleted,
+                    properties: .init(
+                        entryPoint: .ask,
+                        surface: .ask,
+                        contentType: .answer,
+                        aiFeature: .knowledgeAsk,
+                        outcome: .success
+                    )
+                )
+            }
+        }
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {

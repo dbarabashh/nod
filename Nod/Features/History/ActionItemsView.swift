@@ -9,6 +9,7 @@ struct ActionItemsView: View {
 
     @EnvironmentObject private var actionItemStore: ActionItemStore
     @EnvironmentObject private var entitlements: EntitlementService
+    @EnvironmentObject private var analytics: ProductAnalytics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Empty unless the checklist is this user's to see. The store is shared and
@@ -36,7 +37,21 @@ struct ActionItemsView: View {
                 .padding(.top, 4)
             }
         }
-        .task(id: meeting.id) { await load() }
+        .task(id: meeting.id) {
+            await load()
+            guard !items.isEmpty else { return }
+            analytics.record(
+                .actionItemsViewed,
+                properties: .init(
+                    sessionKind: meeting.kind.rawValue,
+                    entryPoint: .meetingDetail,
+                    surface: .meetingDetail,
+                    contentType: .actionItems,
+                    outcome: .viewed
+                ),
+                oncePerSession: "meeting:\(meeting.id.uuidString)"
+            )
+        }
     }
 
     private func row(_ item: ActionItem) -> some View {

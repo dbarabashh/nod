@@ -153,6 +153,7 @@
 		AEFD65223AB58E5BDE635CA6 /* MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052F2BEF4B81A91DF677A43E /* MainWindowView.swift */; };
 		AFEE441085ADE17C5D17D3B5 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F9647C7A89FF4FDC6C10C454 /* Sparkle */; };
 		B12DB7E7728ACF4C1D499398 /* UISound.swift in Sources */ = {isa = PBXBuildFile; fileRef = C43EF01173202096F72CB414 /* UISound.swift */; };
+		B467EAEF162E68CECEAC950C /* ProductAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04DC287F423678157E65A44D /* ProductAnalytics.swift */; };
 		B64041492BAD823897655F5A /* RetrievalGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19047DB7902A7A952264DC1 /* RetrievalGateTests.swift */; };
 		B64A9EF519A1A8E5ECE5C5BE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D37A065AD7206583757F3498 /* Assets.xcassets */; };
 		B82B3017783EA0A1FC0B1D1E /* LauncherPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C2F0C168453EB37A49F876 /* LauncherPanel.swift */; };
@@ -238,6 +239,7 @@
 		030CFD2D8BFEC5D518345B1B /* GeneralSettingsSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsSections.swift; sourceTree = "<group>"; };
 		034F90AD282A88C18314C26E /* ScreenPrivacySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenPrivacySection.swift; sourceTree = "<group>"; };
 		03819EB12E678CD0C63D6260 /* LLMProxyClientHelperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProxyClientHelperTests.swift; sourceTree = "<group>"; };
+		04DC287F423678157E65A44D /* ProductAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductAnalytics.swift; sourceTree = "<group>"; };
 		052F2BEF4B81A91DF677A43E /* MainWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowView.swift; sourceTree = "<group>"; };
 		05E7AAA4DB031B53A6BF4844 /* MeetingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingMode.swift; sourceTree = "<group>"; };
 		06312CCFA4904884915A5C08 /* SessionChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionChatView.swift; sourceTree = "<group>"; };
@@ -858,6 +860,7 @@
 				53574EA973AE4548ADB881AC /* Log.swift */,
 				B57140C26B9CFD4BDBEEC83E /* Pasteboard.swift */,
 				C43EF01173202096F72CB414 /* UISound.swift */,
+				EFC329CF25551BE0126A690A /* Analytics */,
 				F3747CB425E09ADBAF941FFE /* Audio */,
 				AE7A64513B1E469B1353E85F /* Backend */,
 				5308CBEED2F30F8CE748E3F2 /* DesignSystem */,
@@ -933,6 +936,14 @@
 				55317D97A7031E9542B5E531 /* TranscriptRecord.swift */,
 			);
 			path = Storage;
+			sourceTree = "<group>";
+		};
+		EFC329CF25551BE0126A690A /* Analytics */ = {
+			isa = PBXGroup;
+			children = (
+				04DC287F423678157E65A44D /* ProductAnalytics.swift */,
+			);
+			path = Analytics;
 			sourceTree = "<group>";
 		};
 		F3747CB425E09ADBAF941FFE /* Audio */ = {
@@ -1262,6 +1273,7 @@
 				69DEB6C11FC9D632E7EDDC07 /* PermissionsStep.swift in Sources */,
 				C54C0BADFBFD399D4A0AFB90 /* PlainMenuChrome.swift in Sources */,
 				9FE502DC71F78A2033F2B831 /* PressableButtonStyle.swift in Sources */,
+				B467EAEF162E68CECEAC950C /* ProductAnalytics.swift in Sources */,
 				9A8DA371BF557F82D2512075 /* Profile.swift in Sources */,
 				589DB6DC2174129AE95B6105 /* ProfileSettingsSection.swift in Sources */,
 				08E4B4DEE68DC6695EA01278 /* ProfileStep.swift in Sources */,

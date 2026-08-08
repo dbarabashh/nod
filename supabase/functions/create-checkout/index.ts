@@ -79,6 +79,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // (which would double-bill). A new checkout is only for users with no active
     // subscription (trial, expired, or canceled).
     const admin = adminClient();
+    const { data: priceRow, error: priceError } = await admin
+        .from("plan_prices")
+        .select("plan, billing_cycle")
+        .eq("paddle_price_id", body.price_id)
+        .maybeSingle();
     const { data: sub } = await admin
         .from("subscriptions")
         .select("paddle_subscription_id, paddle_customer_id, status")
@@ -138,16 +143,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Friend's −50% applies to MONTHLY prices only (see hard constraint). Resolve
     // the cycle from our catalog rather than trusting the client.
     if (ref && PADDLE_REFERRAL_DISCOUNT_ID) {
-        const { data: priceRow, error: priceErr } = await admin
-            .from("plan_prices")
-            .select("billing_cycle")
-            .eq("paddle_price_id", body.price_id)
-            .maybeSingle();
-        if (priceErr || !priceRow) {
+        if (priceError || !priceRow) {
             // Don't risk applying the discount to an unknown cycle, but make the
             // miss loud — a monthly price with no catalog row silently drops the
             // friend's −50%.
-            console.error(`referral discount skipped: price lookup ${priceErr ? "errored" : "missed"} price=${body.price_id} ${priceErr?.message ?? ""}`);
+            console.error(`referral discount skipped: price lookup ${priceError ? "errored" : "missed"} price=${body.price_id} ${priceError?.message ?? ""}`);
         }
         if (priceRow?.billing_cycle === "monthly") {
             payload.discount_id = PADDLE_REFERRAL_DISCOUNT_ID;
@@ -180,6 +180,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
         // nowhere to be paid.
         console.error("paddle response had no data.checkout.url — set a default payment link");
         return json({ error: "No checkout URL — configure a default payment link in Paddle" }, 502);
+    }
+
+    const plan = priceRow?.plan === "starter" || priceRow?.plan === "pro"
+        ? priceRow.plan
+        : "unknown";
+    const billing = priceRow?.billing_cycle === "monthly" || priceRow?.billing_cycle === "yearly"
+        ? priceRow.billing_cycle
+        : "unknown";
+    const { error: telemetryError } = await admin.from("product_events").insert({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        occurred_at: new Date().toISOString(),
+        event: "checkout_started",
+        platform: "server",
+        app_version: "server",
+        properties: { surface: "paywall", outcome: "success", plan, billing },
+    });
+    if (telemetryError) {
+        console.warn(`checkout telemetry failed: ${telemetryError.message}`);
     }
 
     console.log(`checkout user=${user.id} price=${body.price_id}`);

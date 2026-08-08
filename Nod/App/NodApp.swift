@@ -155,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 guard services.auth.session != nil else { return }
                 await services.entitlements.refresh()
+                await services.productAnalytics.flush()
                 // Retry any meeting still stuck in the outbox now that the app
                 // (and likely the network) is active again — scoped to the
                 // signed-in user so a previous account's rows aren't re-pushed.
@@ -216,6 +217,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     windows.closeMainWindow()
                 }
                 if isSignedIn {
+                    if !wasSignedIn {
+                        services.productAnalytics.record(
+                            .appOpened,
+                            properties: .init(entryPoint: .appLaunch),
+                            oncePerSession: "launch"
+                        )
+                    }
                     // Single-device lock: claim this device's slot now so a
                     // blocked device is signed out immediately (the claim
                     // broadcasts .nodDeviceConflict on a 403) rather than only

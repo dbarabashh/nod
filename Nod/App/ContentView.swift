@@ -12,6 +12,7 @@ struct ContentView: View {
     @EnvironmentObject private var updateGate: UpdateGate
     @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var hotkey: HotkeyManager
+    @EnvironmentObject private var analytics: ProductAnalytics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Reports the panel's desired width as the layout switches between the
@@ -455,6 +456,16 @@ struct ContentView: View {
 
     private func copy(_ text: String) {
         NSPasteboard.copyRichText(markdown: text)
+        analytics.record(
+            .contentCopied,
+            properties: .init(
+                sessionKind: session.selectedKind.rawValue,
+                entryPoint: .floatingPanel,
+                surface: .capture,
+                contentType: .answer,
+                outcome: .success
+            )
+        )
         Log.ui.info("Copied response to clipboard")
     }
 }
@@ -487,6 +498,7 @@ private struct PanelContentHeightKey: PreferenceKey {
     let meetingStore = MeetingStore(supabase: supabase)
     let profileStore = ProfileStore(supabase: supabase, auth: auth)
     let modeStore = ModeStore()
+    let analytics = ProductAnalytics(supabase: supabase, auth: auth, defaults: previewDefaults)
     let session = MeetingSession(
         audioCapture: audioCapture,
         store: transcriptStore,
@@ -500,7 +512,8 @@ private struct PanelContentHeightKey: PreferenceKey {
         profileStore: profileStore,
         outbox: MeetingOutbox(),
         modeStore: modeStore,
-        screenExclusions: ScreenExclusions(defaults: previewDefaults)
+        screenExclusions: ScreenExclusions(defaults: previewDefaults),
+        analytics: analytics
     )
     return ContentView()
         .environmentObject(session)
@@ -512,5 +525,6 @@ private struct PanelContentHeightKey: PreferenceKey {
         .environmentObject(HotkeyManager())
         .environmentObject(PanelSharingPreference())
         .environmentObject(modeStore)
+        .environmentObject(analytics)
         .background(Color.gray.opacity(0.3))
 }
