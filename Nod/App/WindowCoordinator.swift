@@ -249,7 +249,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             profileStore: services.profileStore,
             outbox: services.meetingOutbox,
             modeStore: services.modeStore,
-            screenExclusions: services.screenExclusions
+            screenExclusions: services.screenExclusions,
+            analytics: services.productAnalytics
         )
 
         self.meetingSession = meetingSession
@@ -267,6 +268,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         .environmentObject(services.hotkeys)
         .environmentObject(services.panelSharing)
         .environmentObject(services.modeStore)
+        .environmentObject(services.productAnalytics)
 
         // Start at the compact width — the panel launches idle. ContentView
         // reports the desired width as the layout changes and the panel
@@ -430,6 +432,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             .environmentObject(services.settingsFocus)
             .environmentObject(services.screenContext)
             .environmentObject(services.summaryRegeneration)
+            .environmentObject(services.productAnalytics)
 
         let hosting = NSHostingController(rootView: root)
         // Don't let the hosting controller derive the window's min/max size from

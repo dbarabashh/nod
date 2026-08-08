@@ -69,6 +69,7 @@ final class LauncherController {
         .environmentObject(services.knowledgeChat)
         .environmentObject(services.knowledgeThreads)
         .environmentObject(services.entitlements)
+        .environmentObject(services.productAnalytics)
         .frame(width: LauncherPanel.width)
 
         return LauncherPanel(content: content, sharing: services.panelSharing.sharingType) { [weak self] in
@@ -95,7 +96,22 @@ final class LauncherController {
     }
 
     private func ask() {
-        Task { await model.ask() }
+        let baseline = services.knowledgeChat.messages.count
+        Task {
+            await model.ask()
+            if services.knowledgeChat.answer(after: baseline) != nil {
+                services.productAnalytics.record(
+                    .aiActionCompleted,
+                    properties: .init(
+                        entryPoint: .hotkey,
+                        surface: .ask,
+                        contentType: .answer,
+                        aiFeature: .knowledgeAsk,
+                        outcome: .success
+                    )
+                )
+            }
+        }
     }
 
     // MARK: - Keys

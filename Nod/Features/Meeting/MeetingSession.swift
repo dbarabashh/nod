@@ -44,6 +44,16 @@ enum GenerationKind: String {
         case .ask: .ask
         }
     }
+
+    var analyticsFeature: ProductAnalytics.AIFeature {
+        switch self {
+        case .hero: .catchUp
+        case .suggestReply: .suggestReply
+        case .keyPoints: .keyPoints
+        case .followUp: .followUp
+        case .ask: .liveAsk
+        }
+    }
 }
 
 enum AIResponse: Equatable {
@@ -214,7 +224,9 @@ final class MeetingSession: ObservableObject {
     private let outbox: MeetingOutbox
     private let modeStore: ModeStore
     private let screenExclusions: ScreenExclusions
+    private let analytics: ProductAnalytics
     private let recapGenerator: RecapGenerator
+    private var captureID: UUID?
 
     init(
         audioCapture: AudioCaptureService,
@@ -229,7 +241,8 @@ final class MeetingSession: ObservableObject {
         profileStore: ProfileStore,
         outbox: MeetingOutbox,
         modeStore: ModeStore,
-        screenExclusions: ScreenExclusions
+        screenExclusions: ScreenExclusions,
+        analytics: ProductAnalytics
     ) {
         self.audioCapture = audioCapture
         self.store = store
@@ -244,6 +257,7 @@ final class MeetingSession: ObservableObject {
         self.outbox = outbox
         self.modeStore = modeStore
         self.screenExclusions = screenExclusions
+        self.analytics = analytics
         recapGenerator = RecapGenerator(llm: llm)
     }
 
@@ -437,6 +451,18 @@ final class MeetingSession: ObservableObject {
     func beginRecording() {
         Log.ui.info("Start Meeting")
         sessionGeneration += 1
+        let captureID = UUID()
+        self.captureID = captureID
+        analytics.record(
+            .captureStartRequested,
+            captureID: captureID,
+            properties: .init(
+                sessionKind: selectedKind.rawValue,
+                entryPoint: .floatingPanel,
+                stage: .capture,
+                surface: .capture
+            )
+        )
         meeting = .recording
         knowledgeStore.isCapturing = true
         elapsed = 0
@@ -487,6 +513,32 @@ final class MeetingSession: ObservableObject {
                 captureMic: selectedKind.capturesMic,
                 captureSystem: selectedKind.capturesSystem
             )
+            if audioCapture.lastError == nil {
+                analytics.record(
+                    .captureStarted,
+                    captureID: captureID,
+                    properties: .init(
+                        sessionKind: selectedKind.rawValue,
+                        entryPoint: .floatingPanel,
+                        stage: .audio,
+                        surface: .capture,
+                        outcome: .success
+                    )
+                )
+            } else {
+                analytics.record(
+                    .captureFailed,
+                    captureID: captureID,
+                    properties: .init(
+                        sessionKind: selectedKind.rawValue,
+                        entryPoint: .floatingPanel,
+                        stage: .audio,
+                        reasonCode: .audioStartFailed,
+                        surface: .capture,
+                        outcome: .failure
+                    )
+                )
+            }
         }
     }
 
@@ -544,6 +596,18 @@ final class MeetingSession: ObservableObject {
         // the first has reset to idle would mint a fresh id and double-persist.
         guard meeting != .idle else { return }
         Log.ui.info("End Meeting — entries=\(store.entries.count)")
+        let endedCaptureID = captureID
+        analytics.record(
+            .captureStopped,
+            captureID: endedCaptureID,
+            properties: .init(
+                sessionKind: selectedKind.rawValue,
+                entryPoint: .floatingPanel,
+                stage: .capture,
+                surface: .capture,
+                outcome: .success
+            )
+        )
         store.stop()
         Task { await audioCapture.stop() }
         streamTask?.cancel()
@@ -557,6 +621,18 @@ final class MeetingSession: ObservableObject {
         recordingDraft = nil
 
         guard store.hasContent else {
+            analytics.record(
+                .captureDiscarded,
+                captureID: endedCaptureID,
+                properties: .init(
+                    sessionKind: selectedKind.rawValue,
+                    entryPoint: .floatingPanel,
+                    stage: .finalization,
+                    reasonCode: .userCancelled,
+                    surface: .capture,
+                    outcome: .cancelled
+                )
+            )
             // Empty start→stop: drop the WAL entry so no orphan row is created.
             if let id = recordingDraftID { Task { await outbox.discard(id) } }
             cleanupToIdle()
@@ -815,6 +891,7 @@ final class MeetingSession: ObservableObject {
         response = .none
         elapsed = 0
         micMuted = false
+        captureID = nil
         clearAutoEndPrompt()
     }
 
@@ -948,6 +1025,7 @@ final class MeetingSession: ObservableObject {
                 }
                 if case let .generating(k) = response, k == requestedKind {
                     response = .ready(kind: requestedKind, text: text)
+                    recordAICompletion(requestedKind)
                     print("→ \(requestedKind.rawValue) — ready")
                 }
             } catch {
@@ -997,6 +1075,7 @@ final class MeetingSession: ObservableObject {
             guard isActiveRequest(requestedKind) else { return }
             let final = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
             response = .ready(kind: requestedKind, text: final.isEmpty ? emptyFallback : final)
+            recordAICompletion(requestedKind)
             Log.ui.info("\(requestedKind.rawValue) ready (streamed)")
         } catch {
             guard isActiveRequest(requestedKind) else { return }
@@ -1026,10 +1105,26 @@ final class MeetingSession: ObservableObject {
             let text = try await llm.complete(system: system, user: user).trimmingCharacters(in: .whitespacesAndNewlines)
             guard isActiveRequest(requestedKind) else { return }
             response = .ready(kind: requestedKind, text: text.isEmpty ? emptyFallback : text)
+            recordAICompletion(requestedKind)
         } catch {
             guard isActiveRequest(requestedKind) else { return }
             response = .ready(kind: requestedKind, text: "⚠️ \(error.localizedDescription)")
         }
+    }
+
+    private func recordAICompletion(_ kind: GenerationKind) {
+        analytics.record(
+            .aiActionCompleted,
+            captureID: captureID,
+            properties: .init(
+                sessionKind: selectedKind.rawValue,
+                entryPoint: .floatingPanel,
+                surface: .capture,
+                contentType: .answer,
+                aiFeature: kind.analyticsFeature,
+                outcome: .success
+            )
+        )
     }
 
     #if DEBUG

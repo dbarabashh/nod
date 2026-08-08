@@ -17,6 +17,7 @@ struct ActionItemsAggregateView: View {
 
     @EnvironmentObject private var actionItemStore: ActionItemStore
     @EnvironmentObject private var entitlements: EntitlementService
+    @EnvironmentObject private var analytics: ProductAnalytics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var items: [ActionItem] {
@@ -90,6 +91,16 @@ struct ActionItemsAggregateView: View {
         .task(id: meetingScopeKey) {
             guard canUseActionItems else { return }
             await load()
+            analytics.record(
+                .actionItemsViewed,
+                properties: .init(
+                    entryPoint: .library,
+                    surface: .library,
+                    contentType: .actionItems,
+                    outcome: .viewed
+                ),
+                oncePerSession: "aggregate"
+            )
         }
         .onChange(of: actionItemStore.revision) { _ in recomputeFlags() }
         .onChange(of: dismissed) { _ in recomputeFlags() }

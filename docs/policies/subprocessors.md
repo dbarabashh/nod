@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-08-07_
+_Last updated: 2026-08-08_
 
 A subprocessor is a third party that processes personal data on our behalf
 when you use Nod. We use the minimum number of subprocessors required to
@@ -15,7 +15,7 @@ subscribe to change notifications, email **dmytro@hellonod.app**.
 
 | Subprocessor                | Purpose                                  | Data shared                                                       | Location           | Training on your data | DPA / no-train basis |
 |-----------------------------|------------------------------------------|-------------------------------------------------------------------|--------------------|-----------------------|----------------------|
-| **Supabase, Inc.**          | Auth, Postgres database, Edge Functions, in-region text embeddings (`gte-small`) for cross-session search, first-party acquisition attribution | Email, OAuth identity, meeting transcripts, summaries, chat messages, transcript embeddings, extracted entities, usage logs, consented campaign touches and account attribution | AWS `eu-west-1` (Ireland) | No                    | Supabase DPA         |
+| **Supabase, Inc.**          | Auth, Postgres database, Edge Functions, in-region text embeddings (`gte-small`) for cross-session search, first-party acquisition attribution and product analytics | Email, OAuth identity, meeting transcripts, summaries, chat messages, transcript embeddings, extracted entities, usage logs, consented campaign touches, bounded app interaction events, random installation/session IDs, and account attribution | AWS `eu-west-1` (Ireland) | No                    | Supabase DPA         |
 | **OpenRouter, Inc.**        | LLM request routing + Whisper transcription (last-resort fallback) | Audio chunks (transient), transcript text, chat messages, query text | Routed via no-train providers | No                    | Zero Data Retention enabled; "may train on request data" routes disabled |
 | **Groq, Inc.**              | Whisper (large-v3) speech-to-text — primary transcription provider | Audio chunks (transient — one short WAV per utterance) | USA (Google Cloud) | No | GroqCloud DPA; Services Agreement prohibits training on Inputs/Outputs; no retention by default (transient error/abuse logs ≤ 30 days; ZDR available) |
 | **OpenAI** (via Azure OpenAI Service) | Whisper speech-to-text (fallback) | Audio chunks (transient, ~5 s windows)                            | Routed by OpenRouter | No                    | Azure OpenAI no-train commitment |
@@ -43,7 +43,8 @@ entirely by Paddle as Merchant of Record.
   no PostHog, Mixpanel, Amplitude, Segment, Google Analytics, or Sentry. The
   marketing website uses consent-gated Vercel Web Analytics, Google Analytics,
   and Google Ads measurement. They never receive meeting content or Nod account
-  identity.
+  identity. App product events stay first-party in Supabase and are not sent to
+  Google.
 - **No third-party fonts or icon CDNs.** The website self-hosts its fonts and
   app icons, so loading a page sends no request — and no visitor IP — to
   Google Fonts, `gstatic`, or any other CDN.
@@ -101,6 +102,7 @@ forwarded once and never written to durable storage anywhere in this chain.
 | 2026-07-30 | Speaker separation moved to an on-device Core ML model fetched once from a public Hugging Face repository. Noted as an outbound download, not a subprocessor — no audio, transcript, or account data is sent. |
 | 2026-08-06 | Documented official ChatGPT and Claude connectors as user-authorized recipients, with read-only OAuth access rather than subprocessors acting for Nod. |
 | 2026-08-07 | Added consent-gated Google Analytics and Google Ads measurement, plus first-party campaign-to-account attribution in Supabase. |
+| 2026-08-08 | Documented bounded first-party macOS/iOS product interaction events stored in Supabase; no app analytics SDK or Google app telemetry was added. |
 
 ---
 

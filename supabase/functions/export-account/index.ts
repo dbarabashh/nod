@@ -71,7 +71,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         const [
             profile, meetings, transcripts, chatMessages, entities, meetingEntities,
             labels, meetingLabels, embeddings, shares, devices, usageEvents,
-            subscription, usageCredits, consent,
+            subscription, usageCredits, consent, onboardingEvents, productEvents,
         ] = await Promise.all([
             fetchAll(admin, "profiles", "*", "user_id", uid),
             fetchAll(admin, "meetings", "*", "user_id", uid),
@@ -88,10 +88,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
             fetchAll(admin, "subscriptions", "*", "user_id", uid),
             fetchAll(admin, "usage_credits", "*", "user_id", uid),
             fetchAll(admin, "consent_acknowledgements", "*", "user_id", uid),
+            fetchAll(admin, "onboarding_events", "*", "user_id", uid),
+            fetchAll(admin, "product_events", "*", "user_id", uid),
         ]);
 
         const exportDoc = {
-            export_format_version: 1,
+            export_format_version: 2,
             note:
                 "Your complete personal data held by Nod. Audio is never stored, so it is "
                 + "not included. Session-embedding vectors are omitted (derived numeric data); "
@@ -119,6 +121,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
             subscription: subscription[0] ?? null,
             usage_credits: usageCredits,
             consent_acknowledgements: consent,
+            onboarding_events: onboardingEvents,
+            product_events: productEvents,
         };
 
         console.log(`account exported user=${uid} meetings=${meetings.length} transcripts=${transcripts.length}`);

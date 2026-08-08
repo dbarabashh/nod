@@ -12,6 +12,7 @@ struct AppServices {
     /// Server-side funnel log for the onboarding steps — the only signal we
     /// have for where a new user stops, since `OnboardingState` is local-only.
     let onboardingTelemetry: OnboardingTelemetry
+    let productAnalytics: ProductAnalytics
     let audioCapture: AudioCaptureService
     let llmClient: LLMProxyClient
     let transcriptStore: TranscriptStore
@@ -108,6 +109,7 @@ struct AppServices {
             auth: auth
         )
         let onboardingTelemetry = OnboardingTelemetry(supabase: supabase, auth: auth)
+        let productAnalytics = ProductAnalytics(supabase: supabase, auth: auth)
 
         audioCapture.onMicBuffer = { [weak transcriptStore] buffer in
             transcriptStore?.appendMicBuffer(buffer)
@@ -145,6 +147,7 @@ struct AppServices {
             permissions: permissions,
             onboarding: onboarding,
             onboardingTelemetry: onboardingTelemetry,
+            productAnalytics: productAnalytics,
             audioCapture: audioCapture,
             llmClient: llmClient,
             transcriptStore: transcriptStore,

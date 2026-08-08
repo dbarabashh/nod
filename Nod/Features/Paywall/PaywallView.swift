@@ -12,6 +12,7 @@ import SwiftUI
 struct PaywallView: View {
     @ObservedObject var billing: BillingService
     @ObservedObject var entitlements: EntitlementService
+    @EnvironmentObject private var analytics: ProductAnalytics
 
     @State private var cycle = "yearly"
     @State private var referralCode = ""
@@ -89,6 +90,15 @@ struct PaywallView: View {
         }
         .frame(maxWidth: .infinity)
         .task {
+            analytics.record(
+                .paywallViewed,
+                properties: .init(
+                    entryPoint: .settings,
+                    surface: .paywall,
+                    outcome: .viewed
+                ),
+                oncePerSession: "settings"
+            )
             await billing.loadPrices()
             await entitlements.refresh()
         }
