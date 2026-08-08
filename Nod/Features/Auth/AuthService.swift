@@ -28,6 +28,7 @@ final class AuthService: NSObject, ObservableObject {
     private let client: SupabaseClient
     private var stateTask: Task<Void, Never>?
     private var authSession: ASWebAuthenticationSession?
+    private var pendingAttributionRelayID: UUID?
 
     /// The SDK's most-recent cached session — updated by the SDK
     /// synchronously as soon as a token refreshes or sign-in lands,
@@ -76,7 +77,17 @@ final class AuthService: NSObject, ObservableObject {
                 redirectTo: Self.callbackURL,
                 queryParams: [("prompt", "select_account")]
             )
-            startAuthSession(url: url)
+            #if DEBUG
+                startAuthSession(url: url)
+            #else
+                let relayID = UUID()
+                guard let startURL = attributionStartURL(oauthURL: url, relayID: relayID),
+                      NSWorkspace.shared.open(startURL) else {
+                    startAuthSession(url: url)
+                    return
+                }
+                pendingAttributionRelayID = relayID
+            #endif
         } catch {
             Log.auth.error("getOAuthSignInURL failed: \(error.localizedDescription)")
             lastError = error.localizedDescription
@@ -155,12 +166,38 @@ final class AuthService: NSObject, ObservableObject {
 
         do {
             _ = try await client.auth.session(from: url)
+            await claimPendingAttribution()
             lastError = nil
         } catch {
             Log.auth.error("session(from:) failed: \(error.localizedDescription)")
             lastError = error.localizedDescription
         }
         isSigningIn = false
+    }
+
+    private func attributionStartURL(oauthURL: URL, relayID: UUID) -> URL? {
+        var components = URLComponents(string: "https://hellonod.app/auth/start")
+        var fragment = URLComponents()
+        fragment.queryItems = [
+            URLQueryItem(name: "relay", value: relayID.uuidString),
+            URLQueryItem(name: "oauth", value: oauthURL.absoluteString)
+        ]
+        components?.percentEncodedFragment = fragment.percentEncodedQuery
+        return components?.url
+    }
+
+    private func claimPendingAttribution() async {
+        guard let relayID = pendingAttributionRelayID else { return }
+        pendingAttributionRelayID = nil
+        struct Params: Encodable { let p_relay_id: UUID }
+        do {
+            try await client
+                .rpc("claim_acquisition_flow", params: Params(p_relay_id: relayID))
+                .execute()
+            Log.auth.info("acquisition relay claimed")
+        } catch {
+            Log.auth.error("acquisition relay claim failed: \(error.localizedDescription)")
+        }
     }
 
     func signOut() async {

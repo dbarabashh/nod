@@ -27,6 +27,7 @@ struct Meeting: Codable, Identifiable {
     /// rows carry (`{"1": "Eric"}`). Sparse: only clusters the transcript itself
     /// identified are named, the rest keep rendering as "Speaker N".
     var speakerNames: [String: String]?
+    var sourcePlatform: String? = nil
     /// Soft-delete timestamp — non-nil when the meeting lives in the Trash
     /// segment (#16). Nil for active rows. Server-driven; the client only
     /// reads this (mutations go via `MeetingStore.softDelete` / `.restore`).
@@ -93,6 +94,7 @@ struct Meeting: Codable, Identifiable {
         case recap = "recap_json"
         case language
         case speakerNames = "speaker_names"
+        case sourcePlatform = "source_platform"
         case deletedAt = "deleted_at"
     }
 
@@ -116,6 +118,7 @@ struct Meeting: Codable, Identifiable {
         // Omitted when absent so an upsert from the outbox can't wipe names a
         // later extraction pass already wrote.
         try c.encodeIfPresent(speakerNames, forKey: .speakerNames)
+        try c.encode("macos", forKey: .sourcePlatform)
         try c.encodeIfPresent(deletedAt, forKey: .deletedAt)
     }
 

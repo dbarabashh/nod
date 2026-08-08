@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-08-06_
+_Last updated: 2026-08-07_
 
 A subprocessor is a third party that processes personal data on our behalf
 when you use Nod. We use the minimum number of subprocessors required to
@@ -15,7 +15,7 @@ subscribe to change notifications, email **dmytro@hellonod.app**.
 
 | Subprocessor                | Purpose                                  | Data shared                                                       | Location           | Training on your data | DPA / no-train basis |
 |-----------------------------|------------------------------------------|-------------------------------------------------------------------|--------------------|-----------------------|----------------------|
-| **Supabase, Inc.**          | Auth, Postgres database, Edge Functions, in-region text embeddings (`gte-small`) for cross-session search | Email, OAuth identity, meeting transcripts, summaries, chat messages, transcript embeddings, extracted entities, usage logs | AWS `eu-west-1` (Ireland) | No                    | Supabase DPA         |
+| **Supabase, Inc.**          | Auth, Postgres database, Edge Functions, in-region text embeddings (`gte-small`) for cross-session search, first-party acquisition attribution | Email, OAuth identity, meeting transcripts, summaries, chat messages, transcript embeddings, extracted entities, usage logs, consented campaign touches and account attribution | AWS `eu-west-1` (Ireland) | No                    | Supabase DPA         |
 | **OpenRouter, Inc.**        | LLM request routing + Whisper transcription (last-resort fallback) | Audio chunks (transient), transcript text, chat messages, query text | Routed via no-train providers | No                    | Zero Data Retention enabled; "may train on request data" routes disabled |
 | **Groq, Inc.**              | Whisper (large-v3) speech-to-text — primary transcription provider | Audio chunks (transient — one short WAV per utterance) | USA (Google Cloud) | No | GroqCloud DPA; Services Agreement prohibits training on Inputs/Outputs; no retention by default (transient error/abuse logs ≤ 30 days; ZDR available) |
 | **OpenAI** (via Azure OpenAI Service) | Whisper speech-to-text (fallback) | Audio chunks (transient, ~5 s windows)                            | Routed by OpenRouter | No                    | Azure OpenAI no-train commitment |
@@ -25,6 +25,7 @@ subscribe to change notifications, email **dmytro@hellonod.app**.
 | **Apple, Inc.**             | macOS app distribution & code signing    | Crash logs (if you opt-in via System Settings), receipt validation | Global             | No                    | Apple Developer Agreement |
 | **Paddle.com Market Limited** | Merchant of Record — subscription billing, payment processing, VAT/sales-tax remittance, invoicing, refunds | Name, email, billing address and country, and payment-method details you enter at checkout; subscription and transaction records | UK; global payment processing | No | Paddle DPA; Paddle acts as Merchant of Record |
 | **Vercel Inc.**             | Hosting for the marketing website (`hellonod.app`) + cookieless Web Analytics | Visitor IP (transient — used to derive aggregate page-view/event counts, never stored or exposed), user-agent, page path. No account or meeting data. | USA (global edge) | No | Vercel DPA; Web Analytics is cookieless and does not track across sites |
+| **Google LLC** (Analytics and Ads) | Consent-gated website analytics, campaign attribution, and conversion measurement | IP address, browser/device data, sanitised page and event details, Google Analytics client ID, and Google click/campaign identifiers. No meeting content or Nod account identity. | Global | No | Google Ads Data Protection Terms; Google Controller-Controller Data Protection Terms where applicable |
 
 Audio is never stored by any subprocessor — it exists only for the duration
 of a single Whisper request and is discarded by the upstream provider as
@@ -37,16 +38,18 @@ entirely by Paddle as Merchant of Record.
 
 ## What we do **not** use
 
-- **No analytics SDKs in the app.** The macOS app embeds no telemetry —
+- **No third-party analytics SDKs in the app.** The macOS app embeds no
+  third-party telemetry SDK —
   no PostHog, Mixpanel, Amplitude, Segment, Google Analytics, or Sentry. The
-  marketing website uses **Vercel Web Analytics** (cookieless, aggregate
-  page-view and download-click counts, no cross-site tracking) — listed in the
-  table above; it never sees your account or meeting data.
+  marketing website uses consent-gated Vercel Web Analytics, Google Analytics,
+  and Google Ads measurement. They never receive meeting content or Nod account
+  identity.
 - **No third-party fonts or icon CDNs.** The website self-hosts its fonts and
   app icons, so loading a page sends no request — and no visitor IP — to
   Google Fonts, `gstatic`, or any other CDN.
-- **No advertising networks.** Nod shows no ads and shares no data with
-  ad-tech platforms.
+- **No in-product advertising or data sale.** Nod shows no ads and does not
+  sell personal data. Google Ads receives measurement data only after website
+  analytics consent.
 - **No meeting-platform bots.** We do not deploy a bot into Zoom, Meet, or
   Teams — Nod captures audio locally via macOS APIs only.
 - **Granola is not a subprocessor.** Nod's "Import from Granola" feature reads
@@ -97,6 +100,7 @@ forwarded once and never written to durable storage anywhere in this chain.
 | 2026-06-25 | LLM summaries & chat now default to Anthropic Claude (Sonnet 4.6, Haiku 4.5 fallback), routed via AWS Bedrock / Google Vertex AI (no-train). Google Gemini becomes an optional model rather than the default. No change to data shared or retention. |
 | 2026-07-30 | Speaker separation moved to an on-device Core ML model fetched once from a public Hugging Face repository. Noted as an outbound download, not a subprocessor — no audio, transcript, or account data is sent. |
 | 2026-08-06 | Documented official ChatGPT and Claude connectors as user-authorized recipients, with read-only OAuth access rather than subprocessors acting for Nod. |
+| 2026-08-07 | Added consent-gated Google Analytics and Google Ads measurement, plus first-party campaign-to-account attribution in Supabase. |
 
 ---
 
