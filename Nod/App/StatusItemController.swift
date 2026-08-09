@@ -62,6 +62,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
     }
 
+    /// A non-actionable, full-contrast menu row — used for the signed-in
+    /// user's name and email, which carry information but no tap target.
+    private static func infoMenuItem(_ text: String, font: NSFont, color: NSColor) -> NSMenuItem {
+        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        item.attributedTitle = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
+        return item
+    }
+
     private static func statusItemImage(dotColor: NSColor?) -> NSImage? {
         guard let glyph = NSImage(named: "NTemplate") else { return nil }
         let size = NSSize(width: 18, height: 18)
@@ -141,23 +149,18 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 let name = displayName(for: user)
                 let email = user.email ?? ""
 
+                // `isEnabled = false` layers AppKit's own disabled-item dimming
+                // on top of any custom color, which on the menu's vibrancy
+                // material washed this out to near-invisible. These rows have
+                // no action anyway, so leaving them enabled (just with a nil
+                // action) keeps full contrast without making them look tappable.
                 if !name.isEmpty {
-                    let nameItem = NSMenuItem(title: name, action: nil, keyEquivalent: "")
-                    nameItem.isEnabled = false
-                    menu.addItem(nameItem)
+                    menu.addItem(Self.infoMenuItem(name, font: .boldSystemFont(ofSize: NSFont.systemFontSize), color: .labelColor))
                 }
                 if !email.isEmpty {
-                    let attr = NSAttributedString(
-                        string: email,
-                        attributes: [
-                            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
-                            .foregroundColor: NSColor.secondaryLabelColor
-                        ]
+                    menu.addItem(
+                        Self.infoMenuItem(email, font: .systemFont(ofSize: NSFont.smallSystemFontSize), color: .secondaryLabelColor)
                     )
-                    let emailItem = NSMenuItem(title: email, action: nil, keyEquivalent: "")
-                    emailItem.attributedTitle = attr
-                    emailItem.isEnabled = false
-                    menu.addItem(emailItem)
                 }
                 if !name.isEmpty || !email.isEmpty {
                     menu.addItem(.separator())
