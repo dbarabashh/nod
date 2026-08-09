@@ -180,18 +180,20 @@ struct NotchNotice: View {
         Style(finding)
     }
 
+    /// Icon at 12pt with no fixed frame, main line at 12.5pt semibold — the
+    /// same weights `DemoCardHead` uses for every proactive card in the
+    /// scripted demo, so a real notice reads as the same kind of moment
+    /// instead of visibly bigger and boxed. The lead/text split that used to
+    /// be two stacked lines is now the one line the doc comment above already
+    /// described: "Noted — send the updated deck before Friday."
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 8) {
             Image(systemName: style.icon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.Palette.brand)
-                .frame(width: 24, height: 24)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(style.lead)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.Palette.muted)
-                Text(finding.text)
+                Text("\(style.lead) — \(finding.text)")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
                     .fixedSize(horizontal: false, vertical: true)
@@ -261,116 +263,90 @@ struct NotchLevelMeter: View {
     }
 }
 
-// MARK: - Transport controls
-
-/// The opened capture state: that Nod is hearing something, for how long, and
-/// the three things you can do about it.
+/// Which microphone Nod is listening on, and the only place to change it — the
+/// picker itself lived nowhere in the app before this, so a device that
+/// silently failed to switch (`AudioCaptureService.applyInputDeviceSelection`
+/// already detects this and sets `lastError`) had nowhere to surface and no
+/// way to retry a different one short of the macOS Sound settings.
 ///
-/// No status word. The meter says it is listening more convincingly than the
-/// word "Listening" did, and the clock is the thing people actually come to read.
-struct NotchControls: View {
-    @ObservedObject var session: MeetingSession
-    /// Not observed here — handed straight to `NotchLevelMeter`, which is the
-    /// only thing that reads it and the only thing that should redraw with it.
+/// Doubles as the mute toggle — a plain click is `primaryAction` (mute), the
+/// menu itself opens the device list. One control for both rather than two:
+/// they're both "which mic, and is it working," and the meeting bar has no
+/// room to spare for a control each. Not `private`: `NotchMeetingBar.swift`
+/// uses it directly in the always-visible bar's header.
+///
+/// Deliberately **not** `@ObservedObject` on either dependency: both publish
+/// far more than this button reads — `audioCapture.inputLevel` alone ticks
+/// ten times a second — and an `@ObservedObject` re-renders on every publish
+/// regardless of which property changed. Wrapped in a native `Menu`
+/// (`NSPopUpButton` under the hood), that showed up as the whole control
+/// visibly jittering. `.onReceive` on the three properties actually used
+/// mirrors them into local `@State`, so this only redraws when one of those
+/// three genuinely changes.
+struct NotchMicMenuButton: View {
+    let session: MeetingSession
     let audioCapture: AudioCaptureService
-    let onCollapse: () -> Void
 
-    private var paused: Bool {
-        session.meeting == .paused
+    @State private var lastError: String?
+    @State private var preferredInputUID: String?
+    @State private var micMuted = false
+
+    private var hasProblem: Bool {
+        lastError != nil
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            header
-            transport
-        }
-    }
-
-    private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            NotchLevelMeter(audioCapture: audioCapture, paused: paused, barWidth: 2, span: 11)
-                .frame(width: 29, height: 29)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                        .fill(Theme.Palette.surfaceStrong)
-                )
-
-            Spacer(minLength: 8)
-
-            // The one big number. Sized like the clock in a Live Activity
-            // rather than like a caption: at a glance across the desk, this is
-            // the whole reason to look up.
-            Text(session.elapsedClock)
-                .font(.system(size: 17, weight: .semibold, design: .monospaced))
-                .foregroundColor(paused ? Theme.Palette.warning : Theme.Palette.brand)
-                .monospacedDigit()
-                .fixedSize()
-
-            NotchGlyphButton(systemName: "chevron.up", help: "Collapse", action: onCollapse)
-        }
-    }
-
-    private var transport: some View {
-        HStack(spacing: 10) {
-            NotchControlButton(
-                systemName: paused ? "play.fill" : "pause.fill",
-                tint: paused ? Theme.Palette.controlResume : Theme.Palette.ink.opacity(0.85),
-                help: paused ? "Resume" : "Pause",
-                action: session.toggleRecording
-            )
-
-            NotchControlButton(
-                systemName: session.micMuted ? "mic.slash.fill" : "mic.fill",
-                tint: session.micMuted ? Theme.Palette.controlMicMuted : Theme.Palette.ink.opacity(0.85),
-                help: session.micMuted ? "Unmute" : "Mute",
-                action: session.toggleMic
-            )
-
-            Spacer(minLength: 0)
-
-            Button(action: session.endMeeting) {
-                HStack(spacing: 5) {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 10, weight: .bold))
-                    Text("End")
-                        .font(.system(size: 12, weight: .semibold))
+        Menu {
+            ForEach(AudioDeviceCatalog.inputDevices()) { device in
+                Button {
+                    audioCapture.preferredInputUID = device.uid
+                } label: {
+                    if isSelected(device) {
+                        Label(device.name, systemImage: "checkmark")
+                    } else {
+                        Text(device.name)
+                    }
                 }
-                .foregroundColor(Theme.Palette.controlEnd)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Theme.Palette.controlEndSurface.opacity(0.4))
-                        .overlay(
-                            Capsule(style: .continuous)
-                                .stroke(Theme.Palette.controlEnd.opacity(0.4), lineWidth: 0.5)
-                        )
-                )
             }
-            .buttonStyle(.pressable)
+        } label: {
+            HStack(spacing: 1) {
+                Image(systemName: iconName)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(iconTint)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 6, weight: .bold))
+                    .foregroundColor(Theme.Palette.muted.opacity(0.7))
+            }
+            .frame(width: 24, height: 18)
+            .background(Capsule().fill(Theme.Palette.surfaceStrong))
+        } primaryAction: {
+            session.toggleMic()
         }
+        .menuStyle(.borderlessButton)
+        .frame(width: 24, height: 18)
+        .help(helpText)
+        .onReceive(audioCapture.$lastError) { lastError = $0 }
+        .onReceive(audioCapture.$preferredInputUID) { preferredInputUID = $0 }
+        .onReceive(session.$micMuted) { micMuted = $0 }
     }
-}
 
-private struct NotchControlButton: View {
-    let systemName: String
-    let tint: Color
-    let help: String
-    let action: () -> Void
+    private var iconName: String {
+        if hasProblem { return "exclamationmark.triangle.fill" }
+        return micMuted ? "mic.slash.fill" : "mic.fill"
+    }
 
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(tint)
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                        .fill(Theme.Palette.surfaceStrong)
-                )
-        }
-        .buttonStyle(.pressable(scale: 0.92))
-        .help(help)
+    private var iconTint: Color {
+        if hasProblem { return Theme.Palette.warning }
+        return micMuted ? Theme.Palette.controlMicMuted : Theme.Palette.muted
+    }
+
+    private var helpText: String {
+        lastError ?? (micMuted ? "Unmute" : "Mute")
+    }
+
+    private func isSelected(_ device: AudioInputDevice) -> Bool {
+        guard let uid = preferredInputUID else { return device.isDefault }
+        return device.uid == uid
     }
 }
 

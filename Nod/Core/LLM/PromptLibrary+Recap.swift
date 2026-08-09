@@ -270,12 +270,6 @@ extension PromptLibrary {
         }
     }
 
-    /// System prompt for the live "Ask" box — a free-form question the user typed
-    /// mid-recording when the fixed cards (Catch me up, Key points) don't cover
-    /// what they want to know. A one-off, ephemeral Q&A grounded in the transcript
-    /// so far; it does NOT persist or feed the recap. Answers in plain streamed
-    /// text.
-
     // MARK: - Title generation
 
     static func buildTitle(

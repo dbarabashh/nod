@@ -228,6 +228,12 @@ struct DemoBrief: Equatable {
 }
 
 struct DemoSummary: Equatable {
+    /// "Hey Maya — here's where onboarding landed." Addressed to the viewer,
+    /// the same way a real recap greets whoever it's for
+    /// (`NotchOffer.title`'s "Hey \(userName)") — the four scripts each name a
+    /// different fictional viewer so a person who watches more than one story
+    /// doesn't read the same name twice.
+    let greeting: String
     let title: String
     let overview: String
     let keyInsight: String

@@ -101,6 +101,24 @@ final class MeetingSession: ObservableObject {
     /// whenever it next appears, so the request survives that gap.
     @Published private(set) var wantsAutoStart = false
 
+    /// The meeting `endMeeting()` just handed to `meetingStore` for
+    /// summarising, while that id is still worth showing the notch's own
+    /// recap card for. `NotchModel` resolves it against `meetingStore`
+    /// (generating → live partial → finished) and clears it back to nil once
+    /// the user dismisses the card or starts recording again.
+    @Published private(set) var justEndedMeetingID: UUID?
+
+    /// The offer's own title (a calendar event or a detected call's window
+    /// title), carried into the recording that started from it — nil for a
+    /// manually-started recording, which has nothing to call itself yet. Real
+    /// data captured at accept-time, not a live-generated title: nothing
+    /// re-reads the transcript for this while the meeting is still running.
+    @Published private(set) var liveTitle: String?
+    /// Staged by `MeetingOffers.accept()` a moment before it clears `current` —
+    /// `beginRecording()` claims it into `liveTitle` and empties this back out,
+    /// so a manual Start right after a declined offer doesn't inherit its title.
+    var pendingRecordingTitle: String?
+
     /// Inactivity-watchdog state. Silence is measured from the latest of
     /// `store.lastSpeechAt`, `inactivityResetAt` (a resume or a "keep recording"
     /// tap), and `recordingStartedAt`; `silenceBackoffMultiplier` grows on each
@@ -401,6 +419,8 @@ final class MeetingSession: ObservableObject {
         Log.ui.info("Start Meeting")
         sessionGeneration += 1
         meeting = .recording
+        liveTitle = pendingRecordingTitle
+        pendingRecordingTitle = nil
         // Only kinds that carry personal to-dos are worth listening to live —
         // the same gate the finalize applies before writing any of this down.
         analyst.reset()
@@ -578,11 +598,10 @@ final class MeetingSession: ObservableObject {
             deletedAt: nil
         )
         meetingStore.beginGenerating(draft)
-        NotificationCenter.default.post(
-            name: .nodOpenMeetingDetail,
-            object: nil,
-            userInfo: [Notification.nodMeetingIDKey: draft.id]
-        )
+        // The notch picks this up and shows the recap card itself — see
+        // `NotchModel.derived()` — so nothing opens the full window on its
+        // own anymore; that's still one click away for anyone who wants it.
+        justEndedMeetingID = draft.id
         resetPanelForIdle()
 
         let draftID = draft.id
@@ -804,7 +823,15 @@ final class MeetingSession: ObservableObject {
         knowledgeStore.isCapturing = false
         elapsed = 0
         micMuted = false
+        liveTitle = nil
         clearAutoEndPrompt()
+    }
+
+    /// The recap card's own close glyph. The meeting itself is untouched —
+    /// this only stops the notch from showing it; `meetingStore`/History still
+    /// have it.
+    func dismissEndedMeeting() {
+        justEndedMeetingID = nil
     }
 
     private func cleanupToIdle() {

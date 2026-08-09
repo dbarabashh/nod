@@ -26,6 +26,16 @@ enum MeetingOffer: Equatable {
         if case .scheduled = self { return true }
         return false
     }
+
+    /// What to call the recording that starts from this offer. A calendar
+    /// entry always has one; a detected call only does when a window title
+    /// confirmed it (see `DetectedCall.title`).
+    var title: String? {
+        switch self {
+        case let .scheduled(meeting): meeting.title
+        case let .detected(call): call.title
+        }
+    }
 }
 
 /// The single place that decides whether to ask the user to record.
@@ -89,7 +99,11 @@ final class MeetingOffers: ObservableObject {
     /// Record this meeting. Through `requestAutoStart` like every other entry
     /// point, so the subscription, consent and language gates all still run.
     func accept() {
-        guard current != nil else { return }
+        guard let current else { return }
+        // Staged ahead of `answer()`, which clears `current` right below —
+        // `MeetingSession.beginRecording()` claims this into `liveTitle` once
+        // the auto-start actually lands.
+        session.pendingRecordingTitle = current.title
         answer()
         session.requestAutoStart()
     }

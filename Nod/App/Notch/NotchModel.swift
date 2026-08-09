@@ -35,6 +35,10 @@ final class NotchModel: ObservableObject {
     let language: LanguagePreference
     let updateGate: UpdateGate
 
+    /// Resolves `session.justEndedMeetingID` into a `RecapState` — the same
+    /// generating/finished state `MeetingDetailView` already reads, just
+    /// surfaced in the notch too instead of only in the full window.
+    private let meetingStore: MeetingStore
     private let profiles: ProfileStore
     private let briefing: CallBriefing
     private let consent: ConsentPreference
@@ -44,6 +48,16 @@ final class NotchModel: ObservableObject {
     /// the menu bar. Everything else on screen is a consequence of state the app
     /// is already in.
     private var isOpened = false
+    /// Which of the meeting bar's own panels is showing, while a meeting is
+    /// active. Like `isOpened`, only `derived()` reads it — a plain var, reset
+    /// to `.passive` at the start of every new recording so a Notes panel left
+    /// open from a previous meeting doesn't carry over into the next.
+    private var meetingBarPanel: MeetingBarPanel = .passive
+    /// Whether the meeting bar is tucked into the notch, following a swipe-up
+    /// over it (`NotchGestureZone`). Only ever set while `geometry.hasCutout` —
+    /// there is nothing to tuck into otherwise — so `derived()` doesn't need to
+    /// re-check that itself.
+    private var meetingBarHidden = false
     private var gate: Gate?
     private var cancellables = Set<AnyCancellable>()
     /// The fold-shut-then-expand swap between two opened states, and the state
@@ -74,6 +88,7 @@ final class NotchModel: ObservableObject {
         briefing: CallBriefing,
         consent: ConsentPreference,
         entitlements: EntitlementService,
+        meetingStore: MeetingStore,
         defaults: UserDefaults = .standard
     ) {
         self.session = session
@@ -86,6 +101,7 @@ final class NotchModel: ObservableObject {
         self.briefing = briefing
         self.consent = consent
         self.entitlements = entitlements
+        self.meetingStore = meetingStore
         self.defaults = defaults
         askLanguageEachTime = defaults.object(forKey: MeetingLanguagePromptDefaults.defaultsKey) as? Bool
             ?? MeetingLanguagePromptDefaults.defaultValue
@@ -108,13 +124,26 @@ final class NotchModel: ObservableObject {
         // notch is relaunching the app.
         if demo.isRunning {
             demo.stop()
-            isOpened = false
-            refresh()
+            close()
             return
         }
-        isOpened.toggle()
-        if isOpened { session.analyst.dismissNotice() }
-        refresh()
+        // Tucked is its own thing, not an `isOpened` state — the click that
+        // reaches this (a stray tap on the tucked pill, the hotkey, the
+        // menu-bar item) is always the user asking for the bar back, the same
+        // as the swipe-down gesture does.
+        if case .tucked = presentation {
+            revealMeetingBar()
+            return
+        }
+        // Delegates to `open()`/`close()` rather than toggling `isOpened`
+        // directly, so whatever either of those already does on the way in or
+        // out — dismissing the notice, forgetting a stale assist card — only
+        // has to be correct in one place.
+        if isOpened {
+            close()
+        } else {
+            open()
+        }
     }
 
     /// Whether a click elsewhere folds the surface away.
@@ -125,11 +154,18 @@ final class NotchModel: ObservableObject {
     /// that a stray click must not silently abandon.
     var closesOnOutsideClick: Bool {
         switch presentation {
-        case .launch, .controls: true
+        case .launch: true
+        // Only while a panel is actually expanded — the bar itself is always
+        // visible during a meeting and a stray click must not hide it, only
+        // fold an expanded Ask/Notes panel back to the passive row.
+        case let .meetingBar(panel): panel != .passive
         // The demo never closes on a click: a stray cursor must not cut a take.
         // A notice has its own dismiss and goes away on its own; a stray click
-        // in another app is not the user answering it.
-        case .updateRequired, .dormant, .capturing, .offer, .noticed,
+        // in another app is not the user answering it. The recap card is the
+        // same shape as those two — it arrived on its own, not because the
+        // user opened the surface, so a stray click elsewhere isn't them
+        // dismissing it either. Its own close glyph is the only way out.
+        case .updateRequired, .dormant, .tucked, .offer, .noticed, .recap,
              .languageConfirm, .consent, .alert, .demo: false
         }
     }
@@ -146,12 +182,18 @@ final class NotchModel: ObservableObject {
         refresh()
     }
 
-    /// Fold the surface back to whatever it should show unattended. Also cancels
-    /// a gate the user walked away from: a half-answered consent prompt must not
-    /// still be pending the next time the notch opens.
+    /// Fold the surface back to whatever it should show unattended. During a
+    /// meeting that only collapses an expanded Ask/Notes panel — the bar
+    /// itself stays up until `hideMeetingBar` or the meeting ends. Also
+    /// cancels a gate the user walked away from, so it isn't still pending
+    /// next time the notch opens.
     func close() {
-        isOpened = false
-        gate = nil
+        if session.meeting != .idle {
+            meetingBarPanel = .passive
+        } else {
+            isOpened = false
+            gate = nil
+        }
         refresh()
     }
 
@@ -229,6 +271,8 @@ final class NotchModel: ObservableObject {
     private func beginRecording() {
         gate = nil
         isOpened = false
+        meetingBarPanel = .passive
+        meetingBarHidden = false
         session.clearAutoStartRequest()
         session.beginRecording()
         refresh()
@@ -323,6 +367,9 @@ final class NotchModel: ObservableObject {
             session.$saveErrorToast.map { _ in () }.eraseToAnyPublisher(),
             offers.$current.map { _ in () }.eraseToAnyPublisher(),
             session.analyst.$notice.map { _ in () }.eraseToAnyPublisher(),
+            session.$justEndedMeetingID.map { _ in () }.eraseToAnyPublisher(),
+            meetingStore.$meetings.map { _ in () }.eraseToAnyPublisher(),
+            meetingStore.$generatingSummaryIDs.map { _ in () }.eraseToAnyPublisher(),
             // The greeting reads the profile, which loads after the notch is built.
             profiles.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             updateGate.$status.map { _ in () }.eraseToAnyPublisher()
@@ -353,6 +400,15 @@ final class NotchModel: ObservableObject {
         transition = nil
         pendingTarget = nil
 
+        // Switching the meeting bar's own panel (passive/notes/ask) is a
+        // resize of the same surface, not a different surface arriving — it
+        // reads as the bar expanding downward only if nothing folds shut
+        // first.
+        if case .meetingBar = presentation, case .meetingBar = next {
+            presentation = next
+            return
+        }
+
         // Only a card has to be folded away first. A line replacing a line —
         // one spoken sentence after another — folding between each would read
         // as a stutter rather than as the notch thinking.
@@ -375,7 +431,7 @@ final class NotchModel: ObservableObject {
     /// What the surface collapses to mid-swap: whatever it would be showing if
     /// nobody had opened it.
     private var resting: NotchPresentation {
-        session.meeting == .idle ? .dormant : .capturing
+        session.meeting == .idle ? .dormant : .tucked
     }
 
     /// Priority order, most urgent first. A gate outranks everything because it
@@ -409,14 +465,117 @@ final class NotchModel: ObservableObject {
             return .offer(offer)
         }
         if session.meeting != .idle {
-            // Never over the transport. The controls are open because the user
-            // opened them, and taking that away to say something they did not
-            // ask for is the difference between proactive and rude.
-            if let notice = session.analyst.notice, !isOpened {
+            // The user's own swipe wins over everything else here — a notice
+            // arriving is not them asking to see the bar again.
+            if meetingBarHidden {
+                return .tucked
+            }
+            // Never over an expanded panel. Ask/Notes are open because the
+            // user opened them, and taking that away to say something they
+            // did not ask for is the difference between proactive and rude.
+            if let notice = session.analyst.notice, meetingBarPanel == .passive {
                 return .noticed(notice)
             }
-            return isOpened ? .controls : .capturing
+            return .meetingBar(meetingBarPanel)
+        }
+        if let recap = recapState {
+            return .recap(recap)
         }
         return isOpened ? .launch : .dormant
+    }
+
+    /// `session.justEndedMeetingID` resolved against `meetingStore`, or nil
+    /// once nothing is worth showing — the id was dismissed, or a meeting
+    /// this old session never actually persisted (sign-out mid-generation,
+    /// `MeetingStore.clear()`) fell out of the cache.
+    private var recapState: RecapState? {
+        guard let id = session.justEndedMeetingID else { return nil }
+        if meetingStore.generatingSummaryIDs.contains(id) {
+            return .generating
+        }
+        guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else { return nil }
+        return meeting.lacksRecap ? .failed(meeting.summary) : .ready(meeting)
+    }
+}
+
+// MARK: - The meeting bar's own panel
+
+/// Split out of the main class body (`private` still resolves — same file)
+/// purely to keep `NotchModel`'s own body under the house size limit; this is
+/// as much a part of the model as anything above.
+extension NotchModel {
+    /// The Ask row's own button: opens the box, or folds it back to the
+    /// passive row if it's already open. Always starts fresh, not a restore —
+    /// the box is for a new question, not a scrollback.
+    func toggleAsk() {
+        if case .ask = meetingBarPanel {
+            meetingBarPanel = .passive
+        } else {
+            meetingBarPanel = .ask(.composing)
+        }
+        refresh()
+    }
+
+    /// The Notes row's own button — same toggle shape as `toggleAsk`.
+    func toggleNotes() {
+        meetingBarPanel = meetingBarPanel == .notes ? .passive : .notes
+        refresh()
+    }
+
+    /// The Ask box's own free-text question. Blank input is a no-op rather
+    /// than a round trip that would just come back empty.
+    func submitAsk(_ question: String) {
+        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        runAsk(question: trimmed) {
+            try await self.session.analyst.ask(trimmed, language: self.language.current)
+        }
+    }
+
+    /// The Ask box's "Summarize" chip — routed through the dedicated catch-up
+    /// prompt (tuned for exactly this) rather than through `ask` with the
+    /// literal word "Summarize" as the question.
+    func askSummarize() {
+        runAsk(question: "Summarize") {
+            try await self.session.analyst.catchUp(language: self.language.current)
+        }
+    }
+
+    /// The shared shape behind every Ask-box request: show the loading state,
+    /// run the one-shot call, land on its answer or a failure — unless the
+    /// user has already moved on (closed the panel, or fired another ask) by
+    /// the time it comes back, in which case the answer is stale and dropped.
+    private func runAsk(question: String, call: @escaping () async throws -> String) {
+        meetingBarPanel = .ask(.loading)
+        refresh()
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let answer = try await call()
+                guard meetingBarPanel == .ask(.loading) else { return }
+                meetingBarPanel = .ask(.answered(question: question, answer: answer))
+            } catch {
+                Log.llm.error("ask: \(question) failed — \(error.localizedDescription)")
+                guard meetingBarPanel == .ask(.loading) else { return }
+                meetingBarPanel = .ask(.failed(question: question))
+            }
+            refresh()
+        }
+    }
+
+    /// The notch-gesture's hide — see `NotchGestureZone`. A no-op off a
+    /// notched display or outside a meeting: nothing to tuck into, or nothing
+    /// worth tucking.
+    func hideMeetingBar() {
+        guard geometry.hasCutout, session.meeting != .idle else { return }
+        meetingBarHidden = true
+        refresh()
+    }
+
+    /// The notch-gesture's reveal, the other direction.
+    func revealMeetingBar() {
+        guard meetingBarHidden else { return }
+        meetingBarHidden = false
+        refresh()
     }
 }

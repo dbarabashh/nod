@@ -275,7 +275,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                     calendar: services.calendar
                 ),
                 consent: services.consent,
-                entitlements: services.entitlements
+                entitlements: services.entitlements,
+                meetingStore: services.meetingStore
             ),
             sharing: services.panelSharing.sharingType
         )

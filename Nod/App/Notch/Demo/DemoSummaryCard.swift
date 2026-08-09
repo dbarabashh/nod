@@ -21,10 +21,20 @@ struct DemoSummaryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
+            greeting
             head
             scroller
         }
         .onAppear { revealed = true }
+    }
+
+    /// The one personal line in the whole card — everything below it is about
+    /// the meeting, this is addressed to the person reading it.
+    private var greeting: some View {
+        Text(summary.greeting)
+            .font(.system(size: 13.5, weight: .semibold))
+            .foregroundStyle(Theme.Palette.ink)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var head: some View {

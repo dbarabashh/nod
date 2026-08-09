@@ -3,7 +3,7 @@ import Foundation
 /// A persisted meeting — summary + transcript pair plus the metadata you
 /// need to render a MainWindowView row. Wire-compatible with the `meetings`
 /// table created in migration `20260523204132_meetings.sql`. Issue #14.
-struct Meeting: Codable, Identifiable {
+struct Meeting: Codable, Identifiable, Equatable {
     let id: UUID
     let userID: UUID
     /// Server-assigned via `default now()`. nil on a freshly-built Meeting

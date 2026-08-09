@@ -14,9 +14,39 @@ struct NotchStateContent: View {
             // per state it was a second copy of the open/closed list, kept in
             // step by hand.
             .modifier(OpenedCard(geometry: model.geometry, isOpen: model.presentation.isOpen))
+            // Pinned to the target width immediately, opted out of `NotchView`'s
+            // ambient morph spring: without this, a wrapped label lays itself out
+            // fresh at every interpolated width while the surface grows around
+            // it, and the word-wrap jumping mid-flight is what reads as the
+            // text gluing together rather than the surface simply widening
+            // around already-settled text. `NotchView`'s own `.frame` still
+            // animates the surface (and therefore the mask) at its usual pace;
+            // this only freezes what the *content* is laid out against.
+            .frame(width: model.presentation.surfaceWidth(in: model.geometry))
+            .transaction { $0.animation = nil }
             .id(model.presentation.contentID)
             .transition(.notchContent(reduceMotion: reduceMotion))
             .environment(\.colorScheme, .dark)
+            .overlay(alignment: .top) { gestureZone }
+    }
+
+    /// The notch's own swipe-to-hide/reveal hotspot — sized to the actual
+    /// hardware cut-out, not the wider bar around it, and only ever mounted
+    /// on a display that has one. See `NotchGestureZone`.
+    @ViewBuilder
+    private var gestureZone: some View {
+        if model.geometry.hasCutout, showsGestureZone {
+            NotchGestureZone(onSwipeUp: model.hideMeetingBar, onSwipeDown: model.revealMeetingBar)
+                .frame(width: model.geometry.cutoutWidth, height: model.geometry.cutoutHeight)
+        }
+    }
+
+    private var showsGestureZone: Bool {
+        switch model.presentation {
+        case .tucked, .meetingBar: true
+        case .updateRequired, .dormant, .offer, .noticed, .recap, .launch,
+             .languageConfirm, .consent, .alert, .demo: false
+        }
     }
 
     @ViewBuilder
@@ -30,8 +60,8 @@ struct NotchStateContent: View {
             // to pin the width against it filled the entire canvas and painted
             // an empty black slab under the menu bar.
             Color.clear.frame(width: 0, height: 0)
-        case .capturing:
-            NotchCapturing(
+        case .tucked:
+            NotchTucked(
                 session: model.session,
                 audioCapture: model.audioCapture,
                 geometry: model.geometry
@@ -48,12 +78,19 @@ struct NotchStateContent: View {
                 onDismiss: model.declineOffer,
                 onMute: model.muteOffer
             )
-        case .controls:
-            NotchControls(
+        case let .meetingBar(panel):
+            NotchMeetingBar(
+                panel: panel,
                 session: model.session,
                 audioCapture: model.audioCapture,
-                onCollapse: model.close
+                onToggleAsk: model.toggleAsk,
+                onToggleNotes: model.toggleNotes,
+                onSubmitAsk: model.submitAsk,
+                onSummarize: model.askSummarize,
+                onCollapse: model.geometry.hasCutout ? { model.hideMeetingBar() } : nil
             )
+        case let .recap(state):
+            NotchRecapCard(state: state, onClose: model.session.dismissEndedMeeting)
         case .launch:
             NotchLaunch(session: model.session, onStart: model.requestStart)
         case .languageConfirm:
@@ -106,17 +143,19 @@ struct NotchStateContent: View {
     }
 }
 
-// MARK: - Resting capture indicator
+// MARK: - Tucked indicator
 
-/// The one state that has to work around the hardware: on a notched Mac the
-/// middle of this surface is an opaque cut-out, so the level meter goes to its
-/// left and the clock to its right.
+/// What's left showing once the meeting bar is swiped away into the notch: on
+/// a notched Mac the middle of this surface is an opaque cut-out, so the level
+/// meter goes to its left and the clock to its right. Never the default —
+/// only reachable via `NotchGestureZone`'s swipe-up, and only where there is a
+/// cut-out to tuck into.
 ///
 /// Its own view, observing the session and the capture service directly,
 /// because both the clock and the meter have to redraw continuously — read
 /// through the notch model they would subscribe to the wrong object and sit
 /// frozen at 00:00.
-private struct NotchCapturing: View {
+private struct NotchTucked: View {
     @ObservedObject var session: MeetingSession
     @ObservedObject var audioCapture: AudioCaptureService
     let geometry: NotchGeometry

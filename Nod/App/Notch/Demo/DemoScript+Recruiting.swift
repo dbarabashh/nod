@@ -123,6 +123,7 @@ extension DemoScenario {
         .init(at: 57.2, action: .stage(.ended)),
 
         .init(at: 58.4, action: .stage(.summary(DemoSummary(
+            greeting: "Hey Priya — here's where the panel landed.",
             title: "Meeting summary ready",
             overview: "The panel rated execution strongly but found architecture-level ownership untested, and added it to the final round.",
             keyInsight: "All three completed rounds probed execution; ownership was raised once in Slack and never scheduled.",

@@ -123,6 +123,7 @@ extension DemoScenario {
         .init(at: 57.2, action: .stage(.ended)),
 
         .init(at: 58.4, action: .stage(.summary(DemoSummary(
+            greeting: "Hey Alex — here's where the release stands.",
             title: "Meeting summary ready",
             overview: "The group found the end-of-month release at risk from two overdue epics feeding a blocked pull request, and agreed on a mitigation plan.",
             keyInsight: "Both overdue epics feed the same blocking pull request, which has been open eleven days with no status update since the 9th.",

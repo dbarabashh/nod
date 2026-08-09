@@ -20,10 +20,22 @@ enum NotchPresentation: Equatable {
     /// only state the app raises on its own while the user is mid-conversation,
     /// which is why `LiveMeetingAnalyst` is strict about what reaches it.
     case noticed(LiveFinding)
-    /// Capturing, at rest — a pulse and the elapsed clock.
-    case capturing
-    /// Capturing, opened — the transport controls.
-    case controls
+    /// The meeting bar, tucked away into the hardware cut-out — a pulse and the
+    /// elapsed clock, nothing else. Only reachable on a notched display, and
+    /// only by the user's own swipe-up over the notch (`NotchModel`'s gesture
+    /// state); recording is unaffected either way. Never the default: see
+    /// `.meetingBar` for that.
+    case tucked
+    /// Capturing — the meeting bar itself, visible for the whole recording
+    /// rather than behind a click. One case for all three panels
+    /// (`MeetingBarPanel`) rather than a state per panel: switching panels is
+    /// a resize of the same surface, not a different surface arriving.
+    case meetingBar(MeetingBarPanel)
+    /// Idle, and a meeting just ended — the recap, live as it streams in.
+    /// Raised on its own, the same way `.noticed` is: the whole point is that
+    /// the user sees it without having to open anything. Goes away when the
+    /// user dismisses it or starts another recording.
+    case recap(RecapState)
     /// Idle, opened by hotkey or menu bar — pick what to capture and start.
     case launch
     /// Confirming which language the output comes back in, on the way to Start.
@@ -45,6 +57,85 @@ enum NotchAlert: Equatable {
     case saveFailed(String)
 }
 
+/// The meeting bar's own panel, expanded below the always-visible header row
+/// (title/timer/status/Ask/Notes/End) or not expanded at all. A discriminated
+/// state rather than an `isAskOpen`/`isNotesOpen`/`askPhase` trio of
+/// independent flags — the three are mutually exclusive by construction (only
+/// one thing can be expanded under the bar at a time), so a trio would only
+/// invite a combination the UI was never designed to render.
+enum MeetingBarPanel: Equatable {
+    /// Nothing expanded — just the header row.
+    case passive
+    /// The live findings-so-far, as bullets, with real counts.
+    case notes
+    /// The Ask box, wherever it is in typing → asking → answered.
+    case ask(AskPhase)
+
+    var contentID: String {
+        switch self {
+        case .passive: "passive"
+        case .notes: "notes"
+        case let .ask(phase): "ask.\(phase.contentID)"
+        }
+    }
+
+    /// Kept close to what every other opened state on this surface already
+    /// uses (340-400pt, see `NotchPresentation.surfaceWidth`) rather than the
+    /// wider system-surface sizing this design started from — a bar that
+    /// dwarfs the notch it grew out of reads as a window, not a continuation
+    /// of it. Sized to fit the header's own content (dot, mic, title, clock,
+    /// status, Ask/Notes/End, the tuck chevron) without any of it wrapping —
+    /// narrower than this and the buttons start compressing into a vertical
+    /// letter-stack rather than staying on one line. Notes/Ask ask for a
+    /// little more only because they add a second block of content below
+    /// the header.
+    var surfaceWidth: CGFloat {
+        switch self {
+        case .passive: 420
+        case .notes: 440
+        case .ask: 450
+        }
+    }
+}
+
+/// Where the Ask box is in its one-shot round trip. One shape for a typed
+/// question, a tapped suggestion chip, and "Summarize" alike — all three are
+/// "some text goes to the live analyst, some text comes back."
+enum AskPhase: Equatable {
+    case composing
+    case loading
+    case answered(question: String, answer: String)
+    /// Keeps the question that failed, so retrying doesn't ask the user to
+    /// retype it.
+    case failed(question: String)
+
+    var contentID: String {
+        switch self {
+        case .composing: "composing"
+        case .loading: "loading"
+        case .answered: "answered"
+        case .failed: "failed"
+        }
+    }
+}
+
+/// Where the recap card is, mirroring `MeetingStore`'s own generating/ready/
+/// failed states rather than introducing a second copy of them — `NotchModel`
+/// resolves one of these straight from `meetingStore` each time it changes.
+enum RecapState: Equatable {
+    case generating
+    case ready(Meeting)
+    case failed(String)
+
+    var contentID: String {
+        switch self {
+        case .generating: "generating"
+        case let .ready(meeting): "ready.\(meeting.id.uuidString)"
+        case .failed: "failed"
+        }
+    }
+}
+
 extension NotchPresentation {
     /// Identity for SwiftUI. Without it a state change is one view updating in
     /// place, and content that updates in place never runs a transition — the
@@ -55,8 +146,9 @@ extension NotchPresentation {
         case .dormant: "dormant"
         case let .offer(offer): "offer.\(offer.identity)"
         case let .noticed(finding): "noticed.\(finding.id.uuidString)"
-        case .capturing: "capturing"
-        case .controls: "controls"
+        case .tucked: "tucked"
+        case let .meetingBar(panel): "meetingBar.\(panel.contentID)"
+        case let .recap(state): "recap.\(state.contentID)"
         case .launch: "launch"
         case .languageConfirm: "languageConfirm"
         case .consent: "consent"
@@ -79,8 +171,8 @@ extension NotchPresentation {
     /// comes from the content or from the hardware.
     var isOpen: Bool {
         switch self {
-        case .dormant, .capturing: false
-        case .updateRequired, .offer, .noticed, .controls, .launch, .languageConfirm, .consent, .alert: true
+        case .dormant, .tucked: false
+        case .updateRequired, .offer, .noticed, .meetingBar, .recap, .launch, .languageConfirm, .consent, .alert: true
         case let .demo(stage): stage.form != .resting
         }
     }
@@ -97,15 +189,15 @@ extension NotchPresentation {
         switch self {
         case .updateRequired: return 400
         case .offer: return 384
-        case .noticed: return 360
-        case .controls: return 340
+        case .noticed, .recap: return 360
+        case let .meetingBar(panel): return panel.surfaceWidth
         case .launch: return 384
         case .languageConfirm: return 340
         case .consent: return 380
         case .alert: return 396
         case .dormant:
             return geometry.hasCutout ? geometry.collapsedSize.width + flare : nil
-        case .capturing:
+        case .tucked:
             return geometry.hasCutout ? geometry.collapsedSize.width + flare + 124 : nil
         case let .demo(stage):
             guard stage.form == .resting else { return stage.surfaceWidth }
@@ -132,9 +224,9 @@ extension NotchPresentation {
         // would otherwise silently take its content's height instead of the
         // cut-out's, and leave daylight around the hardware notch.
         switch self {
-        case .dormant, .capturing:
+        case .dormant, .tucked:
             geometry.collapsedSize.height
-        case .updateRequired, .offer, .noticed, .controls, .launch,
+        case .updateRequired, .offer, .noticed, .meetingBar, .recap, .launch,
              .languageConfirm, .consent, .alert:
             nil
         case let .demo(stage):

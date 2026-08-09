@@ -124,6 +124,7 @@ extension DemoScenario {
         .init(at: 57.2, action: .stage(.ended)),
 
         .init(at: 58.4, action: .stage(.summary(DemoSummary(
+            greeting: "Hey Maya — here's where onboarding landed.",
             title: "Meeting summary ready",
             overview: "The team pinned onboarding drop-off on confusion about workspace permissions, and agreed to redesign that step.",
             keyInsight: "Fourteen support conversations and three customer calls mention confusion about workspace permissions.",

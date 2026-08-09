@@ -6,6 +6,29 @@ enum PromptLibrary {
     /// characters otherwise.
     static let inlineMarkdownStyle = "Formatting: use **bold** for any section label and \"- \" for bullet items. Do NOT use \"#\"/\"##\" headings, numbered lists, tables, or code fences — the app renders only inline Markdown, so those show up as raw characters."
 
+    /// Shared prose-style rule for anything meant to read like a person
+    /// talking (the live "Catch me up"/"Follow-ups"/"Ask" answers) rather
+    /// than generated meeting minutes.
+    static let humanProseStyle = """
+    - Write like a person talking, not like meeting minutes. No em dashes, no semicolons — use periods and commas.
+    - One idea per sentence. Short sentences over long comma-chained ones.
+    - Never write "gave an update that X", "flagged N items", or similar report-speak. Just say what happened.
+    """
+
+    /// The "[ALREADY KNOWN]"-style memory block shared by the live on-demand
+    /// asks (catch-up/follow-ups/ask) — numbered so the model can be told
+    /// which entry a new finding supersedes, same convention as the live
+    /// pass's own "[ALREADY FOUND]" block in `buildLivePass`.
+    static func numberedMemoryBlock(header: String, empty: String, known: [String]) -> String {
+        guard !known.isEmpty else {
+            return "\(header) \(empty)\n\n"
+        }
+        let numbered = known.enumerated()
+            .map { "\($0.offset + 1). \($0.element)" }
+            .joined(separator: "\n")
+        return "\(header)\n\(numbered)\n\n"
+    }
+
     static func build(
         transcript: String,
         language: AppLanguage = .english,

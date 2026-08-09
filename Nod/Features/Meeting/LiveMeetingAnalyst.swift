@@ -43,8 +43,11 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// mattered arrives looking like the four that didn't.
     @Published private(set) var notice: LiveFinding?
 
-    private let llm: LLMProxyClient
-    private let store: TranscriptStore
+    /// Not `private`: `LiveMeetingAnalyst+Assist.swift` (the on-demand
+    /// catch-up/follow-ups/ask calls) reads both directly, from a separate
+    /// file — same rationale as `windowLines` below.
+    let llm: LLMProxyClient
+    let store: TranscriptStore
 
     private var loop: Task<Void, Never>?
     private var pass: Task<Void, Never>?
@@ -72,7 +75,9 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// purpose: a commitment is usually made a few lines after the thing it
     /// answers, and a window that starts exactly at the new material keeps
     /// cutting that in half.
-    private static let windowLines = 40
+    /// Not `private`: `LiveMeetingAnalyst+Assist.swift`'s `suggestFollowUps`
+    /// reads the same window size the background pass uses.
+    static let windowLines = 40
 
     /// How long a notice stays up before it goes away on its own. Long enough
     /// to read mid-sentence, short enough that it is gone before the user
