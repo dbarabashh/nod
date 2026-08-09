@@ -49,7 +49,7 @@ final class NotchScrollGestureView: NSView {
     private var firedThisGesture = false
 
     override func scrollWheel(with event: NSEvent) {
-        Log.ui.debug(
+        Log.ui.info(
             "notch gesture: scrollWheel phase=\(String(describing: event.phase)) momentum=\(String(describing: event.momentumPhase)) deltaY=\(event.scrollingDeltaY)"
         )
 

@@ -247,12 +247,12 @@ final class LiveMeetingAnalyst: ObservableObject {
     ///
     /// A revision always is: "we said Thursday, now it's Monday" is precisely
     /// what nobody reconstructs afterwards, and it is the one thing Nod can say
-    /// that the room itself may not have noticed. Beyond that, only a commitment
-    /// — an action — earns an interruption; a decision or an open question is
-    /// worth recording, not worth stopping someone mid-sentence for.
+    /// that the room itself may not have noticed. Beyond that, a commitment or
+    /// a decision earns an interruption; an open question is worth recording,
+    /// not worth stopping someone mid-sentence for.
     private func raiseNotice(for finding: LiveFinding) {
         let isRevision = finding.revisionOf != nil
-        guard isRevision || finding.kind == .action else { return }
+        guard isRevision || finding.kind == .action || finding.kind == .decision else { return }
         if !isRevision, let lastNoticeAt, Date().timeIntervalSince(lastNoticeAt) < Self.noticeCooldown {
             return
         }

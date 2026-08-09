@@ -57,7 +57,21 @@ final class NotchModel: ObservableObject {
     /// over it (`NotchGestureZone`). Only ever set while `geometry.hasCutout` —
     /// there is nothing to tuck into otherwise — so `derived()` doesn't need to
     /// re-check that itself.
-    private var meetingBarHidden = false
+    ///
+    /// Tucking away is the clearest possible "I'm done looking" signal, so the
+    /// `didSet` also resets `meetingBarPanel` to `.passive` — an expanded
+    /// Ask/Notes panel left open underneath would otherwise silently block
+    /// every future notice for the rest of the meeting, with nothing on
+    /// screen hinting why. Living here, on the property itself, means any
+    /// future path that tucks the bar away inherits the reset for free
+    /// instead of depending on that caller remembering it too.
+    private var meetingBarHidden = false {
+        didSet {
+            guard meetingBarHidden, !oldValue else { return }
+            meetingBarPanel = .passive
+        }
+    }
+
     private var gate: Gate?
     private var cancellables = Set<AnyCancellable>()
     /// The fold-shut-then-expand swap between two opened states, and the state
@@ -465,16 +479,26 @@ final class NotchModel: ObservableObject {
             return .offer(offer)
         }
         if session.meeting != .idle {
-            // The user's own swipe wins over everything else here — a notice
-            // arriving is not them asking to see the bar again.
+            // A notice surfaces even over a swipe-hidden bar — the whole point
+            // of a notice is that it says something the user did not ask for,
+            // and a swipe from ten minutes ago is not them declining to hear
+            // it. Never over an expanded panel, though: Ask/Notes are open
+            // because the user opened them, and taking that away to say
+            // something they did not ask for is the difference between
+            // proactive and rude.
+            if let notice = session.analyst.notice {
+                if meetingBarPanel == .passive {
+                    Log.ui.debug("notch: showing notice kind=\(notice.kind.rawValue) hidden=\(meetingBarHidden)")
+                    return .noticed(notice)
+                }
+                // `.debug`, not `.info`: `derived()` re-runs on every unrelated
+                // publisher tick (meetings sync, entitlement refresh, ...) while
+                // a notice sits blocked, so this would otherwise repeat well
+                // past what `.info` is for.
+                Log.ui.debug("notch: notice pending but panel=\(String(describing: meetingBarPanel)) blocks it")
+            }
             if meetingBarHidden {
                 return .tucked
-            }
-            // Never over an expanded panel. Ask/Notes are open because the
-            // user opened them, and taking that away to say something they
-            // did not ask for is the difference between proactive and rude.
-            if let notice = session.analyst.notice, meetingBarPanel == .passive {
-                return .noticed(notice)
             }
             return .meetingBar(meetingBarPanel)
         }
