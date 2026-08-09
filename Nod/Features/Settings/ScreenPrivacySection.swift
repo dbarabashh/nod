@@ -96,6 +96,7 @@ struct ScreenPrivacySection: View {
                         set: { screenContext.setAmbientEnabled($0) }
                     ))
                     .toggleStyle(.switch)
+                    .tint(Theme.Palette.violet)
                     .labelsHidden()
                     .controlSize(.small)
                 } else {
@@ -193,7 +194,7 @@ struct ScreenPrivacySection: View {
                 // builds hundreds of rows on every keystroke in the field.
                 let apps = filteredApps
                 if apps.isEmpty {
-                    SettingsRow(icon: "macwindow", title: emptyAppsTitle, subtitle: nil) { EmptyView() }
+                    SettingsRow(icon: "nc-window-pointer", title: emptyAppsTitle, subtitle: nil) { EmptyView() }
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
@@ -230,6 +231,7 @@ struct ScreenPrivacySection: View {
             Spacer(minLength: 12)
             Toggle("", isOn: binding(for: app))
                 .toggleStyle(.switch)
+                .tint(Theme.Palette.violet)
                 .labelsHidden()
                 .controlSize(.small)
         }
@@ -267,8 +269,8 @@ struct ScreenPrivacySection: View {
 
     private func categoryCard(_ category: WebsiteCategory) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: category.icon)
-                .font(.system(size: 14, weight: .medium))
+            Image(category.icon)
+                .icon(14)
                 .foregroundStyle(Theme.Palette.ink.opacity(0.85))
                 .frame(width: 32, height: 32)
                 .background(
@@ -287,6 +289,7 @@ struct ScreenPrivacySection: View {
             Spacer(minLength: 12)
             Toggle("", isOn: binding(for: category))
                 .toggleStyle(.switch)
+                .tint(Theme.Palette.violet)
                 .labelsHidden()
                 .controlSize(.small)
         }
@@ -406,7 +409,7 @@ struct ScreenPrivacySection: View {
                     SettingsRow(icon: style.icon, title: site, subtitle: subtitle(for: site, style: style)) {
                         Button { remove(site) } label: {
                             Image("nc-minus")
-                                .font(.system(size: 13))
+                                .icon(13)
                                 .foregroundStyle(Theme.Palette.muted)
                         }
                         .buttonStyle(.plain)

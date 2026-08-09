@@ -20,14 +20,14 @@ struct ModesSettingsSection: View {
     }
 
     /// Deliberately excludes glyphs the app uses functionally elsewhere — the
-    /// recording types (`person.2.fill`/`mic.fill`/`play.rectangle.fill`),
-    /// transport controls, and pill icons (`list.bullet`, `sparkles`,
-    /// `rectangle.stack`, `waveform`) — so a mode's icon never reads as a
-    /// recording type or a control.
+    /// recording types (`nc-users`/`nc-mic`/`nc-film`), transport controls, and
+    /// pill icons (`nc-bullet-list`, `nc-sparkle-3`, `nc-layers-3`,
+    /// `nc-stopwatch`) — so a mode's icon never reads as a recording type or a
+    /// control.
     private static let iconChoices = [
         "nc-grid-2", "nc-side-profile", "nc-window-chart-line",
-        "nc-msgs", "nc-tasks-2", "briefcase", "graduationcap",
-        "megaphone", "lightbulb", "flag", "target", "star", "bolt", "tag"
+        "nc-msgs", "nc-tasks-2", "nc-suitcase-3", "nc-graduation-cap",
+        "nc-bullhorn", "nc-lightbulb-3", "nc-flag-7", "nc-target", "nc-star", "nc-bolt-lightning", "nc-tag"
     ]
 
     var body: some View {
@@ -74,6 +74,7 @@ struct ModesSettingsSection: View {
                 } label: {
                     HStack(spacing: 5) {
                         Image("nc-plus")
+                            .icon(12)
                         Text("New")
                     }
                     .font(.system(size: 12, weight: .medium))
@@ -116,8 +117,8 @@ struct ModesSettingsSection: View {
             editingID = mode.id
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: mode.icon)
-                    .font(.system(size: 11, weight: .semibold))
+                Image(mode.icon)
+                    .icon(11)
                 Text(mode.name)
                     .font(.system(size: 12, weight: .medium))
                 if isActive {
@@ -232,7 +233,7 @@ private struct ModeEditorForm: View {
 
             HStack(spacing: 12) {
                 if isActive {
-                    Label("Active mode", image: "nc-circle-check")
+                    IconLabel(title: "Active mode", icon: "nc-circle-check", size: 12)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Theme.Palette.muted)
                 } else {
@@ -241,7 +242,7 @@ private struct ModeEditorForm: View {
                 Spacer(minLength: 0)
                 if canDelete {
                     Button(role: .destructive, action: onDelete) {
-                        Label("Delete", image: "nc-trash")
+                        IconLabel(title: "Delete", icon: "nc-trash")
                     }
                 }
             }
@@ -264,8 +265,8 @@ private struct ModeEditorForm: View {
             draft.icon = icon
             onChange(draft)
         } label: {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
+            Image(icon)
+                .icon(13)
                 .foregroundStyle(selected ? Color.white : Theme.Palette.muted)
                 .frame(width: 34, height: 30)
                 .background(

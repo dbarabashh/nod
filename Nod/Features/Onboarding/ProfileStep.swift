@@ -205,7 +205,7 @@ private struct ProfilePicker<Option: Identifiable & Hashable>: View {
                         selection = option
                     } label: {
                         if option == selection {
-                            Label(option[keyPath: title], image: "nc-check")
+                            IconLabel(title: option[keyPath: title], icon: "nc-check")
                         } else {
                             Text(option[keyPath: title])
                         }
@@ -245,7 +245,7 @@ private struct ProfilePicker<Option: Identifiable & Hashable>: View {
             Spacer(minLength: 0)
 
             Image("nc-chevron-expand-y")
-                .font(.system(size: 10, weight: .semibold))
+                .icon(10)
                 .foregroundStyle(Theme.Palette.muted)
         }
         .profileFieldSurface()

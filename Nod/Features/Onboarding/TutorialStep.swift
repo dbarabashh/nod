@@ -49,8 +49,8 @@ private struct BulletRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            Image(systemName: bullet.icon)
-                .font(.system(size: 15, weight: .regular))
+            Image(bullet.icon)
+                .icon(15)
                 .foregroundStyle(Theme.Palette.cyan)
                 .frame(width: 34, height: 34)
                 .background(

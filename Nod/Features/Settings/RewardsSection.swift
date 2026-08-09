@@ -58,7 +58,7 @@ struct RewardsSection: View {
         return SettingsCard {
             VStack(alignment: .leading, spacing: 10) {
                 SettingsRow(
-                    icon: "hourglass",
+                    icon: "nc-hourglass",
                     title: canClaim ? "\(months) on the way" : "\(months) waiting",
                     subtitle: canClaim
                         ? "Your earned months are applied to your plan automatically as it renews."

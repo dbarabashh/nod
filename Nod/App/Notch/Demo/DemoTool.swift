@@ -72,7 +72,7 @@ struct DemoToolIcon: View {
                 .background(plate)
         } else {
             Image("nc-msgs")
-                .font(.system(size: size * 0.5, weight: .semibold))
+                .icon(size * 0.5)
                 .foregroundStyle(.white)
                 .frame(width: size, height: size)
                 .background(

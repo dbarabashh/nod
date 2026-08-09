@@ -81,7 +81,7 @@ struct ActionDetailView: View {
         HStack(spacing: 10) {
             Button(action: onClose) {
                 Image("nc-xmark")
-                    .font(.system(size: 12, weight: .semibold))
+                    .icon(12)
                     .foregroundStyle(Theme.Palette.muted)
                     .iconButtonChrome()
             }
@@ -161,8 +161,8 @@ struct ActionDetailView: View {
             SectionLabel("Where it came from")
             Button { onOpenSession(meeting.id) } label: {
                 HStack(alignment: .top, spacing: 11) {
-                    Image(systemName: meeting.kind.icon)
-                        .font(.system(size: 12, weight: .semibold))
+                    Image(meeting.kind.icon)
+                        .icon(12)
                         .foregroundStyle(Theme.Palette.ink.opacity(0.7))
                         .frame(width: 20, height: 20)
                     VStack(alignment: .leading, spacing: 3) {
@@ -183,7 +183,7 @@ struct ActionDetailView: View {
                     }
                     Spacer(minLength: 0)
                     Image("nc-chevron-right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .icon(10)
                         .foregroundStyle(Theme.Palette.muted)
                 }
                 .padding(12)
@@ -235,8 +235,8 @@ struct ActionDetailView: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .medium))
+                Image(icon)
+                    .icon(11)
                 Text(title)
                     .font(.system(size: 12.5, weight: .medium))
             }

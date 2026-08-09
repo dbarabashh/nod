@@ -103,6 +103,7 @@
 		702922A73A379975CC911D82 /* SettingsFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF4914E784B549D06AA02CE8 /* SettingsFocus.swift */; };
 		70C78557DAD1E05F7BF03CC6 /* PromptLibrary+Recap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 712C1BB3C8E46B4817080905 /* PromptLibrary+Recap.swift */; };
 		71C8E8A1C1378B54B6FCEC88 /* ScreenCrossingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5702D3489FACF515692CB79C /* ScreenCrossingTests.swift */; };
+		72047276AAD7C8A3B488DB44 /* Icon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CADC689E374055A3D311E0C /* Icon.swift */; };
 		72D5A4B3C55A13D533972924 /* OnboardingStrings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73358F5121D4B8DF22D81BF2 /* OnboardingStrings.swift */; };
 		740905E7CA7257723BCDF95B /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17BCABF79A32F8ACA7E5451A /* AppServices.swift */; };
 		747F517D59F5D38A72B7857A /* TodayDigestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E698628F4A578628DC2D3CD3 /* TodayDigestTests.swift */; };
@@ -321,6 +322,7 @@
 		39A09FBE62C4EFB394C785E4 /* DemoStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoStage.swift; sourceTree = "<group>"; };
 		3A8EBE2A6A2ED1B0678E396D /* ReleaseChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseChannel.swift; sourceTree = "<group>"; };
 		3BF7A5AF79A5E5752F310055 /* WindowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowCoordinator.swift; sourceTree = "<group>"; };
+		3CADC689E374055A3D311E0C /* Icon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Icon.swift; sourceTree = "<group>"; };
 		3E262BBE3ACF9732C0FDA8EE /* PromptLibrary+Assist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PromptLibrary+Assist.swift"; sourceTree = "<group>"; };
 		3E81B216E67321BA64692A15 /* QuestionIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionIntent.swift; sourceTree = "<group>"; };
 		3F59B4A87DDD038B4DC0C244 /* KnowledgeChatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeChatStore.swift; sourceTree = "<group>"; };
@@ -1022,6 +1024,7 @@
 				9304B4FAD03EB638DDBAD2E7 /* ActionCheckbox.swift */,
 				77CC55E246DF44FD3DFD4FB6 /* ChatComponents.swift */,
 				77B31E1CCFF856963380CF50 /* HoverTooltip.swift */,
+				3CADC689E374055A3D311E0C /* Icon.swift */,
 				A4BEF0198D68E799494BEB36 /* IconButtonChrome.swift */,
 				8B1D47F66DD22DC2CF18750D /* InlineConfirmButtons.swift */,
 				19A9758C570690CC4B71C91F /* LabelComponents.swift */,
@@ -1380,6 +1383,7 @@
 				DFE8989532DB7DC82E6AF32D /* HotkeyRecorder.swift in Sources */,
 				1E3D72CB5610AB5F53E39D7D /* HoverReveal.swift in Sources */,
 				795DEB150A1AD1EB4B074432 /* HoverTooltip.swift in Sources */,
+				72047276AAD7C8A3B488DB44 /* Icon.swift in Sources */,
 				8BDBC563F9E34D4186CA4B9F /* IconButtonChrome.swift in Sources */,
 				793095CDEB97DDFF8C34F189 /* InlineConfirmButtons.swift in Sources */,
 				97A3EA930F9F8FB2AA23766D /* InstalledApps.swift in Sources */,

@@ -72,7 +72,7 @@ struct ProfileSettingsSection: View {
     private var statusLabel: some View {
         switch saveState {
         case .saved:
-            Label("Saved", image: "nc-circle-check")
+            IconLabel(title: "Saved", icon: "nc-circle-check", size: 11.5)
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundColor(Theme.Palette.success)
                 .transition(.opacity)

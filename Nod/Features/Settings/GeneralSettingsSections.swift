@@ -65,6 +65,7 @@ struct MeetingDetectionSection: View {
             ) {
                 Toggle("", isOn: $preference.isEnabled)
                     .toggleStyle(.switch)
+                    .tint(Theme.Palette.violet)
                     .labelsHidden()
                     .controlSize(.small)
             }
@@ -112,6 +113,7 @@ struct CalendarSettingsSection: View {
             ) {
                 Toggle("", isOn: $calendar.isEnabled)
                     .toggleStyle(.switch)
+                    .tint(Theme.Palette.violet)
                     .labelsHidden()
                     .controlSize(.small)
             }

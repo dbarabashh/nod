@@ -154,7 +154,7 @@ struct SessionChatView: View {
     private func errorRow(_ detail: String) -> some View {
         HStack(spacing: 6) {
             Image("nc-triangle-warning")
-                .font(.system(size: 11, weight: .semibold))
+                .icon(11)
                 .foregroundStyle(Theme.Palette.warning)
             Text(detail)
                 .font(.system(size: 11.5))
@@ -181,7 +181,7 @@ struct SessionChatView: View {
 
             Button(action: { send() }, label: {
                 Image("nc-circle-arrow-up")
-                    .font(.system(size: 13, weight: .bold))
+                    .icon(13)
                     .foregroundStyle(canSend ? Theme.GlassButton.text : .white)
                     .frame(width: 32, height: 32)
                     .background(

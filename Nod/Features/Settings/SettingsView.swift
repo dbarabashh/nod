@@ -180,8 +180,8 @@ struct SettingsView: View {
         let isSelected = tab == item
         return Button { tab = item } label: {
             HStack(spacing: 10) {
-                Image(systemName: item.icon)
-                    .font(.system(size: 13, weight: .medium))
+                Image(item.icon)
+                    .icon(13)
                     .frame(width: 18)
                 Text(item.title)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
@@ -279,7 +279,7 @@ struct SettingsView: View {
     private var shortcutsPane: some View {
         SettingsCard {
             SettingsRow(
-                icon: "macwindow",
+                icon: "nc-window-pointer",
                 title: "Show / hide panel",
                 subtitle: "Toggle the floating panel from anywhere, even when another app is focused. Avoid ⌘H — macOS reserves it."
             ) {

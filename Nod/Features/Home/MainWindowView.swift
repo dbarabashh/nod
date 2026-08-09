@@ -176,7 +176,7 @@ struct MainWindowView: View {
             withAnimation(.standard(reduceMotion: reduceMotion)) { contextCollapsed = true }
         } label: {
             Image("nc-sidebar-right")
-                .font(.system(size: 11, weight: .medium))
+                .icon(11)
                 .foregroundStyle(Theme.Palette.muted)
                 .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
@@ -291,8 +291,8 @@ struct MainWindowView: View {
 
     private func sessionChatHeader(_ meeting: Meeting) -> some View {
         HStack(spacing: 9) {
-            Image(systemName: meeting.kind.icon)
-                .font(.system(size: 13, weight: .semibold))
+            Image(meeting.kind.icon)
+                .icon(13)
                 .foregroundStyle(Theme.Palette.violet)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Ask about this session")
@@ -333,7 +333,7 @@ struct MainWindowView: View {
         } else {
             Button { confirmingClearChat = true } label: {
                 Image("nc-scissors")
-                    .font(.system(size: 13, weight: .medium))
+                    .icon(13)
                     .foregroundStyle(Theme.Palette.muted)
                     .frame(width: 28, height: 28)
             }
@@ -420,7 +420,7 @@ private struct UndoToast: View {
     var body: some View {
         HStack(spacing: 10) {
             Image("nc-trash")
-                .font(.system(size: 12, weight: .semibold))
+                .icon(12)
                 .foregroundStyle(Theme.Palette.muted)
             Text(message)
                 .font(.system(size: 12, weight: .regular))
@@ -437,7 +437,7 @@ private struct UndoToast: View {
             .buttonStyle(.plain)
             Button(action: onDismiss) {
                 Image("nc-xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .icon(9)
                     .foregroundColor(Theme.Palette.muted)
                     .frame(width: 18, height: 18)
                     .background(Circle().fill(Color.white.opacity(0.08)))

@@ -49,8 +49,8 @@ struct RelatedSessionsView: View {
 
     private func chip(_ entity: Entity) -> some View {
         HStack(spacing: 5) {
-            Image(systemName: entity.kind.icon)
-                .font(.system(size: 9, weight: .semibold))
+            Image(entity.kind.icon)
+                .icon(9)
                 .foregroundStyle(tint(entity.kind))
             Text(entity.name)
                 .font(.system(size: 12, weight: .medium))
@@ -82,8 +82,8 @@ struct RelatedSessionsView: View {
 
     private func relatedRow(_ session: Meeting) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: session.kind.icon)
-                .font(.system(size: 12, weight: .regular))
+            Image(session.kind.icon)
+                .icon(12)
                 .foregroundStyle(Theme.Palette.muted)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
@@ -97,7 +97,7 @@ struct RelatedSessionsView: View {
             }
             Spacer(minLength: 0)
             Image("nc-chevron-right")
-                .font(.system(size: 10, weight: .semibold))
+                .icon(10)
                 .foregroundStyle(Theme.Palette.muted)
         }
         .padding(.horizontal, 12)

@@ -86,7 +86,7 @@ struct SessionsListView: View {
     private var searchField: some View {
         HStack(spacing: 8) {
             Image("nc-magnifier")
-                .font(.system(size: 12, weight: .medium))
+                .icon(12)
                 .foregroundStyle(Theme.Palette.muted)
             TextField("Search sessions", text: $searchQuery)
                 .textFieldStyle(.plain)
@@ -95,7 +95,7 @@ struct SessionsListView: View {
             if !searchQuery.isEmpty {
                 Button { searchQuery = "" } label: {
                     Image("nc-circle-xmark")
-                        .font(.system(size: 12))
+                        .icon(12)
                         .foregroundStyle(Theme.Palette.muted)
                 }
                 .buttonStyle(.plain)
@@ -166,7 +166,7 @@ struct SessionsListView: View {
                 Button(action: refreshActive) {
                     HStack(spacing: 4) {
                         Image("nc-triangle-warning")
-                            .font(.system(size: 11, weight: .semibold))
+                            .icon(11)
                         Text("Couldn't sync")
                             .font(.system(size: 11, weight: .regular))
                     }
@@ -187,7 +187,7 @@ struct SessionsListView: View {
             }
             Button(action: refreshActive) {
                 Image("nc-refresh-2")
-                    .font(.system(size: 13, weight: .medium))
+                    .icon(13)
                     .foregroundStyle(Theme.Palette.muted)
                     .frame(width: 28, height: 28)
             }
@@ -209,7 +209,7 @@ struct SessionsListView: View {
         } else if !meetingStore.meetings.isEmpty {
             Button(action: rebuildIndex) {
                 Image("nc-sparkle-3")
-                    .font(.system(size: 13, weight: .medium))
+                    .icon(13)
                     .foregroundStyle(Theme.Palette.muted)
                     .frame(width: 28, height: 28)
             }
@@ -336,7 +336,7 @@ struct SessionsListView: View {
     private var emptyAllState: some View {
         VStack(spacing: 14) {
             Image("nc-inbox-arrow-down")
-                .font(.system(size: 36, weight: .regular))
+                .icon(36)
                 .foregroundStyle(Theme.Palette.muted)
             Text("No sessions yet.")
                 .font(.system(size: 15, weight: .semibold))
@@ -373,7 +373,7 @@ struct SessionsListView: View {
     private var emptyTrashState: some View {
         VStack(spacing: 14) {
             Image("nc-trash")
-                .font(.system(size: 32, weight: .regular))
+                .icon(32)
                 .foregroundStyle(Theme.Palette.muted)
             Text("Trash is empty.")
                 .font(.system(size: 15, weight: .semibold))
@@ -390,7 +390,7 @@ struct SessionsListView: View {
     private var noMatchesState: some View {
         VStack(spacing: 12) {
             Image("nc-magnifier")
-                .font(.system(size: 28, weight: .regular))
+                .icon(28)
                 .foregroundStyle(Theme.Palette.muted)
             Text("No matches for \u{201C}\(searchQuery.trimmingCharacters(in: .whitespacesAndNewlines))\u{201D}")
                 .font(.system(size: 13, weight: .semibold))
@@ -404,7 +404,7 @@ struct SessionsListView: View {
     private func errorState(message: String) -> some View {
         VStack(spacing: 14) {
             Image("nc-triangle-warning")
-                .font(.system(size: 28, weight: .regular))
+                .icon(28)
                 .foregroundStyle(Theme.Palette.warning)
             Text("Couldn't load.")
                 .font(.system(size: 14, weight: .semibold))
@@ -446,12 +446,12 @@ struct SessionsListView: View {
                 Button {
                     Task { await performSoftDelete(meeting) }
                 } label: {
-                    Label("Delete", image: "nc-trash")
+                    IconLabel(title: "Delete", icon: "nc-trash")
                 }
                 Button(role: .destructive) {
                     pendingHardDelete = meeting
                 } label: {
-                    Label("Delete Forever", image: "nc-trash")
+                    IconLabel(title: "Delete Forever", icon: "nc-trash")
                 }
             }
         }
@@ -468,7 +468,7 @@ struct SessionsListView: View {
                 Button(role: .destructive) {
                     pendingHardDelete = meeting
                 } label: {
-                    Label("Delete Forever", image: "nc-trash")
+                    IconLabel(title: "Delete Forever", icon: "nc-trash")
                 }
             }
             .listRowInsets(MeetingRow.rowInsets)
@@ -596,7 +596,7 @@ private struct MeetingRow: View {
             if isUnsynced, mode == .all {
                 HStack(spacing: 3) {
                     Image("nc-refresh-2")
-                        .font(.system(size: 9, weight: .semibold))
+                        .icon(9)
                     Text("Not synced")
                         .font(.system(size: 10, weight: .medium))
                 }
@@ -633,6 +633,7 @@ private struct MeetingRow: View {
         } label: {
             HStack(spacing: 4) {
                 Image("nc-arrow-dotted-rotate-anticlockwise")
+                    .icon(10)
                 Text("Restore")
             }
             .font(.system(size: 10, weight: .semibold))
@@ -654,8 +655,8 @@ private struct MeetingRow: View {
     }
 
     private var kindIcon: some View {
-        Image(systemName: meeting.kind.icon)
-            .font(.system(size: 12, weight: .semibold))
+        Image(meeting.kind.icon)
+            .icon(12)
             .foregroundStyle(kindTint)
             .frame(width: 28, height: 28)
             .background(

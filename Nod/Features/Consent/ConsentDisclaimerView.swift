@@ -18,7 +18,7 @@ struct ConsentDisclaimerView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 Image("nc-shield-check")
-                    .font(.system(size: 18, weight: .semibold))
+                    .icon(18)
                     .foregroundStyle(Theme.Palette.warning)
                 Text(strings.title)
                     .font(.system(size: 17, weight: .semibold))

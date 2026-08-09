@@ -101,7 +101,7 @@ struct ActionItemsAggregateView: View {
     private var upsell: some View {
         VStack(spacing: 12) {
             Image("nc-tasks-2")
-                .font(.system(size: 30, weight: .regular))
+                .icon(30)
                 .foregroundStyle(Theme.Palette.violet)
             Text("Track action items across meetings")
                 .font(.system(size: 15, weight: .semibold))
@@ -132,7 +132,7 @@ struct ActionItemsAggregateView: View {
     private func undoToast(_ item: ActionItem) -> some View {
         HStack(spacing: 10) {
             Image("nc-circle-check")
-                .font(.system(size: 13, weight: .semibold))
+                .icon(13)
                 .foregroundStyle(Theme.Palette.brand)
             Text("Marked done")
                 .font(.system(size: 12, weight: .regular))
@@ -153,7 +153,7 @@ struct ActionItemsAggregateView: View {
                 dismissUndo()
             } label: {
                 Image("nc-xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .icon(9)
                     .foregroundColor(Theme.Palette.muted)
                     .frame(width: 18, height: 18)
                     .background(Circle().fill(Color.white.opacity(0.08)))
@@ -178,7 +178,7 @@ struct ActionItemsAggregateView: View {
         HStack(spacing: 10) {
             Button(action: onBack) {
                 Image("nc-chevron-left")
-                    .font(.system(size: 13, weight: .semibold))
+                    .icon(13)
                     .foregroundStyle(Theme.Palette.muted)
                     .iconButtonChrome()
             }
@@ -251,8 +251,8 @@ struct ActionItemsAggregateView: View {
             onOpenMeeting(group.meetingID)
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: meetingIcon(group.meetingID))
-                    .font(.system(size: 10.5, weight: .semibold))
+                Image(meetingIcon(group.meetingID))
+                    .icon(10.5)
                 Text(meetingTitle(group.meetingID))
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
@@ -330,7 +330,7 @@ struct ActionItemsAggregateView: View {
             } label: {
                 HStack(spacing: 9) {
                     Image("nc-plus")
-                        .font(.system(size: 11, weight: .semibold))
+                        .icon(11)
                     Text("Add task")
                         .font(.system(size: 13, weight: .medium))
                     Spacer(minLength: 0)
@@ -349,7 +349,7 @@ struct ActionItemsAggregateView: View {
         HStack(spacing: 2) {
             Button(action: save) {
                 Image("nc-check")
-                    .font(.system(size: 11, weight: .bold))
+                    .icon(11)
                     .foregroundStyle(Theme.Palette.brand)
                     .frame(width: 26, height: 26)
             }
@@ -357,7 +357,7 @@ struct ActionItemsAggregateView: View {
             .help("Save (↩)")
             Button(action: cancel) {
                 Image("nc-xmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .icon(10)
                     .foregroundStyle(Theme.Palette.muted)
                     .frame(width: 26, height: 26)
             }
@@ -452,7 +452,7 @@ struct ActionItemsAggregateView: View {
             Task { await delete(item) }
         } label: {
             Image("nc-trash")
-                .font(.system(size: 11, weight: .semibold))
+                .icon(11)
                 .foregroundStyle(Theme.Palette.danger)
                 .frame(width: 26, height: 26)
                 .background(
@@ -473,32 +473,32 @@ struct ActionItemsAggregateView: View {
         Button {
             startEdit(item)
         } label: {
-            Label("Edit", image: "nc-pen-writing")
+            IconLabel(title: "Edit", icon: "nc-pen-writing")
         }
         Button {
             onOpenMeeting(item.meetingID)
         } label: {
-            Label("Open meeting", image: "nc-arrow-up-right")
+            IconLabel(title: "Open meeting", icon: "nc-arrow-up-right")
         }
         if let matchID = flagged[item.id] {
             Button {
                 dismissDuplicate(item.id, matchID)
             } label: {
-                Label("Not a duplicate", image: "nc-check")
+                IconLabel(title: "Not a duplicate", icon: "nc-check")
             }
         }
         Divider()
         Button(role: .destructive) {
             Task { await delete(item) }
         } label: {
-            Label("Delete", image: "nc-trash")
+            IconLabel(title: "Delete", icon: "nc-trash")
         }
     }
 
     private func duplicatePill(for item: ActionItem) -> some View {
         HStack(spacing: 3) {
             Image("nc-files-2")
-                .font(.system(size: 8, weight: .semibold))
+                .icon(8)
             Text("Possible duplicate")
                 .font(.system(size: 10.5, weight: .medium))
         }
@@ -506,7 +506,7 @@ struct ActionItemsAggregateView: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(Capsule().fill(Theme.Palette.warning.opacity(0.12)))
-        .hoverTooltip(duplicateHelp(for: item), systemImage: "nc-files-2")
+        .hoverTooltip(duplicateHelp(for: item), icon: "nc-files-2")
     }
 
     // MARK: - States
@@ -514,7 +514,7 @@ struct ActionItemsAggregateView: View {
     private var emptyState: some View {
         VStack(spacing: 14) {
             Image("nc-tasks-2")
-                .font(.system(size: 34, weight: .regular))
+                .icon(34)
                 .foregroundStyle(Theme.Palette.muted)
             Text(filter == .open ? "No open action items." : "No action items yet.")
                 .font(.system(size: 15, weight: .semibold))

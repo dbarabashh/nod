@@ -55,7 +55,7 @@ struct PermissionsStep: View {
             if permissions.screenRecording != .authorized {
                 HStack(spacing: 6) {
                     Image("nc-shield-check")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .icon(10.5)
                     Text(strings.screenPreemptiveBody)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -209,7 +209,7 @@ private struct RelaunchCard: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             Image("nc-refresh-2")
-                .font(.system(size: 15, weight: .semibold))
+                .icon(15)
                 .foregroundStyle(Theme.Palette.cyan)
 
             Text(hint)

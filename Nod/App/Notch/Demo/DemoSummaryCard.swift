@@ -40,7 +40,7 @@ struct DemoSummaryCard: View {
     private var head: some View {
         HStack(spacing: 8) {
             Image("nc-file")
-                .font(.system(size: 12, weight: .semibold))
+                .icon(12)
                 .foregroundStyle(Theme.Palette.brand)
             Text(summary.title)
                 .font(.system(size: 12.5, weight: .semibold))
@@ -128,7 +128,7 @@ struct DemoSummaryCard: View {
             ForEach(items, id: \.self) { item in
                 HStack(alignment: .top, spacing: 7) {
                     Image("nc-check")
-                        .font(.system(size: 8, weight: .bold))
+                        .icon(8)
                         .foregroundStyle(Theme.Palette.success)
                         .padding(.top, 2)
                     Text(item)
@@ -197,7 +197,7 @@ private struct DemoScrollHint: View {
 
     var body: some View {
         Image("nc-chevron-down")
-            .font(.system(size: 9, weight: .bold))
+            .icon(9)
             .foregroundStyle(Theme.Palette.muted)
             .offset(y: nudging ? 1.5 : -1.5)
             .onAppear { nudging = !reduceMotion }

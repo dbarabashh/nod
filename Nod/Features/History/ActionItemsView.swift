@@ -119,7 +119,7 @@ struct ActionItemsView: View {
             Button(role: .destructive) {
                 Task { await actionItemStore.softDelete(itemID: item.id) }
             } label: {
-                Label("Delete", image: "nc-trash")
+                IconLabel(title: "Delete", icon: "nc-trash")
             }
         }
     }

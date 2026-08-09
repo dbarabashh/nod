@@ -14,7 +14,7 @@ struct ActionCheckbox: View {
                 .frame(width: 18, height: 18)
             if done {
                 Image("nc-check")
-                    .font(.system(size: 9.5, weight: .bold))
+                    .icon(9.5)
                     .foregroundStyle(Theme.Palette.bg)
             }
         }

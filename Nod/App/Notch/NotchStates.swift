@@ -45,7 +45,7 @@ struct NotchOffer: View {
                     subtitle
                 }
                 Spacer(minLength: 0)
-                NotchGlyphButton(systemName: "nc-xmark", help: "Not now", action: onDismiss)
+                NotchGlyphButton(icon: "nc-xmark", help: "Not now", action: onDismiss)
             }
             actions
         }
@@ -92,7 +92,7 @@ struct NotchOffer: View {
                 .frame(width: 24, height: 24)
         } else {
             Image(offer.isRicher ? "nc-calendar-days" : "nc-video")
-                .font(.system(size: 13, weight: .semibold))
+                .icon(13)
                 .foregroundStyle(Theme.Palette.brand)
                 .frame(width: 24, height: 24)
         }
@@ -188,8 +188,8 @@ struct NotchNotice: View {
     /// described: "Noted — send the updated deck before Friday."
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: style.icon)
-                .font(.system(size: 12, weight: .semibold))
+            Image(style.icon)
+                .icon(12)
                 .foregroundStyle(Theme.Palette.brand)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -205,7 +205,7 @@ struct NotchNotice: View {
             }
 
             Spacer(minLength: 0)
-            NotchGlyphButton(systemName: "nc-xmark", help: style.dismissHelp, action: onDismiss)
+            NotchGlyphButton(icon: "nc-xmark", help: style.dismissHelp, action: onDismiss)
         }
     }
 }
@@ -302,28 +302,28 @@ struct NotchMicMenuButton: View {
                     audioCapture.preferredInputUID = device.uid
                 } label: {
                     if isSelected(device) {
-                        Label(device.name, image: "nc-check")
+                        IconLabel(title: device.name, icon: "nc-check")
                     } else {
                         Text(device.name)
                     }
                 }
             }
         } label: {
-            HStack(spacing: 1) {
-                Image(systemName: iconName)
-                    .font(.system(size: 9, weight: .bold))
+            HStack(spacing: 2) {
+                Image(iconName)
+                    .icon(10)
                     .foregroundColor(iconTint)
                 Image("nc-chevron-down")
-                    .font(.system(size: 6, weight: .bold))
+                    .icon(7)
                     .foregroundColor(Theme.Palette.muted.opacity(0.7))
             }
-            .frame(width: 24, height: 18)
+            .frame(width: 32, height: 24)
             .background(Capsule().fill(Theme.Palette.surfaceStrong))
         } primaryAction: {
             session.toggleMic()
         }
         .menuStyle(.borderlessButton)
-        .frame(width: 24, height: 18)
+        .frame(width: 32, height: 24)
         .help(helpText)
         .onReceive(audioCapture.$lastError) { lastError = $0 }
         .onReceive(audioCapture.$preferredInputUID) { preferredInputUID = $0 }
@@ -416,8 +416,8 @@ struct NotchActionButton: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 if let icon {
-                    Image(systemName: icon)
-                        .font(.system(size: 12, weight: .semibold))
+                    Image(icon)
+                        .icon(12)
                 }
                 Text(title)
                     .font(.system(size: 12.5, weight: .semibold))
@@ -439,14 +439,14 @@ struct NotchActionButton: View {
 /// close affordance doesn't change size, chrome or press behaviour depending on
 /// which state happens to be showing.
 struct NotchGlyphButton: View {
-    let systemName: String
+    let icon: String
     let help: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 9, weight: .bold))
+            Image(icon)
+                .icon(9)
                 .foregroundColor(Theme.Palette.muted)
                 .frame(width: 20, height: 20)
                 .background(Circle().fill(Theme.Palette.surfaceStrong))

@@ -28,13 +28,13 @@ struct NotchRecapCard: View {
     private var header: some View {
         HStack(spacing: 8) {
             Image("nc-file")
-                .font(.system(size: 12, weight: .semibold))
+                .icon(12)
                 .foregroundStyle(Theme.Palette.brand)
             Text("Meeting summary")
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
             Spacer(minLength: 0)
-            NotchGlyphButton(systemName: "nc-xmark", help: "Dismiss", action: onClose)
+            NotchGlyphButton(icon: "nc-xmark", help: "Dismiss", action: onClose)
         }
     }
 

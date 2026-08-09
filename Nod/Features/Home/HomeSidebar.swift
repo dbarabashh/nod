@@ -117,7 +117,7 @@ struct HomeSidebar: View {
         } label: {
             HStack(spacing: 8) {
                 Image("nc-plus")
-                    .font(.system(size: 12, weight: .bold))
+                    .icon(12)
                 Text("Capture")
                     .font(.system(size: 13.5, weight: .semibold))
                 Spacer(minLength: 0)
@@ -153,7 +153,7 @@ struct HomeSidebar: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Button { captureHintSeen = true } label: {
                     Image("nc-xmark")
-                        .font(.system(size: 8, weight: .bold))
+                        .icon(8)
                         .foregroundStyle(Theme.Palette.muted)
                         .frame(width: 16, height: 16)
                         .contentShape(Rectangle())
@@ -186,7 +186,7 @@ struct HomeSidebar: View {
             // decoration beside the row and users didn't find it.
             Button(action: onNewChat) {
                 Image("nc-pen-writing")
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .icon(13.5)
                     .foregroundStyle(newChatHovering ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.72))
                     // Stretches to the row beside it where the stack has a
                     // height to give — inside a `ScrollView` it doesn't, and
@@ -215,8 +215,8 @@ struct HomeSidebar: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 9) {
-                Image(systemName: icon)
-                    .font(.system(size: 12.5, weight: .medium))
+                Image(icon)
+                    .icon(12.5)
                     .frame(width: 16)
                 Text(title)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
@@ -299,7 +299,7 @@ struct HomeSidebar: View {
         Button { isAddingProject = true } label: {
             HStack(spacing: 9) {
                 Image("nc-plus")
-                    .font(.system(size: 11, weight: .semibold))
+                    .icon(11)
                     .frame(width: 16)
                 Text("Add project")
                     .font(.system(size: 13))
@@ -363,7 +363,7 @@ struct HomeSidebar: View {
         let isOpen = chat.threadID == thread.id && surface == .chat
         return HStack(spacing: 9) {
             Image("nc-msgs")
-                .font(.system(size: 11, weight: .medium))
+                .icon(11)
                 .frame(width: 16)
             Text(thread.displayTitle)
                 .font(.system(size: 12.5, weight: isOpen ? .semibold : .regular))
@@ -394,7 +394,7 @@ struct HomeSidebar: View {
         }
         .contextMenu {
             Button(role: .destructive) { confirmingDeleteThread = thread.id } label: {
-                Label("Delete", image: "nc-trash")
+                IconLabel(title: "Delete", icon: "nc-trash")
             }
         }
     }
@@ -448,7 +448,7 @@ struct HomeSidebar: View {
         Button { onSelect(.settings) } label: {
             HStack(spacing: 9) {
                 Image("nc-user")
-                    .font(.system(size: 15, weight: .regular))
+                    .icon(15)
                     .foregroundStyle(Theme.Palette.muted)
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 0) {

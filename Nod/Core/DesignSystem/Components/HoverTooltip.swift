@@ -14,7 +14,7 @@ import SwiftUI
 private struct HoverTooltipModifier: ViewModifier {
     let text: String
     let detail: String?
-    let systemImage: String?
+    let icon: String?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isVisible = false
@@ -45,7 +45,7 @@ private struct HoverTooltipModifier: ViewModifier {
                                 id: identity,
                                 text: text,
                                 detail: detail,
-                                systemImage: systemImage,
+                                icon: icon,
                                 anchor: geo.frame(in: .named(TooltipSpace.name))
                             )
                         )
@@ -72,7 +72,7 @@ struct TooltipRequest: Equatable {
     let id: UUID
     let text: String
     let detail: String?
-    let systemImage: String?
+    let icon: String?
     let anchor: CGRect
 }
 
@@ -116,8 +116,8 @@ extension View {
     /// Styled hover explainer in place of `.help(_:)` — same information, drawn
     /// in the app's material. The text is mirrored to an accessibility hint so
     /// dropping AppKit's tooltip doesn't drop it for VoiceOver.
-    func hoverTooltip(_ text: String, detail: String? = nil, systemImage: String? = nil) -> some View {
-        modifier(HoverTooltipModifier(text: text, detail: detail, systemImage: systemImage))
+    func hoverTooltip(_ text: String, detail: String? = nil, icon: String? = nil) -> some View {
+        modifier(HoverTooltipModifier(text: text, detail: detail, icon: icon))
             .accessibilityHint([text, detail].compactMap { $0 }.joined(separator: ". "))
     }
 }
@@ -137,7 +137,7 @@ private struct TooltipLayer: View {
         TooltipCard(
             text: request.text,
             detail: request.detail,
-            systemImage: request.systemImage,
+            icon: request.icon,
             tailEdge: placesBelow ? .top : .bottom
         )
         .fixedSize(horizontal: false, vertical: true)
@@ -164,7 +164,7 @@ private struct TooltipLayer: View {
 struct TooltipCard: View {
     let text: String
     var detail: String?
-    var systemImage: String?
+    var icon: String?
     var tailEdge: VerticalEdge = .bottom
 
     static let tailHeight: CGFloat = 7
@@ -191,9 +191,9 @@ struct TooltipCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 7) {
-            if let systemImage {
-                Image(systemName: systemImage)
-                    .font(.system(size: 10.5, weight: .semibold))
+            if let icon {
+                Image(icon)
+                    .icon(10.5)
                     .foregroundStyle(Theme.Palette.muted)
                     .padding(.top, 1)
             }

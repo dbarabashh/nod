@@ -21,6 +21,7 @@ struct DemoSettingsSection: View {
                     Toggle("", isOn: $playback.isEnabled)
                         .labelsHidden()
                         .toggleStyle(.switch)
+                        .tint(Theme.Palette.violet)
                 }
 
                 if playback.isEnabled {
@@ -44,7 +45,7 @@ struct DemoSettingsSection: View {
                     SettingsRowDivider()
 
                     SettingsRow(
-                        icon: "metronome",
+                        icon: "nc-stopwatch",
                         title: "Pace",
                         subtitle: paceSubtitle
                     ) {
@@ -60,13 +61,14 @@ struct DemoSettingsSection: View {
                 SettingsRowDivider()
 
                 SettingsRow(
-                    icon: "macbook",
+                    icon: "nc-laptop",
                     title: "Preview without the notch",
                     subtitle: "Draw the surface the way every external display and every pre-2021 Mac sees it — a free-standing pill instead of a shape that continues the cut-out."
                 ) {
                     Toggle("", isOn: $playback.previewWithoutNotch)
                         .labelsHidden()
                         .toggleStyle(.switch)
+                        .tint(Theme.Palette.violet)
                 }
             }
 

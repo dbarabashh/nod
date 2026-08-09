@@ -14,8 +14,8 @@ struct InactivityPrompt: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: prompt.icon)
-                .font(.system(size: 12, weight: .semibold))
+            Image(prompt.icon)
+                .icon(12)
                 .foregroundStyle(Theme.Palette.warning)
 
             VStack(alignment: .leading, spacing: 1) {
@@ -55,7 +55,7 @@ struct SaveErrorToast: View {
     var body: some View {
         HStack(spacing: 10) {
             Image("nc-triangle-warning")
-                .font(.system(size: 12, weight: .semibold))
+                .icon(12)
                 .foregroundStyle(Theme.Palette.warning)
 
             Text(message)
@@ -69,7 +69,7 @@ struct SaveErrorToast: View {
                 NotchActionButton(title: "Retry", action: onRetry)
             }
 
-            NotchGlyphButton(systemName: "nc-xmark", help: "Dismiss", action: onDismiss)
+            NotchGlyphButton(icon: "nc-xmark", help: "Dismiss", action: onDismiss)
         }
     }
 }
@@ -84,7 +84,7 @@ struct UpdateRequiredNotice: View {
     var body: some View {
         HStack(spacing: 11) {
             Image("nc-circle-arrow-down")
-                .font(.system(size: 20, weight: .regular))
+                .icon(20)
                 .foregroundColor(DesignTokens.Palette.electricBlue)
 
             VStack(alignment: .leading, spacing: 2) {

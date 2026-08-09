@@ -88,7 +88,7 @@ struct KnowledgeChatView: View {
     private var upsell: some View {
         VStack(spacing: 12) {
             Image("nc-sparkle-3")
-                .font(.system(size: 30, weight: .regular))
+                .icon(30)
                 .foregroundStyle(Theme.Palette.violet)
             Text("Ask across all your meetings")
                 .font(.system(size: 15, weight: .semibold))
@@ -260,7 +260,7 @@ struct KnowledgeChatView: View {
                     .frame(width: 12, height: 12)
             } else {
                 Image(source.isApp ? "nc-window-pointer" : "nc-file")
-                    .font(.system(size: 8.5, weight: .semibold))
+                    .icon(8.5)
             }
             Text(source.title)
                 .font(.system(size: 11, weight: .medium))
@@ -332,7 +332,7 @@ struct KnowledgeChatView: View {
 
             Button(action: send) {
                 Image("nc-circle-arrow-up")
-                    .font(.system(size: 13, weight: .bold))
+                    .icon(13)
                     .foregroundStyle(canSend ? Theme.GlassButton.text : .white)
                     .frame(width: 32, height: 32)
                     .background(
@@ -367,11 +367,11 @@ struct KnowledgeChatView: View {
         Button { showScopePicker.toggle() } label: {
             HStack(spacing: 4) {
                 Image("nc-filter")
-                    .font(.system(size: 9, weight: .semibold))
+                    .icon(9)
                 Text(scopeSummary)
                     .font(.system(size: 11, weight: .medium))
                 Image("nc-chevron-down")
-                    .font(.system(size: 8, weight: .semibold))
+                    .icon(8)
             }
             .foregroundStyle(scopeLabelIDs.isEmpty ? Theme.Palette.muted : Theme.Palette.violet)
             .contentShape(Rectangle())
@@ -456,8 +456,8 @@ struct KnowledgeChatView: View {
             insertMention(meeting)
         } label: {
             HStack(spacing: 9) {
-                Image(systemName: meeting.kind.icon)
-                    .font(.system(size: 11))
+                Image(meeting.kind.icon)
+                    .icon(11)
                     .foregroundStyle(Theme.Palette.muted)
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 1) {
@@ -556,7 +556,7 @@ private struct ScopePickerRow: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 Image("nc-check")
-                    .font(.system(size: 11, weight: .semibold))
+                    .icon(11)
                     .foregroundStyle(Theme.Palette.violet)
                     .opacity(isSelected ? 1 : 0)
             }

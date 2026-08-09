@@ -39,7 +39,7 @@ struct SignInView: View {
                                 .tint(Theme.GlassButton.text)
                         } else {
                             Image("nc-check")
-                                .font(.system(size: 18, weight: .semibold))
+                                .icon(18)
                                 .foregroundStyle(Theme.GlassButton.text)
                         }
                         Text(auth.isSigningIn ? "Opening browser…" : "Continue with Google")

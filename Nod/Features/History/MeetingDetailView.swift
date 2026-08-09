@@ -200,7 +200,7 @@ struct MeetingDetailView: View {
     private var backButton: some View {
         Button(action: onClose) {
             Image("nc-xmark")
-                .font(.system(size: 12, weight: .semibold))
+                .icon(12)
                 .foregroundStyle(Theme.Palette.muted)
                 .iconButtonChrome()
         }
@@ -215,7 +215,7 @@ struct MeetingDetailView: View {
     private var deleteButton: some View {
         Button(role: .destructive, action: deleteMeeting) {
             Image("nc-trash")
-                .font(.system(size: 13, weight: .semibold))
+                .icon(13)
                 .foregroundStyle(Theme.Palette.muted)
                 .iconButtonChrome()
         }
@@ -257,7 +257,7 @@ struct MeetingDetailView: View {
             Button { showLabelPicker = true } label: {
                 HStack(spacing: 4) {
                     Image("nc-tag")
-                        .font(.system(size: 10, weight: .semibold))
+                        .icon(10)
                     Text(assigned.isEmpty ? "Add to folder" : "Folder")
                         .font(.system(size: 11, weight: .medium))
                 }
@@ -314,7 +314,7 @@ struct MeetingDetailView: View {
                 value: AnyView(
                     HStack(spacing: 6) {
                         Image("nc-stopwatch")
-                            .font(.system(size: 11, weight: .regular))
+                            .icon(11)
                             .foregroundStyle(Theme.Palette.muted)
                         Text(durationString(from: current.startedAt, to: current.endedAt))
                             .font(.system(size: 12.5, weight: .regular))
@@ -341,7 +341,7 @@ struct MeetingDetailView: View {
     private var syncStatusChip: some View {
         HStack(spacing: 4) {
             Image("nc-refresh-2")
-                .font(.system(size: 10, weight: .semibold))
+                .icon(10)
             Text("Saved on this device — syncing…")
                 .font(.system(size: 11, weight: .medium))
         }
@@ -429,11 +429,11 @@ struct MeetingDetailView: View {
             HStack(spacing: 12) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        subToolbarItem(systemImage: "nc-language", label: meeting.language.uppercased())
+                        subToolbarItem(icon: "nc-language", label: meeting.language.uppercased())
                         subToolbarDivider
                         Button(action: { isEditingSummary.toggle() }) {
                             subToolbarLabel(
-                                systemImage: isEditingSummary ? "nc-check" : "nc-pen-writing",
+                                icon: isEditingSummary ? "nc-check" : "nc-pen-writing",
                                 text: isEditingSummary ? "Done" : "Edit"
                             )
                         }
@@ -446,7 +446,7 @@ struct MeetingDetailView: View {
                         subToolbarDivider
                         Button(action: shareLink) {
                             subToolbarLabel(
-                                systemImage: shareIcon,
+                                icon: shareIcon,
                                 text: shareLabel
                             )
                         }
@@ -468,7 +468,7 @@ struct MeetingDetailView: View {
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    subToolbarItem(systemImage: "nc-language", label: meeting.language.uppercased())
+                    subToolbarItem(icon: "nc-language", label: meeting.language.uppercased())
                     subToolbarDivider
                     copyButton("Copy", isActive: transcriptIsCopyable, action: copyTranscript)
                     subToolbarDivider
@@ -481,7 +481,7 @@ struct MeetingDetailView: View {
 
     private var exportButton: some View {
         Button(action: exportMarkdown) {
-            subToolbarLabel(systemImage: exportIcon, text: exportLabel)
+            subToolbarLabel(icon: exportIcon, text: exportLabel)
         }
         .buttonStyle(.plain)
         .disabled(isFinalizing || isGenerating || exportState == .exporting)
@@ -492,7 +492,7 @@ struct MeetingDetailView: View {
     private var exportIcon: String {
         switch exportState {
         case .idle, .exporting: "nc-inbox-arrow-down"
-        case .saved: "checkmark"
+        case .saved: "nc-check"
         case .failed: "nc-triangle-warning"
         }
     }
@@ -522,10 +522,10 @@ struct MeetingDetailView: View {
         }
     }
 
-    private func subToolbarItem(systemImage: String, label: String) -> some View {
+    private func subToolbarItem(icon: String, label: String) -> some View {
         HStack(spacing: 5) {
-            Image(systemName: systemImage)
-                .font(.system(size: 11, weight: .regular))
+            Image(icon)
+                .icon(11)
                 .foregroundStyle(Theme.Palette.muted)
             Text(label)
                 .font(.system(size: 12, weight: .regular))
@@ -535,10 +535,10 @@ struct MeetingDetailView: View {
         .fixedSize()
     }
 
-    private func subToolbarLabel(systemImage: String, text: String) -> some View {
+    private func subToolbarLabel(icon: String, text: String) -> some View {
         HStack(spacing: 5) {
-            Image(systemName: systemImage)
-                .font(.system(size: 11, weight: .regular))
+            Image(icon)
+                .icon(11)
             Text(text)
                 .font(.system(size: 12, weight: .regular))
                 .lineLimit(1)
@@ -553,7 +553,7 @@ struct MeetingDetailView: View {
     private func copyButton(_ text: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             subToolbarLabel(
-                systemImage: copyFlash ? "nc-check" : "nc-files-2",
+                icon: copyFlash ? "nc-check" : "nc-files-2",
                 text: copyFlash ? "Copied" : text
             )
         }
@@ -655,7 +655,7 @@ struct MeetingDetailView: View {
                 .foregroundStyle(Theme.Palette.ink.opacity(0.92))
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: regenerateSummary) {
-                subToolbarLabel(systemImage: "nc-refresh-2", text: "Generate summary")
+                subToolbarLabel(icon: "nc-refresh-2", text: "Generate summary")
             }
             .buttonStyle(.plain)
             // A meeting still queued in the outbox would have the regenerated
@@ -723,7 +723,7 @@ struct MeetingDetailView: View {
             if records.isEmpty {
                 VStack(spacing: 6) {
                     Image("nc-msg-writing")
-                        .font(.system(size: 22, weight: .regular))
+                        .icon(22)
                         .foregroundStyle(Theme.Palette.muted)
                     Text("No transcript saved for this meeting.")
                         .font(.system(size: 12.5))
@@ -742,7 +742,7 @@ struct MeetingDetailView: View {
         case let .failed(message):
             VStack(spacing: 8) {
                 Image("nc-triangle-warning")
-                    .font(.system(size: 18, weight: .semibold))
+                    .icon(18)
                     .foregroundStyle(Theme.Palette.warning)
                 Text("Couldn't load transcript")
                     .font(.system(size: 12.5, weight: .semibold))
@@ -837,7 +837,7 @@ struct MeetingDetailView: View {
         case .saved:
             HStack(spacing: 4) {
                 Image("nc-circle-check")
-                    .font(.system(size: 11, weight: .semibold))
+                    .icon(11)
                     .foregroundStyle(Theme.Palette.success)
                 Text("Saved")
                     .font(.system(size: 11, weight: .regular))
@@ -846,7 +846,7 @@ struct MeetingDetailView: View {
         case let .failed(detail):
             HStack(spacing: 4) {
                 Image("nc-triangle-warning")
-                    .font(.system(size: 11, weight: .semibold))
+                    .icon(11)
                     .foregroundStyle(Theme.Palette.warning)
                 Text("Couldn't save")
                     .font(.system(size: 11, weight: .regular))
@@ -972,8 +972,8 @@ struct MeetingDetailView: View {
 
     private var shareIcon: String {
         switch shareState {
-        case .idle, .sharing: "link"
-        case .copied: "checkmark"
+        case .idle, .sharing: "nc-link"
+        case .copied: "nc-check"
         case .failed: "nc-triangle-warning"
         }
     }

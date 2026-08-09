@@ -282,7 +282,7 @@ struct AttentionColumn: View {
         rowShell(id: point.id, open: { onOpenMeeting(point.meeting.id) }) {
             HStack(alignment: .firstTextBaseline, spacing: 9) {
                 Image("nc-msgs")
-                    .font(.system(size: 12, weight: .medium))
+                    .icon(12)
                     .foregroundStyle(Theme.Palette.warning)
                     .frame(width: 16)
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
@@ -320,8 +320,8 @@ struct AttentionColumn: View {
     private func sessionRow(_ meeting: Meeting) -> some View {
         rowShell(id: meeting.id.uuidString, open: { onOpenMeeting(meeting.id) }) {
             HStack(alignment: .top, spacing: 9) {
-                Image(systemName: meeting.kind.icon)
-                    .font(.system(size: 11, weight: .semibold))
+                Image(meeting.kind.icon)
+                    .icon(11)
                     .foregroundStyle(Theme.Palette.ink.opacity(0.7))
                     .frame(width: 16, height: 16)
                 VStack(alignment: .leading, spacing: 2) {
@@ -395,7 +395,7 @@ struct AttentionColumn: View {
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 8) {
             Image("nc-check")
-                .font(.system(size: 22, weight: .regular))
+                .icon(22)
                 .foregroundStyle(Theme.Palette.muted)
             Text("Nothing needs you right now.")
                 .font(.system(size: 13, weight: .semibold))
@@ -472,7 +472,7 @@ private struct SeeAllButton: View {
                 Text("See all")
                     .font(.system(size: 10.5, weight: .semibold))
                 Image("nc-chevron-right")
-                    .font(.system(size: 8, weight: .bold))
+                    .icon(8)
             }
             .foregroundStyle(isHovering ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.72))
             .padding(.horizontal, 7)

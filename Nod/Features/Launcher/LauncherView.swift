@@ -54,7 +54,7 @@ struct LauncherView: View {
     private var field: some View {
         HStack(spacing: 10) {
             Image(model.isAnswering ? "nc-sparkle-3" : "nc-magnifier")
-                .font(.system(size: 15, weight: .medium))
+                .icon(15)
                 .foregroundStyle(model.isAnswering ? Theme.Palette.ink : Theme.Palette.muted)
                 .frame(width: 18)
             TextField("Search or ask across your sessions", text: $model.query)
@@ -78,7 +78,7 @@ struct LauncherView: View {
     private var modeChip: some View {
         HStack(spacing: 4) {
             Image("nc-sparkle-3")
-                .font(.system(size: 8.5, weight: .semibold))
+                .icon(8.5)
             Text("Ask Nod")
                 .font(.system(size: 11, weight: .medium))
         }
@@ -178,8 +178,8 @@ struct LauncherView: View {
         @ViewBuilder content: () -> some View
     ) -> some View {
         HStack(alignment: .top, spacing: 11) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .medium))
+            Image(icon)
+                .icon(12)
                 .foregroundStyle(tint)
                 .frame(width: 16)
                 .padding(.top, 1)
@@ -302,7 +302,7 @@ struct LauncherView: View {
                                         .foregroundStyle(Theme.Palette.ink.opacity(0.45))
                                     Spacer(minLength: 4)
                                     Image("nc-arrow-up-right")
-                                        .font(.system(size: 9, weight: .semibold))
+                                        .icon(9)
                                         .foregroundStyle(Theme.Palette.ink.opacity(0.4))
                                 }
                                 Text(item.text)
@@ -348,7 +348,7 @@ struct LauncherView: View {
     private var upsell: some View {
         HStack(spacing: 10) {
             Image("nc-sparkle-3")
-                .font(.system(size: 13, weight: .medium))
+                .icon(13)
                 .foregroundStyle(Theme.Palette.violet)
             Text("Asking across sessions is a Pro feature.")
                 .font(.system(size: 12.5))

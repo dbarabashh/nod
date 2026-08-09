@@ -14,8 +14,8 @@ struct PermissionRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 17, weight: .regular))
+            Image(icon)
+                .icon(17)
                 .foregroundStyle(Theme.GlassButton.text.opacity(0.9))
                 .frame(width: 38, height: 38)
                 .background(
@@ -106,7 +106,7 @@ private struct StatusBadge: View {
     var body: some View {
         HStack(spacing: 5) {
             Image("nc-check")
-                .font(.system(size: 9, weight: .bold))
+                .icon(9)
                 .foregroundStyle(color)
             Text(text)
                 .font(.system(size: 12, weight: .semibold))

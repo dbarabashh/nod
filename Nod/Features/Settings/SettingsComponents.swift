@@ -37,8 +37,8 @@ struct SettingsRow<Trailing: View>: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
+            Image(icon)
+                .icon(14)
                 .foregroundStyle(Theme.Palette.ink.opacity(0.85))
                 .frame(width: 32, height: 32)
                 .background(

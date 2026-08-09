@@ -31,7 +31,7 @@ struct MeetingLanguagePrompt: View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 8) {
                 Image("nc-earth")
-                    .font(.system(size: 12, weight: .semibold))
+                    .icon(12)
                     .foregroundColor(.white.opacity(0.85))
                 Text("Nod language")
                     .font(.system(size: 12, weight: .medium))
@@ -77,7 +77,7 @@ struct MeetingLanguagePrompt: View {
                 Text(language.nativeName)
                     .font(.system(size: 12.5, weight: .semibold))
                 Image("nc-chevron-expand-y")
-                    .font(.system(size: 8, weight: .bold))
+                    .icon(8)
             }
             .foregroundColor(.white.opacity(0.95))
         }

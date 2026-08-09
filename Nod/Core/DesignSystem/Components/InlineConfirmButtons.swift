@@ -14,8 +14,8 @@ struct InlineConfirmButtons: View {
     var body: some View {
         HStack(spacing: 6) {
             Button(action: onConfirm) {
-                Image(systemName: confirmIcon)
-                    .font(.system(size: 10, weight: .semibold))
+                Image(confirmIcon)
+                    .icon(10)
                     .foregroundStyle(.white)
                     .frame(width: 18, height: 18)
                     .background(Circle().fill(Theme.Palette.danger))
@@ -24,7 +24,7 @@ struct InlineConfirmButtons: View {
             .help(confirmHelp)
             Button(action: onCancel) {
                 Image("nc-xmark")
-                    .font(.system(size: 10, weight: .semibold))
+                    .icon(10)
                     .foregroundStyle(Theme.Palette.muted)
                     .frame(width: 18, height: 18)
                     .background(Circle().fill(Theme.Palette.surface))

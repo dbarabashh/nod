@@ -21,11 +21,37 @@ final class ModeStore: ObservableObject {
     private var modesWriteWork: DispatchWorkItem?
     private let modesWriteDelay: TimeInterval = 0.4
 
+    /// Modes persisted before the Nucleo icon migration still hold raw SF
+    /// Symbol names, which no longer resolve to any asset. Maps the exact
+    /// names the shipped presets used; anything else (an icon a user picked
+    /// from the old SF Symbol-based picker) falls back to a generic glyph.
+    private static let legacyIconMap: [String: String] = [
+        "circle.grid.2x2": "nc-grid-2",
+        "person.crop.rectangle.stack": "nc-side-profile",
+        "chart.line.uptrend.xyaxis": "nc-window-chart-line",
+        "bubble.left.and.bubble.right": "nc-msgs",
+        "checklist": "nc-tasks-2",
+        "star": "nc-star"
+    ]
+
+    private static func migratingLegacyIcons(_ modes: [MeetingMode]) -> [MeetingMode] {
+        guard modes.contains(where: { !$0.icon.hasPrefix("nc-") }) else { return modes }
+        return modes.map { mode in
+            guard !mode.icon.hasPrefix("nc-") else { return mode }
+            var mode = mode
+            mode.icon = legacyIconMap[mode.icon] ?? "nc-star"
+            return mode
+        }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let loaded = Self.loadModes(from: defaults)
         let hadPersisted = (loaded?.isEmpty == false)
         var modes = hadPersisted ? (loaded ?? []) : MeetingMode.presets
+        let migratedModes = Self.migratingLegacyIcons(modes)
+        let iconsMigrated = migratedModes != modes
+        modes = migratedModes
 
         // First run of the modes feature: adopt whatever recap layout the user
         // had set through the now-removed standalone "Summary style" picker, so
@@ -53,6 +79,8 @@ final class ModeStore: ObservableObject {
         if !hadPersisted {
             writeModes()
             writeSelection()
+        } else if iconsMigrated {
+            writeModes()
         }
     }
 

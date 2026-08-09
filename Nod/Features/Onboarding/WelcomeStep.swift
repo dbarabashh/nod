@@ -87,8 +87,8 @@ private struct FeatureRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .medium))
+            Image(icon)
+                .icon(13)
                 .foregroundStyle(Theme.Palette.cyan)
                 .frame(width: 22, height: 22)
                 .background(
@@ -114,7 +114,7 @@ private struct LanguageRow: View {
     var body: some View {
         HStack(spacing: 14) {
             Image("nc-earth")
-                .font(.system(size: 13, weight: .medium))
+                .icon(13)
                 .foregroundStyle(Theme.Palette.cyan)
                 .frame(width: 22, height: 22)
                 .background(
