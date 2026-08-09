@@ -39,6 +39,41 @@ enum AudioDeviceCatalog {
         stringProperty(id, kAudioObjectPropertyName)
     }
 
+    /// True for an iPhone/iPad microphone reached via Continuity — macOS can
+    /// silently leave one of these as the default input long after the user
+    /// stopped using it deliberately, starving the Mac's own mic (and the
+    /// user's own voice) for the rest of a recording with no visible sign
+    /// why. Checks the deprecated `kAudioDeviceTransportTypeContinuityCapture`
+    /// rather than its `...Wired`/`...Wireless` replacements: their minimum
+    /// OS wasn't confirmed, while the deprecated constant is available at our
+    /// macOS 13.0 deployment target.
+    static func isContinuityCapture(_ id: AudioDeviceID) -> Bool {
+        transportType(of: id) == kAudioDeviceTransportTypeContinuityCapture
+    }
+
+    /// The Mac's own microphone, to fall back to when the system default
+    /// turns out to be a Continuity device. Walks device ids directly rather
+    /// than `inputDevices()` — that builds a name/UID/default-flag struct for
+    /// every device just to throw all of it away except one id.
+    static func builtInInputDeviceID() -> AudioDeviceID? {
+        for id in enumerateDeviceIDs() where hasInputStreams(id) {
+            if transportType(of: id) == kAudioDeviceTransportTypeBuiltIn { return id }
+        }
+        return nil
+    }
+
+    private static func transportType(of id: AudioDeviceID) -> UInt32? {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value)
+        return status == noErr ? value : nil
+    }
+
     /// `nil` when there is genuinely no default input (the HAL can transiently
     /// report none — "Could not find default device for dIn") rather than the
     /// old sentinel `0`, so callers don't mistake "unknown" for a real device.

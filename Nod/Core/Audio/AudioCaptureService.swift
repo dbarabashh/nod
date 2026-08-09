@@ -24,7 +24,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
     /// can't show stale activity once capture isn't flowing.
     @Published private(set) var inputLevel: Float = 0
     @Published private(set) var lastError: String?
-    @Published var preferredInputUID: String? {
+    @Published private(set) var preferredInputUID: String? {
         didSet {
             if let preferredInputUID {
                 UserDefaults.standard.set(preferredInputUID, forKey: Self.preferredInputKey)
@@ -181,6 +181,17 @@ final class AudioCaptureService: NSObject, ObservableObject {
         micGate.withLock { $0 = !muted }
     }
 
+    /// Applies a user's mic pick immediately. Setting `preferredInputUID`
+    /// alone only persists the choice — nothing observes that property, so
+    /// during a live recording the engine would otherwise keep pulling the
+    /// old device until an unrelated restart (stall watchdog, topology
+    /// change) happened to land.
+    func switchInput(to uid: String?) async {
+        preferredInputUID = uid
+        guard state == .capturing, captureMic else { return }
+        await restartMicrophone(reason: "user switched input device")
+    }
+
     // MARK: - Microphone (AVAudioEngine)
 
     private func startMicrophone() async {
@@ -285,8 +296,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
     /// Must run before `engine.prepare()` so the change is picked up on init.
     private func applyInputDeviceSelection(to input: AVAudioInputNode) {
         guard let uid = preferredInputUID else {
-            let defaultName = AVCaptureDevice.default(for: .audio)?.localizedName ?? "<unknown>"
-            Log.audio.info("using system default input device: \(defaultName)")
+            applyContinuityFallbackIfNeeded(to: input)
             return
         }
 
@@ -296,24 +306,68 @@ final class AudioCaptureService: NSObject, ObservableObject {
             return
         }
 
-        guard let unit = input.audioUnit else {
+        switch bindInputDevice(deviceID, on: input) {
+        case .noAudioUnit:
             Log.audio.error("input node exposes no audio unit; cannot select UID=\(uid)")
             lastError = "Couldn't select the microphone — using the system default."
-            return
-        }
-
-        let status = setInputDevice(deviceID, on: unit)
-        let actual = currentInputDevice(of: unit)
-        guard status == noErr, actual == deviceID else {
+        case let .mismatch(status, actual):
             let actualName = actual.flatMap(AudioDeviceCatalog.name(forDeviceID:)) ?? "the default microphone"
             Log.audio.error(
                 "input override to UID=\(uid) (id=\(deviceID)) failed: OSStatus=\(status), unit reports id=\(actual.map(String.init) ?? "?") (\(actualName))"
             )
             lastError = "Couldn't switch to the selected microphone — still using \(actualName)."
+        case .bound:
+            Log.audio.info("input device overridden to UID=\(uid) (id=\(deviceID))")
+        }
+    }
+
+    /// With no explicit preference, the engine would otherwise just inherit
+    /// whatever CoreAudio currently reports as the default input — including
+    /// an iPhone/iPad reached via Continuity, which macOS can leave as the
+    /// default long after the user stopped using it deliberately. That
+    /// silently starves the Mac's own mic (and the user's own voice) for the
+    /// rest of the recording, with only a one-sided transcript as evidence.
+    /// Steer back to the built-in mic in that one case instead.
+    private func applyContinuityFallbackIfNeeded(to input: AVAudioInputNode) {
+        guard let defaultID = AudioDeviceCatalog.currentDefaultInputDeviceID(),
+              AudioDeviceCatalog.isContinuityCapture(defaultID)
+        else {
+            let defaultName = AVCaptureDevice.default(for: .audio)?.localizedName ?? "<unknown>"
+            Log.audio.info("using system default input device: \(defaultName)")
             return
         }
 
-        Log.audio.info("input device overridden to UID=\(uid) (id=\(deviceID))")
+        guard let builtInID = AudioDeviceCatalog.builtInInputDeviceID() else {
+            Log.audio.error("default input is a Continuity device (id=\(defaultID)) and no built-in mic was found; leaving system default")
+            return
+        }
+
+        switch bindInputDevice(builtInID, on: input) {
+        case .noAudioUnit, .mismatch:
+            Log.audio.error("fallback off Continuity default (id=\(defaultID)) to built-in mic failed")
+        case .bound:
+            let builtInName = AudioDeviceCatalog.name(forDeviceID: builtInID) ?? "the built-in microphone"
+            Log.audio.error("system default input was a Continuity device (id=\(defaultID)) — switched to \(builtInName)")
+            lastError = "Switched off an iPhone/iPad mic to \(builtInName) — Continuity can silently take over the microphone."
+        }
+    }
+
+    private enum DeviceBindResult {
+        case bound
+        case noAudioUnit
+        case mismatch(OSStatus, actual: AudioDeviceID?)
+    }
+
+    /// Rebinds `input` to `deviceID` and verifies the HAL actually took it —
+    /// a `noErr` set doesn't guarantee that. Shared by the explicit-preference
+    /// and Continuity-fallback paths, which both need identical bind-then-verify
+    /// handling and previously duplicated it with only their log wording differing.
+    private func bindInputDevice(_ deviceID: AudioDeviceID, on input: AVAudioInputNode) -> DeviceBindResult {
+        guard let unit = input.audioUnit else { return .noAudioUnit }
+        let status = setInputDevice(deviceID, on: unit)
+        let actual = currentInputDevice(of: unit)
+        guard status == noErr, actual == deviceID else { return .mismatch(status, actual: actual) }
+        return .bound
     }
 
     /// Rebinds the AUHAL to `deviceID`. Uninitializes first because

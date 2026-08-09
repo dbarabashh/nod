@@ -183,17 +183,21 @@ struct NotchNotice: View {
     /// Icon at 12pt with no fixed frame, main line at 12.5pt semibold — the
     /// same weights `DemoCardHead` uses for every proactive card in the
     /// scripted demo, so a real notice reads as the same kind of moment
-    /// instead of visibly bigger and boxed. The lead/text split that used to
-    /// be two stacked lines is now the one line the doc comment above already
-    /// described: "Noted — send the updated deck before Friday."
+    /// instead of visibly bigger and boxed. `style.lead` is its own small
+    /// eyebrow line (the same treatment `NotchMeetingBar`'s "LIVE NOTES"
+    /// label uses) rather than an em-dash prefix on the finding itself.
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(style.icon)
                 .icon(12)
                 .foregroundStyle(Theme.Palette.brand)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(style.lead) — \(finding.text)")
+            VStack(alignment: .leading, spacing: 3) {
+                Text(style.lead.uppercased())
+                    .font(.system(size: 9.5, weight: .bold))
+                    .kerning(0.6)
+                    .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+                Text(finding.text)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
                     .fixedSize(horizontal: false, vertical: true)
@@ -332,7 +336,7 @@ struct NotchMicMenuButton: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(AudioDeviceCatalog.inputDevices()) { device in
                 Button {
-                    audioCapture.preferredInputUID = device.uid
+                    Task { await audioCapture.switchInput(to: device.uid) }
                     showingDevicePicker = false
                 } label: {
                     HStack(spacing: 9) {
