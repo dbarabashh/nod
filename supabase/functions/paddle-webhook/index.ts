@@ -1,7 +1,7 @@
 // paddle-webhook — the ONLY thing that writes a user's plan in production.
 //
 // Paddle calls this (no Supabase JWT — deploy with verify_jwt = false) whenever
-// a subscription changes. We verify the `Paddle-Signature` HMAC before trusting
+// a subscription or transaction changes. We verify the `Paddle-Signature` HMAC before trusting
 // a single byte, then map the event onto the entitlement schema via the
 // service-role RPC `apply_paddle_subscription`. The client never sees any of
 // this; it just re-reads `get_entitlement()` and finds itself upgraded.
@@ -10,6 +10,8 @@
 // renewals, upgrades, downgrades, pauses, and past_due):
 //   subscription.created / .updated / .activated / .canceled / .past_due /
 //   .paused / .resumed  → upsert the subscription (plan + status + period)
+//   transaction.completed → record the first paid conversion with final net
+//   earnings and transaction currency
 //
 // Referral payout (NOD-22): a referred friend's first renewal (status 'active'
 // on a new billing period) earns the referrer a free month; it's paid out once
@@ -30,6 +32,7 @@
 import { adminClient } from "../_shared/supabase.ts";
 import { json } from "../_shared/http.ts";
 import { PADDLE_API_BASE, PADDLE_HEADERS } from "../_shared/paddle.ts";
+import { paidSubscriptionTransaction } from "../_shared/paddle-transaction.ts";
 
 const PADDLE_API_KEY = Deno.env.get("PADDLE_API_KEY");
 
@@ -72,7 +75,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const admin = adminClient();
 
     try {
-        if (type.startsWith("subscription.")) {
+        if (type === "transaction.completed") {
+            await handleCompletedTransaction(admin, data, event.occurred_at);
+        } else if (type.startsWith("subscription.")) {
             await handleSubscription(admin, data);
         } else {
             console.log(`paddle webhook ignored event_type=${type}`);
@@ -87,6 +92,35 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     return json({ ok: true }, 200);
 });
+
+async function handleCompletedTransaction(
+    admin: ReturnType<typeof adminClient>,
+    data: Record<string, unknown>,
+    occurredAt: string | undefined,
+): Promise<void> {
+    const transaction = paidSubscriptionTransaction(data);
+    if (!transaction || !occurredAt) return;
+
+    const userId = await resolveUserId(
+        admin,
+        data,
+        transaction.subscriptionId,
+        transaction.customerId,
+    );
+    if (!userId) {
+        console.warn(`completed transaction without resolvable user — txn=${transaction.transactionId}`);
+        return;
+    }
+
+    const { data: accepted, error } = await admin.rpc("enqueue_paid_transaction_conversion", {
+        p_user_id: userId,
+        p_occurred_at: occurredAt,
+        p_value: transaction.value,
+        p_currency: transaction.currency,
+    });
+    if (error) throw new Error(`enqueue_paid_transaction_conversion: ${error.message}`);
+    console.log(`paid conversion transaction=${transaction.transactionId} accepted=${accepted === true}`);
+}
 
 async function handleSubscription(admin: ReturnType<typeof adminClient>, data: Record<string, unknown>): Promise<void> {
     const subscriptionId = str(data.id);
@@ -311,6 +345,7 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 interface PaddleEvent {
     event_type?: string;
+    occurred_at?: string;
     data?: unknown;
 }
 
