@@ -278,11 +278,14 @@ struct NotchLevelMeter: View {
 /// Deliberately **not** `@ObservedObject` on either dependency: both publish
 /// far more than this button reads — `audioCapture.inputLevel` alone ticks
 /// ten times a second — and an `@ObservedObject` re-renders on every publish
-/// regardless of which property changed. Wrapped in a native `Menu`
-/// (`NSPopUpButton` under the hood), that showed up as the whole control
-/// visibly jittering. `.onReceive` on the three properties actually used
-/// mirrors them into local `@State`, so this only redraws when one of those
-/// three genuinely changes.
+/// regardless of which property changed. `.onReceive` on the three properties
+/// actually used mirrors them into local `@State`, so this only redraws when
+/// one of those three genuinely changes.
+///
+/// A plain `Button` + `.popover`, not `Menu` — a `Menu`'s label is hosted in
+/// an `NSPopUpButton` cell, which sizes and lays out the hosted content by its
+/// own bezel rules rather than respecting an explicit SwiftUI frame, so a
+/// custom icon inside one can't be sized smaller than the cell wants it.
 struct NotchMicMenuButton: View {
     let session: MeetingSession
     let audioCapture: AudioCaptureService
@@ -290,44 +293,67 @@ struct NotchMicMenuButton: View {
     @State private var lastError: String?
     @State private var preferredInputUID: String?
     @State private var micMuted = false
+    @State private var showingDevicePicker = false
 
     private var hasProblem: Bool {
         lastError != nil
     }
 
     var body: some View {
-        Menu {
-            ForEach(AudioDeviceCatalog.inputDevices()) { device in
-                Button {
-                    audioCapture.preferredInputUID = device.uid
-                } label: {
-                    if isSelected(device) {
-                        IconLabel(title: device.name, icon: "nc-check")
-                    } else {
-                        Text(device.name)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 2) {
+        HStack(spacing: 2) {
+            Button(action: { session.toggleMic() }) {
                 Image(iconName)
-                    .icon(10)
+                    .icon(8)
                     .foregroundColor(iconTint)
+            }
+            .buttonStyle(.plain)
+            Button { showingDevicePicker = true } label: {
                 Image("nc-chevron-down")
-                    .icon(7)
+                    .icon(6)
                     .foregroundColor(Theme.Palette.muted.opacity(0.7))
             }
-            .frame(width: 32, height: 24)
-            .background(Capsule().fill(Theme.Palette.surfaceStrong))
-        } primaryAction: {
-            session.toggleMic()
+            .buttonStyle(.plain)
+            .popover(isPresented: $showingDevicePicker, arrowEdge: .bottom) {
+                devicePicker
+            }
         }
-        .menuStyle(.borderlessButton)
+        .frame(width: 26, height: 20)
+        .background(Capsule().fill(Theme.Palette.surfaceStrong))
+        .contentShape(Rectangle())
         .frame(width: 32, height: 24)
+        .contentShape(Rectangle())
         .help(helpText)
         .onReceive(audioCapture.$lastError) { lastError = $0 }
         .onReceive(audioCapture.$preferredInputUID) { preferredInputUID = $0 }
         .onReceive(session.$micMuted) { micMuted = $0 }
+    }
+
+    private var devicePicker: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(AudioDeviceCatalog.inputDevices()) { device in
+                Button {
+                    audioCapture.preferredInputUID = device.uid
+                    showingDevicePicker = false
+                } label: {
+                    HStack(spacing: 9) {
+                        Text(device.name)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(Theme.Palette.ink)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        Image("nc-check")
+                            .icon(11)
+                            .foregroundStyle(Theme.Palette.violet)
+                            .opacity(isSelected(device) ? 1 : 0)
+                    }
+                    .frame(height: 18)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(8)
+        .frame(minWidth: 180)
     }
 
     private var iconName: String {
