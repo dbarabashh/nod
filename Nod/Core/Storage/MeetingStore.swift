@@ -105,6 +105,16 @@ final class MeetingStore: ObservableObject {
     ///      detached main-window retry toast.
     @Published private(set) var unsyncedMeetingIDs: Set<UUID> = []
 
+    /// The meeting currently being recorded, if any — `nil` once it ends.
+    /// Mirrored from `MeetingSession.recordingDraft` so surfaces that only
+    /// have `MeetingStore` in their environment (Sessions list) can tell a
+    /// live recording apart from an old, still-blank draft: both render with
+    /// the same placeholder title and "(no summary)" preview, so without this
+    /// a live recording and old clutter are visually identical — and sit
+    /// right next to each other, since the live draft syncs into `meetings`
+    /// within seconds of starting.
+    @Published private(set) var recordingMeetingID: UUID?
+
     /// Partial recap markdown streamed in while a meeting's summary generates,
     /// keyed by meeting id. The end-of-meeting flow updates this section-by-
     /// section as the LLM produces them; MeetingDetailView renders it live so
@@ -269,6 +279,12 @@ final class MeetingStore: ObservableObject {
         }
         if inserted { meetings.sort { $0.startedAt > $1.startedAt } }
         loadState = .loaded
+    }
+
+    /// Mirrors `MeetingSession.recordingDraft`'s id — set when a recording
+    /// starts, cleared when it ends or is discarded.
+    func setRecordingMeetingID(_ id: UUID?) {
+        recordingMeetingID = id
     }
 
     /// Patches `title` + `summary` for an existing meeting. Only those two
@@ -598,9 +614,20 @@ final class MeetingStore: ObservableObject {
         if pendingUndo?.id == id { pendingUndo = nil }
     }
 
+    enum HardDeleteError: Error {
+        /// Refused because `id` is the meeting `recordingMeetingID` currently
+        /// points at. Enforced here, not only by the UI that disables "Delete
+        /// Forever" for it — a client-side-only guard doesn't stop every call
+        /// site that will ever exist, and losing an in-progress recording this
+        /// way already happened once (Sessions couldn't tell it apart from an
+        /// old, still-blank draft sitting in the same list).
+        case recordingInProgress
+    }
+
     /// Hard delete — removes the row from the table outright. Used by
     /// "Delete Forever" + the nightly pg_cron purge.
     func hardDelete(_ id: UUID) async throws {
+        guard id != recordingMeetingID else { throw HardDeleteError.recordingInProgress }
         Log.ui.info("MeetingStore.hardDelete id=\(id.uuidString)")
         #if DEBUG
             if DemoMode.isEnabled {

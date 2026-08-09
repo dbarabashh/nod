@@ -159,7 +159,15 @@ final class MeetingSession: ObservableObject {
     /// live transcript can stream to the server under a stable id, then reused
     /// (same id) when the summary is stamped at End. nil while idle, or when no
     /// auth session existed at record time.
-    private var recordingDraft: Meeting?
+    ///
+    /// Mirrored into `meetingStore.recordingMeetingID` on every change: the
+    /// live draft syncs into `MeetingStore.meetings` within seconds of
+    /// starting (looking identical to old, still-blank drafts), so Sessions
+    /// needs this to tell them apart without importing `MeetingSession`
+    /// itself, which `Core` must never depend on.
+    private var recordingDraft: Meeting? {
+        didSet { meetingStore.setRecordingMeetingID(recordingDraft?.id) }
+    }
 
     /// Live transcript streaming loop — pushes settled entries to the WAL +
     /// server every few seconds during a recording. Cancelled at End / cleanup.

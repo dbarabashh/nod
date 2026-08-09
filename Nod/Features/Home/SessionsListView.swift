@@ -40,6 +40,10 @@ struct SessionsListView: View {
         sessionsList
             .alert("Delete forever?", isPresented: hardDeleteAlertVisible, presenting: pendingHardDelete) { meeting in
                 Button("Delete Forever", role: .destructive) {
+                    // `MeetingStore.hardDelete` itself refuses the actively-
+                    // recording meeting's id — the context menu's `.disabled`
+                    // below is only the UX nicety of not offering the option
+                    // in the first place, not the enforcement.
                     Task { try? await meetingStore.hardDelete(meeting.id) }
                 }
                 Button("Cancel", role: .cancel) {}
@@ -432,10 +436,12 @@ struct SessionsListView: View {
 
     private func allList(_ rows: [Meeting]) -> some View {
         List(rows) { meeting in
+            let isRecording = meeting.id == meetingStore.recordingMeetingID
             MeetingRow(
                 meeting: meeting,
                 mode: .all,
-                isUnsynced: meetingStore.unsyncedMeetingIDs.contains(meeting.id)
+                isUnsynced: meetingStore.unsyncedMeetingIDs.contains(meeting.id),
+                isRecording: isRecording
             )
             .onTapGesture { onOpen(meeting) }
             .accessibilityAddTraits(.isButton)
@@ -453,6 +459,8 @@ struct SessionsListView: View {
                 } label: {
                     IconLabel(title: "Delete Forever", icon: "nc-trash")
                 }
+                .disabled(isRecording)
+                .help(isRecording ? "This meeting is still recording." : "")
             }
         }
         .listStyle(.plain)
@@ -547,6 +555,7 @@ private struct MeetingRow: View {
     let meeting: Meeting
     let mode: Mode
     var isUnsynced: Bool = false
+    var isRecording: Bool = false
     var onRestore: (() -> Void)?
 
     @State private var isHovering = false
@@ -593,20 +602,15 @@ private struct MeetingRow: View {
 
     private var trailingMeta: some View {
         HStack(spacing: 8) {
-            if isUnsynced, mode == .all {
-                HStack(spacing: 3) {
-                    Image("nc-refresh-2")
-                        .icon(9)
-                    Text("Not synced")
-                        .font(.system(size: 10, weight: .medium))
+            if isRecording {
+                StatusFlagPill(text: "Recording", color: Theme.Palette.danger) {
+                    Circle().frame(width: 6, height: 6)
                 }
-                .foregroundStyle(Theme.Palette.warning)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Theme.Palette.warning.opacity(0.12))
-                )
+            }
+            if isUnsynced, mode == .all {
+                StatusFlagPill(text: "Not synced", color: Theme.Palette.warning) {
+                    Image("nc-refresh-2").icon(9)
+                }
                 .help("Saved on this device — will finish syncing automatically.")
             }
             if mode == .trash, let trashedAt = meeting.deletedAt {
@@ -676,6 +680,29 @@ private struct MeetingRow: View {
 
     private static func relativeTrashedLabel(for date: Date) -> String {
         "trashed " + Meeting.ago(date)
+    }
+}
+
+/// Shared shape for the row's "flag" badges (recording live, not yet synced)
+/// — a leading glyph plus a label, tinted the same color throughout including
+/// a soft capsule fill. Not used for the language pill below: that one has no
+/// leading glyph and a flat surface fill, different enough that folding it in
+/// here would trade one duplication for a pile of unused parameters.
+private struct StatusFlagPill<Glyph: View>: View {
+    let text: String
+    let color: Color
+    @ViewBuilder let glyph: () -> Glyph
+
+    var body: some View {
+        HStack(spacing: 4) {
+            glyph()
+            Text(text)
+                .font(.system(size: 10, weight: .semibold))
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Capsule(style: .continuous).fill(color.opacity(0.12)))
     }
 }
 
