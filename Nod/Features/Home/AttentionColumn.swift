@@ -281,7 +281,7 @@ struct AttentionColumn: View {
     private func pointRow(_ point: TodayDigest.OpenPoint) -> some View {
         rowShell(id: point.id, open: { onOpenMeeting(point.meeting.id) }) {
             HStack(alignment: .firstTextBaseline, spacing: 9) {
-                Image(systemName: "questionmark.circle")
+                Image("nc-msgs")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Theme.Palette.warning)
                     .frame(width: 16)
@@ -394,7 +394,7 @@ struct AttentionColumn: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: "checkmark.circle")
+            Image("nc-check")
                 .font(.system(size: 22, weight: .regular))
                 .foregroundStyle(Theme.Palette.muted)
             Text("Nothing needs you right now.")
@@ -471,7 +471,7 @@ private struct SeeAllButton: View {
             HStack(spacing: 3) {
                 Text("See all")
                     .font(.system(size: 10.5, weight: .semibold))
-                Image(systemName: "chevron.right")
+                Image("nc-chevron-right")
                     .font(.system(size: 8, weight: .bold))
             }
             .foregroundStyle(isHovering ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.72))

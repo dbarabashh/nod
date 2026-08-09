@@ -113,7 +113,7 @@ private struct LanguageRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: "globe")
+            Image("nc-earth")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Theme.Palette.cyan)
                 .frame(width: 22, height: 22)

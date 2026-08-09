@@ -65,9 +65,9 @@ extension OnboardingStrings {
         welcomeTitle: "Welcome to Nod",
         welcomeTagline: "Your meeting copilot — listens during the call, recaps when you're done.",
         welcomeBullets: [
-            .init(icon: "waveform", text: "Captures both you and the other side of the call."),
-            .init(icon: "sparkles", text: "Ask for key points, follow-ups, or a recap mid-meeting."),
-            .init(icon: "lock.fill", text: "Audio leaves your Mac only during transcription — never stored.")
+            .init(icon: "nc-video", text: "Captures both you and the other side of the call."),
+            .init(icon: "nc-sparkle-3", text: "Ask for key points, follow-ups, or a recap mid-meeting."),
+            .init(icon: "nc-lock", text: "Audio leaves your Mac only during transcription — never stored.")
         ],
         welcomeLanguageLabel: "Nod language",
         welcomeLanguageHint: MeetingLanguagePrompt.scopeNote,
@@ -103,17 +103,17 @@ extension OnboardingStrings {
         tutorialTitle: "Your first meeting",
         tutorialBullets: [
             .init(
-                icon: "record.circle",
+                icon: "nc-mic",
                 title: "Hit Start Meeting on the floating panel",
                 body: "The panel sits on the left of your screen. The next upcoming event from your calendar shows above the button."
             ),
             .init(
-                icon: "sparkles",
+                icon: "nc-sparkle-3",
                 title: "Ask Nod during the call",
                 body: "Tap Catch me up, Key points, Suggest follow-up questions, or Recap so far whenever you need a hand."
             ),
             .init(
-                icon: "doc.text",
+                icon: "nc-file",
                 title: "Get a recap when you end",
                 body: "Hit End and Nod generates a meeting summary you can copy. Nothing is recorded or kept — audio only leaves your Mac for transcription."
             )

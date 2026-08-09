@@ -51,8 +51,8 @@ struct AutoEndPrompt: Equatable {
 
     var icon: String {
         switch reason {
-        case .silence: "moon.zzz.fill"
-        case .callEnded: "phone.down.fill"
+        case .silence: "nc-moon-stars"
+        case .callEnded: "nc-phone"
         }
     }
 

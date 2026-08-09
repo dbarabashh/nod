@@ -24,7 +24,7 @@ struct PermissionsStep: View {
 
             VStack(spacing: 10) {
                 PermissionRow(
-                    icon: "mic.fill",
+                    icon: "nc-mic",
                     title: strings.micTitle,
                     description: strings.micDescription,
                     status: permissions.microphone,
@@ -37,7 +37,7 @@ struct PermissionsStep: View {
                 )
 
                 PermissionRow(
-                    icon: "rectangle.on.rectangle",
+                    icon: "nc-stack-perspective",
                     title: strings.screenTitle,
                     description: strings.screenDescription,
                     status: permissions.screenRecording,
@@ -54,7 +54,7 @@ struct PermissionsStep: View {
             // Hidden once the user has granted SR or asked us to skip it.
             if permissions.screenRecording != .authorized {
                 HStack(spacing: 6) {
-                    Image(systemName: "lock.shield")
+                    Image("nc-shield-check")
                         .font(.system(size: 10.5, weight: .medium))
                     Text(strings.screenPreemptiveBody)
                         .fixedSize(horizontal: false, vertical: true)
@@ -208,7 +208,7 @@ private struct RelaunchCard: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            Image(systemName: "arrow.triangle.2.circlepath")
+            Image("nc-refresh-2")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.Palette.cyan)
 

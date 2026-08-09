@@ -205,7 +205,7 @@ private struct ProfilePicker<Option: Identifiable & Hashable>: View {
                         selection = option
                     } label: {
                         if option == selection {
-                            Label(option[keyPath: title], systemImage: "checkmark")
+                            Label(option[keyPath: title], image: "nc-check")
                         } else {
                             Text(option[keyPath: title])
                         }
@@ -244,7 +244,7 @@ private struct ProfilePicker<Option: Identifiable & Hashable>: View {
 
             Spacer(minLength: 0)
 
-            Image(systemName: "chevron.up.chevron.down")
+            Image("nc-chevron-expand-y")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Theme.Palette.muted)
         }

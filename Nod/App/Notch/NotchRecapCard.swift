@@ -27,7 +27,7 @@ struct NotchRecapCard: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "doc.text.fill")
+            Image("nc-file")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.Palette.brand)
             Text("Meeting summary")

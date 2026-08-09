@@ -86,14 +86,14 @@ struct SettingsView: View {
 
         var icon: String {
             switch self {
-            case .profile: "person.crop.circle"
-            case .subscription: "creditcard"
-            case .rewards: "gift"
-            case .general: "gearshape"
-            case .modes: "square.stack.3d.up"
-            case .connections: "puzzlepiece.extension"
-            case .shortcuts: "keyboard"
-            case .privacy: "lock.shield"
+            case .profile: "nc-user"
+            case .subscription: "nc-credit-card"
+            case .rewards: "nc-gift"
+            case .general: "nc-gear-2"
+            case .modes: "nc-layers-3"
+            case .connections: "nc-puzzle-piece"
+            case .shortcuts: "nc-keyboard"
+            case .privacy: "nc-shield-check"
             }
         }
     }
@@ -287,7 +287,7 @@ struct SettingsView: View {
             }
             SettingsRowDivider()
             SettingsRow(
-                icon: "magnifyingglass",
+                icon: "nc-magnifier",
                 title: "Search & ask",
                 subtitle: "Open the quick panel from any app to search your sessions or ask across all of them."
             ) {

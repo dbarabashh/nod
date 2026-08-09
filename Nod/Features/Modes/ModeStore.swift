@@ -37,7 +37,7 @@ final class ModeStore: ObservableObject {
                 if let match = modes.first(where: { $0.summary == summary }) {
                     migratedSelection = match.id
                 } else {
-                    let custom = MeetingMode(name: "Custom", icon: "star", summary: summary)
+                    let custom = MeetingMode(name: "Custom", icon: "nc-star", summary: summary)
                     modes.append(custom)
                     migratedSelection = custom.id
                 }
@@ -83,7 +83,7 @@ final class ModeStore: ObservableObject {
 
     @discardableResult
     func addMode() -> UUID {
-        let mode = MeetingMode(name: "New mode", icon: "star", summary: .auto)
+        let mode = MeetingMode(name: "New mode", icon: "nc-star", summary: .auto)
         modes.append(mode)
         // Make the new mode active so authoring it and using it are the same act —
         // otherwise a freshly created mode is edited but silently inert.

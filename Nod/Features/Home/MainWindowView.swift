@@ -175,7 +175,7 @@ struct MainWindowView: View {
         Button {
             withAnimation(.standard(reduceMotion: reduceMotion)) { contextCollapsed = true }
         } label: {
-            Image(systemName: "sidebar.right")
+            Image("nc-sidebar-right")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Theme.Palette.muted)
                 .frame(width: 24, height: 24)
@@ -320,7 +320,7 @@ struct MainWindowView: View {
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(Theme.Palette.danger)
                 InlineConfirmButtons(
-                    confirmIcon: "eraser.fill",
+                    confirmIcon: "nc-scissors",
                     confirmHelp: "Clear history",
                     cancelHelp: "Keep history",
                     onConfirm: {
@@ -332,7 +332,7 @@ struct MainWindowView: View {
             }
         } else {
             Button { confirmingClearChat = true } label: {
-                Image(systemName: "eraser")
+                Image("nc-scissors")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Theme.Palette.muted)
                     .frame(width: 28, height: 28)
@@ -419,7 +419,7 @@ private struct UndoToast: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "trash")
+            Image("nc-trash")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.Palette.muted)
             Text(message)
@@ -436,7 +436,7 @@ private struct UndoToast: View {
             }
             .buttonStyle(.plain)
             Button(action: onDismiss) {
-                Image(systemName: "xmark")
+                Image("nc-xmark")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundColor(Theme.Palette.muted)
                     .frame(width: 18, height: 18)

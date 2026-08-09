@@ -53,7 +53,7 @@ struct LauncherView: View {
 
     private var field: some View {
         HStack(spacing: 10) {
-            Image(systemName: model.isAnswering ? "sparkles" : "magnifyingglass")
+            Image(model.isAnswering ? "nc-sparkle-3" : "nc-magnifier")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(model.isAnswering ? Theme.Palette.ink : Theme.Palette.muted)
                 .frame(width: 18)
@@ -77,7 +77,7 @@ struct LauncherView: View {
 
     private var modeChip: some View {
         HStack(spacing: 4) {
-            Image(systemName: "sparkles")
+            Image("nc-sparkle-3")
                 .font(.system(size: 8.5, weight: .semibold))
             Text("Ask Nod")
                 .font(.system(size: 11, weight: .medium))
@@ -130,7 +130,7 @@ struct LauncherView: View {
 
     /// Asking as a row in the list, not a mode: type a question, press Return.
     private func askRow(_ question: String, isSelected: Bool) -> some View {
-        launcherRow(icon: "sparkles", tint: Theme.Palette.ink.opacity(0.85), isSelected: isSelected) {
+        launcherRow(icon: "nc-sparkle-3", tint: Theme.Palette.ink.opacity(0.85), isSelected: isSelected) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Ask Nod")
                     .font(.system(size: 13.5, weight: .medium))
@@ -301,7 +301,7 @@ struct LauncherView: View {
                                         .font(.system(size: 10.5))
                                         .foregroundStyle(Theme.Palette.ink.opacity(0.45))
                                     Spacer(minLength: 4)
-                                    Image(systemName: "arrow.up.right")
+                                    Image("nc-arrow-up-right")
                                         .font(.system(size: 9, weight: .semibold))
                                         .foregroundStyle(Theme.Palette.ink.opacity(0.4))
                                 }
@@ -347,7 +347,7 @@ struct LauncherView: View {
 
     private var upsell: some View {
         HStack(spacing: 10) {
-            Image(systemName: "sparkles")
+            Image("nc-sparkle-3")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Theme.Palette.violet)
             Text("Asking across sessions is a Pro feature.")

@@ -8,7 +8,7 @@ struct GranolaImportSection: View {
     var body: some View {
         SettingsCard {
             SettingsRow(
-                icon: "square.and.arrow.down",
+                icon: "nc-inbox-arrow-down",
                 title: "Import from Granola",
                 subtitle: subtitle
             ) {
@@ -57,7 +57,7 @@ struct MeetingDetectionSection: View {
     var body: some View {
         SettingsCard {
             SettingsRow(
-                icon: "video.badge.waveform",
+                icon: "nc-video",
                 title: "Detect meetings automatically",
                 subtitle: "When a Zoom, Meet, Teams or Webex call starts, Nod offers to record it — "
                     + "and wraps up on its own when the call ends. Reads only which conferencing app is "
@@ -72,7 +72,7 @@ struct MeetingDetectionSection: View {
             if !preference.mutedApps.isEmpty {
                 SettingsRowDivider()
                 SettingsRow(
-                    icon: "bell.slash",
+                    icon: "nc-bell-slash",
                     title: "Never offered",
                     subtitle: "Nod stays quiet for calls in these apps."
                 ) {
@@ -104,7 +104,7 @@ struct CalendarSettingsSection: View {
     var body: some View {
         SettingsCard {
             SettingsRow(
-                icon: "calendar",
+                icon: "nc-calendar",
                 title: "Tell me when a meeting starts",
                 subtitle: "Nod speaks up when something in your calendar is about to begin, names who it is "
                     + "with, and offers to record it. It also uses the invitation to tell speakers apart. "
@@ -129,7 +129,7 @@ struct CalendarSettingsSection: View {
 
     private var blockedRow: some View {
         SettingsRow(
-            icon: "exclamationmark.triangle",
+            icon: "nc-triangle-warning",
             title: "macOS is blocking calendar access",
             subtitle: "Nod can't read your calendar until you allow it in System Settings → Privacy & Security → Calendars."
         ) {
@@ -143,7 +143,7 @@ struct CalendarSettingsSection: View {
     /// own, so there has to be a way to ask for it again.
     private var notAskedRow: some View {
         SettingsRow(
-            icon: "hand.raised",
+            icon: "nc-hand",
             title: "macOS hasn't been asked yet",
             subtitle: "Nod needs your permission before it can read the calendar on this Mac."
         ) {
@@ -164,7 +164,7 @@ struct LaunchBehaviorSection: View {
     var body: some View {
         SettingsCard {
             SettingsRow(
-                icon: "macwindow.on.rectangle",
+                icon: "nc-window-pointer",
                 title: "When Nod starts",
                 subtitle: behavior.mode.detail
             ) {
@@ -186,7 +186,7 @@ struct ScreenShareSettingsSection: View {
     var body: some View {
         SettingsCard {
             SettingsRow(
-                icon: "rectangle.on.rectangle",
+                icon: "nc-stack-perspective",
                 title: "Show Nod when you share your screen",
                 subtitle: "Off by default, so Nod stays out of your screen shares and recordings. Turn it on to keep the panel visible — handy when you're presenting with Nod on screen or recording a walkthrough."
             ) {
@@ -228,7 +228,7 @@ struct GeneralSettingsPane: View {
             }
             SettingsCard {
                 SettingsRow(
-                    icon: "globe",
+                    icon: "nc-earth",
                     title: "Confirm Nod language before each meeting",
                     subtitle: "Show a quick check for the language Nod uses in summaries and answers. Turn off to start straight away."
                 ) {
@@ -239,7 +239,7 @@ struct GeneralSettingsPane: View {
                 }
                 SettingsRowDivider()
                 SettingsRow(
-                    icon: "speaker.wave.2",
+                    icon: "nc-volume-up",
                     title: "Sound effects",
                     subtitle: "A quiet cue when a meeting starts, when a recap is ready, and when Nod is about to stop on its own. Nod stays silent while it records."
                 ) {
@@ -276,7 +276,7 @@ struct GeneralSettingsPane: View {
         private var resetFirstRunCard: some View {
             SettingsCard {
                 SettingsRow(
-                    icon: "arrow.counterclockwise",
+                    icon: "nc-arrow-dotted-rotate-anticlockwise",
                     title: "Reset first run",
                     subtitle: "Replay onboarding and the consent disclaimer on the next launch. Local flags only — no meetings, profile or subscription data is touched. Relaunches Nod."
                 ) {
@@ -308,7 +308,7 @@ struct GeneralSettingsPane: View {
         private var demoModeCard: some View {
             SettingsCard {
                 SettingsRow(
-                    icon: "wand.and.stars",
+                    icon: "nc-wand-sparkle",
                     title: "Demo mode",
                     subtitle: "Fill Nod with sample meetings for a recording. Nothing is read from or written to the database. Toggling relaunches Nod."
                 ) {

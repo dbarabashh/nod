@@ -96,7 +96,7 @@ struct RelatedSessionsView: View {
                     .foregroundStyle(Theme.Palette.muted)
             }
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
+            Image("nc-chevron-right")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Theme.Palette.muted)
         }

@@ -71,7 +71,7 @@ struct DemoToolIcon: View {
                 .frame(width: size, height: size)
                 .background(plate)
         } else {
-            Image(systemName: "bubble.left.and.bubble.right.fill")
+            Image("nc-msgs")
                 .font(.system(size: size * 0.5, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: size, height: size)

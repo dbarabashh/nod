@@ -45,7 +45,7 @@ struct NotchOffer: View {
                     subtitle
                 }
                 Spacer(minLength: 0)
-                NotchGlyphButton(systemName: "xmark", help: "Not now", action: onDismiss)
+                NotchGlyphButton(systemName: "nc-xmark", help: "Not now", action: onDismiss)
             }
             actions
         }
@@ -91,7 +91,7 @@ struct NotchOffer: View {
                 .resizable()
                 .frame(width: 24, height: 24)
         } else {
-            Image(systemName: offer.isRicher ? "calendar.badge.clock" : "video.fill")
+            Image(offer.isRicher ? "nc-calendar-days" : "nc-video")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.brand)
                 .frame(width: 24, height: 24)
@@ -154,9 +154,9 @@ struct NotchNotice: View {
 
         var icon: String {
             switch self {
-            case .revision: "arrow.triangle.2.circlepath"
-            case .soft: "questionmark.circle.fill"
-            case .strict: "checkmark.circle.fill"
+            case .revision: "nc-refresh-2"
+            case .soft: "nc-msgs"
+            case .strict: "nc-circle-check"
             }
         }
 
@@ -205,7 +205,7 @@ struct NotchNotice: View {
             }
 
             Spacer(minLength: 0)
-            NotchGlyphButton(systemName: "xmark", help: style.dismissHelp, action: onDismiss)
+            NotchGlyphButton(systemName: "nc-xmark", help: style.dismissHelp, action: onDismiss)
         }
     }
 }
@@ -302,7 +302,7 @@ struct NotchMicMenuButton: View {
                     audioCapture.preferredInputUID = device.uid
                 } label: {
                     if isSelected(device) {
-                        Label(device.name, systemImage: "checkmark")
+                        Label(device.name, image: "nc-check")
                     } else {
                         Text(device.name)
                     }
@@ -313,7 +313,7 @@ struct NotchMicMenuButton: View {
                 Image(systemName: iconName)
                     .font(.system(size: 9, weight: .bold))
                     .foregroundColor(iconTint)
-                Image(systemName: "chevron.down")
+                Image("nc-chevron-down")
                     .font(.system(size: 6, weight: .bold))
                     .foregroundColor(Theme.Palette.muted.opacity(0.7))
             }
@@ -331,8 +331,8 @@ struct NotchMicMenuButton: View {
     }
 
     private var iconName: String {
-        if hasProblem { return "exclamationmark.triangle.fill" }
-        return micMuted ? "mic.slash.fill" : "mic.fill"
+        if hasProblem { return "nc-triangle-warning" }
+        return micMuted ? "nc-mic-slash" : "nc-mic"
     }
 
     private var iconTint: Color {

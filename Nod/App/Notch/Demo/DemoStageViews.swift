@@ -138,7 +138,7 @@ private struct DemoSpokenLine: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "waveform")
+            Image("nc-video")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Theme.Palette.muted)
             Text(line)
@@ -156,7 +156,7 @@ private struct DemoSearchingLine: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "sparkle.magnifyingglass")
+            Image("nc-magnifier")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.Palette.brand)
             Text(label)
@@ -176,7 +176,7 @@ private struct DemoSearchingLine: View {
 private struct DemoOpeningCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            DemoCardHead(systemImage: "waveform", title: "Meeting in progress")
+            DemoCardHead(systemImage: "nc-video", title: "Meeting in progress")
             Text("I'm already looking for relevant context.")
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.Palette.graphite)
@@ -190,7 +190,7 @@ private struct DemoAcknowledgement: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
+            Image("nc-circle-check")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.brand)
             Text(line)
@@ -205,7 +205,7 @@ private struct DemoAcknowledgement: View {
 private struct DemoEndedLine: View {
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "stop.circle.fill")
+            Image("nc-media-pause")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.muted)
             Text("Meeting ended")
@@ -281,7 +281,7 @@ private struct DemoContextCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
-            DemoCardHead(systemImage: "link", title: context.lead)
+            DemoCardHead(systemImage: "nc-link", title: context.lead)
 
             VStack(alignment: .leading, spacing: 9) {
                 ForEach(context.sources) { source in
@@ -337,7 +337,7 @@ private struct DemoInsightCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
-            DemoCardHead(systemImage: "sparkles", title: insight.title)
+            DemoCardHead(systemImage: "nc-sparkle-3", title: insight.title)
                 .reveal(revealed, order: 0)
 
             Text(insight.explanation)
@@ -401,7 +401,7 @@ private struct DemoWorkflowCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
-            DemoCardHead(systemImage: "wand.and.stars", title: workflow.title)
+            DemoCardHead(systemImage: "nc-wand-sparkle", title: workflow.title)
 
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(workflow.steps) { step in
@@ -430,7 +430,7 @@ private struct DemoWorkflowRow: View {
                         .transition(.opacity)
 
                     if step.isDone {
-                        Image(systemName: "checkmark.circle.fill")
+                        Image("nc-circle-check")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(Theme.Palette.success)
                             .transition(.scale.combined(with: .opacity))
@@ -465,7 +465,7 @@ private struct DemoWorkflowResultCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
-            DemoCardHead(systemImage: "checkmark.seal.fill", title: result.title, tint: Theme.Palette.success)
+            DemoCardHead(systemImage: "nc-shield-check", title: result.title, tint: Theme.Palette.success)
 
             VStack(alignment: .leading, spacing: 9) {
                 ForEach(result.outcomes) { outcome in
@@ -499,7 +499,7 @@ private struct DemoTickList: View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach(items, id: \.self) { item in
                 HStack(spacing: 6) {
-                    Image(systemName: "checkmark")
+                    Image("nc-check")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(Theme.Palette.success)
                     Text(item)
@@ -520,7 +520,7 @@ private struct DemoBriefCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
-            DemoCardHead(systemImage: "doc.text.magnifyingglass", title: brief.title)
+            DemoCardHead(systemImage: "nc-magnifier", title: brief.title)
                 .reveal(revealed, order: 0)
 
             Text(brief.explanation)

@@ -25,7 +25,7 @@ struct RemovablePill: View {
                 .lineLimit(1)
             if let onRemove {
                 Button(action: onRemove) {
-                    Image(systemName: "xmark")
+                    Image("nc-xmark")
                         .font(.system(size: 8, weight: .bold))
                 }
                 .buttonStyle(.plain)
@@ -135,7 +135,7 @@ struct LabelEditor: View {
             LabelSwatchRow(selection: $color)
             HStack(spacing: 8) {
                 Button(role: .destructive, action: delete) {
-                    Image(systemName: "trash")
+                    Image("nc-trash")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.Palette.danger)
@@ -229,7 +229,7 @@ struct LabelPickerPopover: View {
     private var editorHeader: some View {
         HStack(spacing: 6) {
             Button { editing = nil } label: {
-                Image(systemName: "chevron.left")
+                Image("nc-chevron-left")
                     .font(.system(size: 12, weight: .semibold))
             }
             .buttonStyle(.plain)
@@ -255,7 +255,7 @@ struct LabelPickerPopover: View {
             Spacer(minLength: 0)
             if confirming {
                 InlineConfirmButtons(
-                    confirmIcon: "trash.fill",
+                    confirmIcon: "nc-trash",
                     confirmHelp: "Delete folder",
                     cancelHelp: "Keep folder",
                     onConfirm: { confirmDelete(label) },
@@ -263,12 +263,12 @@ struct LabelPickerPopover: View {
                 )
             } else {
                 if assigned.contains(label.id) {
-                    Image(systemName: "checkmark")
+                    Image("nc-check")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Theme.Palette.violet)
                 }
                 Button { confirmingDelete = label.id } label: {
-                    Image(systemName: "trash")
+                    Image("nc-trash")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.Palette.muted)
                         .frame(width: 18, height: 18)
@@ -298,7 +298,7 @@ struct LabelPickerPopover: View {
             LabelSwatchRow(selection: $newColor)
             Button(action: createAndAssign) {
                 HStack(spacing: 6) {
-                    Image(systemName: "plus.circle.fill")
+                    Image("nc-grid-circle-plus")
                         .foregroundStyle(SessionLabel.color(fromHex: newColor) ?? Theme.Palette.violet)
                     Text("Create “\(trimmedQuery)”")
                         .font(.system(size: 12.5, weight: .medium))

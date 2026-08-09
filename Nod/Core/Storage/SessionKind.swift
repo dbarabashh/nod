@@ -86,9 +86,9 @@ enum SessionKind: String, Codable, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .meeting: "person.2.fill"
-        case .voiceNote: "mic.fill"
-        case .media: "play.rectangle.fill"
+        case .meeting: "nc-users"
+        case .voiceNote: "nc-mic"
+        case .media: "nc-film"
         }
     }
 }

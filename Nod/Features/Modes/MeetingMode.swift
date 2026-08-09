@@ -54,23 +54,23 @@ extension MeetingMode {
     /// store never force-unwraps; in practice the seeded presets are non-empty.
     static let fallback = MeetingMode(
         name: "General",
-        icon: "circle.grid.2x2",
+        icon: "nc-grid-2",
         summary: .auto
     )
 
     /// The modes a fresh install starts with — one neutral default plus the
     /// meeting shapes the recap/reply enums already special-case.
     static let presets: [MeetingMode] = [
-        MeetingMode(name: "General", icon: "circle.grid.2x2", summary: .auto),
+        MeetingMode(name: "General", icon: "nc-grid-2", summary: .auto),
         MeetingMode(
             name: "Interview",
-            icon: "person.crop.rectangle.stack",
+            icon: "nc-side-profile",
             summary: .interview,
             focus: "Senior backend candidate. Probe system-design depth, ownership, and how they handle ambiguity. Flag anything that suggests they oversell."
         ),
-        MeetingMode(name: "Sales call", icon: "chart.line.uptrend.xyaxis", summary: .salesCall),
-        MeetingMode(name: "1:1", icon: "bubble.left.and.bubble.right", summary: .oneOnOne),
-        MeetingMode(name: "Standup", icon: "checklist", summary: .standup)
+        MeetingMode(name: "Sales call", icon: "nc-window-chart-line", summary: .salesCall),
+        MeetingMode(name: "1:1", icon: "nc-msgs", summary: .oneOnOne),
+        MeetingMode(name: "Standup", icon: "nc-tasks-2", summary: .standup)
     ]
 }
 

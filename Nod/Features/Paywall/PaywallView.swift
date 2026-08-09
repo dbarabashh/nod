@@ -332,7 +332,7 @@ struct PaywallView: View {
         let isHeader = feature.hasSuffix("plus:")
         return HStack(alignment: .top, spacing: 8) {
             if !isHeader {
-                Image(systemName: "checkmark")
+                Image("nc-check")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(Theme.Palette.ink)
                     .frame(width: 14)

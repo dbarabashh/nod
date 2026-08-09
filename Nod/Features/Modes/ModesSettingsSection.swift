@@ -25,8 +25,8 @@ struct ModesSettingsSection: View {
     /// `rectangle.stack`, `waveform`) — so a mode's icon never reads as a
     /// recording type or a control.
     private static let iconChoices = [
-        "circle.grid.2x2", "person.crop.rectangle.stack", "chart.line.uptrend.xyaxis",
-        "bubble.left.and.bubble.right", "checklist", "briefcase", "graduationcap",
+        "nc-grid-2", "nc-side-profile", "nc-window-chart-line",
+        "nc-msgs", "nc-tasks-2", "briefcase", "graduationcap",
         "megaphone", "lightbulb", "flag", "target", "star", "bolt", "tag"
     ]
 
@@ -73,7 +73,7 @@ struct ModesSettingsSection: View {
                     editingID = store.addMode()
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: "plus")
+                        Image("nc-plus")
                         Text("New")
                     }
                     .font(.system(size: 12, weight: .medium))
@@ -232,7 +232,7 @@ private struct ModeEditorForm: View {
 
             HStack(spacing: 12) {
                 if isActive {
-                    Label("Active mode", systemImage: "checkmark.circle.fill")
+                    Label("Active mode", image: "nc-circle-check")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Theme.Palette.muted)
                 } else {
@@ -241,7 +241,7 @@ private struct ModeEditorForm: View {
                 Spacer(minLength: 0)
                 if canDelete {
                     Button(role: .destructive, action: onDelete) {
-                        Label("Delete", systemImage: "trash")
+                        Label("Delete", image: "nc-trash")
                     }
                 }
             }

@@ -100,7 +100,7 @@ struct ActionItemsAggregateView: View {
     /// upsell.
     private var upsell: some View {
         VStack(spacing: 12) {
-            Image(systemName: "checklist")
+            Image("nc-tasks-2")
                 .font(.system(size: 30, weight: .regular))
                 .foregroundStyle(Theme.Palette.violet)
             Text("Track action items across meetings")
@@ -131,7 +131,7 @@ struct ActionItemsAggregateView: View {
 
     private func undoToast(_ item: ActionItem) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
+            Image("nc-circle-check")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.brand)
             Text("Marked done")
@@ -152,7 +152,7 @@ struct ActionItemsAggregateView: View {
             Button {
                 dismissUndo()
             } label: {
-                Image(systemName: "xmark")
+                Image("nc-xmark")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundColor(Theme.Palette.muted)
                     .frame(width: 18, height: 18)
@@ -177,7 +177,7 @@ struct ActionItemsAggregateView: View {
     private var header: some View {
         HStack(spacing: 10) {
             Button(action: onBack) {
-                Image(systemName: "chevron.backward")
+                Image("nc-chevron-left")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Theme.Palette.muted)
                     .iconButtonChrome()
@@ -329,7 +329,7 @@ struct ActionItemsAggregateView: View {
                 startAdd(group.meetingID)
             } label: {
                 HStack(spacing: 9) {
-                    Image(systemName: "plus")
+                    Image("nc-plus")
                         .font(.system(size: 11, weight: .semibold))
                     Text("Add task")
                         .font(.system(size: 13, weight: .medium))
@@ -348,7 +348,7 @@ struct ActionItemsAggregateView: View {
     private func fieldButtons(save: @escaping () -> Void, cancel: @escaping () -> Void) -> some View {
         HStack(spacing: 2) {
             Button(action: save) {
-                Image(systemName: "checkmark")
+                Image("nc-check")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(Theme.Palette.brand)
                     .frame(width: 26, height: 26)
@@ -356,7 +356,7 @@ struct ActionItemsAggregateView: View {
             .buttonStyle(.plain)
             .help("Save (↩)")
             Button(action: cancel) {
-                Image(systemName: "xmark")
+                Image("nc-xmark")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(Theme.Palette.muted)
                     .frame(width: 26, height: 26)
@@ -451,7 +451,7 @@ struct ActionItemsAggregateView: View {
         Button {
             Task { await delete(item) }
         } label: {
-            Image(systemName: "trash")
+            Image("nc-trash")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Theme.Palette.danger)
                 .frame(width: 26, height: 26)
@@ -473,31 +473,31 @@ struct ActionItemsAggregateView: View {
         Button {
             startEdit(item)
         } label: {
-            Label("Edit", systemImage: "pencil")
+            Label("Edit", image: "nc-pen-writing")
         }
         Button {
             onOpenMeeting(item.meetingID)
         } label: {
-            Label("Open meeting", systemImage: "arrow.up.right.square")
+            Label("Open meeting", image: "nc-arrow-up-right")
         }
         if let matchID = flagged[item.id] {
             Button {
                 dismissDuplicate(item.id, matchID)
             } label: {
-                Label("Not a duplicate", systemImage: "checkmark.circle")
+                Label("Not a duplicate", image: "nc-check")
             }
         }
         Divider()
         Button(role: .destructive) {
             Task { await delete(item) }
         } label: {
-            Label("Delete", systemImage: "trash")
+            Label("Delete", image: "nc-trash")
         }
     }
 
     private func duplicatePill(for item: ActionItem) -> some View {
         HStack(spacing: 3) {
-            Image(systemName: "doc.on.doc")
+            Image("nc-files-2")
                 .font(.system(size: 8, weight: .semibold))
             Text("Possible duplicate")
                 .font(.system(size: 10.5, weight: .medium))
@@ -506,14 +506,14 @@ struct ActionItemsAggregateView: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(Capsule().fill(Theme.Palette.warning.opacity(0.12)))
-        .hoverTooltip(duplicateHelp(for: item), systemImage: "doc.on.doc")
+        .hoverTooltip(duplicateHelp(for: item), systemImage: "nc-files-2")
     }
 
     // MARK: - States
 
     private var emptyState: some View {
         VStack(spacing: 14) {
-            Image(systemName: "checklist")
+            Image("nc-tasks-2")
                 .font(.system(size: 34, weight: .regular))
                 .foregroundStyle(Theme.Palette.muted)
             Text(filter == .open ? "No open action items." : "No action items yet.")
@@ -618,7 +618,7 @@ struct ActionItemsAggregateView: View {
     }
 
     private func meetingIcon(_ id: UUID) -> String {
-        meetingsByID[id]?.kind.icon ?? "calendar"
+        meetingsByID[id]?.kind.icon ?? "nc-calendar"
     }
 
     /// The day a deadline phrase was spoken — what "end of week" was relative

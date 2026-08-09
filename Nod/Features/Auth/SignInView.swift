@@ -38,7 +38,7 @@ struct SignInView: View {
                                 .controlSize(.small)
                                 .tint(Theme.GlassButton.text)
                         } else {
-                            Image(systemName: "g.circle.fill")
+                            Image("nc-check")
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundStyle(Theme.GlassButton.text)
                         }

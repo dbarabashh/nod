@@ -54,7 +54,7 @@ struct SaveErrorToast: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image("nc-triangle-warning")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.Palette.warning)
 
@@ -69,7 +69,7 @@ struct SaveErrorToast: View {
                 NotchActionButton(title: "Retry", action: onRetry)
             }
 
-            NotchGlyphButton(systemName: "xmark", help: "Dismiss", action: onDismiss)
+            NotchGlyphButton(systemName: "nc-xmark", help: "Dismiss", action: onDismiss)
         }
     }
 }
@@ -83,7 +83,7 @@ struct UpdateRequiredNotice: View {
 
     var body: some View {
         HStack(spacing: 11) {
-            Image(systemName: "arrow.down.circle.fill")
+            Image("nc-circle-arrow-down")
                 .font(.system(size: 20, weight: .regular))
                 .foregroundColor(DesignTokens.Palette.electricBlue)
 

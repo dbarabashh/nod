@@ -14,7 +14,7 @@ struct DemoSettingsSection: View {
         VStack(alignment: .leading, spacing: 12) {
             SettingsCard {
                 SettingsRow(
-                    icon: "play.rectangle.on.rectangle",
+                    icon: "nc-film",
                     title: "Scripted demo",
                     subtitle: "Start plays a fixed 60-second story instead of recording. Nothing is transcribed, sent, or saved."
                 ) {
@@ -27,7 +27,7 @@ struct DemoSettingsSection: View {
                     SettingsRowDivider()
 
                     SettingsRow(
-                        icon: "list.bullet.rectangle",
+                        icon: "nc-bullet-list",
                         title: "Scenario",
                         subtitle: "Every scenario follows the same beats — context found, insight, multi-tool workflow, follow-up booked, summary."
                     ) {

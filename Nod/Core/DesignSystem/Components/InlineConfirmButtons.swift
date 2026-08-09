@@ -23,7 +23,7 @@ struct InlineConfirmButtons: View {
             .buttonStyle(.pressable(scale: 0.90))
             .help(confirmHelp)
             Button(action: onCancel) {
-                Image(systemName: "xmark")
+                Image("nc-xmark")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Theme.Palette.muted)
                     .frame(width: 18, height: 18)

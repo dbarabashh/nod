@@ -57,7 +57,7 @@ struct HomeSidebar: View {
                     chatRow
                     navRow(
                         "Sessions",
-                        icon: "rectangle.stack",
+                        icon: "nc-layers-3",
                         isSelected: surface == .sessions,
                         action: { onSelect(.sessions) }
                     )
@@ -116,7 +116,7 @@ struct HomeSidebar: View {
             onCapture()
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "plus")
+                Image("nc-plus")
                     .font(.system(size: 12, weight: .bold))
                 Text("Capture")
                     .font(.system(size: 13.5, weight: .semibold))
@@ -152,7 +152,7 @@ struct HomeSidebar: View {
                     .foregroundStyle(Theme.Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
                 Button { captureHintSeen = true } label: {
-                    Image(systemName: "xmark")
+                    Image("nc-xmark")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(Theme.Palette.muted)
                         .frame(width: 16, height: 16)
@@ -178,14 +178,14 @@ struct HomeSidebar: View {
             // the phrase the composer already uses ("Ask across all memory").
             navRow(
                 "Ask NOD",
-                icon: "sparkles",
+                icon: "nc-sparkle-3",
                 isSelected: surface == .chat,
                 action: { onSelect(.chat) }
             )
             // Carries its own surface at rest: as a bare glyph it read as
             // decoration beside the row and users didn't find it.
             Button(action: onNewChat) {
-                Image(systemName: "square.and.pencil")
+                Image("nc-pen-writing")
                     .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(newChatHovering ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.72))
                     // Stretches to the row beside it where the stack has a
@@ -298,7 +298,7 @@ struct HomeSidebar: View {
     private var addProjectRow: some View {
         Button { isAddingProject = true } label: {
             HStack(spacing: 9) {
-                Image(systemName: "plus")
+                Image("nc-plus")
                     .font(.system(size: 11, weight: .semibold))
                     .frame(width: 16)
                 Text("Add project")
@@ -362,7 +362,7 @@ struct HomeSidebar: View {
     private func threadRow(_ thread: KnowledgeThreadStore.Thread) -> some View {
         let isOpen = chat.threadID == thread.id && surface == .chat
         return HStack(spacing: 9) {
-            Image(systemName: "bubble.left")
+            Image("nc-msgs")
                 .font(.system(size: 11, weight: .medium))
                 .frame(width: 16)
             Text(thread.displayTitle)
@@ -371,7 +371,7 @@ struct HomeSidebar: View {
             Spacer(minLength: 0)
             if confirmingDeleteThread == thread.id {
                 InlineConfirmButtons(
-                    confirmIcon: "trash.fill",
+                    confirmIcon: "nc-trash",
                     confirmHelp: "Delete this chat",
                     cancelHelp: "Keep it",
                     onConfirm: { delete(thread) },
@@ -394,7 +394,7 @@ struct HomeSidebar: View {
         }
         .contextMenu {
             Button(role: .destructive) { confirmingDeleteThread = thread.id } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Delete", image: "nc-trash")
             }
         }
     }
@@ -419,7 +419,7 @@ struct HomeSidebar: View {
             if contextCollapsed {
                 navRow(
                     "Needs your attention",
-                    icon: "sidebar.right",
+                    icon: "nc-sidebar-right",
                     isSelected: false,
                     action: {
                         withAnimation(.standard(reduceMotion: reduceMotion)) { contextCollapsed = false }
@@ -434,7 +434,7 @@ struct HomeSidebar: View {
             AmbientContextSidebarRow()
             navRow(
                 "Settings",
-                icon: "gearshape",
+                icon: "nc-gear-2",
                 isSelected: surface == .settings,
                 action: { onSelect(.settings) }
             )
@@ -447,7 +447,7 @@ struct HomeSidebar: View {
     private var accountRow: some View {
         Button { onSelect(.settings) } label: {
             HStack(spacing: 9) {
-                Image(systemName: "person.crop.circle")
+                Image("nc-user")
                     .font(.system(size: 15, weight: .regular))
                     .foregroundStyle(Theme.Palette.muted)
                     .frame(width: 16)

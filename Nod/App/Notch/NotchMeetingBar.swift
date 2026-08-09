@@ -117,7 +117,7 @@ struct NotchMeetingBar: View {
             MeetingBarButton(title: "Notes", isActive: panel == .notes, action: onToggleNotes)
             MeetingBarEndButton(action: session.endMeeting)
             if let onCollapse {
-                NotchGlyphButton(systemName: "chevron.up", help: "Tuck into the notch", action: onCollapse)
+                NotchGlyphButton(systemName: "nc-chevron-up", help: "Tuck into the notch", action: onCollapse)
             }
         }
     }
@@ -422,7 +422,7 @@ private struct MeetingAskPanel: View {
                 .focused($focused)
                 .onSubmit(submit)
             Button(action: submit) {
-                Image(systemName: "paperplane.fill")
+                Image("nc-paper-plane-2")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(canSubmit ? Theme.Palette.brand : Theme.Palette.muted.opacity(0.5))
             }

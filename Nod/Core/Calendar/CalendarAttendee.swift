@@ -75,6 +75,6 @@ extension CalendarAttendee {
     private static let roleAddresses: Set<String> = [
         "info", "support", "noreply", "no-reply", "donotreply", "admin", "team",
         "hello", "contact", "billing", "sales", "hr", "office", "notifications",
-        "calendar", "meetings", "invite", "invites", "events", "help", "accounts"
+        "nc-calendar", "meetings", "invite", "invites", "events", "help", "accounts"
     ]
 }

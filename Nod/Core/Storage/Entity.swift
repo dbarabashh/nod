@@ -7,9 +7,9 @@ enum EntityKind: String, Codable, CaseIterable {
 
     var icon: String {
         switch self {
-        case .person: "person.fill"
-        case .project: "folder.fill"
-        case .topic: "tag.fill"
+        case .person: "nc-user"
+        case .project: "nc-folder"
+        case .topic: "nc-tag"
         }
     }
 }

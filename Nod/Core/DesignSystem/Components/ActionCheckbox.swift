@@ -13,7 +13,7 @@ struct ActionCheckbox: View {
                 .overlay(Circle().stroke(done ? Theme.Palette.brand : Theme.Palette.borderStrong, lineWidth: 1.5))
                 .frame(width: 18, height: 18)
             if done {
-                Image(systemName: "checkmark")
+                Image("nc-check")
                     .font(.system(size: 9.5, weight: .bold))
                     .foregroundStyle(Theme.Palette.bg)
             }

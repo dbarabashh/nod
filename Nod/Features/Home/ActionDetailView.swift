@@ -80,7 +80,7 @@ struct ActionDetailView: View {
     private var header: some View {
         HStack(spacing: 10) {
             Button(action: onClose) {
-                Image(systemName: "xmark")
+                Image("nc-xmark")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.Palette.muted)
                     .iconButtonChrome()
@@ -182,7 +182,7 @@ struct ActionDetailView: View {
                             .padding(.top, 2)
                     }
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
+                    Image("nc-chevron-right")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Theme.Palette.muted)
                 }
@@ -216,12 +216,12 @@ struct ActionDetailView: View {
                     .glassButtonSurface(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
-            secondaryButton("Edit", icon: "pencil", action: startEdit)
-            secondaryButton("Copy", icon: "doc.on.doc") {
+            secondaryButton("Edit", icon: "nc-pen-writing", action: startEdit)
+            secondaryButton("Copy", icon: "nc-files-2") {
                 NSPasteboard.copyText(current.text)
             }
             Spacer(minLength: 0)
-            secondaryButton("Delete", icon: "trash", tint: Theme.Palette.danger) {
+            secondaryButton("Delete", icon: "nc-trash", tint: Theme.Palette.danger) {
                 Task { await delete() }
             }
         }

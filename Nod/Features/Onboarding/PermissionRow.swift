@@ -105,7 +105,7 @@ private struct StatusBadge: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: "checkmark")
+            Image("nc-check")
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(color)
             Text(text)

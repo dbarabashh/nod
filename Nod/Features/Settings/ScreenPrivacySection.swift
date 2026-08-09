@@ -82,7 +82,7 @@ struct ScreenPrivacySection: View {
     private var ambientContextCard: some View {
         SettingsCard {
             SettingsRow(
-                icon: "sparkles.rectangle.stack",
+                icon: "nc-sparkle-3",
                 title: "Ambient context",
                 subtitle: "Let Nod read the window you're working in, so you can ask about what you were doing — "
                     + "not just what was said. Off by default. Excluded apps and sites are never read."
@@ -108,7 +108,7 @@ struct ScreenPrivacySection: View {
             if ambientRunnable, screenContext.needsAccessibility {
                 SettingsRowDivider()
                 SettingsRow(
-                    icon: "exclamationmark.triangle",
+                    icon: "nc-triangle-warning",
                     title: "Accessibility access needed",
                     subtitle: "macOS has to allow Nod to read window text before ambient context can run. "
                         + "Grant it in System Settings, then switch this back on."
@@ -123,7 +123,7 @@ struct ScreenPrivacySection: View {
             if case let .paused(until) = screenContext.activityState {
                 SettingsRowDivider()
                 SettingsRow(
-                    icon: "pause.circle",
+                    icon: "nc-media-pause",
                     title: "Paused \(ScreenContextService.ActivityState.remaining(until: until))",
                     subtitle: "Nothing is being read. Capture resumes on its own when the pause runs out."
                 ) {
@@ -134,7 +134,7 @@ struct ScreenPrivacySection: View {
             if ambientEnabled {
                 SettingsRowDivider()
                 SettingsRow(
-                    icon: "clock.arrow.circlepath",
+                    icon: "nc-refresh-2",
                     title: "Keep for",
                     subtitle: "Older context is deleted automatically, on the server, even if you never open Nod again."
                 ) {
@@ -308,7 +308,7 @@ struct ScreenPrivacySection: View {
             siteList(
                 SiteListStyle(
                     title: "Specific sites (\(exclusions.websites.count))",
-                    icon: "globe",
+                    icon: "nc-earth",
                     empty: "No sites added",
                     placeholder: "bank.com",
                     marksDefaults: true
@@ -346,7 +346,7 @@ struct ScreenPrivacySection: View {
             siteList(
                 SiteListStyle(
                     title: "Always include (\(exclusions.alwaysIncluded.count))",
-                    icon: "checkmark.circle",
+                    icon: "nc-check",
                     empty: "Nothing always included",
                     placeholder: "portal.supplier.com"
                 ),
@@ -405,7 +405,7 @@ struct ScreenPrivacySection: View {
                     if index > 0 { SettingsRowDivider() }
                     SettingsRow(icon: style.icon, title: site, subtitle: subtitle(for: site, style: style)) {
                         Button { remove(site) } label: {
-                            Image(systemName: "minus.circle")
+                            Image("nc-minus")
                                 .font(.system(size: 13))
                                 .foregroundStyle(Theme.Palette.muted)
                         }

@@ -87,7 +87,7 @@ struct KnowledgeChatView: View {
 
     private var upsell: some View {
         VStack(spacing: 12) {
-            Image(systemName: "sparkles")
+            Image("nc-sparkle-3")
                 .font(.system(size: 30, weight: .regular))
                 .foregroundStyle(Theme.Palette.violet)
             Text("Ask across all your meetings")
@@ -259,7 +259,7 @@ struct KnowledgeChatView: View {
                     .resizable()
                     .frame(width: 12, height: 12)
             } else {
-                Image(systemName: source.isApp ? "macwindow" : "doc.text")
+                Image(source.isApp ? "nc-window-pointer" : "nc-file")
                     .font(.system(size: 8.5, weight: .semibold))
             }
             Text(source.title)
@@ -331,7 +331,7 @@ struct KnowledgeChatView: View {
             .popover(isPresented: $showMentionPicker, arrowEdge: .top) { mentionPicker }
 
             Button(action: send) {
-                Image(systemName: "arrow.up")
+                Image("nc-circle-arrow-up")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(canSend ? Theme.GlassButton.text : .white)
                     .frame(width: 32, height: 32)
@@ -366,11 +366,11 @@ struct KnowledgeChatView: View {
     private var scopeButton: some View {
         Button { showScopePicker.toggle() } label: {
             HStack(spacing: 4) {
-                Image(systemName: "line.3.horizontal.decrease")
+                Image("nc-filter")
                     .font(.system(size: 9, weight: .semibold))
                 Text(scopeSummary)
                     .font(.system(size: 11, weight: .medium))
-                Image(systemName: "chevron.down")
+                Image("nc-chevron-down")
                     .font(.system(size: 8, weight: .semibold))
             }
             .foregroundStyle(scopeLabelIDs.isEmpty ? Theme.Palette.muted : Theme.Palette.violet)
@@ -555,7 +555,7 @@ private struct ScopePickerRow: View {
                     .foregroundStyle(Theme.Palette.ink)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                Image(systemName: "checkmark")
+                Image("nc-check")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Theme.Palette.violet)
                     .opacity(isSelected ? 1 : 0)

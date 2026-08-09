@@ -44,12 +44,12 @@ enum WebsiteCategory: String, CaseIterable, Identifiable, Codable {
 
     var icon: String {
         switch self {
-        case .adult: "eye.slash"
-        case .banking: "banknote"
-        case .health: "cross.case"
-        case .social: "bubble.left.and.bubble.right"
-        case .shopping: "cart"
-        case .entertainment: "play.tv"
+        case .adult: "nc-eye-closed"
+        case .banking: "nc-money-bill-coin"
+        case .health: "nc-life-ring"
+        case .social: "nc-msgs"
+        case .shopping: "nc-cart-shopping"
+        case .entertainment: "nc-film"
         }
     }
 

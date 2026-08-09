@@ -125,7 +125,7 @@ struct ChatSuggestionChip: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: "sparkle")
+                Image("nc-sparkle-3")
                     .font(.system(size: 10))
                 Text(text)
                     .font(.system(size: 12.5))
@@ -326,7 +326,7 @@ struct ChatCopyButton: View {
     var body: some View {
         Button(action: copy) {
             HStack(spacing: 4) {
-                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                Image(copied ? "nc-check" : "nc-files-2")
                     .font(.system(size: 10, weight: .semibold))
                 Text(copied ? "Copied" : "Copy")
                     .font(.system(size: 10.5, weight: .medium))

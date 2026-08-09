@@ -66,10 +66,10 @@ enum ConnectionClient: String, CaseIterable, Identifiable {
     /// SF Symbol shown until the brand logo asset is supplied.
     var fallbackSymbol: String {
         switch self {
-        case .claude: "sparkles"
-        case .chatgpt: "bubble.left.and.bubble.right.fill"
-        case .gemini: "sparkle"
-        case .other: "puzzlepiece.extension.fill"
+        case .claude: "nc-sparkle-3"
+        case .chatgpt: "nc-msgs"
+        case .gemini: "nc-sparkle-3"
+        case .other: "nc-puzzle-piece"
         }
     }
 }

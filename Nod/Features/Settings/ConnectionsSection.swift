@@ -13,7 +13,7 @@ struct ConnectionsSection: View {
         VStack(alignment: .leading, spacing: 16) {
             SettingsCard {
                 SettingsRow(
-                    icon: "puzzlepiece.extension",
+                    icon: "nc-puzzle-piece",
                     title: "Connect Nod to AI assistants",
                     subtitle: "Search your meeting summaries and transcripts from ChatGPT or Claude. Official connections use secure OAuth and are read-only."
                 ) {

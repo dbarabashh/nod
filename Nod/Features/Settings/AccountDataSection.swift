@@ -15,7 +15,7 @@ struct AccountDataSection: View {
         VStack(alignment: .leading, spacing: 16) {
             SettingsCard {
                 SettingsRow(
-                    icon: "square.and.arrow.up",
+                    icon: "nc-paper-plane-2",
                     title: "Export my data",
                     subtitle: exportSubtitle
                 ) {
@@ -35,7 +35,7 @@ struct AccountDataSection: View {
 
             SettingsCard {
                 SettingsRow(
-                    icon: "trash",
+                    icon: "nc-trash",
                     title: "Delete account",
                     subtitle: deleteSubtitle
                 ) {

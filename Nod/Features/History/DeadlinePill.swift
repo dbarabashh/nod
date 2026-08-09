@@ -51,7 +51,7 @@ struct DeadlinePill: View {
                     spokenAt: spokenAt,
                     meetingTitle: meetingTitle
                 ),
-                systemImage: "calendar"
+                systemImage: "nc-calendar"
             )
     }
 }

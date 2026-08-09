@@ -17,7 +17,7 @@ struct ConsentDisclaimerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.shield.fill")
+                Image("nc-shield-check")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(Theme.Palette.warning)
                 Text(strings.title)

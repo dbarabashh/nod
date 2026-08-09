@@ -39,7 +39,7 @@ struct DemoSummaryCard: View {
 
     private var head: some View {
         HStack(spacing: 8) {
-            Image(systemName: "doc.text.fill")
+            Image("nc-file")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.Palette.brand)
             Text(summary.title)
@@ -127,7 +127,7 @@ struct DemoSummaryCard: View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach(items, id: \.self) { item in
                 HStack(alignment: .top, spacing: 7) {
-                    Image(systemName: "checkmark")
+                    Image("nc-check")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(Theme.Palette.success)
                         .padding(.top, 2)
@@ -196,7 +196,7 @@ private struct DemoScrollHint: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Image(systemName: "chevron.down")
+        Image("nc-chevron-down")
             .font(.system(size: 9, weight: .bold))
             .foregroundStyle(Theme.Palette.muted)
             .offset(y: nudging ? 1.5 : -1.5)

@@ -27,7 +27,7 @@ struct RewardsSection: View {
         VStack(alignment: .leading, spacing: 16) {
             SettingsCard {
                 SettingsRow(
-                    icon: "gift",
+                    icon: "nc-gift",
                     title: "Give −50%, get a free month",
                     subtitle: "Share your link. Friends get 50% off their first month of Nod (monthly billing). You earn a free month on your plan once a friend stays past their first renewal — up to 6 free months a year."
                 ) { EmptyView() }
@@ -137,7 +137,7 @@ struct RewardsSection: View {
     private var statusRow: some View {
         SettingsCard {
             SettingsRow(
-                icon: "person.2",
+                icon: "nc-users",
                 title: "\(service.joinedCount) friend\(service.joinedCount == 1 ? "" : "s") subscribed",
                 subtitle: "\(service.rewardedCount) free month\(service.rewardedCount == 1 ? "" : "s") received so far."
             ) { EmptyView() }

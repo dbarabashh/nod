@@ -43,7 +43,7 @@ struct MemoryBriefCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if let context = brief.mostActiveContext {
                     HStack(spacing: 5) {
-                        Image(systemName: "clock.arrow.circlepath")
+                        Image("nc-refresh-2")
                             .font(.system(size: 9.5, weight: .semibold))
                         Text("Last in \(context)")
                             .lineLimit(1)
