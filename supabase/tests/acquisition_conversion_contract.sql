@@ -2,6 +2,10 @@ begin;
 
 do $$
 begin
+    if to_regprocedure('net.http_post(text,jsonb,jsonb,jsonb,integer)') is null then
+        raise exception 'pg_net http_post is unavailable for analytics sync';
+    end if;
+
     if has_function_privilege(
         'authenticated',
         'public.enqueue_paid_transaction_conversion(uuid,timestamptz,numeric,text)',
