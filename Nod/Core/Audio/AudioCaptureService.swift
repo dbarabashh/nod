@@ -65,6 +65,16 @@ final class AudioCaptureService: NSObject, ObservableObject {
     private var micWatchdogTask: Task<Void, Never>?
     private var micRestartInFlight = false
     private static let micStallSeconds: TimeInterval = 8
+    /// Counts stall-triggered restarts since the last real buffer. A device
+    /// can pass `deviceID(forUID:)` (still connected) yet never deliver a
+    /// single frame — e.g. a stale HW sample rate the AUHAL and the device
+    /// disagree on — which `applyInputDeviceSelection`'s "device vanished"
+    /// fallback doesn't catch, since the device hasn't vanished. Without this,
+    /// the watchdog would retry the same broken device forever: each restart
+    /// re-runs `applyInputDeviceSelection`, which re-selects whatever
+    /// `preferredInputUID` still points at. Reset on every real buffer.
+    private var consecutiveMicStallRestarts = 0
+    private static let maxConsecutiveMicStallRestarts = 2
     /// Core Audio listener for input-device topology changes (a device
     /// appearing/disappearing, or the system default switching). Lets us react
     /// to the active input vanishing mid-meeting faster than the watchdog's
@@ -261,6 +271,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
                 // Liveness for the watchdog — set before the mute branch so a
                 // muted-but-delivering mic isn't mistaken for a stalled one.
                 lastMicFrameAt = Date()
+                consecutiveMicStallRestarts = 0
                 if micEnabled {
                     micSamples += count
                     // Decaying peak hold — rises instantly to a loud frame,
@@ -426,6 +437,16 @@ final class AudioCaptureService: NSObject, ObservableObject {
         guard state == .capturing, captureMic, !micRestartInFlight else { return }
         let elapsed = Date().timeIntervalSince(lastMicFrameAt ?? .distantPast)
         guard elapsed >= Self.micStallSeconds else { return }
+
+        consecutiveMicStallRestarts += 1
+        if consecutiveMicStallRestarts > Self.maxConsecutiveMicStallRestarts, let badUID = preferredInputUID {
+            Log.audio.error(
+                "preferred input UID=\(badUID) delivered zero buffers across \(consecutiveMicStallRestarts) restarts; falling back to system default"
+            )
+            preferredInputUID = nil
+            lastError = "The selected microphone stopped responding — switched to the system default."
+            consecutiveMicStallRestarts = 0
+        }
         await restartMicrophone(reason: "no mic buffers for \(String(format: "%.1f", elapsed))s")
     }
 
