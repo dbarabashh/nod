@@ -12,6 +12,7 @@ struct MeetingDetailView: View {
     @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var actionItemStore: ActionItemStore
     @EnvironmentObject private var summaryRegeneration: SummaryRegeneration
+    @EnvironmentObject private var analytics: ProductAnalytics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var editableTitle: String = ""
@@ -150,10 +151,26 @@ struct MeetingDetailView: View {
         .onAppear {
             editableTitle = current.title ?? ""
             editableSummary = current.summary
+            analytics.recordMeetingInteraction(
+                .summaryViewed,
+                contentType: .summary,
+                meeting: current,
+                outcome: .viewed,
+                oncePerSession: "summary:\(meeting.id.uuidString)"
+            )
         }
         .onChange(of: selectedTab) { tab in
             if tab == .transcript, !isFinalizing, case .idle = transcriptLoad {
                 Task { await loadTranscript() }
+            }
+            if tab == .transcript {
+                analytics.recordMeetingInteraction(
+                    .transcriptViewed,
+                    contentType: .transcript,
+                    meeting: current,
+                    outcome: .viewed,
+                    oncePerSession: "transcript:\(meeting.id.uuidString)"
+                )
             }
         }
         .onChange(of: isGenerating) { generating in
@@ -304,7 +321,7 @@ struct MeetingDetailView: View {
                 value: AnyView(
                     Text(Self.createdFormatter.string(from: current.startedAt) +
                         " → " +
-                        endTimeString(current.endedAt))
+                        Self.endTimeFormatter.string(from: current.endedAt))
                         .font(.system(size: 12.5, weight: .regular))
                         .foregroundStyle(Theme.Palette.ink.opacity(0.92))
                 )
@@ -316,7 +333,7 @@ struct MeetingDetailView: View {
                         Image("nc-stopwatch")
                             .icon(11)
                             .foregroundStyle(Theme.Palette.muted)
-                        Text(durationString(from: current.startedAt, to: current.endedAt))
+                        Text(meetingDurationString(from: current.startedAt, to: current.endedAt))
                             .font(.system(size: 12.5, weight: .regular))
                             .foregroundStyle(Theme.Palette.ink.opacity(0.92))
                     }
@@ -858,20 +875,6 @@ struct MeetingDetailView: View {
 
     // MARK: - Helpers
 
-    private func endTimeString(_ end: Date) -> String {
-        Self.endTimeFormatter.string(from: end)
-    }
-
-    private func durationString(from start: Date, to end: Date) -> String {
-        let seconds = max(0, Int(end.timeIntervalSince(start)))
-        let m = seconds / 60
-        let s = seconds % 60
-        if m >= 60 {
-            return String(format: "%dh %02dm", m / 60, m % 60)
-        }
-        return String(format: "%d:%02d", m, s)
-    }
-
     // MARK: - Autosave (debounced) + manual copy
 
     private func scheduleSave() {
@@ -954,6 +957,12 @@ struct MeetingDetailView: View {
     /// Used by both the summary and transcript copy buttons.
     private func copyAndFlash(_ text: String) {
         NSPasteboard.copyText(text)
+        analytics.recordMeetingInteraction(
+            .contentCopied,
+            contentType: selectedTab == .summary ? .summary : .transcript,
+            meeting: current,
+            outcome: .success
+        )
         Task { await flashConfirmation(set: { copyFlash = true }, reset: { copyFlash = false }, for: 1.5) }
     }
 
@@ -1028,7 +1037,7 @@ struct MeetingDetailView: View {
             }
 
             let tags = labelStore.labels(for: meeting.id).map(\.name)
-            let actionItems = await (try? actionItemStore.items(forMeeting: meeting.id)) ?? []
+            let actionItems = actionItemStore.items(forMeeting: meeting.id)
             let markdown = MeetingMarkdownExport.render(
                 meeting: exportMeeting,
                 transcript: records,
@@ -1049,6 +1058,12 @@ struct MeetingDetailView: View {
 
             do {
                 try markdown.write(to: url, atomically: true, encoding: .utf8)
+                analytics.recordMeetingInteraction(
+                    .meetingExported,
+                    contentType: .markdown,
+                    meeting: current,
+                    outcome: .success
+                )
                 await flashConfirmation(set: { exportState = .saved }, reset: { exportState = .idle }, for: 1.8)
             } catch {
                 Log.ui.error("markdown export failed: \(error.localizedDescription)")
@@ -1066,6 +1081,16 @@ struct MeetingDetailView: View {
         try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
         withAnimation(.easeOut(duration: 0.2), reset)
     }
+}
+
+private func meetingDurationString(from start: Date, to end: Date) -> String {
+    let seconds = max(0, Int(end.timeIntervalSince(start)))
+    let minutes = seconds / 60
+    let remainingSeconds = seconds % 60
+    if minutes >= 60 {
+        return String(format: "%dh %02dm", minutes / 60, minutes % 60)
+    }
+    return String(format: "%d:%02d", minutes, remainingSeconds)
 }
 
 // MARK: - Shared markdown helper

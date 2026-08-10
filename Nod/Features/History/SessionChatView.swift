@@ -11,6 +11,7 @@ struct SessionChatView: View {
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @EnvironmentObject private var llm: LLMProxyClient
+    @EnvironmentObject private var analytics: ProductAnalytics
 
     /// Above this transcript size we retrieve the parts relevant to the
     /// question instead of stuffing the whole thing. Set high (≈ a multi-hour
@@ -235,6 +236,19 @@ struct SessionChatView: View {
             guard started else { return }
             let systemPrompt = await buildSystemPrompt(for: text, history: priorHistory)
             await chatStore.reply(systemPrompt: systemPrompt, meetingID: meeting.id, userID: meeting.userID)
+            if chatStore.sendState == .idle {
+                analytics.record(
+                    .aiActionCompleted,
+                    properties: .init(
+                        sessionKind: current.kind.rawValue,
+                        entryPoint: .meetingDetail,
+                        surface: .ask,
+                        contentType: .answer,
+                        aiFeature: .meetingAsk,
+                        outcome: .success
+                    )
+                )
+            }
         }
     }
 

@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-08-06_
+_Last updated: 2026-08-08_
 
 > **Nod is built and operated by an individual** (Dima Barabash), not a
 > registered company. We've made the security and privacy decisions
@@ -268,6 +268,12 @@ tell you what you already discussed and what was left open.
 - **Usage metadata.** Per-API-call: model used, token count or audio seconds,
   upstream cost, and HTTP status. We use this to enforce per-account quotas
   and inform pricing. No content.
+- **Product interaction events.** Bounded event names and categorical
+  properties for onboarding, capture reliability, content views, Ask,
+  copy/export, paywall and checkout. The database rejects arbitrary properties;
+  no meeting content, question, answer, title, clipboard value, share token, or
+  raw error is accepted. App events stay in Supabase and are never sent to
+  Google.
 - **Subscription state.** One row per account in `subscriptions` — your plan,
   its status, billing-period and trial dates, and the Paddle customer and
   subscription identifiers we use to reconcile billing events. **No card data**

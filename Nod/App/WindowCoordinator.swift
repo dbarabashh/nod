@@ -232,7 +232,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             outbox: services.meetingOutbox,
             modeStore: services.modeStore,
             screenExclusions: services.screenExclusions,
-            calendar: services.calendar
+            calendar: services.calendar,
+            analytics: services.productAnalytics
         )
 
         // The detector belongs to the session it can act on, and the notch
@@ -368,6 +369,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             .environmentObject(services.settingsFocus)
             .environmentObject(services.screenContext)
             .environmentObject(services.summaryRegeneration)
+            .environmentObject(services.productAnalytics)
 
         let hosting = NSHostingController(rootView: root)
         // Don't let the hosting controller derive the window's min/max size from

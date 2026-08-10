@@ -33,6 +33,8 @@ final class OnboardingTelemetry: ObservableObject {
 
     private let supabase: SupabaseClient?
     private let auth: AuthService?
+    private let installationID: UUID
+    private let appSessionID = UUID()
 
     /// `step_shown` is deduplicated per process, not per step transition —
     /// SwiftUI re-runs `.task(id:)` on window rebuilds. A relaunch (which the
@@ -43,6 +45,14 @@ final class OnboardingTelemetry: ObservableObject {
     init(supabase: SupabaseClient? = nil, auth: AuthService? = nil) {
         self.supabase = supabase
         self.auth = auth
+        if let stored = UserDefaults.standard.string(forKey: Self.installationKey),
+           let id = UUID(uuidString: stored) {
+            installationID = id
+        } else {
+            let id = UUID()
+            installationID = id
+            UserDefaults.standard.set(id.uuidString, forKey: Self.installationKey)
+        }
     }
 
     func stepShown(_ step: OnboardingStep) {
@@ -108,12 +118,19 @@ final class OnboardingTelemetry: ObservableObject {
 
     private func makeRow(_ event: Event, step: OnboardingStep? = nil, detail: String? = nil) -> OnboardingEventRow? {
         guard let userID = auth?.session?.user.id else { return nil }
+        _ = userID
         return OnboardingEventRow(
-            userID: userID,
+            id: UUID(),
+            occurredAt: ISO8601DateFormatter().string(from: Date()),
+            appSessionID: appSessionID,
             event: event.rawValue,
-            step: step.map(Self.name(for:)),
-            detail: detail,
-            appVersion: Self.appVersion()
+            platform: "macos",
+            appVersion: Self.appVersion(),
+            properties: OnboardingEventProperties(
+                stage: step.map(Self.name(for:)),
+                reasonCode: Self.reasonCode(for: event, detail: detail),
+                outcome: Self.outcome(for: event)
+            )
         )
     }
 
@@ -121,8 +138,13 @@ final class OnboardingTelemetry: ObservableObject {
         guard let supabase else { return }
         do {
             try await supabase
-                .from("onboarding_events")
-                .insert(row)
+                .rpc(
+                    "record_onboarding_events",
+                    params: OnboardingEventParams(
+                        installationID: installationID,
+                        events: [row]
+                    )
+                )
                 .execute()
         } catch {
             Log.ui.error("onboarding telemetry insert failed — \(error.localizedDescription)")
@@ -144,20 +166,69 @@ final class OnboardingTelemetry: ObservableObject {
         let build = info?["CFBundleVersion"] as? String ?? "0"
         return "\(short)+\(build)"
     }
+
+    private static func outcome(for event: Event) -> String? {
+        switch event {
+        case .stepShown: "viewed"
+        case .permissionGranted: "granted"
+        case .permissionDenied: "declined"
+        case .relaunchFailed: "failure"
+        case .completed, .profileCompleted, .profileSkipped, .permissionRequested,
+             .permissionPendingRelaunch, .permissionsSkipped, .relaunchPrompted,
+             .relaunchClicked: "success"
+        }
+    }
+
+    private static func reasonCode(for event: Event, detail: String?) -> String? {
+        _ = detail
+        return switch event {
+        case .permissionDenied: "permission_denied"
+        case .relaunchFailed: "unknown"
+        default: nil
+        }
+    }
+
+    private static let installationKey = "analytics.installation-id.v1"
 }
 
 private struct OnboardingEventRow: Encodable {
-    let userID: UUID
+    let id: UUID
+    let occurredAt: String
+    let appSessionID: UUID
     let event: String
-    let step: String?
-    let detail: String?
+    let platform: String
     let appVersion: String
+    let properties: OnboardingEventProperties
 
     enum CodingKeys: String, CodingKey {
-        case userID = "user_id"
+        case id
+        case occurredAt = "occurred_at"
+        case appSessionID = "app_session_id"
         case event
-        case step
-        case detail
+        case platform
         case appVersion = "app_version"
+        case properties
+    }
+}
+
+private struct OnboardingEventProperties: Encodable {
+    let stage: String?
+    let reasonCode: String?
+    let outcome: String?
+
+    enum CodingKeys: String, CodingKey {
+        case stage
+        case reasonCode = "reason_code"
+        case outcome
+    }
+}
+
+private struct OnboardingEventParams: Encodable {
+    let installationID: UUID
+    let events: [OnboardingEventRow]
+
+    enum CodingKeys: String, CodingKey {
+        case installationID = "p_installation_id"
+        case events = "p_events"
     }
 }

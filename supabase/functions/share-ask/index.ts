@@ -40,7 +40,7 @@ const MAX_HISTORY_TURNS    = 8;
 // token, so a permissive ACAO is acceptable here.
 const CORS_HEADERS: Record<string, string> = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info",
+    "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info, x-nod-share-session-id",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -70,6 +70,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const token = typeof body.token === "string" ? body.token.trim() : "";
     const question = typeof body.question === "string" ? body.question.trim() : "";
+    const shareSessionId = req.headers.get("x-nod-share-session-id");
     if (!token || !question) {
         return json({ error: "token and question are required" }, 400);
     }
@@ -124,8 +125,31 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (answer === null) {
         return json({ error: "Upstream request failed" }, 502);
     }
+    if (shareSessionId && isUUID(shareSessionId)) {
+        const { data: share } = await admin
+            .from("meeting_shares")
+            .select("id")
+            .eq("token", token)
+            .is("revoked_at", null)
+            .maybeSingle<{ id: string }>();
+        if (share) {
+            const { error: telemetryError } = await admin.from("share_product_events").insert({
+                id: crypto.randomUUID(),
+                share_id: share.id,
+                browser_session_id: shareSessionId,
+                event: "share_ask_completed",
+            });
+            if (telemetryError) {
+                console.warn(`share ask telemetry failed: ${telemetryError.message}`);
+            }
+        }
+    }
     return json({ answer }, 200);
 });
+
+function isUUID(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
 
 function buildTranscript(rows: { source: string; text: string }[]): string {
     if (rows.length === 0) return "(no transcript was recorded for this conversation)";

@@ -116,28 +116,37 @@ abuse.
 Legal basis: legitimate interest in operating a sustainable service
 (Art. 6(1)(f)).
 
-### 3.5 Onboarding progress
+### 3.5 Product interaction and onboarding progress
 
-While you set Nod up for the first time, we record in `onboarding_events`
-which setup screen you reached, whether you granted or declined the
-microphone and screen-recording permissions, whether you skipped that step,
-and whether the app needed to restart to pick up a screen-recording grant.
-Each row holds your user ID, a timestamp, the event name, and the app
-version — no meeting content, no screen contents, and nothing about what you
-do in the app after setup finishes.
+Nod records a minimal first-party event log in `onboarding_events` and
+`product_events`. It covers setup steps, app opens, capture requests and
+outcomes, summary/transcript/action-item views, Ask completion, copy/export,
+paywall views, and successful checkout creation. Each row contains a random
+event ID, timestamp, app-session or capture ID where relevant, platform, app
+version, event name, and bounded categories such as session kind, entry point,
+stage, failure reason, surface, content type, AI feature, outcome, plan, and
+billing cycle.
 
-Two rows carry one extra detail: which permission an event refers to, and — if
-you answered it — the role you picked on the setup screen, so we can see which
-kinds of users finish setup and which get stuck.
+The event log never contains meeting titles, transcript or summary text,
+questions, answers, arbitrary error messages, email, clipboard contents, share
+tokens, or other free-form app content. Completed meetings, persisted chats,
+action items, shares, and payments are measured from their domain records
+rather than trusting a client event.
 
-We need this because setup progress is otherwise stored only on your own Mac,
-which left us unable to tell whether new users were getting stuck on the macOS
-permission prompts. It is written to our own database in the same
-`eu-west-1` region under the same per-user Row-Level Security as the rest of
-your data, and is never sent to a third party. It is deleted with your account.
+On iOS, the first onboarding screen offers **Allow** and **Don't Allow** before
+any event is sent. Earlier setup impressions remain on the device until Allow;
+Don't Allow discards them and sends nothing. A random installation ID lets an
+allowed pre-sign-in setup journey be claimed by the account after sign-in.
+Unclaimed rows are deleted after 30 days. The choice can be withdrawn in iOS
+Settings, which clears queued events and stops future product telemetry.
 
-Legal basis: legitimate interest in diagnosing and fixing a broken setup
-experience (Art. 6(1)(f)).
+All app events go only to Nod's Supabase database in `eu-west-1`; neither app
+contains a third-party analytics SDK, and app activity is not sent to Google.
+Authenticated product events are deleted with the account.
+
+Legal basis on macOS: legitimate interest in diagnosing reliability and
+improving product usability (Art. 6(1)(f)). Legal basis on iOS: consent
+(Art. 6(1)(a)); withholding or withdrawing it does not affect product access.
 
 ### 3.6 Device binding
 
@@ -183,8 +192,9 @@ in the same `eu-west-1` region.
   is first-party operational and funnel data stored in our own database. The
   marketing website analytics described in § 3.13 is optional and stays off
   until you consent.
-- We do **not** track which features you use, which screens you open, or how
-  long you spend in the app once setup is finished.
+- We do **not** collect arbitrary screen names, dwell time, typed questions,
+  answers, errors, titles, clipboard contents, or meeting content in product
+  telemetry. Only the bounded events and categories in § 3.5 are accepted.
 - We do **not** send meeting content, transcript text, account email, name, or
   Supabase user ID to website analytics or Google Ads.
 - We do **not** connect to Google, Microsoft, or any other account to read your
@@ -521,7 +531,9 @@ We can provide our SCCs and transfer impact assessments on request to
 | Meetings (in trash)                  | 30 days. A nightly Postgres job permanently deletes anything older. |
 | Meeting transcripts                  | Same as the parent meeting (cascade delete).                         |
 | Transcript embeddings, session chats, entity links | Same as the parent meeting (cascade delete). Extracted entities themselves are per-user and removed on account deletion. |
-| Onboarding progress (`onboarding_events`) | Until you delete your account (cascade).                        |
+| Unclaimed iOS onboarding progress (`onboarding_events`) | 30 days, then a scheduled job deletes it. Declining analytics sends no row. |
+| Claimed onboarding and product interaction events (`onboarding_events`, `product_events`) | 24 months at most; removed immediately on account deletion. |
+| Share interaction events (`share_product_events`) | 24 months. They contain a random browser-session ID and event name, not the share token or meeting content. Revoking/deleting the share removes them. |
 | Website acquisition touches, account attribution, and aggregate Google Ads campaign data | 400 days. A scheduled job deletes older rows. Sign-in relays expire after 24 hours and are removed after expiry. |
 | Screen observations (`screen_observations`) | The expiry set when captured — **14 days by default**, changeable in Settings. A scheduled job deletes expired rows. Empty unless you switched ambient context on; deletable at any time; removed on account deletion (cascade). |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |
@@ -531,7 +543,7 @@ We can provide our SCCs and transfer impact assessments on request to
 
 When you delete your account from **Settings → Privacy**, we erase your
 auth profile, meetings (active and trashed), transcripts, summaries, chats,
-entities, labels, device bindings, usage rows, onboarding events, and
+entities, labels, device bindings, usage rows, onboarding and product events, and
 subscription row immediately — the deletion cascades the moment you confirm it. We retain
 your consent acknowledgement rows for the legal-defence window above; these
 become orphaned (`user_id` set to NULL) and are no longer linked to you in

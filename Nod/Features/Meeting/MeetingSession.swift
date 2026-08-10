@@ -209,7 +209,9 @@ final class MeetingSession: ObservableObject {
     private let modeStore: ModeStore
     private let screenExclusions: ScreenExclusions
     private let calendar: CalendarService
+    private let analytics: ProductAnalytics
     private let recapGenerator: RecapGenerator
+    private var captureID: UUID?
 
     /// What Nod hears while the meeting is still running. Built here rather than
     /// injected because its life is exactly this session's — like
@@ -230,7 +232,8 @@ final class MeetingSession: ObservableObject {
         outbox: MeetingOutbox,
         modeStore: ModeStore,
         screenExclusions: ScreenExclusions,
-        calendar: CalendarService
+        calendar: CalendarService,
+        analytics: ProductAnalytics
     ) {
         self.audioCapture = audioCapture
         self.store = store
@@ -246,6 +249,7 @@ final class MeetingSession: ObservableObject {
         self.modeStore = modeStore
         self.screenExclusions = screenExclusions
         self.calendar = calendar
+        self.analytics = analytics
         recapGenerator = RecapGenerator(llm: llm)
         analyst = LiveMeetingAnalyst(llm: llm, store: store)
     }
@@ -426,6 +430,18 @@ final class MeetingSession: ObservableObject {
     func beginRecording() {
         Log.ui.info("Start Meeting")
         sessionGeneration += 1
+        let captureID = UUID()
+        self.captureID = captureID
+        analytics.record(
+            .captureStartRequested,
+            captureID: captureID,
+            properties: .init(
+                sessionKind: selectedKind.rawValue,
+                entryPoint: .floatingPanel,
+                stage: .capture,
+                surface: .capture
+            )
+        )
         meeting = .recording
         liveTitle = pendingRecordingTitle
         pendingRecordingTitle = nil
@@ -481,6 +497,32 @@ final class MeetingSession: ObservableObject {
                 captureMic: selectedKind.capturesMic,
                 captureSystem: selectedKind.capturesSystem
             )
+            if audioCapture.lastError == nil {
+                analytics.record(
+                    .captureStarted,
+                    captureID: captureID,
+                    properties: .init(
+                        sessionKind: selectedKind.rawValue,
+                        entryPoint: .floatingPanel,
+                        stage: .audio,
+                        surface: .capture,
+                        outcome: .success
+                    )
+                )
+            } else {
+                analytics.record(
+                    .captureFailed,
+                    captureID: captureID,
+                    properties: .init(
+                        sessionKind: selectedKind.rawValue,
+                        entryPoint: .floatingPanel,
+                        stage: .audio,
+                        reasonCode: .audioStartFailed,
+                        surface: .capture,
+                        outcome: .failure
+                    )
+                )
+            }
         }
     }
 
@@ -538,6 +580,18 @@ final class MeetingSession: ObservableObject {
         // the first has reset to idle would mint a fresh id and double-persist.
         guard meeting != .idle else { return }
         Log.ui.info("End Meeting — entries=\(store.entries.count)")
+        let endedCaptureID = captureID
+        analytics.record(
+            .captureStopped,
+            captureID: endedCaptureID,
+            properties: .init(
+                sessionKind: selectedKind.rawValue,
+                entryPoint: .floatingPanel,
+                stage: .capture,
+                surface: .capture,
+                outcome: .success
+            )
+        )
         store.stop()
         // Stopped, not reset: the finalize still has to write down what it
         // found, and that runs after the surface is back at rest.
@@ -554,6 +608,18 @@ final class MeetingSession: ObservableObject {
         recordingDraft = nil
 
         guard store.hasContent else {
+            analytics.record(
+                .captureDiscarded,
+                captureID: endedCaptureID,
+                properties: .init(
+                    sessionKind: selectedKind.rawValue,
+                    entryPoint: .floatingPanel,
+                    stage: .finalization,
+                    reasonCode: .userCancelled,
+                    surface: .capture,
+                    outcome: .cancelled
+                )
+            )
             // Empty start→stop: drop the WAL entry so no orphan row is created.
             if let id = recordingDraftID { Task { await outbox.discard(id) } }
             cleanupToIdle()
@@ -832,6 +898,7 @@ final class MeetingSession: ObservableObject {
         elapsed = 0
         micMuted = false
         liveTitle = nil
+        captureID = nil
         clearAutoEndPrompt()
     }
 
