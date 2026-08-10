@@ -60,16 +60,17 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// `minNewLines` / `minInterval`, which are what actually gate the spend.
     private static let tickInterval: TimeInterval = 15
 
-    /// How much new speech has to land before a pass is worth paying for.
-    /// Roughly a minute of back-and-forth. Below this the window is mostly what
-    /// the previous pass already read, and re-reading it is spend for nothing.
-    private static let minNewLines = 12
+    /// How much new speech has to land before a pass is worth paying for. Below
+    /// this the window is mostly what the previous pass already read, and
+    /// re-reading it is spend for nothing.
+    private static let minNewLines = 8
 
     /// The floor between passes regardless of how fast people are talking. With
-    /// `minNewLines` this bounds a very talkative hour at 60 passes and leaves a
-    /// normal one nearer 25 — which is where the per-hour cost stays a rounding
-    /// error against the flat price.
-    private static let minInterval: TimeInterval = 60
+    /// `minNewLines` this bounds a very talkative hour at 90 passes and leaves a
+    /// normal one nearer 40 — still a rounding error against the flat price, and
+    /// short enough that a notice reads as "just heard this", not "an update on
+    /// something from a while back".
+    private static let minInterval: TimeInterval = 40
 
     /// How much transcript each pass reads. Wider than the new material on
     /// purpose: a commitment is usually made a few lines after the thing it
@@ -303,13 +304,15 @@ final class LiveMeetingAnalyst: ObservableObject {
             return nil
         }
         let revisionOf = claimed?.id
+        let evidenceIdx = evidenceIndex(for: quote)
 
         return LiveFinding(
             kind: kind,
             text: text,
             tier: tier,
             deadline: item.deadline?.trimmingCharacters(in: .whitespacesAndNewlines).nilWhenEmpty,
-            evidenceIdx: evidenceIndex(for: quote),
+            evidenceIdx: evidenceIdx,
+            spokenAt: evidenceIdx.map { store.entries[$0].timestamp },
             revisionOf: revisionOf
         )
     }

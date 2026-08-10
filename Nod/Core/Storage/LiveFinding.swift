@@ -53,6 +53,11 @@ struct LiveFinding: Identifiable, Equatable {
     /// by a line — which is a wrong neighbour, not a dangling pointer, and is
     /// why this is the index and not the entry's id (a dedup swap reissues ids).
     let evidenceIdx: Int?
+    /// When the evidence line was actually said, as opposed to `foundAt` (when
+    /// the pass noticed it) — the gap between the two is what makes a notice
+    /// read as stale once the conversation has moved on, so the UI shows this,
+    /// not `foundAt`. Nil when `evidenceIdx` couldn't be resolved.
+    let spokenAt: Date?
     /// The earlier finding this replaces — "we said Thursday, now it's Monday".
     let revisionOf: UUID?
     let foundAt: Date
@@ -99,6 +104,7 @@ struct LiveFinding: Identifiable, Equatable {
         tier: Tier = .strict,
         deadline: String? = nil,
         evidenceIdx: Int? = nil,
+        spokenAt: Date? = nil,
         revisionOf: UUID? = nil,
         foundAt: Date = Date()
     ) {
@@ -108,6 +114,7 @@ struct LiveFinding: Identifiable, Equatable {
         self.tier = tier
         self.deadline = deadline
         self.evidenceIdx = evidenceIdx
+        self.spokenAt = spokenAt
         self.revisionOf = revisionOf
         self.foundAt = foundAt
     }

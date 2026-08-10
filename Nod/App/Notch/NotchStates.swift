@@ -180,6 +180,16 @@ struct NotchNotice: View {
         Style(finding)
     }
 
+    /// The gap between when this was said and when the card appears is exactly
+    /// what makes a notice read as stale once the room has moved on — this
+    /// names that gap instead of leaving the user to guess it from the topic
+    /// already having changed.
+    private static func relativeLabel(_ spokenAt: Date) -> String {
+        let seconds = max(0, Int(Date().timeIntervalSince(spokenAt)))
+        guard seconds >= 60 else { return "just now" }
+        return "\(seconds / 60)m ago"
+    }
+
     /// Icon at 12pt with no fixed frame, main line at 12.5pt semibold — the
     /// same weights `DemoCardHead` uses for every proactive card in the
     /// scripted demo, so a real notice reads as the same kind of moment
@@ -193,10 +203,17 @@ struct NotchNotice: View {
                 .foregroundStyle(Theme.Palette.brand)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(style.lead.uppercased())
-                    .font(.system(size: 9.5, weight: .bold))
-                    .kerning(0.6)
-                    .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+                HStack(spacing: 4) {
+                    Text(style.lead.uppercased())
+                        .font(.system(size: 9.5, weight: .bold))
+                        .kerning(0.6)
+                        .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+                    if let spokenAt = finding.spokenAt {
+                        Text(Self.relativeLabel(spokenAt))
+                            .font(.system(size: 9.5, weight: .regular))
+                            .foregroundStyle(Theme.Palette.muted.opacity(0.65))
+                    }
+                }
                 Text(finding.text)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
