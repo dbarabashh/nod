@@ -5,8 +5,10 @@ project** (prod ref `lptqvnizjwglilgeukwx`, sandbox branch
 `zdpvmwqauczsfwlgflas`) and **one user account** — there is no second backend
 anywhere in the ecosystem.
 
-The workspace-level `~/dev/nod/AGENTS.md` carries the short version of this map
-and is loaded automatically in every repo.
+Each repository carries its own root `AGENTS.md`, because agent discovery starts
+at the repository root. Those files route feature work to the shared
+`nod-playbook`; this file owns code-level ecosystem implementation details for
+the macOS repository.
 
 | Repo | What it is | Stack | Deploy |
 |---|---|---|---|
@@ -14,7 +16,8 @@ and is loaded automatically in every repo.
 | `nod-landing` | Marketing site `hellonod.app` — incl. rendered `/policies/*` and `/invite/:token` | Bun + React + Tailwind, custom `build.ts`, prerendered, i18n via `src/locales` | Vercel |
 | `share-nod-ui-service` | Public share viewer — renders `/share/:token`, summary-only | React 19 + Vite 8 + shadcn/ui (`radix-nova`), pnpm | Vercel (`noindex`) |
 | `nod-founder-dashboard` | Internal analytics for the two founders; reads **prod** Supabase via founder-gated `SECURITY DEFINER` RPCs, email-OTP auth | React + Vite, pnpm | Vercel |
-| `nod-mobile` | iOS companion — voice notes + in-person capture, same account | SwiftUI, iOS 16+, plain Xcode project (no XcodeGen yet) | not shipped |
+| `nod-mobile` | iOS companion — voice notes + in-person capture, same account | SwiftUI, iOS 26, plain Xcode project (no XcodeGen yet) | not shipped |
+| `nod-playbook` | Canonical product context, feature records and durable decisions for humans and LLMs | Markdown + validation scripts | no runtime deploy |
 
 ## Cross-repo rules
 
@@ -42,3 +45,7 @@ and is loaded automatically in every repo.
 - **Port, don't rewrite.** Logic that already exists and is portable (LLM proxy
   client, stores, data models, recap parsing, dedup) moves over faithfully
   rather than being re-derived.
+- **Feature work updates the playbook.** Before a new or materially changed
+  feature is complete, reconcile its indexed record and material decisions in
+  `nod-playbook`. Code repositories own implementation detail; the playbook
+  owns durable product behavior and cross-repo context.
