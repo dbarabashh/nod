@@ -22,6 +22,29 @@ organizational — but the bridging-header path in `project.yml`
 (`SWIFT_OBJC_BRIDGING_HEADER`) is hardcoded, so update it if `Core/Audio/` ever
 moves.
 
+## Meeting-start lease
+
+A recording is admitted once, by the server, before any audio exists:
+
+1. `MeetingSession.requestRecordingStart()` mints the meeting's UUID and calls
+   `meeting_start` on `llm-proxy`.
+2. `start_meeting_lease` decides atomically under an advisory lock: it closes
+   expired leases, takes over one that has gone 90 seconds without a heartbeat
+   (a crashed or force-quit app), refuses a second concurrent recording, and then
+   checks `resolve_entitlement(…)->can_start_meeting`.
+3. Capture starts under the granted id. That id is the meeting id everywhere
+   after: the WAL draft, every transcription chunk, and the persisted row.
+4. Each `transcribe` call presents the id. The proxy strips it before the payload
+   reaches a provider, and `validate_meeting_lease` doubles as the heartbeat —
+   writing at most once a minute, not once per chunk.
+5. At End the lease is detached, the final flush completes, and only then is
+   `meeting_end` sent. A lost `meeting_end` costs minutes, not hours: the TTL is
+   15 minutes and renewed only by use.
+
+Two consequences worth keeping: the allowance can only ever refuse a **new**
+meeting, and a lease refusal is HTTP **423** — never 409, which the client maps to
+the single-device lock and treats as a forced sign-out.
+
 ## Entry flow
 
 Nod launches as an accessory (`LSUIElement = YES`), then switches

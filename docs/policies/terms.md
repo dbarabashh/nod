@@ -1,6 +1,10 @@
 # Terms of Service
 
-_Last updated: 2026-08-02_
+_Last updated: 2026-08-11_
+
+_The Starter top-up and referral/advocacy provisions below are advance notice.
+They take effect only when those offers are switched on for new purchases; the
+prices and plans described on the pricing page remain the ones in force._
 
 > **Nod is operated by Dima Barabash**, an individual, not an incorporated
 > company. Paid subscriptions are sold through **Paddle**, which acts as
@@ -137,6 +141,41 @@ the app and at `hellonod.app/pricing` before you subscribe.
 - Prices shown are **inclusive of tax**: the amount on the pricing page is
   what you are charged, and Paddle remits any VAT/GST due for your
   location out of it.
+
+### Extra meeting hours on Starter
+
+Starter includes the monthly meeting allowance shown before you buy. If you use
+it up, you may **explicitly** buy a five-hour top-up at the price shown at
+checkout. A top-up:
+
+- is a one-off purchase and never renews by itself;
+- can be bought more than once in the same month;
+- applies to the billing month you bought it in and does not roll over;
+- is never charged automatically, and never interrupts a meeting in progress.
+
+Nod does not meter you into an overage charge. When the allowance is gone, the
+app offers a top-up or Pro and waits for you to choose.
+
+### Referral and advocacy rewards
+
+A valid referral gives a new customer **50% off their first Pro monthly
+payment**. It does not apply to Starter, to annual billing, to top-ups, to
+someone who has paid us before, to your own account, alongside another coupon, or
+more than once. Attribution expires 30 days after the code is used and is fixed
+to the checkout transaction before any payment is taken.
+
+The referrer earns **one free month of their current plan** only after the
+referred customer completes their first full renewal and a seven-day refund hold
+passes. Earned credit expires 12 months after it is earned. A refund or
+chargeback of the qualifying payment cancels credit that has not yet been
+applied; credit already applied is not clawed back for a later dispute, though
+fraud can block future rewards.
+
+Approved advocacy activity may grant 14 days, one month, or three months of
+current-plan credit. All reward credit is plan time, not money: it is
+non-transferable, has no cash value, cannot be exchanged, and referral plus
+advocacy together are capped at six free-month equivalents in any rolling 12
+months.
 
 See our [Refund Policy](./refund.md) for the full detail on the
 money-back guarantee, cooling-off rights, and how refunds are processed

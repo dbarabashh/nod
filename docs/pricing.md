@@ -1,14 +1,20 @@
 # Nod — Pricing
 
-_Last updated: 2026-08-02_
+_Last updated: 2026-08-11_
 
 The spec the pricing surfaces are built from. Three of them have to agree, and
 each has its own copy: `plans` / `plan_prices` in Supabase (the only enforced
 truth), `hellonod.app/pricing` (`nod-landing`, 12 locales), and the in-app
 paywall (`PaywallView`). When a number here changes, all three move.
 
-Prices are set. This document exists because the *limits* are derived, and the
-derivation has to be written down or it gets re-guessed.
+The prices in **Plans** below are the ones in force. This document exists because
+the *limits* are derived, and the derivation has to be written down or it gets
+re-guessed.
+
+A replacement catalog is under discussion in
+[NOD-76](https://linear.app/hellonod/issue/NOD-76) and is **not approved**. It is
+implemented behind a switch so it can be validated, and the code being written is
+not a decision — see "Replacement catalog under discussion" below.
 
 ---
 
@@ -29,6 +35,35 @@ opposite.
 There is no overage and no usage credits. Both were built once and deleted
 (`df98ba8 remove overage feature`); the landing advertised `$0.60 / hr` for
 weeks after the code stopped being able to charge it.
+
+## Replacement catalog under discussion — NOT approved
+
+Implemented, dark, and awaiting an explicit founder pricing decision. Nothing
+below is live: the rows exist in `plan_prices` with
+`available_for_new_checkout = false`, so no client can offer them, and the app
+keeps selling the catalog above until `cutover_pricing_catalog(…)` is called with
+real per-branch Paddle IDs.
+
+| | **Starter** | **Pro** |
+|---|---|---|
+| Proposed monthly | $15 / mo | $24 / mo |
+| Proposed yearly | $144 / yr ($12 / mo) | $240 / yr ($20 / mo) |
+| Change vs live | $14 → $15 monthly; $108 → $144 yearly | $29 → $24 monthly; $228 → $240 yearly |
+
+This is not an across-the-board increase, and the annual discount depth changes
+materially: the live page advertises roughly 35%, the proposal is 20% on Starter
+and 16.7% on Pro. The paywall now computes that badge from the catalog instead of
+hardcoding it, so it cannot advertise a discount the prices do not give.
+
+Alongside it: a **Starter top-up** of +5 hours for $12 — explicit, repeatable,
+never automatic, expires with the billing month, no rollover, and no Pro
+equivalent. Existing subscriptions keep their current Paddle price unless the
+subscriber changes plan or cycle themselves; the webhook still resolves
+superseded price IDs so a renewal never silently reprices anyone.
+
+The open questions (is $24 the right conversion move, is $108 → $144 too abrupt,
+does the live "AI coworker" positioning justify moving now) belong to NOD-76 and
+NOD-66, not to this file.
 
 ## Features
 
@@ -136,14 +171,16 @@ the cap makes a promise true rather than breaking one.
 Each of these is a claim some surface already makes, or a control the numbers
 above assume exists. None of them is live.
 
-- [ ] **Hours are not enforced.** The cap rides in `x-nod-hours-*` response
-      headers and nothing blocks a recording. `hoursLimit` is read in exactly two
-      places: `SummaryRegeneration` (skip regeneration at zero) and
-      `PaywallView` (display). At 50 hours this was harmless because nobody came
-      close; at 8 the median Starter user is within reach and the observed
-      maximum is already past it. Until this lands, every limit here is a label.
-      The pattern to copy is the proxy's own: block a *new* meeting, never
-      interrupt one in flight.
+- [ ] **Hour enforcement is implemented but not switched on.** The app asks for a
+      server lease before capture (`start_meeting_lease`, which checks
+      `can_start_meeting` atomically) and every transcription chunk presents that
+      recording's ID. A new meeting is refused when the allowance is gone; a
+      meeting already running is never cut off, and the lease is renewed by use so
+      a crash frees the slot in minutes. Chunk-level enforcement stays off until
+      `activate_meeting_lease_enforcement(<build>)` raises
+      `app_config.meeting_lease_required_build` — which also raises
+      `minimum_build`, so it forces every older build to update and must follow a
+      release, never precede one.
 - [ ] **No fair-use alerting.** `terms.md` § 7 promises we email a Pro user
       *before* acting on extraordinary usage, which requires knowing they are
       approaching 40 hours in their billing period. Nothing computes that today —

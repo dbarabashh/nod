@@ -1,9 +1,22 @@
 # Privacy Policy
 
-_Last updated: 2026-08-08_
+_Last updated: 2026-08-11_
 
-> This policy describes the data practices that already exist in the
-> product today — every claim is tied to code you can inspect.
+_The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
+[Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
+not sending anything today and will not begin earlier than 30 days after this
+policy is published. Until then the previously published practices govern._
+
+_The calendar provisions in § 3.11 are **advance notice** too: reading your
+calendar is not in the released app. When it arrives it stays off until you
+switch it on, and it takes effect for you only from the version that introduces
+it. Where this policy describes Nod as sitting in the notch, the released version
+still runs as a floating panel on the left of your screen; nothing about what is
+collected turns on that difference._
+
+> Except for the dated advance-notice provisions above, this policy describes
+> data practices that already exist in the product today — every claim is tied to
+> code you can inspect.
 
 This Privacy Policy describes how Nod ("Nod", "we", "us", "I") collects, uses,
 stores, and shares personal data when you use the Nod macOS application
@@ -33,8 +46,9 @@ your full card details.
 
 Nod is a macOS app that records meetings playing through your Mac's
 speakers and microphone, transcribes them via Whisper, and produces an
-AI-generated summary using a large language model. It lives in the notch at the
-top of your screen and never records without you pressing record.
+AI-generated summary using a large language model. It runs as a small window of
+its own — a floating panel today, moving into the notch at the top of your screen
+in a coming version — and never records without you pressing record.
 
 The data flow is summarised in our [Security page](./security.md) and the
 list of third parties in our [Subprocessors list](./subprocessors.md).
@@ -71,7 +85,7 @@ Calendar, Drive, or contacts.
 | Your optional answer to **"how did you hear about us?"** | To know which channels bring people to Nod, so we know where to spend | Legitimate interest (Art. 6(1)(f)): running the business; you may leave it blank |
 
 While a meeting is recording, Nod also reads the **last few minutes of the
-transcript as the meeting goes**, through the same EU proxy and the same
+transcript as the meeting goes**, through the same proxy and the same
 subprocessors as the summary, to spot what the room commits to, decides, or
 leaves open. It runs only after enough new speech has landed and at most once a
 minute, so silence and a paused recording send nothing. Nothing extra is stored:
@@ -144,9 +158,14 @@ All app events go only to Nod's Supabase database in `eu-west-1`; neither app
 contains a third-party analytics SDK, and app activity is not sent to Google.
 Authenticated product events are deleted with the account.
 
+On macOS, **Settings → Privacy → Product analytics** turns this off. Switching it
+off also discards any events still queued on the device, so nothing recorded
+before the change is sent afterwards.
+
 Legal basis on macOS: legitimate interest in diagnosing reliability and
-improving product usability (Art. 6(1)(f)). Legal basis on iOS: consent
-(Art. 6(1)(a)); withholding or withdrawing it does not affect product access.
+improving product usability (Art. 6(1)(f)), with the opt-out above. Legal basis
+on iOS: consent (Art. 6(1)(a)); withholding or withdrawing it does not affect
+product access.
 
 ### 3.6 Device binding
 
@@ -179,6 +198,10 @@ customer portal for you.
 |------|----------------|-------------|
 | Plan, status, billing-period dates, trial end date (`subscriptions`) | To grant the features and limits you paid for and know when access lapses | Contract (Art. 6(1)(b)) |
 | Paddle customer ID and subscription ID (`subscriptions`) | To match Paddle's billing events to your account and open your billing portal | Contract (Art. 6(1)(b)) |
+| Paddle event and transaction identifiers, first-payment history per Paddle customer, and refund/chargeback adjustments (`subscriptions`, `billing_payer_history`, `billing_adjustments`) | To apply each billing event exactly once, reject out-of-order updates, tell a first-ever payer from a returning one, and reconcile refunds | Contract (Art. 6(1)(b)); legitimate interest in accurate accounts and fraud prevention (Art. 6(1)(f)) |
+| Top-up purchase intent and purchased hours (`topup_checkout_intents`, `usage_topups`) | To credit an explicitly bought pack of hours to the billing period it was bought for, and to reverse an unused one on refund | Contract (Art. 6(1)(b)) |
+| Referral code, referrer/referee link, qualifying transaction and subscription IDs, reward credits, payout state, and fraud blocks (`referral_codes`, `referrals`, `reward_credits`, `reward_payouts`, `advocacy_reward_claims`, `referral_fraud_blocks`) | To run the referral offer, verify the first renewal and its seven-day hold, apply the reward once, and prevent self-referral or duplicate redemption | Contract (Art. 6(1)(b)); legitimate interest in promotion integrity (Art. 6(1)(f)) |
+| Meeting-start lease: a recording ID, its expiry, and when it was last used (`meeting_start_leases`) | To check the monthly hour allowance once, before a recording starts, without ever interrupting one in progress | Contract (Art. 6(1)(b)) |
 
 The plan catalogue itself (`plans`, `plan_prices`) holds no personal data —
 it lists the tiers and prices everyone sees. Every `subscriptions` row is
@@ -198,10 +221,10 @@ in the same `eu-west-1` region.
 - We do **not** send meeting content, transcript text, account email, name, or
   Supabase user ID to website analytics or Google Ads.
 - We do **not** connect to Google, Microsoft, or any other account to read your
-  email, calendar, or files. Nod can read the calendar **already set up on your
-  own Mac** — on the device, and only if you switch it on (§ 3.11). That is a
-  macOS permission, not a connected account, and nothing read from it is stored
-  or sent anywhere.
+  email, calendar, or files. A coming version will be able to read the calendar
+  **already set up on your own Mac** — on the device, and only if you switch it
+  on (§ 3.11). That is a macOS permission, not a connected account, and nothing
+  read from it is stored or sent anywhere.
 - We do **not** collect your contacts or address book.
 - We do **not** record video of your screen, and we do **not** save an image
   of it — ever. What Nod keeps from your screen is always **text**. With
@@ -275,7 +298,7 @@ Nod needs to know how many people are on the call, so it reads the
   It never runs when nothing is being recorded.
 - Nod uses the **number** of participants for on-device speaker clustering,
   and the **names** to put a name to a voice in your summary. The name list is
-  sent once, with the transcript, to the summarising model through our EU proxy
+  sent once, with the transcript, to the summarising model through our own proxy
   under Zero Data Retention — the same path and the same protections as the
   transcript itself (§ 4, § 5). It is **not stored** as its own record: the
   list is dropped when the session ends, and only whatever the summary itself
@@ -369,6 +392,11 @@ already handling the transcript of the same conversation.
 
 ### 3.11 Your calendar — only if you switch it on
 
+**Advance notice — not in the released app.** The released app does not read
+your calendar and does not ask macOS for the permission. Everything below
+describes how it will work in the version that introduces it, and it stays off
+until you switch it on.
+
 A window title is a poor way to tell *which* meeting is starting: Microsoft
 Teams names it, Zoom usually says only "Zoom Meeting", and Google Meet often
 shows nothing but a room code. Your calendar names it every time. With this on,
@@ -438,6 +466,51 @@ Legal basis: Consent (Art. 6(1)(a)). Withholding or withdrawing consent does not
 affect the website, sign-in, download, trial, or paid service. Attribution will
 then be incomplete, which we report as coverage rather than guessing.
 
+### 3.14 Optional emails (advance notice — not active today)
+
+Separately from the account and service messages we must send you, there are
+three optional topics. **Each one starts off** and turns on only when you choose
+it, in onboarding or in **Settings → Privacy → Email choices**:
+
+- **Product updates** — occasional product news, offers, and referral announcements.
+- **Lifecycle guidance** — a nudge when a Nod feature would help with what you are already doing.
+- **Founder research** — notes from a founder about how Nod is working for you, sometimes with an optional call.
+
+For each topic we store your choice, the policy version it was given under,
+where it was given (onboarding, the app, or the preference page), and the
+relevant timestamps. We also keep the send record needed to avoid sending the
+same thing twice, and a suppression record for any address that unsubscribed,
+bounced, or complained.
+
+Every optional email carries a link to change all three choices. That link's
+token sits in the URL **fragment**, so it is not sent to our server in a request
+line or a referrer, and loading the page only reads your choices — nothing
+changes until you confirm it. Opening an email is not tracked: **open pixels and
+click-tracking links are disabled** on our sending domain.
+
+We will send at most one optional email in any 14 days, and at most one
+founder-research email in any 30. Consent, suppression, and eligibility are
+re-checked immediately before each send, so a choice you change while an email is
+queued takes effect rather than being overtaken.
+
+Account, security, billing, and referral-status messages are **not** marketing:
+they are part of the service and are sent regardless of these choices. They
+contain no founder invitation, roadmap pitch, or cross-sell.
+
+Resend, Inc. will deliver these emails and will receive only the address, the
+selected topic, language, template identifier, and the resulting delivery,
+bounce, complaint, and unsubscribe status. No meeting content is ever shared.
+Deleting your account also deletes the provider-side contact.
+
+**Nothing under this section is sending today.** No optional email, and no
+contact synchronisation with Resend, occurs before 30 days after this policy is
+published.
+
+Legal basis: Consent (Art. 6(1)(a)) for the optional topics; Contract
+(Art. 6(1)(b)) and legitimate interest (Art. 6(1)(f)) for the narrow operational
+processing needed to deliver a message you asked for, honour an unsubscribe, and
+suppress a complaint or a bouncing address.
+
 ---
 
 ## 4. Model training
@@ -473,6 +546,7 @@ third parties only when one of the following applies:
 
 - It's a subprocessor on the published list, acting under a data
   processing agreement (Supabase, Groq for speech-to-text, OpenRouter,
+  Resend for email — only once the § 3.14 advance-notice period completes,
   Anthropic via AWS Bedrock / Google Vertex for LLM summaries and chat,
   OpenAI via Azure, Google Cloud / Vertex, Google OAuth, Apple, and Paddle
   for billing).
@@ -536,6 +610,10 @@ We can provide our SCCs and transfer impact assessments on request to
 | Share interaction events (`share_product_events`) | 24 months. They contain a random browser-session ID and event name, not the share token or meeting content. Revoking/deleting the share removes them. |
 | Website acquisition touches, account attribution, and aggregate Google Ads campaign data | 400 days. A scheduled job deletes older rows. Sign-in relays expire after 24 hours and are removed after expiry. |
 | Screen observations (`screen_observations`) | The expiry set when captured — **14 days by default**, changeable in Settings. A scheduled job deletes expired rows. Empty unless you switched ambient context on; deletable at any time; removed on account deletion (cascade). |
+| Top-up, referral, reward, and payout rows | Until you delete your account. |
+| Meeting-start leases | Minutes: a lease is short-lived and renewed only while a recording is running. Expired rows are removed. |
+| Optional email choices and suppression state | Until you change the choice or delete your account. A minimal suppression marker may outlive the account, because honouring an unsubscribe, complaint, or bounce requires remembering the address. |
+| Email send records and provider delivery events | 90 days once § 3.14 is active. The record that a specific message was already sent is kept beyond that, since it is what prevents sending it twice. |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |
 | Usage metadata                       | 24 months, then aggregated and anonymised.                           |
 | Encrypted database backups           | 7 days rolling.                                                      |
@@ -543,11 +621,14 @@ We can provide our SCCs and transfer impact assessments on request to
 
 When you delete your account from **Settings → Privacy**, we erase your
 auth profile, meetings (active and trashed), transcripts, summaries, chats,
-entities, labels, device bindings, usage rows, onboarding and product events, and
-subscription row immediately — the deletion cascades the moment you confirm it. We retain
-your consent acknowledgement rows for the legal-defence window above; these
-become orphaned (`user_id` set to NULL) and are no longer linked to you in
-any externally-resolvable way.
+entities, labels, device bindings, usage rows, onboarding and product events,
+subscription, top-up, referral, reward, payout, meeting-lease, and email-choice
+rows immediately — the deletion cascades the moment you confirm it. Deleting the
+account also queues removal of the provider-side email contact, and records a
+suppression marker so the address cannot be re-enrolled by a later provider
+event. We retain your consent acknowledgement rows for the legal-defence window
+above; these become orphaned (`user_id` set to NULL) and are no longer linked to
+you in any externally-resolvable way.
 
 ---
 

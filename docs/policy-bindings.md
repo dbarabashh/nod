@@ -20,6 +20,10 @@ started, no per-jurisdiction governing-law set. All contact emails resolve to
 | New/changed subprocessor (third-party API, OAuth provider, billing, analytics) | `subprocessors.md`, `privacy.md` § 3/5/6 |
 | Website consent, Google Tag Manager/Analytics/Ads, campaign storage, or browser-to-app attribution changes | `cookies.md`, `privacy.md` § 3.13/11, `subprocessors.md`, and the matching pages in `../nod-landing` |
 | Connector OAuth scopes, token claims, grant revocation, MCP tools, or the user data returned by `supabase/functions/mcp` changes | `privacy.md` § 3.12/5, `security.md` "Official AI connectors" + "Access control", `subprocessors.md` "What we do not use", and the matching pages in `../nod-landing` |
+| Email topics, consent prompt/version, campaign eligibility, cadence, suppression, Resend contact sync/webhooks, or preference-link tokens change | `privacy.md` § 3.14/5/7, `security.md` "Email delivery", `subprocessors.md`, and the preference page in `../nod-landing` |
+| Meeting-hour enforcement, the meeting-start lease, or the Starter top-up changes | `terms.md` § 7, `refund.md` § 6, `privacy.md` § 3.7/7, `security.md` "Allowance and top-ups", `docs/pricing.md` |
+| Referral or advocacy reward rules change (eligibility, hold, cap, clawback) | `terms.md` § 7, `refund.md` § 6, `privacy.md` § 3.7 |
+| Product-analytics events or the opt-out change | `privacy.md` § 3.5/3.8 |
 | Audio is ever persisted (today: never; `WhisperTranscriber` discards chunks) | `security.md` "Audio recordings", `privacy.md` § 3.2 |
 | OpenRouter privacy toggles flipped (ZDR off, "may train on request data" enabled, first-party endpoints re-enabled) | `security.md` § Model training, `privacy.md` § 4 |
 | New table in `public.*` schema, or RLS dropped on any table | `security.md` "Infrastructure", `privacy.md` § 3 |

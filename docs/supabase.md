@@ -130,3 +130,133 @@ SUPABASE_ACCESS_TOKEN=sbp_… supabase branches update develop --git-branch deve
 ```
 
 `db push` against a branch takes `--db-url` rather than `--project-ref`.
+
+## NOD-76 rollout — pricing, referrals, communications
+
+Everything from NOD-76 lands **dark**. Nothing below changes what a customer sees
+until the explicitly listed switch is thrown, and the pricing switch needs a
+recorded founder decision first (NOD-76 forbids treating implementation as
+approval).
+
+### What is off by default
+
+| Switch | Default | What it gates |
+|---|---|---|
+| `plan_prices.available_for_new_checkout = false` on the replacement rows | dark | The new catalog and the top-up. `create-checkout` also refuses any `pri_REPLACE_*` id outright. |
+| `app_config.meeting_lease_required_build = 2147483647` | dark | Chunk-level lease enforcement. Start-time allowance still applies to any build that speaks the protocol. |
+| `email_program_config.program_not_before is null` | dark | **All** Resend traffic — optional email, transactional referral notices, and contact sync alike. |
+
+`select public.email_rollout_readiness();` answers "can this branch send yet" and
+reports gate state, vault secrets, schedules, queue depth, and whether any
+placeholder price is exposed.
+
+### Sandbox order of operations
+
+Sandbox is `zdpvmwqauczsfwlgflas`. Do it in this order — each step is safe on its
+own, and the order is what keeps it safe.
+
+1. **Secrets** (per branch, nothing is inherited from prod):
+
+   ```sh
+   SUPABASE_ACCESS_TOKEN=sbp_… supabase secrets set --project-ref zdpvmwqauczsfwlgflas \
+       INTERNAL_JOB_SECRET=… RESEND_WEBHOOK_SECRET=… \
+       RESEND_PRODUCT_UPDATES_TOPIC_ID=… RESEND_LIFECYCLE_GUIDANCE_TOPIC_ID=… \
+       RESEND_FOUNDER_RESEARCH_TOPIC_ID=…
+   ```
+
+   `PADDLE_API_KEY`, `PADDLE_REFERRAL_DISCOUNT_ID`, `PADDLE_WEBHOOK_SECRET` and
+   `RESEND_API_KEY` are already set on sandbox.
+
+2. **Vault** — `supabase_project_url` and `internal_job_secret`. Without them
+   `invoke_internal_edge_job` returns null and the two edge-job schedules do
+   nothing, deliberately quietly, instead of failing every five minutes.
+
+3. **Migrations** — `db push --db-url <sandbox>`. They are additive.
+
+4. **Functions** — deploy `llm-proxy`, `paddle-webhook`, `create-checkout`,
+   `export-account` (changed) and `create-topup-checkout`, `billing-jobs`,
+   `resend-worker`, `resend-webhook`, `email-preferences` (new). Deploy
+   `llm-proxy` **before** running a client build that speaks the lease protocol:
+   an old proxy answers `meeting_start` with 400 and recording will not start.
+
+5. **Paddle sandbox destination** — subscribe the webhook to
+   `transaction.completed` and `adjustment.created` / `adjustment.updated`. Today
+   it carries only `subscription.*`, which is why top-up fulfilment, referral
+   activation and paid conversions cannot fire at all.
+
+### Sandbox Paddle catalog (created 2026-08-11, dark)
+
+| SKU | Sandbox price id |
+|---|---|
+| `starter_monthly_usd_15` | `pri_01kzrzfe1t8vp09pr5yzwbb963` |
+| `starter_yearly_usd_144` | `pri_01kzrzfecpkd01vv1c2dxfg9rx` |
+| `pro_monthly_usd_24` | `pri_01kzrzfeh9zz5ktv8xbg7xh385` |
+| `pro_yearly_usd_240` | `pri_01kzrzfen6m04m7y6awxvb1wj0` |
+| `starter_5h_usd_12` | `pri_01kzrzferwv9jdt9k71r79jf50` |
+
+The referral discount `dsc_01kw78at3qrb1zq5y561da9t9t` (50%, one period,
+`enabled_for_checkout = false`) is restricted to **both** the legacy and the new
+Pro monthly price, so referral checkout works either side of a cutover. Restricting
+it to only one of them breaks the other: Paddle rejects a transaction whose item
+the discount does not cover, and `create-checkout` then fails closed with 503.
+
+Cutover, once (and only once) the pricing decision is recorded:
+
+```sql
+select public.cutover_pricing_catalog(
+    'pri_01kzrzfe1t8vp09pr5yzwbb963', 'pri_01kzrzfecpkd01vv1c2dxfg9rx',
+    'pri_01kzrzfeh9zz5ktv8xbg7xh385', 'pri_01kzrzfen6m04m7y6awxvb1wj0',
+    'pri_01kzrzferwv9jdt9k71r79jf50'
+);
+```
+
+It validates the ids, refuses to repurpose one that already means something else,
+and leaves every superseded price `active` (so renewals still resolve a plan) but
+no longer offerable.
+
+### Secrets: what is already set (2026-08-11)
+
+Both branches now carry the full set — `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`,
+the three `RESEND_*_TOPIC_ID`s, `INTERNAL_JOB_SECRET`, and the three Paddle
+secrets. Setting them ahead of the deploy is inert: no function reads them until
+it exists, and nothing sends until the program gate opens.
+
+| | Sandbox `zdpvmwqauczsfwlgflas` | Production `lptqvnizjwglilgeukwx` |
+|---|---|---|
+| Resend API key | shared account key | dedicated `nod-prod-supabase` (full access — the worker reads templates and contacts, not just `POST /emails`) |
+| Resend webhook | `91281828-5acb-46f4-9052-7178697b5ef0` | `c6f22e65-99fe-4995-8699-852d80d2f492` |
+| `INTERNAL_JOB_SECRET` | branch-specific | branch-specific (different value) |
+
+Both webhooks point at their own branch's `resend-webhook` and subscribe to
+`email.delivered`, `email.failed`, `email.bounced`, `email.complained`,
+`email.suppressed`, and `contact.updated`. Resend webhooks are **account-wide**,
+not per-domain: once sending starts, both endpoints receive every event, and each
+records the ones whose provider id exists in its own database. A signing secret is
+shown once at creation and cannot be read back, so it lives only in the branch's
+Supabase secrets.
+
+Still to do at deploy time, deliberately not done ahead:
+
+- **Vault** on each branch: `supabase_project_url` and `internal_job_secret`
+  (the same value as the branch's `INTERNAL_JOB_SECRET`). Sandbox has both;
+  production does not, on purpose — with an empty vault
+  `invoke_internal_edge_job` returns null and stays silent, so the schedules that
+  arrive with the migrations cannot hammer functions that are not deployed yet.
+- **Verify the live referral discount.** Production already has
+  `PADDLE_REFERRAL_DISCOUNT_ID`. Its `restrict_to` must list the live Pro monthly
+  price — Paddle rejects a transaction whose item the discount does not cover, and
+  `create-checkout` then fails closed with `503 referral_unavailable`. This is the
+  same trap already defused in sandbox by listing both the legacy and the new Pro
+  monthly price.
+
+### Opening the email gate
+
+`select public.configure_email_policy_gate('<policy publication timestamp>');`
+sets `program_not_before` to publication + 30 days — the CHECK constraint will not
+accept anything shorter. The clock starts when the policies are **published on
+hellonod.app**, so publishing them is the long-lead item, not the code.
+
+Before opening it: the preference page at `hellonod.app/email-preferences` has to
+exist (every optional email links to it), and the legacy Resend topic
+"Product updates — legacy" (default `opt_in`) has to be archived, or a broadcast
+could reach people who never gave the new consent.

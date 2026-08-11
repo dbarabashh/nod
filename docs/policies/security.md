@@ -1,6 +1,12 @@
 # Security & Privacy
 
-_Last updated: 2026-08-08_
+_Last updated: 2026-08-11_
+
+_[Calendar access](#calendar-access) and the email-delivery section under
+[How data flows](#how-data-flows) are **advance notice**: neither is in the
+released app, and the calendar one stays off until you switch it on. Where this
+page describes Nod as sitting in the notch, the released version still runs as a
+floating panel on the left of your screen._
 
 > **Nod is built and operated by an individual** (Dima Barabash), not a
 > registered company. We've made the security and privacy decisions
@@ -58,9 +64,10 @@ the EU. This page documents exactly how that works.
 
 ## The basics
 
-Nod is a macOS app that lives in the notch at the top of your screen. You start
-a recording manually — Nod never records without you pressing record. While a
-meeting is running, Nod captures two audio streams locally:
+Nod is a macOS app that runs in a small window of its own — a floating panel
+today, moving into the notch at the top of your screen in a coming version. You
+start a recording manually — Nod never records without you pressing record. While
+a meeting is running, Nod captures two audio streams locally:
 
 1. Your microphone (via macOS `AVAudioEngine`).
 2. The other side of the conversation, via system audio (`ScreenCaptureKit`).
@@ -72,14 +79,15 @@ Telling voices apart afterwards also happens on your Mac, on a speaker model
 first use and keeps on disk. That download sends nothing but the request itself
 — no audio, no transcript, no account — and every diarised meeting after it
 works offline.
-Each chunk is sent to Whisper in the cloud — routed through our EU proxy under
+Each chunk is sent to Whisper in the cloud — routed through our own proxy under
 Zero Data Retention — and the audio bytes are discarded immediately after the
-transcript comes back. Transcription and summarization are not on-device. The
+transcript comes back. The proxy runs in the EU; the inference providers it
+forwards to do not (see [Infrastructure](#infrastructure)). Transcription and summarization are not on-device. The
 transcript and the AI-generated summary are saved to your private Nod account.
 
 Nod doesn't join meetings as a bot. No Zoom/Meet/Teams hook, no automated chat
-message, and no connected calendar account — Nod can read the calendar already
-on your Mac, on the device and only if you switch it on
+message, and no connected calendar account — a coming version will be able to
+read the calendar already on your Mac, on the device and only if you switch it on
 ([Calendar access](#calendar-access)), but it never signs in to Google or
 Microsoft on your behalf. It works with any app that plays audio on your Mac.
 
@@ -142,7 +150,7 @@ after — an excluded window is never recognised.
 - **Count on-device, names once to the summariser.** The participant count
   drives on-device speaker clustering — the model runs on your Mac's Neural
   Engine, and the audio it clusters never leaves your machine. The names go
-  once, alongside the transcript, to the summarising model through our EU proxy
+  once, alongside the transcript, to the summarising model through our own proxy
   under Zero Data Retention, so a summary can say "Alina" instead of
   "Speaker 2". The list itself is not stored — it is dropped with the session.
 
@@ -194,6 +202,10 @@ is yours to delete.
   for <app>"; a blocklisted app is never detected.
 
 ### Calendar access
+
+**Advance notice — not in the released app.** The released app never asks macOS
+for calendar access and never reads one. What follows describes the version that
+introduces it.
 
 Separate from screen access, and off until you switch it on. It exists for one
 job: to name the meeting a detected call belongs to, so the offer to record can
@@ -278,6 +290,18 @@ tell you what you already discussed and what was left open.
   its status, billing-period and trial dates, and the Paddle customer and
   subscription identifiers we use to reconcile billing events. **No card data**
   — payment details stay with Paddle, our Merchant of Record.
+- **Allowance and top-ups.** Service-owned rows tie a bought pack of hours, and
+  the checkout that created it, to immutable Paddle transaction identifiers. You
+  can read your own top-ups and rewards; the payer history, provider adjustments,
+  and reward payout ledger have no client access at all. A purchase that cannot be
+  matched to its own checkout intent is parked for review instead of being
+  credited automatically.
+- **Meeting-start leases.** Before a recording begins, a short-lived row binds
+  that recording's ID to your account. Transcription accepts the ID only while the
+  lease is valid, and the lease is renewed by the recording itself. That is how the
+  hour allowance is enforced at the START of a meeting and can never cut off one
+  already running — and a crashed or offline app frees its own slot in minutes
+  rather than locking recording out.
 
 All of this is stored in Supabase Postgres in `eu-west-1`, encrypted at rest,
 scoped per-user with Row-Level Security so one user cannot read another
@@ -302,7 +326,8 @@ user's data.
   **Settings → Privacy → Delete account**. Confirming it deletes your
   `auth.users` row, which cascades to every table holding your data
   (meetings, transcripts, summaries, chats, entities, labels, embeddings,
-  devices, usage, subscription). The only thing kept is your anonymised
+  devices, usage, subscription, top-ups, referrals, rewards, leases, and email
+  choices). The only thing kept is your anonymised
   consent-acknowledgement audit rows (legal-defence record, `user_id`
   nulled). Any live Paddle subscription is cancelled first so you're never
   billed again.
@@ -401,6 +426,24 @@ storage anywhere in this chain — not on your Mac, not in our database, not
 by Groq (no retention by default), and not by any fallback Whisper provider.
 
 ---
+
+### Email delivery (advance notice — not active today)
+
+Nothing is sent to our email provider before the notice period in the
+[Privacy Policy](./privacy.md) § 3.14 completes — that single gate blocks
+delivery, and also blocks synchronising a contact.
+
+When it is active: Supabase stays authoritative for consent, suppression, and
+cadence, and the provider is a mirror. A durable send record keyed by campaign and
+account prevents sending the same message twice regardless of retries, and it
+outlives the 90-day delivery logs. Immediately before each send, consent,
+suppression, the gate, and the reason the message qualified are all re-checked, so
+a preference changed while a message was queued wins. Complaints and hard bounces
+suppress the address at once and cancel anything still queued for it.
+
+Preference links carry an opaque token in the URL fragment only; loading the page
+performs a read, and a change requires an explicit confirmation. Open tracking and
+click-tracking links are disabled.
 
 ## Subprocessors
 

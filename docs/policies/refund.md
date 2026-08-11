@@ -1,6 +1,9 @@
 # Refund Policy
 
-_Last updated: 2026-06-10_
+_Last updated: 2026-08-11_
+
+_The top-up and reward-credit provisions in § 6 are advance notice and apply only
+once those offers are switched on._
 
 This Refund Policy explains how refunds work for paid Nod subscriptions.
 It supplements, and should be read together with,
@@ -64,7 +67,20 @@ partial refund for:
 - **Service problems** — a sustained outage or a case where we've
   materially reduced functionality you were promised.
 
-## 6. How to request a refund
+## 6. Extra hours and reward credit
+
+A Starter top-up is a separate, one-off purchase. If Paddle refunds it, Nod
+removes the **unused** part of that pack. If some of those hours were already
+used, we review the request by hand alongside your statutory rights — we never
+create a negative balance and never interrupt a meeting in progress.
+
+Referral and advocacy rewards are plan time, not a cash balance. They cannot be
+refunded, transferred, or exchanged for money. Refunding or charging back a
+payment that a reward depended on cancels that reward if it has not been applied
+yet; a reward already applied is not clawed back for a later dispute, although
+fraud can block future ones.
+
+## 7. How to request a refund
 
 Email **dmytro@hellonod.app** from the address on your account, and
 include the **Paddle order or receipt ID** from your confirmation email. We
@@ -74,7 +90,7 @@ You can also contact Paddle's buyer support directly at
 **paddle.net**, where you can look up your purchase and request help with a
 charge.
 
-## 7. How refunds are processed
+## 8. How refunds are processed
 
 Refunds follow Paddle's standard process:
 
@@ -93,14 +109,14 @@ Refunds follow Paddle's standard process:
   an **adjustment** alongside the original transaction for both parties'
   records.
 
-## 8. Chargebacks
+## 9. Chargebacks
 
 If something looks wrong with a charge, please **contact us first** — we can
 almost always resolve it faster than a bank dispute. Opening a chargeback
 before contacting us may lead to your account being suspended while the
 dispute is investigated.
 
-## 9. Changes and contact
+## 10. Changes and contact
 
 We may update this policy as our billing matures; the "Last updated" date
 above always reflects the current version. Questions about a charge or a
