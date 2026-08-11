@@ -94,6 +94,16 @@ final class LLMProxyClient: ObservableObject {
         UserDefaults.standard.string(forKey: Self.chatModelKey) ?? "anthropic/claude-sonnet-5"
     }
 
+    /// Model for the meeting title (`RecapGenerator.title(from:language:)`)
+    /// only — split out from `model` so a summary/recap model change can roll
+    /// out without silently moving title too. Same default as `model` today,
+    /// so splitting this out is a zero-behavior-change step on its own;
+    /// override with `defaults write com.example.nod openrouter.model.title "..."`.
+    private static let titleModelKey = "openrouter.model.title"
+    var titleModel: String {
+        UserDefaults.standard.string(forKey: Self.titleModelKey) ?? "anthropic/claude-sonnet-4.6"
+    }
+
     /// Model for the structured prep calls that never reach the user: rewriting
     /// a follow-up into a standalone query (+ its HyDE passage) and routing a
     /// question to a scope. Both emit a fixed JSON schema from a prompt of a
@@ -132,6 +142,23 @@ final class LLMProxyClient: ObservableObject {
             "claude-mythos"
         ]
         return !withoutSampling.contains { model.contains($0) }
+    }
+
+    /// Which routing category a resolved primary model belongs to, for the
+    /// proxy's `task` telemetry. Matched against the four model properties
+    /// rather than passed explicitly by each call site — every call already
+    /// resolves to exactly one of them, so this reuses that instead of
+    /// threading a parallel `task:` argument through `complete`/`chat`/
+    /// `completeJSON`/`streamChat` and every one of their callers.
+    /// `"summary"` is the fallback: it's what a bare `model` resolves to
+    /// (summary/recap/title before `titleModel` existed, entities, etc.).
+    private func taskLabel(for primaryModel: String) -> String {
+        switch primaryModel {
+        case chatModel: "chat"
+        case utilityModel: "utility"
+        case titleModel: "title"
+        default: "summary"
+        }
     }
 
     private func providerPreference(for primaryModel: String) -> ProviderPreference {
@@ -285,7 +312,8 @@ final class LLMProxyClient: ObservableObject {
             response_format: jsonMode ? ResponseFormat(type: "json_object") : nil,
             temperature: Self.acceptsTemperature(primary) ? temperature : nil,
             stream: nil,
-            cache_prompt: cachePrompt ? true : nil
+            cache_prompt: cachePrompt ? true : nil,
+            task: taskLabel(for: primary)
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
 
@@ -411,7 +439,8 @@ final class LLMProxyClient: ObservableObject {
                         response_format: jsonMode ? ResponseFormat(type: "json_object") : nil,
                         temperature: Self.acceptsTemperature(primary) ? temperature : nil,
                         stream: true,
-                        cache_prompt: cachePrompt ? true : nil
+                        cache_prompt: cachePrompt ? true : nil,
+                        task: taskLabel(for: primary)
                     )
                     let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
                     let request = try await makeProxyRequest(body: body)
@@ -1134,6 +1163,13 @@ private struct ChatRequest: Encodable {
     /// The proxy reads this flag, applies the provider cache_control marker,
     /// and strips the field before forwarding upstream. nil is omitted from JSON.
     let cache_prompt: Bool?
+    /// Which of the four routing categories this call belongs to — derived
+    /// from which model property resolved `model` above, not sent by the
+    /// caller. Every single-shot generation call (summary/title/recap/
+    /// entities) has looked identical to the proxy until now; this is the
+    /// first thing that lets it tell them apart. The proxy logs/records it
+    /// and strips it before forwarding upstream, same as `cache_prompt`.
+    let task: String?
 }
 
 private struct ResponseFormat: Encodable {

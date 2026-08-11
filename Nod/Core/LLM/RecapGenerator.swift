@@ -73,7 +73,7 @@ struct RecapGenerator {
     func title(from summary: String, language: AppLanguage) async -> String? {
         let (system, user) = PromptLibrary.buildTitle(summary: summary, language: language)
         do {
-            let raw = try await llm.complete(system: system, user: user)
+            let raw = try await llm.complete(system: system, user: user, primaryModel: llm.titleModel)
             return Self.sanitizedTitle(raw)
         } catch {
             Log.llm.error("title generation failed: \(error.localizedDescription)")

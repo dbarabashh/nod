@@ -43,6 +43,12 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const CHAT_TIMEOUT_MS      = 30_000;
 const TRANSCRIBE_TIMEOUT_MS = 60_000;
 
+// Bumped whenever the server-side routing policy (which model/provider a
+// task resolves to) changes meaningfully — stamped on every usage_events row
+// so a cost/quality shift can be pinned to the policy version that caused it,
+// not just to a timestamp someone has to cross-reference against a deploy log.
+const ROUTING_VERSION = "2026-08-v1";
+
 // A device holds its account slot for this long without making a call. During
 // a meeting the steady transcribe traffic keeps it fresh; once the app quits
 // or sits idle past this window the slot frees so another device can claim it
@@ -366,22 +372,32 @@ function applyPromptCaching(payload: Record<string, unknown>): Record<string, un
 
 async function forwardChat(rawPayload: unknown, userId: string): Promise<Response> {
     const model = isObject(rawPayload) && typeof rawPayload.model === "string" ? rawPayload.model : "unknown";
+    // Which of the four routing categories this call belongs to (summary/
+    // title/utility/chat) — the client derives it from which model property
+    // resolved `model`, since single-shot generation calls otherwise look
+    // identical to the proxy. Absent on any client built before this, so
+    // "unknown" is a real, expected value, not an error.
+    const task = isObject(rawPayload) && typeof rawPayload.task === "string" ? rawPayload.task : "unknown";
 
     if (!isObject(rawPayload)) {
         return json({ error: "invalid chat payload" }, 400);
     }
 
+    // Strip the internal `task` field before it reaches the caching step or
+    // upstream — same treatment as `cache_prompt`.
+    const { task: _task, ...withoutTask } = rawPayload as Record<string, unknown> & { task?: unknown };
+
     // Apply prompt caching when the client opted in (`cache_prompt`), and strip
     // that internal flag before forwarding. Non-opted calls pass through
     // unchanged. The client still sends plain string message content; the
     // cache_control content-block rewrite happens here.
-    const payload = applyPromptCaching(rawPayload);
+    const payload = applyPromptCaching(withoutTask);
 
     // Streaming path (used by "Suggest reply"): pass the upstream SSE through
     // verbatim so the client renders tokens as they arrive. Usage is captured
     // off a teed copy of the stream — see forwardChatStream.
     if (payload.stream === true) {
-        return forwardChatStream(payload, userId, model);
+        return forwardChatStream(payload, userId, model, task);
     }
 
     // One-shot path (typed chat question). We still consume OpenRouter as a
@@ -390,7 +406,7 @@ async function forwardChat(rawPayload: unknown, userId: string): Promise<Respons
     // completion ran long (large-transcript meetings), even though tokens were
     // still flowing. The deltas are buffered back into the same one-shot JSON
     // the client already decodes, so the switch is invisible client-side.
-    return forwardChatBuffered(payload, userId, model);
+    return forwardChatBuffered(payload, userId, model, task);
 }
 
 // Non-streaming chat served over an internal stream. Requests SSE from
@@ -399,7 +415,7 @@ async function forwardChat(rawPayload: unknown, userId: string): Promise<Respons
 // as the one-shot `{ choices: [{ message: { content } }] }` envelope the Swift
 // client decodes. `usage: { include: true }` makes the terminal chunk carry
 // `usage.cost` for accounting.
-async function forwardChatBuffered(payload: Record<string, unknown>, userId: string, model: string): Promise<Response> {
+async function forwardChatBuffered(payload: Record<string, unknown>, userId: string, model: string, task: string): Promise<Response> {
     const enriched = {
         ...payload,
         stream: true,
@@ -474,6 +490,10 @@ async function forwardChatBuffered(payload: Record<string, unknown>, userId: str
                 completion_tokens: assembled.usage?.completion_tokens ?? null,
                 generation_id:     assembled.id                       ?? null,
                 cost_usd:          assembled.usage?.cost              ?? null,
+                task,
+                routing_version: ROUTING_VERSION,
+                requested_model: model,
+                resolved_model: assembled.model,
             });
         } catch (err) {
             console.warn(`chat usage record skipped: ${err}`);
@@ -510,7 +530,7 @@ async function forwardChatBuffered(payload: Record<string, unknown>, userId: str
 // include_usage` (OpenAI-compat) makes OpenRouter append a final `usage` chunk
 // before `[DONE]`; we parse it off the teed branch so accounting survives the
 // stream without buffering the bytes the user is waiting on.
-async function forwardChatStream(payload: Record<string, unknown>, userId: string, model: string): Promise<Response> {
+async function forwardChatStream(payload: Record<string, unknown>, userId: string, model: string, task: string): Promise<Response> {
     const enriched = {
         ...payload,
         stream: true,
@@ -581,6 +601,10 @@ async function forwardChatStream(payload: Record<string, unknown>, userId: strin
                 completion_tokens: usage?.completion_tokens ?? null,
                 generation_id:     usage?.id                ?? null,
                 cost_usd:          usage?.cost              ?? null,
+                task,
+                routing_version: ROUTING_VERSION,
+                requested_model: model,
+                resolved_model: usage?.model ?? null,
             });
         } catch (err) {
             console.warn(`chat-stream usage record skipped: ${err}`);
@@ -606,6 +630,9 @@ interface StreamUsage {
     completion_tokens?: number | null;
     cost?: number | null;
     id?: string | null;
+    /// The model that actually served, from the chunk's own `model` field —
+    /// see `BufferedChat.model`.
+    model?: string | null;
     // OpenRouter/Anthropic report cache activity here: `cached_tokens` is the
     // portion of the prompt served from cache (a hit), so a value > 0 on the
     // 2nd+ turn confirms prompt caching is working.
@@ -624,6 +651,7 @@ async function readStreamUsage(
     let buf = "";
     let usage: StreamUsage | null = null;
     let id: string | null = null;
+    let servedModel: string | null = null;
     try {
         while (true) {
             const { done, value } = await reader.read();
@@ -640,6 +668,7 @@ async function readStreamUsage(
                 try {
                     const obj = JSON.parse(data);
                     if (typeof obj?.id === "string") id = obj.id;
+                    if (typeof obj?.model === "string") servedModel = obj.model;
                     if (obj?.usage) usage = obj.usage as StreamUsage;
                 } catch { /* keepalive / split chunk — ignore */ }
             }
@@ -647,14 +676,19 @@ async function readStreamUsage(
     } finally {
         reader.releaseLock();
     }
-    if (usage) return { ...usage, id };
-    return id ? { id } : null;
+    if (usage) return { ...usage, id, model: servedModel };
+    return id || servedModel ? { id, model: servedModel } : null;
 }
 
 interface BufferedChat {
     content: string;
     usage: StreamUsage | null;
     id: string | null;
+    /// The model OpenRouter actually served, from the chunk's own `model`
+    /// field — distinct from the `model` this function's caller requested:
+    /// the `models` fallback chain can serve a different one on the
+    /// requested model's failure, and until now nothing recorded which.
+    model: string | null;
     finishReason: string | null;
     error: string | null;
 }
@@ -673,6 +707,7 @@ async function readBufferedChat(
     let content = "";
     let usage: StreamUsage | null = null;
     let id: string | null = null;
+    let servedModel: string | null = null;
     let finishReason: string | null = null;
     let error: string | null = null;
     try {
@@ -691,6 +726,7 @@ async function readBufferedChat(
                 try {
                     const obj = JSON.parse(data);
                     if (typeof obj?.id === "string") id = obj.id;
+                    if (typeof obj?.model === "string") servedModel = obj.model;
                     if (obj?.usage) usage = obj.usage as StreamUsage;
                     if (obj?.error) {
                         error = typeof obj.error?.message === "string" ? obj.error.message : JSON.stringify(obj.error);
@@ -704,7 +740,7 @@ async function readBufferedChat(
     } finally {
         reader.releaseLock();
     }
-    return { content, usage: usage ? { ...usage, id } : null, id, finishReason, error };
+    return { content, usage: usage ? { ...usage, id } : null, id, model: servedModel, finishReason, error };
 }
 
 // STT providers (Groq, OpenAI, OpenRouter) don't return a per-request cost the
@@ -797,6 +833,10 @@ async function forwardTranscribe(payload: unknown, userId: string, entitlement: 
             audio_seconds: audioSeconds,
             cost_usd: cost,
             failover: failover.length > 0 ? failover : null,
+            task: "stt",
+            routing_version: ROUTING_VERSION,
+            requested_model: model,
+            resolved_model: `${provider}:${model}`,
         });
     } catch (err) {
         console.warn(`transcribe usage record skipped: ${err}`);
@@ -1072,11 +1112,57 @@ function decodeBase64(b64: string): Uint8Array<ArrayBuffer> {
     return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
 
-// Transcribe via the provider chain: each multipart provider in turn (failing
-// over on transient errors), then OpenRouter as the legacy/terminal fallback.
+// STT provider priority — see the OpenRouter/model migration plan, PR 2.
+// `groq_primary` is the default and reproduces the exact pre-PR-2 behavior:
+// deploying this with no env var set changes nothing. Read fresh on every
+// call (not cached at module load) so flipping it is a config change, never
+// a redeploy.
+type SttRoutingMode = "groq_primary" | "openrouter_primary" | "openrouter_only";
+
+function sttRoutingMode(): SttRoutingMode {
+    const raw = Deno.env.get("STT_ROUTING_MODE");
+    if (raw === "openrouter_primary" || raw === "openrouter_only") return raw;
+    return "groq_primary";
+}
+
+// One attempt against OpenRouter's STT endpoint, in the same shape a
+// multipart-chain attempt returns — so both call sites can push it onto the
+// same `failover` trail with `failoverAttempt`.
+function callOpenRouterSTT(payload: unknown, userId: string): Promise<CallResult> {
+    return callOpenRouter(OPENROUTER_TRANSCRIBE_URL, payload, TRANSCRIBE_TIMEOUT_MS, userId, "transcribe");
+}
+
+// Transcribe via the provider chain. Order depends on `sttRoutingMode()`:
+//
+//   groq_primary (default) — each multipart provider (Groq, then OpenAI if
+//     configured), then OpenRouter as the terminal fallback. Unchanged from
+//     before PR 2.
+//   openrouter_primary — OpenRouter first; on a failover-eligible status,
+//     fall through to the multipart chain exactly as above. Groq becomes the
+//     emergency path instead of OpenRouter.
+//   openrouter_only — OpenRouter alone, no direct-provider fallback at all.
+//     Diagnostic only; see the plan for why this must not become the
+//     production default while direct Groq is still the outage escape hatch.
+//
 // Returns which provider actually served, for usage attribution.
 async function callTranscribe(payload: unknown, userId: string): Promise<STTResult> {
     const failover: FailoverAttempt[] = [];
+    const mode = sttRoutingMode();
+
+    if (mode === "openrouter_primary" || mode === "openrouter_only") {
+        if (!OPENROUTER_API_KEY) {
+            return { status: 502, text: JSON.stringify({ error: "no STT provider configured" }), provider: "none", failover };
+        }
+        const r = await callOpenRouterSTT(payload, userId);
+        if (!shouldFailover(r.status) || mode === "openrouter_only") {
+            return { ...r, provider: "openrouter", failover };
+        }
+        failover.push(failoverAttempt("openrouter", r));
+        console.warn(
+            `transcribe provider=openrouter status=${r.status} reason=${r.reason ?? "http"} retry_after=${r.retryAfter ?? "-"} dt=${r.ms ?? "?"}ms — failing over to direct Groq`,
+        );
+    }
+
     let last: STTResult | null = null;
     for (const p of sttMultipartChain()) {
         const r = await callMultipartSTT(p, payload, userId);
@@ -1087,8 +1173,11 @@ async function callTranscribe(payload: unknown, userId: string): Promise<STTResu
         );
         last = { ...r, provider: p.name, failover };
     }
-    if (OPENROUTER_API_KEY) {
-        const r = await callOpenRouter(OPENROUTER_TRANSCRIBE_URL, payload, TRANSCRIBE_TIMEOUT_MS, userId, "transcribe");
+
+    // groq_primary's own terminal fallback: OpenRouter, only if it wasn't
+    // already tried as primary above.
+    if (mode === "groq_primary" && OPENROUTER_API_KEY) {
+        const r = await callOpenRouterSTT(payload, userId);
         return { ...r, provider: "openrouter", failover };
     }
     return last ?? { status: 502, text: JSON.stringify({ error: "no STT provider configured" }), provider: "none", failover };
@@ -1202,15 +1291,15 @@ async function callOpenRouter(
         const dt = Date.now() - started;
         console.log(`${label} user=${userId} status=${upstream.status} dt=${dt}ms bytes=${text.length}`);
 
-        return { status: upstream.status, text };
+        return { status: upstream.status, text, reason: "http", retryAfter: upstream.headers.get("retry-after"), ms: dt };
     } catch (error) {
         const dt = Date.now() - started;
         if (error instanceof DOMException && error.name === "AbortError") {
             console.error(`${label} user=${userId} timeout after ${dt}ms`);
-            return { status: 504, text: JSON.stringify({ error: `Upstream timeout (${timeoutMs}ms)` }) };
+            return { status: 504, text: JSON.stringify({ error: `Upstream timeout (${timeoutMs}ms)` }), reason: "timeout", ms: dt };
         }
         console.error(`${label} user=${userId} upstream error: ${error}`);
-        return { status: 502, text: JSON.stringify({ error: "Upstream request failed" }) };
+        return { status: 502, text: JSON.stringify({ error: "Upstream request failed" }), reason: "network", ms: dt, detail: String(error) };
     } finally {
         clearTimeout(timer);
     }
@@ -1227,6 +1316,19 @@ interface UsageRow {
     audio_seconds?: number | null;
     cost_usd?: number | null;
     failover?: FailoverAttempt[] | null;
+    // Which of the routing-policy categories this call was for
+    // (summary/title/utility/chat/stt) — "unknown" for any client built
+    // before the `task` field existed.
+    task?: string;
+    routing_version?: string;
+    // `model` above stays whatever the pre-PR-1 callers already put there
+    // (for transcribe, the `${provider}:${model}` tag) so nothing that reads
+    // it breaks. These two are the honest, separate answer to "what did the
+    // client ask for" vs "what actually served" — nullable because not every
+    // call site can determine `resolved_model` (e.g. STT providers don't
+    // echo one back).
+    requested_model?: string | null;
+    resolved_model?: string | null;
 }
 
 async function recordUsage(row: UsageRow): Promise<void> {
