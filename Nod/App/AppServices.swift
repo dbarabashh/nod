@@ -58,6 +58,7 @@ struct AppServices {
     /// Arms the scripted landing-page demo. Reads its own defaults, so a
     /// recording session survives relaunches between takes.
     let demoPlayback: DemoPlayback
+    let captureSurface: CaptureSurfacePreference
     let updateGate: UpdateGate
     /// Which Sparkle channel this account may see builds from. Refreshed at
     /// launch so the answer is cached before Sparkle's first update check.
@@ -200,6 +201,7 @@ struct AppServices {
             meetingDetection: MeetingDetectionPreference(),
             calendar: CalendarService(),
             demoPlayback: DemoPlayback(),
+            captureSurface: CaptureSurfacePreference(),
             updateGate: UpdateGate(supabase: supabase),
             releaseChannel: ReleaseChannelStore(supabase: supabase, auth: auth),
             hotkeys: hotkeys,

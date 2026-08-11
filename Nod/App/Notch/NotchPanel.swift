@@ -89,6 +89,61 @@ final class NotchPanel: NSPanel {
             )
         )
     }
+
+    /// Put the canvas back where the user left it, or at the default anchor if
+    /// they never moved it on this display. The saved point is clamped rather
+    /// than trusted: a display that changed resolution, or one whose arrangement
+    /// moved it in the global coordinate space, can strand a perfectly valid
+    /// old position off-screen.
+    func restore(_ origin: CGPoint?, on screen: NSScreen, geometry: NotchGeometry) {
+        guard let origin else {
+            anchor(to: screen)
+            return
+        }
+        setFrameOrigin(Self.clampedOrigin(
+            origin,
+            canvas: Self.canvasSize,
+            surface: geometry.collapsedSize,
+            topInset: geometry.topInset,
+            visible: screen.visibleFrame
+        ))
+    }
+
+    /// Dragging is the floating panel's alone — see `CaptureSurfacePreference`.
+    /// `isMovableByWindowBackground` rather than a drag handle: the canvas is
+    /// transparent everywhere the surface isn't, so the only draggable area is
+    /// the surface itself, and AppKit's own drag threshold leaves clicks on the
+    /// controls alone.
+    func setMovable(_ movable: Bool) {
+        isMovable = movable
+        isMovableByWindowBackground = movable
+    }
+
+    /// Where the canvas may sit so that the resting surface stays fully on
+    /// screen. The canvas is far larger than the surface and mostly empty, so
+    /// clamping the canvas itself would fence the surface hundreds of points
+    /// away from every edge — what has to stay reachable is the pill, which
+    /// sits top-centred inside the canvas.
+    static func clampedOrigin(
+        _ origin: CGPoint,
+        canvas: CGSize,
+        surface: CGSize,
+        topInset: CGFloat,
+        visible: CGRect
+    ) -> NSPoint {
+        let offsetX = (canvas.width - surface.width) / 2
+        let offsetY = canvas.height - topInset - surface.height
+        // A visible frame smaller than the surface has no valid range at all;
+        // `min` after `max` would then silently invert the bounds.
+        let minX = visible.minX - offsetX
+        let maxX = max(minX, visible.maxX - offsetX - surface.width)
+        let minY = visible.minY - offsetY
+        let maxY = max(minY, visible.maxY - offsetY - surface.height)
+        return NSPoint(
+            x: floor(min(max(origin.x, minX), maxX)),
+            y: floor(min(max(origin.y, minY), maxY))
+        )
+    }
 }
 
 /// Hosting view that takes a click, and the keyboard, without the app being

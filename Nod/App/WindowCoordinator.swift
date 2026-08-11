@@ -270,6 +270,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 language: services.languagePreference,
                 updateGate: services.updateGate,
                 playback: services.demoPlayback,
+                captureSurface: services.captureSurface,
+                panelSharing: services.panelSharing,
                 profiles: services.profileStore,
                 briefing: CallBriefing(
                     meetings: services.meetingStore,
@@ -316,7 +318,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 screenContext: services.screenContext,
                 meetingDetection: services.meetingDetection,
                 calendar: services.calendar,
-                demoPlayback: services.demoPlayback
+                demoPlayback: services.demoPlayback,
+                captureSurface: services.captureSurface
             )
         )
     }

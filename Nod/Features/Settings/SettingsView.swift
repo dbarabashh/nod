@@ -23,6 +23,7 @@ struct SettingsView: View {
     private let meetingDetection: MeetingDetectionPreference?
     private let calendar: CalendarService?
     private let demoPlayback: DemoPlayback?
+    private let captureSurface: CaptureSurfacePreference?
 
     init(
         hotkey: HotkeyManager,
@@ -43,6 +44,7 @@ struct SettingsView: View {
         meetingDetection: MeetingDetectionPreference? = nil,
         calendar: CalendarService? = nil,
         demoPlayback: DemoPlayback? = nil,
+        captureSurface: CaptureSurfacePreference? = nil,
         focusSubscription: Bool = false,
         focusModes: Bool = false
     ) {
@@ -64,6 +66,7 @@ struct SettingsView: View {
         self.meetingDetection = meetingDetection
         self.calendar = calendar
         self.demoPlayback = demoPlayback
+        self.captureSurface = captureSurface
         _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .profile))
     }
 
@@ -243,7 +246,8 @@ struct SettingsView: View {
             panelSharing: panelSharing,
             proactivity: proactivity,
             granolaImporter: granolaImporter,
-            demoPlayback: demoPlayback
+            demoPlayback: demoPlayback,
+            captureSurface: captureSurface
         )
     }
 

@@ -31,6 +31,7 @@ final class NotchController {
         panel.orderFrontRegardless()
 
         observeScreens()
+        observeMoves()
         watchForOutsideClicks(model: model)
     }
 
@@ -60,15 +61,42 @@ final class NotchController {
     }
 
     /// Resolve the host screen once and hand both halves of the answer out: the
-    /// window gets anchored to it, the model gets its cut-out dimensions.
+    /// window gets placed on it, the model gets the silhouette to draw.
+    ///
+    /// The preference decides the silhouette, not the hardware — `.floatingPanel`
+    /// forces the no-cut-out shape on a screen that has one. `.notch` on a screen
+    /// without a cut-out still resolves to the pill, because that is the only
+    /// thing it can be.
     private func anchor() {
-        guard let screen = NSScreen.nodNotchHost else { return }
-        panel?.anchor(to: screen)
-        // The preview override forces the no-cut-out silhouette on a screen that
-        // does have one, so the fallback can be checked without unplugging a
-        // display or dragging the menu bar to another screen.
-        let previewing = model?.playback.previewWithoutNotch ?? false
-        model?.setGeometry(previewing ? screen.nodIslandGeometry : screen.nodNotchGeometry)
+        guard let panel, let screen = NSScreen.nodNotchHost else { return }
+        let surface = model?.captureSurface.surface ?? .notch
+        let geometry = surface == .floatingPanel ? screen.nodIslandGeometry : screen.nodNotchGeometry
+        model?.setGeometry(geometry)
+
+        panel.setMovable(surface.isMovable)
+        if surface.isMovable {
+            let saved = screen.nodDisplayID.flatMap { model?.captureSurface.savedOrigin(forDisplay: $0) }
+            panel.restore(saved, on: screen, geometry: geometry)
+        } else {
+            panel.anchor(to: screen)
+        }
+    }
+
+    /// Remember where a drag left the surface, per display. Observed rather than
+    /// hooked into a delegate because the panel has no delegate of its own and
+    /// giving it one to catch a move would put window bookkeeping in the window.
+    private func observeMoves() {
+        NotificationCenter.default
+            .publisher(for: NSWindow.didMoveNotification)
+            .compactMap { $0.object as? NotchPanel }
+            .sink { [weak self] panel in
+                guard let self,
+                      let preference = model?.captureSurface,
+                      preference.surface.isMovable,
+                      let id = panel.screen?.nodDisplayID else { return }
+                preference.saveOrigin(panel.frame.origin, forDisplay: id)
+            }
+            .store(in: &cancellables)
     }
 
     /// Plugging in a display, unplugging one, or changing the arrangement can
@@ -81,7 +109,7 @@ final class NotchController {
             .sink { [weak self] _ in self?.anchor() }
             .store(in: &cancellables)
 
-        model?.playback.$previewWithoutNotch
+        model?.captureSurface.$surface
             .dropFirst()
             .removeDuplicates()
             .receive(on: RunLoop.main)

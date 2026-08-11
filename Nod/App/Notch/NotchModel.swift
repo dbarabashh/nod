@@ -28,6 +28,8 @@ final class NotchModel: ObservableObject {
     /// is armed in Settings; the real capture path never sees it.
     let demo = DemoDirector()
     let playback: DemoPlayback
+    let captureSurface: CaptureSurfacePreference
+    let panelSharing: PanelSharingPreference
 
     let session: MeetingSession
     let offers: MeetingOffers
@@ -98,6 +100,8 @@ final class NotchModel: ObservableObject {
         language: LanguagePreference,
         updateGate: UpdateGate,
         playback: DemoPlayback,
+        captureSurface: CaptureSurfacePreference,
+        panelSharing: PanelSharingPreference,
         profiles: ProfileStore,
         briefing: CallBriefing,
         consent: ConsentPreference,
@@ -111,6 +115,8 @@ final class NotchModel: ObservableObject {
         self.language = language
         self.updateGate = updateGate
         self.playback = playback
+        self.captureSurface = captureSurface
+        self.panelSharing = panelSharing
         self.profiles = profiles
         self.briefing = briefing
         self.consent = consent
@@ -607,11 +613,15 @@ extension NotchModel {
         )
     }
 
-    /// The notch-gesture's hide — see `NotchGestureZone`. A no-op off a
-    /// notched display or outside a meeting: nothing to tuck into, or nothing
-    /// worth tucking.
+    /// Fold the meeting bar down to the resting shape — the swipe-up gesture
+    /// (`NotchGestureZone`) and the bar's own glyph.
+    ///
+    /// No longer gated on a cut-out. It used to be, because without one there
+    /// was nothing to tuck *into*; but the floating panel has the same resting
+    /// pill to shrink to, and a bar you cannot get out of the way is worse on a
+    /// surface the user has deliberately parked over their work.
     func hideMeetingBar() {
-        guard geometry.hasCutout, session.meeting != .idle else { return }
+        guard session.meeting != .idle else { return }
         meetingBarHidden = true
         refresh()
     }

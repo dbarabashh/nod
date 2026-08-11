@@ -322,26 +322,23 @@ struct NotchMicMenuButton: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            Button(action: { session.toggleMic() }) {
-                Image(iconName)
-                    .icon(8)
-                    .foregroundColor(iconTint)
-                    .frame(width: 13, height: 20)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            Menu {
-                devicePicker
-            } label: {
-                Image("nc-chevron-down")
-                    .icon(6)
-                    .foregroundColor(Theme.Palette.muted.opacity(0.7))
-                    .frame(width: 13, height: 20)
-                    .contentShape(Rectangle())
-            }
-            .plainMenuChrome()
+        // One control, two gestures: a click mutes, a press-and-hold opens the
+        // device list. The chevron that used to sit beside the glyph cost half
+        // the capsule's width and pushed the mic off-centre, for a menu that is
+        // opened once a month against a mute pressed several times a call.
+        Menu {
+            devicePicker
+        } label: {
+            Image(iconName)
+                .icon(8)
+                .foregroundColor(iconTint)
+                .frame(width: 26, height: 20)
+                .contentShape(Rectangle())
+        } primaryAction: {
+            session.toggleMic()
         }
+        .plainMenuChrome()
+        .menuIndicator(.hidden)
         .frame(width: 26, height: 20)
         .background(Capsule().fill(Theme.Palette.surfaceStrong))
         .frame(width: 32, height: 24)
@@ -494,6 +491,34 @@ extension View {
 ///
 /// `text` is a closure for the same reason: the payload is built when the
 /// button is pressed, not on every redraw of whatever contains it.
+/// Whether Nod shows up in a screen share, from the bar itself.
+///
+/// The same preference the Settings toggle writes — this is not a second
+/// setting, it is the one setting where it is needed. Off is the default and
+/// the safe state, and the moment you find out you wanted it on is the moment
+/// you are already sharing, which is exactly when Settings is the wrong place
+/// to have to go.
+struct NotchShareVisibilityButton: View {
+    @ObservedObject var preference: PanelSharingPreference
+
+    var body: some View {
+        Button { preference.visibleWhenSharing.toggle() } label: {
+            Image("nc-stack-perspective")
+                .icon(9)
+                // One glyph, tinted, rather than a pair: there is no honest
+                // second Nucleo icon for "hidden from capture", and swapping to
+                // an unrelated one reads as a different control.
+                .foregroundColor(preference.visibleWhenSharing ? Theme.Palette.brand : Theme.Palette.muted)
+                .notchGlyphChrome()
+        }
+        .buttonStyle(.pressable(scale: 0.90))
+        .linkCursor()
+        .help(preference.visibleWhenSharing
+            ? "Visible in screen shares — click to hide"
+            : "Hidden from screen shares — click to show")
+    }
+}
+
 struct NotchCopyGlyphButton: View {
     let text: () -> String
     var onCopy: () -> Void = {}

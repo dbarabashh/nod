@@ -89,7 +89,9 @@ struct NotchStateContent: View {
                 onSubmitAsk: model.submitAsk,
                 onSummarize: model.askSummarize,
                 onOpenLibrary: model.openLibrary,
-                onCollapse: model.geometry.hasCutout ? { model.hideMeetingBar() } : nil
+                onCollapse: { model.hideMeetingBar() },
+                panelSharing: model.panelSharing,
+                geometry: model.geometry
             )
         case let .recap(state):
             NotchRecapCard(
@@ -155,8 +157,10 @@ struct NotchStateContent: View {
 /// What's left showing once the meeting bar is swiped away into the notch: on
 /// a notched Mac the middle of this surface is an opaque cut-out, so the level
 /// meter goes to its left and the clock to its right. Never the default —
-/// only reachable via `NotchGestureZone`'s swipe-up, and only where there is a
-/// cut-out to tuck into.
+/// reached by the bar's own chevron, or by `NotchGestureZone`'s swipe-up where
+/// there is a cut-out to swipe over. A click anywhere on it brings the bar
+/// back (`NotchView` → `toggleOpen`), which is the only way out on a floating
+/// panel, where the gesture zone is not mounted.
 ///
 /// Its own view, observing the session and the capture service directly,
 /// because both the clock and the meter have to redraw continuously — read

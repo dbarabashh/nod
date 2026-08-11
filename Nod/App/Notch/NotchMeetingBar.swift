@@ -29,12 +29,12 @@ struct NotchMeetingBar: View {
     let onSubmitAsk: (String) -> Void
     let onSummarize: () -> Void
     let onOpenLibrary: () -> Void
-    /// Nil on a display with no cut-out — there is nowhere to tuck the bar
-    /// into, so the button that would do it doesn't exist rather than doing
-    /// nothing when pressed. The trackpad swipe is the same action; this is
-    /// the click-driven way to reach it without trusting gesture recognition
-    /// alone.
-    let onCollapse: (() -> Void)?
+    /// The click-driven way to fold the bar away. The trackpad swipe over the
+    /// cut-out is the same action, but it only exists on a notched display, so
+    /// this is the only one the floating panel has.
+    let onCollapse: () -> Void
+    @ObservedObject var panelSharing: PanelSharingPreference
+    let geometry: NotchGeometry
 
     private var paused: Bool {
         session.meeting == .paused
@@ -64,6 +64,7 @@ struct NotchMeetingBar: View {
             Spacer(minLength: 0)
             NotchMicMenuButton(session: session, audioCapture: audioCapture)
             NotchLanguageMenuButton(language: language)
+            NotchShareVisibilityButton(preference: panelSharing)
             NotchGlyphButton(icon: "nc-window-pointer", help: "Open Nod", action: onOpenLibrary)
         }
     }
@@ -142,10 +143,14 @@ struct NotchMeetingBar: View {
             MeetingBarButton(title: "Ask", isActive: isAskOpen, action: onToggleAsk)
             MeetingBarButton(title: "Notes", isActive: panel == .notes, action: onToggleNotes)
             MeetingBarEndButton(action: session.endMeeting)
-            if let onCollapse {
-                NotchGlyphButton(icon: "nc-chevron-up", help: "Tuck into the notch", action: onCollapse)
-            }
+            NotchGlyphButton(icon: "nc-chevron-up", help: tuckHelp, action: onCollapse)
         }
+    }
+
+    /// The cut-out is a place; the floating panel is not. Calling both "tuck
+    /// into the notch" would name a thing that is not on the user's screen.
+    private var tuckHelp: String {
+        geometry.hasCutout ? "Tuck into the notch" : "Minimize"
     }
 
     private var isAskOpen: Bool {

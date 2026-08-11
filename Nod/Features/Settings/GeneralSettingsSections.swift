@@ -234,6 +234,32 @@ struct ScreenShareSettingsSection: View {
     }
 }
 
+/// Which shape the capture surface takes. A segmented picker rather than a
+/// toggle: neither option is "off", and a switch labelled "notch" would make the
+/// panel read as its absence.
+struct CaptureSurfaceSection: View {
+    @ObservedObject var preference: CaptureSurfacePreference
+
+    var body: some View {
+        SettingsCard {
+            SettingsRow(
+                icon: "nc-laptop",
+                title: "Capture surface",
+                subtitle: preference.surface.detail
+            ) {
+                Picker("", selection: $preference.surface) {
+                    ForEach(CaptureSurfacePreference.Surface.allCases) { surface in
+                        Text(surface.title).tag(surface)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 190)
+            }
+        }
+    }
+}
+
 /// The General pane, lifted out of `SettingsView`: it is the longest of the
 /// panes and the one that keeps growing, and the window shell's job is choosing
 /// which pane to show, not being one.
@@ -245,6 +271,7 @@ struct GeneralSettingsPane: View {
     let proactivity: ProactivityPreference?
     let granolaImporter: GranolaImporter?
     let demoPlayback: DemoPlayback?
+    let captureSurface: CaptureSurfacePreference?
     @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting = MeetingLanguagePromptDefaults.defaultValue
     @AppStorage(UISound.defaultsKey) private var soundsEnabled = true
 
@@ -258,6 +285,9 @@ struct GeneralSettingsPane: View {
             }
             if let proactivity {
                 ProactivitySettingsSection(preference: proactivity)
+            }
+            if let captureSurface {
+                CaptureSurfaceSection(preference: captureSurface)
             }
             if let launchBehavior {
                 LaunchBehaviorSection(behavior: launchBehavior)
