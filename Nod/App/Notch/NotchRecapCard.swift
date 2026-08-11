@@ -109,7 +109,7 @@ struct NotchRecapCard: View {
                     },
                     onCopy: { onCopy(meeting.kind) }
                 )
-                NotchGlyphButton(icon: "nc-arrow-up-right", help: "Open meeting") { onExpand(meeting.id) }
+                NotchGlyphButton(icon: "nc-arrow-up-right", help: "Open in Nod") { onExpand(meeting.id) }
             }
         }
     }

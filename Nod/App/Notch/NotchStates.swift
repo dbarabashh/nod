@@ -329,21 +329,24 @@ struct NotchMicMenuButton: View {
         Menu {
             devicePicker
         } label: {
+            // Same glyph size and same round chrome as every other control in
+            // this row: a wider capsule and a smaller icon made the mic read as
+            // a different kind of thing sitting next to its own siblings. The
+            // click target stays 32×24 — the outer frame keeps it, so muting is
+            // no harder to hit than it was.
             Image(iconName)
-                .icon(8)
+                .icon(9)
                 .foregroundColor(iconTint)
-                .frame(width: 26, height: 20)
-                .contentShape(Rectangle())
+                .notchGlyphChrome()
         } primaryAction: {
             session.toggleMic()
         }
         .plainMenuChrome()
         .menuIndicator(.hidden)
-        .frame(width: 26, height: 20)
-        .background(Capsule().fill(Theme.Palette.surfaceStrong))
+        .frame(width: 20, height: 20)
         .frame(width: 32, height: 24)
         .contentShape(Rectangle())
-        .help(helpText)
+        .compactHoverTooltip(helpText)
         .onReceive(audioCapture.$lastError) { lastError = $0 }
         .onReceive(audioCapture.$preferredInputUID) { preferredInputUID = $0 }
         .onReceive(session.$micMuted) { micMuted = $0 }
@@ -376,8 +379,10 @@ struct NotchMicMenuButton: View {
         return micMuted ? Theme.Palette.controlMicMuted : Theme.Palette.muted
     }
 
+    /// Names the hold gesture too — a click mutes, so nothing on screen says the
+    /// device list is in here.
     private var helpText: String {
-        lastError ?? (micMuted ? "Unmute" : "Mute")
+        lastError ?? (micMuted ? "Unmute · hold to switch" : "Mute · hold to switch")
     }
 }
 
@@ -529,9 +534,9 @@ struct NotchShareVisibilityButton: View {
         }
         .buttonStyle(.pressable(scale: 0.90))
         .linkCursor()
-        .help(preference.visibleWhenSharing
-            ? "Visible in screen shares — click to hide"
-            : "Hidden from screen shares — click to show")
+        .compactHoverTooltip(
+            preference.visibleWhenSharing ? "Shown in screen shares" : "Hidden from screen shares"
+        )
     }
 }
 
@@ -577,6 +582,9 @@ struct NotchGlyphButton: View {
         }
         .buttonStyle(.pressable(scale: 0.90))
         .linkCursor()
-        .help(help)
+        // Not `.help`: AppKit's tooltip needs the window to take key focus, and
+        // this panel deliberately never does — so the system one never appeared
+        // on the notch at all. Compact: one line over a 20pt glyph.
+        .compactHoverTooltip(help)
     }
 }

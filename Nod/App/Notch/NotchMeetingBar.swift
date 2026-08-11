@@ -65,7 +65,7 @@ struct NotchMeetingBar: View {
             NotchMicMenuButton(session: session, audioCapture: audioCapture)
             NotchLanguageMenuButton(language: language)
             NotchShareVisibilityButton(preference: panelSharing)
-            NotchGlyphButton(icon: "nc-window-pointer", help: "Open Nod", action: onOpenLibrary)
+            NotchGlyphButton(icon: "nc-window-pointer", help: "Open Nod window", action: onOpenLibrary)
         }
     }
 
@@ -321,15 +321,18 @@ private struct NotchLanguageMenuButton: View {
             }
             .pickerStyle(.inline)
         } label: {
+            // A two-letter chip is wider than the glyphs it sits beside, so it
+            // reads as the biggest thing in the row at the same nominal size.
+            // Sized down until its ink matches theirs rather than its point size.
             Text(language.current.chipLabel)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .tracking(0.5)
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .tracking(0.2)
                 .foregroundColor(Theme.Palette.muted)
                 .notchGlyphChrome()
         }
         .plainMenuChrome()
         .fixedSize()
-        .help(MeetingLanguagePrompt.scopeNote)
+        .compactHoverTooltip("Nod answers in \(language.current.nativeName)")
     }
 }
 

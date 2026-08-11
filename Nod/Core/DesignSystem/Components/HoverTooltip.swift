@@ -15,6 +15,7 @@ private struct HoverTooltipModifier: ViewModifier {
     let text: String
     let detail: String?
     let icon: String?
+    let isCompact: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isVisible = false
@@ -46,6 +47,7 @@ private struct HoverTooltipModifier: ViewModifier {
                                 text: text,
                                 detail: detail,
                                 icon: icon,
+                                isCompact: isCompact,
                                 anchor: geo.frame(in: .named(TooltipSpace.name))
                             )
                         )
@@ -73,6 +75,9 @@ struct TooltipRequest: Equatable {
     let text: String
     let detail: String?
     let icon: String?
+    /// One short line, centred over its control — for a row of 20pt glyph
+    /// buttons, where a full card is wider than the surface holding it.
+    let isCompact: Bool
     let anchor: CGRect
 }
 
@@ -93,18 +98,46 @@ enum TooltipSpace {
     /// Space a card needs above the anchor before it has to flip below: two
     /// lines of detail plus its chrome.
     static let neededAbove: CGFloat = 88
+    /// The compact card is one line, so it fits above in far less room. Still
+    /// generous, because the surface it sits on hangs off the menu bar: for the
+    /// controls in the top row there is no "above" — it's the notch or the menu
+    /// bar, so those flip below rather than drawing into hardware.
+    static let compactNeededAbove: CGFloat = 32
     /// Gap between the anchor and the card, on whichever side it lands.
     static let gap: CGFloat = 2
+    /// Kept clear of the container's side edges, so a card never sits flush
+    /// against one — and never past it, where the window clips it away.
+    static let sideMargin: CGFloat = 4
+
+    /// Where a card's left edge goes: centred on the control when compact, hung
+    /// off its left edge otherwise — then pulled back inside the container if
+    /// that put it over an edge. Pure, because the edge case that keeps biting
+    /// is the last control in a row, one glyph from the boundary.
+    static func leftEdge(
+        for anchor: CGRect,
+        cardWidth: CGFloat,
+        containerWidth: CGFloat,
+        isCompact: Bool
+    ) -> CGFloat {
+        let preferred = isCompact ? anchor.midX - cardWidth / 2 : anchor.minX
+        let last = containerWidth - cardWidth - sideMargin
+        guard last > sideMargin else { return sideMargin }
+        return min(max(preferred, sideMargin), last)
+    }
 }
 
 extension View {
     /// Declares this view as the boundary tooltips inside it must stay within,
     /// and draws them on top of it.
-    func tooltipContainer() -> some View {
+    ///
+    /// `topLimit` is dead space at the container's top edge a card must not
+    /// enter — the hardware cut-out, in the notch's case, where nothing can be
+    /// drawn at all. Anchors that close to the top flip their card below.
+    func tooltipContainer(topLimit: CGFloat = 0) -> some View {
         coordinateSpace(name: TooltipSpace.name)
             .overlayPreferenceValue(TooltipAnchorKey.self) { request in
                 if let request {
-                    TooltipLayer(request: request)
+                    TooltipLayer(request: request, topLimit: topLimit)
                 }
             }
             // Stops here: preferences otherwise keep travelling up, and an
@@ -117,8 +150,16 @@ extension View {
     /// in the app's material. The text is mirrored to an accessibility hint so
     /// dropping AppKit's tooltip doesn't drop it for VoiceOver.
     func hoverTooltip(_ text: String, detail: String? = nil, icon: String? = nil) -> some View {
-        modifier(HoverTooltipModifier(text: text, detail: detail, icon: icon))
+        modifier(HoverTooltipModifier(text: text, detail: detail, icon: icon, isCompact: false))
             .accessibilityHint([text, detail].compactMap { $0 }.joined(separator: ". "))
+    }
+
+    /// One short line, centred over the control rather than hung off its left
+    /// edge. For icon-sized controls: the full card is wider than a 20pt glyph
+    /// several times over, so it reads as a panel that appeared, not a label.
+    func compactHoverTooltip(_ text: String) -> some View {
+        modifier(HoverTooltipModifier(text: text, detail: nil, icon: nil, isCompact: true))
+            .accessibilityHint(text)
     }
 }
 
@@ -126,29 +167,47 @@ extension View {
 /// of the container is too close for it to fit.
 private struct TooltipLayer: View {
     let request: TooltipRequest
+    let topLimit: CGFloat
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var placesBelow: Bool {
-        request.anchor.minY < TooltipSpace.neededAbove
+        let room = request.anchor.minY - topLimit
+        return room < (request.isCompact ? TooltipSpace.compactNeededAbove : TooltipSpace.neededAbove)
     }
 
     var body: some View {
-        TooltipCard(
-            text: request.text,
-            detail: request.detail,
-            icon: request.icon,
-            tailEdge: placesBelow ? .top : .bottom
-        )
-        .fixedSize(horizontal: false, vertical: true)
-        // A zero-height slot at the anchor's edge, with the card hanging out of
-        // it — lands the bubble fully outside the anchor without measuring it.
-        .frame(height: 0, alignment: placesBelow ? .top : .bottom)
-        .offset(
-            x: request.anchor.minX,
-            y: placesBelow ? request.anchor.maxY + TooltipSpace.gap : request.anchor.minY - TooltipSpace.gap
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The container's width, because a card is positioned against its anchor
+        // and the anchor can be one glyph from the right edge: the last control
+        // in the notch's row had its hint sliced off by the surface it sits on.
+        GeometryReader { proxy in
+            let width = TooltipCard.width(
+                text: request.text, detail: request.detail,
+                icon: request.icon, isCompact: request.isCompact
+            )
+            let left = TooltipSpace.leftEdge(
+                for: request.anchor,
+                cardWidth: width,
+                containerWidth: proxy.size.width,
+                isCompact: request.isCompact
+            )
+            TooltipCard(
+                text: request.text,
+                detail: request.detail,
+                icon: request.icon,
+                isCompact: request.isCompact,
+                // Follows the anchor even when the card had to slide inward, so
+                // the tail keeps pointing at the control it belongs to.
+                tailX: request.isCompact ? request.anchor.midX - left : nil,
+                tailEdge: placesBelow ? .top : .bottom
+            )
+            .fixedSize(horizontal: false, vertical: true)
+            // A zero-height slot at the anchor's edge, with the card hanging out
+            // of it — lands the bubble fully outside the anchor.
+            .frame(height: 0, alignment: placesBelow ? .top : .bottom)
+            .offset(x: left, y: verticalOffset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
         .allowsHitTesting(false)
         .transition(
             reduceMotion
@@ -156,6 +215,12 @@ private struct TooltipLayer: View {
                 : .scale(scale: 0.94, anchor: placesBelow ? .topLeading : .bottomLeading).combined(with: .opacity)
         )
         .animation(.hoverReveal(reduceMotion: reduceMotion), value: request.id)
+    }
+
+    private var verticalOffset: CGFloat {
+        placesBelow
+            ? request.anchor.maxY + TooltipSpace.gap
+            : request.anchor.minY - TooltipSpace.gap
     }
 }
 
@@ -165,6 +230,11 @@ struct TooltipCard: View {
     let text: String
     var detail: String?
     var icon: String?
+    var isCompact = false
+    /// Where the tail leaves the card, measured from its left edge. Set by the
+    /// layer when it centres the card on a control (and again when it has to
+    /// slide the card inward), nil to keep the default left-hand tail.
+    var tailX: CGFloat?
     var tailEdge: VerticalEdge = .bottom
 
     static let tailHeight: CGFloat = 7
@@ -174,32 +244,76 @@ struct TooltipCard: View {
     private static let tailInset: CGFloat = 20
     /// Wrapping width for a long hint; a short one stays as narrow as its text.
     private static let maxTextWidth: CGFloat = 230
+    /// A compact card is centred on a glyph button, so a wide one would hang off
+    /// the surface either side of it.
+    private static let compactMaxTextWidth: CGFloat = 150
     private static let fontSize: CGFloat = 11.5
     private static let detailFontSize: CGFloat = 10.5
+    private static let compactFontSize: CGFloat = 10.5
+    private static let iconSize: CGFloat = 10.5
+    private static let iconSpacing: CGFloat = 7
+
+    private static func horizontalPadding(isCompact: Bool) -> CGFloat {
+        isCompact ? 8 : 10
+    }
+
+    private var horizontalPadding: CGFloat {
+        Self.horizontalPadding(isCompact: isCompact)
+    }
+
+    private var verticalPadding: CGFloat {
+        isCompact ? 4.5 : 7
+    }
+
+    /// What the card comes out to, for a caller that has to place it before it
+    /// exists. Same measurement the body lays itself out with, so the two agree.
+    static func width(text: String, detail: String?, icon: String?, isCompact: Bool) -> CGFloat {
+        textWidth(text: text, detail: detail, isCompact: isCompact)
+            + horizontalPadding(isCompact: isCompact) * 2
+            + (icon == nil ? 0 : iconSize + iconSpacing)
+    }
+
     /// Measured on one line and clamped, so the card hugs a short hint and wraps
     /// a long one at a readable measure. The extra point absorbs the rounding
     /// difference between this measurement and SwiftUI's own.
-    private var textWidth: CGFloat {
-        let widest = max(width(of: text, size: Self.fontSize), detail.map { width(of: $0, size: Self.detailFontSize) } ?? 0)
-        return min(widest.rounded(.up) + 1, Self.maxTextWidth)
+    private static func textWidth(text: String, detail: String?, isCompact: Bool) -> CGFloat {
+        let title = width(of: text, size: isCompact ? compactFontSize : fontSize)
+        let widest = max(title, detail.map { width(of: $0, size: detailFontSize) } ?? 0)
+        return min(widest.rounded(.up) + 1, isCompact ? compactMaxTextWidth : maxTextWidth)
     }
 
-    private func width(of string: String, size: CGFloat) -> CGFloat {
+    private var textWidth: CGFloat {
+        Self.textWidth(text: text, detail: detail, isCompact: isCompact)
+    }
+
+    private var titleFontSize: CGFloat {
+        isCompact ? Self.compactFontSize : Self.fontSize
+    }
+
+    /// Where the tail leaves the card, clamped so it can't slide out past a
+    /// corner when the layer has pushed the card away from its anchor.
+    private var tailCenter: CGFloat {
+        guard let tailX else { return Self.tailInset }
+        let cardWidth = textWidth + horizontalPadding * 2
+        return min(max(tailX, Self.tailWidth), max(cardWidth - Self.tailWidth, Self.tailWidth))
+    }
+
+    private static func width(of string: String, size: CGFloat) -> CGFloat {
         let font = NSFont.systemFont(ofSize: size, weight: .medium)
         return (string as NSString).size(withAttributes: [.font: font]).width
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 7) {
+        HStack(alignment: .top, spacing: Self.iconSpacing) {
             if let icon {
                 Image(icon)
-                    .icon(10.5)
+                    .icon(Self.iconSize)
                     .foregroundStyle(Theme.Palette.muted)
                     .padding(.top, 1)
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(text)
-                    .font(.system(size: Self.fontSize, weight: .medium))
+                    .font(.system(size: titleFontSize, weight: .medium))
                     .foregroundStyle(Theme.Palette.ink.opacity(0.95))
                 if let detail {
                     Text(detail)
@@ -217,9 +331,9 @@ struct TooltipCard: View {
             .frame(width: textWidth, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 7 + (tailEdge == .top ? Self.tailHeight : 0))
-        .padding(.bottom, 7 + (tailEdge == .bottom ? Self.tailHeight : 0))
+        .padding(.horizontal, horizontalPadding)
+        .padding(.top, verticalPadding + (tailEdge == .top ? Self.tailHeight : 0))
+        .padding(.bottom, verticalPadding + (tailEdge == .bottom ? Self.tailHeight : 0))
         .background(bubble)
     }
 
@@ -228,10 +342,10 @@ struct TooltipCard: View {
     /// different app. Depth comes from the shadow and border, not from contrast.
     private var bubble: some View {
         let shape = TooltipBubble(
-            cornerRadius: 9,
-            tailWidth: Self.tailWidth,
+            cornerRadius: isCompact ? 7 : 9,
+            tailWidth: isCompact ? 11 : Self.tailWidth,
             tailHeight: Self.tailHeight,
-            tailInset: Self.tailInset,
+            tailInset: tailCenter,
             tailEdge: tailEdge
         )
         return shape

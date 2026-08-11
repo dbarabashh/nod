@@ -80,6 +80,17 @@ struct NotchView: View {
             // halo tracing the notch — announcing that the black shape is a
             // window rather than part of the machine.
             .overlay(edge(shape))
+            // Hover explainers for the bar's controls. Attached OUTSIDE the
+            // silhouette mask on purpose: the passive bar is barely taller than
+            // its two rows, so a card drawn inside would be sliced off at the
+            // surface's edge. AppKit's own `.help` tooltip never fires here at
+            // all — this panel never becomes key — which is why these are drawn
+            // rather than asked for.
+            //
+            // The cut-out is dead space, not headroom: a card placed above a
+            // control in the top row would be drawn into the hardware notch,
+            // where nothing is visible. There it flips below instead.
+            .tooltipContainer(topLimit: geometry.hasCutout ? geometry.cutoutHeight : 0)
             .contentShape(shape)
             .onTapGesture(perform: model.toggleOpen)
             .allowsHitTesting(isInteractive)
