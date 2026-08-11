@@ -587,6 +587,14 @@ extension NotchModel {
         }
     }
 
+    /// The meeting bar's door back to the main window, which lives outside
+    /// the notch entirely — the same app-wide signal the status-bar menu
+    /// reaches for, posted from the model rather than the view so every
+    /// meeting-bar action keeps coming from this one place.
+    func openLibrary() {
+        NotificationCenter.default.post(name: .nodOpenLibrary, object: nil)
+    }
+
     /// The notch-gesture's hide — see `NotchGestureZone`. A no-op off a
     /// notched display or outside a meeting: nothing to tuck into, or nothing
     /// worth tucking.

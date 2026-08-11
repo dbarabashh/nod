@@ -303,10 +303,12 @@ struct NotchLevelMeter: View {
 /// actually used mirrors them into local `@State`, so this only redraws when
 /// one of those three genuinely changes.
 ///
-/// A plain `Button` + `.popover`, not `Menu` — a `Menu`'s label is hosted in
-/// an `NSPopUpButton` cell, which sizes and lays out the hosted content by its
-/// own bezel rules rather than respecting an explicit SwiftUI frame, so a
-/// custom icon inside one can't be sized smaller than the cell wants it.
+/// A `Menu`, not `Button` + `.popover`: the notch surface is a non-activating
+/// borderless panel, and `.popover` needs a real key window to anchor
+/// against — inside this one it falls back to a full-surface dimming overlay
+/// instead of a small anchored bubble. `Menu` is backed by `NSMenu`, which
+/// has no such dependency, and `.plainMenuChrome()` strips the bezel that
+/// would otherwise resize this glyph to the cell's own rules.
 struct NotchMicMenuButton: View {
     let session: MeetingSession
     let audioCapture: AudioCaptureService
@@ -314,33 +316,34 @@ struct NotchMicMenuButton: View {
     @State private var lastError: String?
     @State private var preferredInputUID: String?
     @State private var micMuted = false
-    @State private var showingDevicePicker = false
 
     private var hasProblem: Bool {
         lastError != nil
     }
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             Button(action: { session.toggleMic() }) {
                 Image(iconName)
                     .icon(8)
                     .foregroundColor(iconTint)
+                    .frame(width: 13, height: 20)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            Button { showingDevicePicker = true } label: {
+            Menu {
+                devicePicker
+            } label: {
                 Image("nc-chevron-down")
                     .icon(6)
                     .foregroundColor(Theme.Palette.muted.opacity(0.7))
+                    .frame(width: 13, height: 20)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .popover(isPresented: $showingDevicePicker, arrowEdge: .bottom) {
-                devicePicker
-            }
+            .plainMenuChrome()
         }
         .frame(width: 26, height: 20)
         .background(Capsule().fill(Theme.Palette.surfaceStrong))
-        .contentShape(Rectangle())
         .frame(width: 32, height: 24)
         .contentShape(Rectangle())
         .help(helpText)
@@ -350,31 +353,20 @@ struct NotchMicMenuButton: View {
     }
 
     private var devicePicker: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(AudioDeviceCatalog.inputDevices()) { device in
-                Button {
-                    Task { await audioCapture.switchInput(to: device.uid) }
-                    showingDevicePicker = false
-                } label: {
-                    HStack(spacing: 9) {
-                        Text(device.name)
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(Theme.Palette.ink)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        Image("nc-check")
-                            .icon(11)
-                            .foregroundStyle(Theme.Palette.violet)
-                            .opacity(isSelected(device) ? 1 : 0)
-                    }
-                    .frame(height: 18)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+        // Enumerated once per menu open rather than once for the selection
+        // and again for the list — each call walks CoreAudio's device list
+        // and reads two string properties per device.
+        let devices = AudioDeviceCatalog.inputDevices()
+        let selectedUID = preferredInputUID ?? devices.first(where: \.isDefault)?.uid
+        return Picker("Microphone", selection: Binding(
+            get: { selectedUID },
+            set: { newUID in Task { await audioCapture.switchInput(to: newUID) } }
+        )) {
+            ForEach(devices) { device in
+                Text(device.name).tag(Optional(device.uid))
             }
         }
-        .padding(8)
-        .frame(minWidth: 180)
+        .pickerStyle(.inline)
     }
 
     private var iconName: String {
@@ -389,11 +381,6 @@ struct NotchMicMenuButton: View {
 
     private var helpText: String {
         lastError ?? (micMuted ? "Unmute" : "Mute")
-    }
-
-    private func isSelected(_ device: AudioInputDevice) -> Bool {
-        guard let uid = preferredInputUID else { return device.isDefault }
-        return device.uid == uid
     }
 }
 
@@ -482,6 +469,19 @@ struct NotchActionButton: View {
     }
 }
 
+extension View {
+    /// The notch's small circular glyph chrome — a 20×20 dot on
+    /// `surfaceStrong`, its content shape trimmed to match. Shared by
+    /// `NotchGlyphButton` and `NotchLanguageMenuButton` so the notch's
+    /// various round trigger controls read as one family regardless of
+    /// whether the content inside is an icon or a text chip.
+    func notchGlyphChrome() -> some View {
+        frame(width: 20, height: 20)
+            .background(Circle().fill(Theme.Palette.surfaceStrong))
+            .contentShape(Circle())
+    }
+}
+
 /// The notch's small circular glyph control — collapse, dismiss. Shared so the
 /// close affordance doesn't change size, chrome or press behaviour depending on
 /// which state happens to be showing.
@@ -495,9 +495,7 @@ struct NotchGlyphButton: View {
             Image(icon)
                 .icon(9)
                 .foregroundColor(Theme.Palette.muted)
-                .frame(width: 20, height: 20)
-                .background(Circle().fill(Theme.Palette.surfaceStrong))
-                .contentShape(Circle())
+                .notchGlyphChrome()
         }
         .buttonStyle(.pressable(scale: 0.90))
         .linkCursor()

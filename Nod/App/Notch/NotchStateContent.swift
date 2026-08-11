@@ -83,10 +83,12 @@ struct NotchStateContent: View {
                 panel: panel,
                 session: model.session,
                 audioCapture: model.audioCapture,
+                language: model.language,
                 onToggleAsk: model.toggleAsk,
                 onToggleNotes: model.toggleNotes,
                 onSubmitAsk: model.submitAsk,
                 onSummarize: model.askSummarize,
+                onOpenLibrary: model.openLibrary,
                 onCollapse: model.geometry.hasCutout ? { model.hideMeetingBar() } : nil
             )
         case let .recap(state):

@@ -19,10 +19,16 @@ struct NotchMeetingBar: View {
     /// resubscribing this whole bar to `inputLevel`'s ten-times-a-second
     /// publishes.
     let audioCapture: AudioCaptureService
+    /// Read/write, unlike the pre-meeting confirm's binding: the header is the
+    /// only place left to fix a wrong language pick once recording has
+    /// started, mirroring the language chip the old floating panel kept in
+    /// its header before this bar replaced it.
+    @ObservedObject var language: LanguagePreference
     let onToggleAsk: () -> Void
     let onToggleNotes: () -> Void
     let onSubmitAsk: (String) -> Void
     let onSummarize: () -> Void
+    let onOpenLibrary: () -> Void
     /// Nil on a display with no cut-out — there is nowhere to tuck the bar
     /// into, so the button that would do it doesn't exist rather than doing
     /// nothing when pressed. The trackpad swipe is the same action; this is
@@ -36,8 +42,29 @@ struct NotchMeetingBar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            header
+            VStack(alignment: .leading, spacing: 6) {
+                utilities
+                header
+            }
+            // Pulls this bar's own top row up against the notch clearance
+            // without touching `OpenedCard`'s shared top inset — every other
+            // open state (offer, recap, consent…) keeps its own breathing
+            // room untouched.
+            .padding(.top, -4)
             expansion
+        }
+    }
+
+    /// Secondary, not-about-this-meeting controls — mic device, output
+    /// language, the door back to the main window — pinned to their own row
+    /// above the header rather than sharing it with Ask/Notes/End, so the
+    /// primary actions don't compete with them for space as the bar narrows.
+    private var utilities: some View {
+        HStack(spacing: 4) {
+            Spacer(minLength: 0)
+            NotchMicMenuButton(session: session, audioCapture: audioCapture)
+            NotchLanguageMenuButton(language: language)
+            NotchGlyphButton(icon: "nc-window-pointer", help: "Open Nod", action: onOpenLibrary)
         }
     }
 
@@ -56,7 +83,6 @@ struct NotchMeetingBar: View {
     private var left: some View {
         HStack(spacing: 6) {
             MeetingActivityDot(paused: paused)
-            NotchMicMenuButton(session: session, audioCapture: audioCapture)
             MarqueeText(
                 text: title,
                 font: .system(size: 11.5, weight: .semibold),
@@ -267,6 +293,38 @@ private struct MeetingBarButton: View {
                 )
         }
         .buttonStyle(.pressable)
+    }
+}
+
+/// The Nod output language, as a two-letter chip next to the mic control —
+/// same corner and same neighbor as the old floating panel's header before
+/// this bar replaced it. A `Menu`, not a read-only chip: the pre-meeting
+/// confirm is the only other place to set this, so a wrong pick made there
+/// (or never asked about) has to be fixable without ending the meeting.
+private struct NotchLanguageMenuButton: View {
+    @ObservedObject var language: LanguagePreference
+
+    var body: some View {
+        Menu {
+            Picker("Nod language — summaries and answers", selection: Binding(
+                get: { language.current },
+                set: { language.current = $0 }
+            )) {
+                ForEach(AppLanguage.allCases, id: \.self) { option in
+                    Text(option.nativeName).tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Text(language.current.chipLabel)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(Theme.Palette.muted)
+                .notchGlyphChrome()
+        }
+        .plainMenuChrome()
+        .fixedSize()
+        .help(MeetingLanguagePrompt.scopeNote)
     }
 }
 
