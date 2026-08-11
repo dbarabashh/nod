@@ -771,11 +771,12 @@ async function forwardTranscribe(payload: unknown, userId: string, entitlement: 
     const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";
     const audioSeconds = audioSecondsFromPayload(payload);
 
-    const { status, text, provider } = await callTranscribe(payload, userId);
+    const { status, text, provider, failover } = await callTranscribe(payload, userId);
 
     // One unmissable line per transcription so the serving provider is visible
     // in the function logs (the per-provider call logs are noisier).
-    console.log(`transcribe served user=${userId} provider=${provider} status=${status} model=${model}`);
+    const trail = failover.map((a) => `${a.provider}:${a.status}/${a.reason}`).join(">");
+    console.log(`transcribe served user=${userId} provider=${provider} status=${status} model=${model} failover=${trail || "-"}`);
 
     try {
         // Providers return no usage for audio, so estimate from duration × the
@@ -795,6 +796,7 @@ async function forwardTranscribe(payload: unknown, userId: string, entitlement: 
             status,
             audio_seconds: audioSeconds,
             cost_usd: cost,
+            failover: failover.length > 0 ? failover : null,
         });
     } catch (err) {
         console.warn(`transcribe usage record skipped: ${err}`);
@@ -984,8 +986,32 @@ async function handleSearch(payload: unknown, userId: string): Promise<Response>
     return json({ matches: matches.slice(0, matchCount) }, 200);
 }
 
-interface CallResult { status: number; text: string }
-interface STTResult extends CallResult { provider: string }
+// `reason` separates a real upstream HTTP status from one we synthesized
+// locally: a 504 we invented on our own abort is a different failure class from
+// a 504 the provider actually returned, and the whole point of the failover
+// record is telling those apart.
+type FailureReason = "http" | "timeout" | "network";
+
+interface CallResult {
+    status: number;
+    text: string;
+    reason?: FailureReason;
+    retryAfter?: string | null;
+    ms?: number;
+    // Internal-only: recorded in the failover trail, never returned to the client.
+    detail?: string;
+}
+
+interface FailoverAttempt {
+    provider: string;
+    status: number;
+    reason: FailureReason;
+    ms: number | null;
+    retry_after: string | null;
+    body: string | null;
+}
+
+interface STTResult extends CallResult { provider: string; failover: FailoverAttempt[] }
 
 // An OpenAI-compatible multipart STT endpoint. Groq and OpenAI both speak this
 // shape; only the model-id mapping and host differ. OpenRouter is NOT one of
@@ -1050,18 +1076,38 @@ function decodeBase64(b64: string): Uint8Array<ArrayBuffer> {
 // over on transient errors), then OpenRouter as the legacy/terminal fallback.
 // Returns which provider actually served, for usage attribution.
 async function callTranscribe(payload: unknown, userId: string): Promise<STTResult> {
+    const failover: FailoverAttempt[] = [];
     let last: STTResult | null = null;
     for (const p of sttMultipartChain()) {
         const r = await callMultipartSTT(p, payload, userId);
-        if (!shouldFailover(r.status)) return { ...r, provider: p.name };
-        console.warn(`transcribe provider=${p.name} status=${r.status} — failing over`);
-        last = { ...r, provider: p.name };
+        if (!shouldFailover(r.status)) return { ...r, provider: p.name, failover };
+        failover.push(failoverAttempt(p.name, r));
+        console.warn(
+            `transcribe provider=${p.name} status=${r.status} reason=${r.reason ?? "http"} retry_after=${r.retryAfter ?? "-"} dt=${r.ms ?? "?"}ms — failing over`,
+        );
+        last = { ...r, provider: p.name, failover };
     }
     if (OPENROUTER_API_KEY) {
         const r = await callOpenRouter(OPENROUTER_TRANSCRIBE_URL, payload, TRANSCRIBE_TIMEOUT_MS, userId, "transcribe");
-        return { ...r, provider: "openrouter" };
+        return { ...r, provider: "openrouter", failover };
     }
-    return last ?? { status: 502, text: JSON.stringify({ error: "no STT provider configured" }), provider: "none" };
+    return last ?? { status: 502, text: JSON.stringify({ error: "no STT provider configured" }), provider: "none", failover };
+}
+
+// The upstream body is the evidence that separates "429, retry in 8s" from
+// "429, daily token quota exhausted" — two failures with opposite fixes. Only
+// bodies of FAILED attempts are stored, so no transcript text can land here.
+const FAILOVER_BODY_LIMIT = 300;
+
+function failoverAttempt(provider: string, r: CallResult): FailoverAttempt {
+    return {
+        provider,
+        status: r.status,
+        reason: r.reason ?? "http",
+        ms: r.ms ?? null,
+        retry_after: r.retryAfter ?? null,
+        body: (r.detail ?? r.text)?.slice(0, FAILOVER_BODY_LIMIT) ?? null,
+    };
 }
 
 // POST the audio to an OpenAI-compatible multipart endpoint. The client→proxy
@@ -1114,15 +1160,15 @@ async function callMultipartSTT(p: STTProvider, payload: unknown, userId: string
         const text = await upstream.text();
         const dt = Date.now() - started;
         console.log(`transcribe user=${userId} provider=${p.name} model=${model} status=${upstream.status} dt=${dt}ms bytes=${text.length}`);
-        return { status: upstream.status, text };
+        return { status: upstream.status, text, reason: "http", retryAfter: upstream.headers.get("retry-after"), ms: dt };
     } catch (error) {
         const dt = Date.now() - started;
         if (error instanceof DOMException && error.name === "AbortError") {
             console.error(`transcribe provider=${p.name} user=${userId} timeout after ${dt}ms`);
-            return { status: 504, text: JSON.stringify({ error: `Upstream timeout (${TRANSCRIBE_TIMEOUT_MS}ms)` }) };
+            return { status: 504, text: JSON.stringify({ error: `Upstream timeout (${TRANSCRIBE_TIMEOUT_MS}ms)` }), reason: "timeout", ms: dt };
         }
         console.error(`transcribe provider=${p.name} user=${userId} upstream error: ${error}`);
-        return { status: 502, text: JSON.stringify({ error: "Upstream request failed" }) };
+        return { status: 502, text: JSON.stringify({ error: "Upstream request failed" }), reason: "network", ms: dt, detail: String(error) };
     } finally {
         clearTimeout(timer);
     }
@@ -1180,6 +1226,7 @@ interface UsageRow {
     generation_id?: string | null;
     audio_seconds?: number | null;
     cost_usd?: number | null;
+    failover?: FailoverAttempt[] | null;
 }
 
 async function recordUsage(row: UsageRow): Promise<void> {
