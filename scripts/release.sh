@@ -670,6 +670,32 @@ fi
 for feed in "${PUBLISHED_FEEDS[@]}"; do
   cp "${DIST_DIR}/${feed}" "${NOD_LANDING_REPO}/public/${feed}"
 done
+
+# Drop every DMG no feed points at any more. Without this the directory only
+# grows: 50-odd builds and 1.3 GB had accumulated by 12.11.6, all of it
+# uploaded on every Vercel deploy — and, more to the point, every superseded
+# build stayed publicly downloadable at a guessable URL. A user who is told to
+# update is one wget away from reinstalling the version the update fixed.
+#
+# The keep-set is derived, never hardcoded: whatever the freshly written feeds
+# reference, plus the website's download target. Runs after the feeds are
+# copied so it reads the versions this release just published, and it only
+# considers files git already tracks so an untracked local build is left alone.
+say "Prune superseded DMGs from nod-landing"
+(
+  cd "${NOD_LANDING_REPO}"
+  keep=$(printf 'Nod-latest.dmg\n'; grep -ho '/dmg/[^"]*\.dmg' public/appcast*.xml | sed 's|.*/||')
+  pruned=0
+  while IFS= read -r tracked; do
+    name=$(basename "$tracked")
+    if ! printf '%s\n' "$keep" | grep -qxF "$name"; then
+      git rm -q "$tracked"
+      pruned=$((pruned + 1))
+    fi
+  done < <(git ls-files 'public/dmg/*.dmg')
+  echo "    pruned ${pruned} superseded DMG(s); kept $(printf '%s\n' "$keep" | sort -u | wc -l | tr -d ' ')"
+)
+
 (
   cd "${NOD_LANDING_REPO}"
   git add public/appcast*.xml public/dmg

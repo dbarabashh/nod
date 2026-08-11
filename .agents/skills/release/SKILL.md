@@ -43,6 +43,11 @@ hosting — is in `docs/release.md`. Read it if any precondition below fails.
 - Never commit the EdDSA private key. It lives in the macOS Keychain; the
   `*.ed25519` glob in `.gitignore` is a safety net, not a workflow.
 - Never hand-edit `appcast.xml` — regenerate it.
+- `public/dmg/` on nod-landing holds only what the feeds still point at, plus
+  `Nod-latest.dmg`. The release script prunes the rest automatically; do not
+  add builds there by hand, and do not "keep one just in case" — a superseded
+  DMG left on the CDN is a publicly downloadable copy of the version the
+  update was meant to replace.
 - The release commit follows the repo convention: lowercase, 4–5 words
   (`release 12.10.1`), no AI attribution trailer.
 - If notarization fails, stop and surface Apple's log URL. Don't retry blindly
