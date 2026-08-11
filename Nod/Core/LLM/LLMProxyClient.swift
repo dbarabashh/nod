@@ -449,6 +449,7 @@ final class LLMProxyClient: ObservableObject {
                     guard let http = response as? HTTPURLResponse else {
                         throw ClientError.decodingFailed("Non-HTTP response")
                     }
+                    logRoutedModel(http)
                     try throwIfGatedStatus(http)
                     if http.statusCode >= 400 {
                         // Error responses aren't SSE — reassemble the body,
@@ -901,6 +902,15 @@ final class LLMProxyClient: ObservableObject {
         return request
     }
 
+    /// Server-side routing can substitute a different model than the one asked
+    /// for; the proxy stamps the substitute on the response and sends nothing
+    /// when it left the choice alone. Without this the log only ever shows what
+    /// we requested, which reads as "the change didn't apply" when it did.
+    private func logRoutedModel(_ http: HTTPURLResponse) {
+        guard let routed = http.value(forHTTPHeaderField: "x-nod-model-routed") else { return }
+        Log.llm.info("chat routed to model=\(routed)")
+    }
+
     /// Maps the proxy's gated HTTP statuses (auth / update-required /
     /// device-conflict) to the matching `ClientError`, broadcasting the
     /// side-effect notifications the app observes. Shared by the buffered
@@ -964,6 +974,7 @@ final class LLMProxyClient: ObservableObject {
         if let sttProvider = http.value(forHTTPHeaderField: "x-nod-stt-provider") {
             Log.llm.info("STT served by provider=\(sttProvider) status=\(http.statusCode)")
         }
+        logRoutedModel(http)
         try throwIfGatedStatus(http)
         if http.statusCode == 403, Self.isEntitlementError(data) {
             // Backstop for an entitlement that lapsed mid-session (trial

@@ -30,7 +30,7 @@
 // `main` (live secret) each get their own copy from their git branch.
 
 import { adminClient } from "../_shared/supabase.ts";
-import { json } from "../_shared/http.ts";
+import { isObject, json } from "../_shared/http.ts";
 import { PADDLE_API_BASE, PADDLE_HEADERS } from "../_shared/paddle.ts";
 import { paidSubscriptionTransaction } from "../_shared/paddle-transaction.ts";
 
@@ -363,8 +363,4 @@ function str(value: unknown): string {
 
 function nullableStr(value: unknown): string | null {
     return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

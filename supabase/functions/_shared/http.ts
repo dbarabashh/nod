@@ -7,3 +7,10 @@ export function json(body: unknown, status: number, headers: Record<string, stri
         headers: { "Content-Type": "application/json", ...headers },
     });
 }
+
+// Narrow an unknown JSON value to a plain object. Arrays are excluded: every
+// caller here means "a JSON object with fields", and `typeof [] === "object"`
+// would otherwise let an array through into property access.
+export function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
