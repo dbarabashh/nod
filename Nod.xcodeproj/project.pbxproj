@@ -99,6 +99,7 @@
 		63023D26AA904D8EE12A776A /* ActionItemsAggregateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67DDBDD797F6A8BF565DE446 /* ActionItemsAggregateView.swift */; };
 		64A75235CDD8D85F27AA2677 /* RetrievalFeedbackStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6A4343E588EAD8505C651F /* RetrievalFeedbackStore.swift */; };
 		64D623942FA002EFD75D37D1 /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D82F8FE76B3B1E83391FD34 /* ProfileStore.swift */; };
+		65AEDA69C1EB42A3445FCE14 /* ProactivityPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FFDBCCD0FA6C8EC9E2ADDCF /* ProactivityPreference.swift */; };
 		66A337C706530FBC3640F405 /* DemoDataBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E235E0FCF17894FE6D3E085 /* DemoDataBundle.swift */; };
 		66CB1379E597D7C6D11F1832 /* LiveFinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 484AF3B51E293CECC4ED75C7 /* LiveFinding.swift */; };
 		68F76F25E7BE6B0B2D145CDC /* ScreenObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7EF912D8AEABA9C3926C2F7 /* ScreenObservation.swift */; };
@@ -321,6 +322,7 @@
 		2917098F221A8A8743FE1BF8 /* MeetingOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingOutbox.swift; sourceTree = "<group>"; };
 		2E53EA694ABAEA48678031E9 /* SummaryRegeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryRegeneration.swift; sourceTree = "<group>"; };
 		2F6977F26E80D48858FF9640 /* WhisperTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperTranscriber.swift; sourceTree = "<group>"; };
+		2FFDBCCD0FA6C8EC9E2ADDCF /* ProactivityPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProactivityPreference.swift; sourceTree = "<group>"; };
 		302A5E12715CDE29B4EE792C /* AccessibilityAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAccess.swift; sourceTree = "<group>"; };
 		31508F13449912B12788FFB1 /* NotchStates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchStates.swift; sourceTree = "<group>"; };
 		31D47EBC1238C9F5C5284120 /* ConsentPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsentPreference.swift; sourceTree = "<group>"; };
@@ -730,6 +732,7 @@
 				030CFD2D8BFEC5D518345B1B /* GeneralSettingsSections.swift */,
 				54EBA711DA23D9570392102D /* LaunchBehavior.swift */,
 				FA8913CBB534D73BFB85E27C /* PanelSharingPreference.swift */,
+				2FFDBCCD0FA6C8EC9E2ADDCF /* ProactivityPreference.swift */,
 				64F11C4719E84B561DD86DD5 /* ProfileSettingsSection.swift */,
 				D5F2C834CFAF929E08B65E2D /* RewardsSection.swift */,
 				034F90AD282A88C18314C26E /* ScreenPrivacySection.swift */,
@@ -1494,6 +1497,7 @@
 				69DEB6C11FC9D632E7EDDC07 /* PermissionsStep.swift in Sources */,
 				C54C0BADFBFD399D4A0AFB90 /* PlainMenuChrome.swift in Sources */,
 				9FE502DC71F78A2033F2B831 /* PressableButtonStyle.swift in Sources */,
+				65AEDA69C1EB42A3445FCE14 /* ProactivityPreference.swift in Sources */,
 				B467EAEF162E68CECEAC950C /* ProductAnalytics.swift in Sources */,
 				9A8DA371BF557F82D2512075 /* Profile.swift in Sources */,
 				589DB6DC2174129AE95B6105 /* ProfileSettingsSection.swift in Sources */,

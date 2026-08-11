@@ -182,6 +182,39 @@ struct LaunchBehaviorSection: View {
     }
 }
 
+/// How eagerly Nod interrupts mid-meeting. A slider rather than a switch —
+/// see `ProactivityPreference.Level` — because the real spectrum users want
+/// isn't on/off, it's "a couple of nudges an hour" to "as often as useful".
+struct ProactivitySettingsSection: View {
+    @ObservedObject var preference: ProactivityPreference
+
+    var body: some View {
+        SettingsCard {
+            SettingsRow(
+                icon: "nc-bolt-lightning",
+                title: "Proactivity",
+                subtitle: "\(preference.level.title) — \(preference.level.detail)"
+            ) {
+                Slider(
+                    value: levelBinding,
+                    in: 0 ... Double(ProactivityPreference.Level.allCases.count - 1),
+                    step: 1
+                )
+                .frame(width: 190)
+            }
+        }
+    }
+
+    private var levelBinding: Binding<Double> {
+        Binding(
+            get: { Double(preference.level.rawValue) },
+            set: { newValue in
+                preference.level = ProactivityPreference.Level(rawValue: Int(newValue.rounded())) ?? .balanced
+            }
+        )
+    }
+}
+
 struct ScreenShareSettingsSection: View {
     @ObservedObject var pref: PanelSharingPreference
 
@@ -209,6 +242,7 @@ struct GeneralSettingsPane: View {
     let calendar: CalendarService?
     let launchBehavior: LaunchBehavior?
     let panelSharing: PanelSharingPreference?
+    let proactivity: ProactivityPreference?
     let granolaImporter: GranolaImporter?
     let demoPlayback: DemoPlayback?
     @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting = MeetingLanguagePromptDefaults.defaultValue
@@ -221,6 +255,9 @@ struct GeneralSettingsPane: View {
             }
             if let calendar {
                 CalendarSettingsSection(calendar: calendar)
+            }
+            if let proactivity {
+                ProactivitySettingsSection(preference: proactivity)
             }
             if let launchBehavior {
                 LaunchBehaviorSection(behavior: launchBehavior)

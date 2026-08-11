@@ -44,6 +44,9 @@ struct AppServices {
     let accountExport: AccountExportService
     let connections: ConnectionService
     let panelSharing: PanelSharingPreference
+    /// How eagerly the live meeting analyst interrupts — see
+    /// `ProactivityPreference.Level`.
+    let proactivityPreference: ProactivityPreference
     /// What launch puts on screen — main window, capture panel, or nothing.
     let launchBehavior: LaunchBehavior
     /// Whether Nod offers to record a call it sees starting, and which apps it
@@ -189,6 +192,7 @@ struct AppServices {
             accountExport: AccountExportService(supabase: supabase),
             connections: ConnectionService(supabase: supabase),
             panelSharing: PanelSharingPreference(),
+            proactivityPreference: ProactivityPreference(),
             launchBehavior: LaunchBehavior(),
             meetingDetection: MeetingDetectionPreference(),
             calendar: CalendarService(),

@@ -203,6 +203,7 @@ final class MeetingSession: ObservableObject {
     private let knowledgeStore: KnowledgeStore
     private let actionItemStore: ActionItemStore
     private let language: LanguagePreference
+    private let proactivity: ProactivityPreference
     private let auth: AuthService
     private let profileStore: ProfileStore
     private let outbox: MeetingOutbox
@@ -227,6 +228,7 @@ final class MeetingSession: ObservableObject {
         knowledgeStore: KnowledgeStore,
         actionItemStore: ActionItemStore,
         language: LanguagePreference,
+        proactivity: ProactivityPreference,
         auth: AuthService,
         profileStore: ProfileStore,
         outbox: MeetingOutbox,
@@ -243,6 +245,7 @@ final class MeetingSession: ObservableObject {
         self.knowledgeStore = knowledgeStore
         self.actionItemStore = actionItemStore
         self.language = language
+        self.proactivity = proactivity
         self.auth = auth
         self.profileStore = profileStore
         self.outbox = outbox
@@ -251,7 +254,7 @@ final class MeetingSession: ObservableObject {
         self.calendar = calendar
         self.analytics = analytics
         recapGenerator = RecapGenerator(llm: llm)
-        analyst = LiveMeetingAnalyst(llm: llm, store: store)
+        analyst = LiveMeetingAnalyst(llm: llm, store: store, proactivity: proactivity)
     }
 
     deinit {

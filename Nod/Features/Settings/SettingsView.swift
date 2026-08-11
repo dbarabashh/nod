@@ -8,6 +8,7 @@ struct SettingsView: View {
     /// live Supabase-backed store. nil → the profile section is omitted.
     private let profileStore: ProfileStore?
     private let panelSharing: PanelSharingPreference?
+    private let proactivity: ProactivityPreference?
     private let launchBehavior: LaunchBehavior?
     private let billing: BillingService?
     private let entitlements: EntitlementService?
@@ -27,6 +28,7 @@ struct SettingsView: View {
         hotkey: HotkeyManager,
         profileStore: ProfileStore? = nil,
         panelSharing: PanelSharingPreference? = nil,
+        proactivity: ProactivityPreference? = nil,
         launchBehavior: LaunchBehavior? = nil,
         billing: BillingService? = nil,
         entitlements: EntitlementService? = nil,
@@ -47,6 +49,7 @@ struct SettingsView: View {
         _hotkey = ObservedObject(wrappedValue: hotkey)
         self.profileStore = profileStore
         self.panelSharing = panelSharing
+        self.proactivity = proactivity
         self.launchBehavior = launchBehavior
         self.billing = billing
         self.entitlements = entitlements
@@ -238,6 +241,7 @@ struct SettingsView: View {
             calendar: calendar,
             launchBehavior: launchBehavior,
             panelSharing: panelSharing,
+            proactivity: proactivity,
             granolaImporter: granolaImporter,
             demoPlayback: demoPlayback
         )

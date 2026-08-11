@@ -48,6 +48,11 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// file — same rationale as `windowLines` below.
     let llm: LLMProxyClient
     let store: TranscriptStore
+    /// How eagerly this analyst interrupts — see `ProactivityPreference.Level`
+    /// for what each step changes. A plain reference, not `@ObservedObject`:
+    /// nothing here is a View, so nothing needs to re-render on a change —
+    /// `tick()` just reads the current `level` each time it fires.
+    private let proactivity: ProactivityPreference
 
     private var loop: Task<Void, Never>?
     private var pass: Task<Void, Never>?
@@ -57,20 +62,9 @@ final class LiveMeetingAnalyst: ObservableObject {
     private var analyzedLines = 0
 
     /// How often the trigger is checked. Not how often a pass runs — see
-    /// `minNewLines` / `minInterval`, which are what actually gate the spend.
+    /// `ProactivityPreference.Level.minNewLines` / `.minInterval`, which are
+    /// what actually gate the spend.
     private static let tickInterval: TimeInterval = 15
-
-    /// How much new speech has to land before a pass is worth paying for. Below
-    /// this the window is mostly what the previous pass already read, and
-    /// re-reading it is spend for nothing.
-    private static let minNewLines = 8
-
-    /// The floor between passes regardless of how fast people are talking. With
-    /// `minNewLines` this bounds a very talkative hour at 90 passes and leaves a
-    /// normal one nearer 40 — still a rounding error against the flat price, and
-    /// short enough that a notice reads as "just heard this", not "an update on
-    /// something from a while back".
-    private static let minInterval: TimeInterval = 40
 
     /// How much transcript each pass reads. Wider than the new material on
     /// purpose: a commitment is usually made a few lines after the thing it
@@ -90,11 +84,6 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// both mid-sentence.
     private static let softNoticeLifetime: TimeInterval = 20
 
-    /// The quiet stretch after a notice. A meeting can produce three worth
-    /// showing inside a minute; showing all three is how a proactive app starts
-    /// being ignored. The rest are still recorded and still reach the summary.
-    private static let noticeCooldown: TimeInterval = 3 * 60
-
     /// The findings handed to the model as memory. Older ones fall out — a
     /// superseded item from forty minutes ago is not what the current window is
     /// about, and the memory is the part of the prompt that grows without bound.
@@ -102,22 +91,25 @@ final class LiveMeetingAnalyst: ObservableObject {
 
     /// Override to A/B the cadence without a rebuild, the same way the models
     /// are overridable: `defaults write com.example.nod live.minInterval 30`.
+    /// Takes priority over the proactivity level so a support session can pin
+    /// an exact number regardless of what the user has picked.
     private static let intervalKey = "live.minInterval"
 
     private var interval: TimeInterval {
         let override = UserDefaults.standard.double(forKey: Self.intervalKey)
-        return override > 0 ? override : Self.minInterval
+        return override > 0 ? override : proactivity.level.minInterval
     }
 
-    init(llm: LLMProxyClient, store: TranscriptStore) {
+    init(llm: LLMProxyClient, store: TranscriptStore, proactivity: ProactivityPreference) {
         self.llm = llm
         self.store = store
+        self.proactivity = proactivity
     }
 
     /// Begin listening. Safe to call on an already-running analyst.
     func start() {
         guard loop == nil else { return }
-        Log.llm.info("live: listening (>=\(Self.minNewLines) new lines, >=\(Int(interval))s apart)")
+        Log.llm.info("live: listening (\(proactivity.level.title), >=\(proactivity.level.minNewLines) new lines, >=\(Int(interval))s apart)")
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(Self.tickInterval * 1_000_000_000))
@@ -174,7 +166,7 @@ final class LiveMeetingAnalyst: ObservableObject {
     private func tick() {
         guard pass == nil else { return }
         let lines = store.entries.count
-        guard lines - analyzedLines >= Self.minNewLines else { return }
+        guard lines - analyzedLines >= proactivity.level.minNewLines else { return }
         if let lastPassAt, Date().timeIntervalSince(lastPassAt) < interval { return }
 
         analyzedLines = lines
@@ -254,7 +246,7 @@ final class LiveMeetingAnalyst: ObservableObject {
     private func raiseNotice(for finding: LiveFinding) {
         let isRevision = finding.revisionOf != nil
         guard isRevision || finding.kind == .action || finding.kind == .decision else { return }
-        if !isRevision, let lastNoticeAt, Date().timeIntervalSince(lastNoticeAt) < Self.noticeCooldown {
+        if !isRevision, let lastNoticeAt, Date().timeIntervalSince(lastNoticeAt) < proactivity.level.noticeCooldown {
             return
         }
 
