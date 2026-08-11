@@ -675,6 +675,10 @@ extension NotchModel {
     /// `NodApp` raises and focuses the window, `MainWindowView` pushes the
     /// detail view — and reaching the coordinator would only do the first.
     func openMeeting(_ id: UUID) {
+        // Dismissed first: the recap moves to the main window, so leaving the
+        // card up left the same summary in two places at once, with the notch
+        // parked over the window the user was sent to.
+        session.dismissEndedMeeting()
         NotificationCenter.default.post(
             name: .nodOpenMeetingDetail,
             object: nil,
