@@ -26,6 +26,7 @@ import { forwardChat } from "../_shared/chat.ts";
 import { recordUsage } from "../_shared/usage.ts";
 import { audioSecondsFromPayload, reportedCostUsd, sttRates, transcribeCostUsd } from "../_shared/stt-cost.ts";
 import { handleIndex, handleSearch, requiredSearchFeature } from "../_shared/search.ts";
+import { leaseConflictStatus, meetingIdFromPayload, transcribeLeasePayload } from "../_shared/meeting-lease.ts";
 
 const OPENROUTER_API_KEY        = Deno.env.get("OPENROUTER_API_KEY");
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
@@ -40,35 +41,56 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const DEVICE_ACTIVE_TTL_SECONDS = 900;
 
 
-type Kind = "chat" | "transcribe" | "index" | "search" | "device_claim" | "device_release";
+type Kind =
+    | "chat"
+    | "transcribe"
+    | "index"
+    | "search"
+    | "device_claim"
+    | "device_release"
+    | "meeting_start"
+    | "meeting_end";
 
 interface ProxyRequest {
     kind: Kind;
     payload: unknown;
 }
 
-// `app_config.minimum_build`, cached per warm instance so the gate doesn't add
-// a DB round-trip to every proxy call. 0 (fail-open) when the row can't be read.
-let cachedMinBuild: { value: number; at: number } | null = null;
-const MIN_BUILD_TTL_MS = 60_000;
+// `app_config` build thresholds, cached per warm instance so neither gate adds a
+// DB round-trip to every proxy call — a meeting hour is hundreds of calls.
+// 0 (fail-open) for the version gate when the row can't be read; the lease
+// threshold stays unreachable in that case, so a config blip can only ever be
+// more permissive, never cut a live recording.
+interface BuildGates {
+    minimumBuild: number;
+    meetingLeaseRequiredBuild: number;
+}
 
-async function minimumBuild(admin: ReturnType<typeof adminClient>): Promise<number> {
+const BUILD_GATES_TTL_MS = 60_000;
+const UNREACHABLE_BUILD = 2_147_483_647;
+let cachedBuildGates: { value: BuildGates; at: number } | null = null;
+
+async function buildGates(admin: ReturnType<typeof adminClient>): Promise<BuildGates> {
     const now = Date.now();
-    if (cachedMinBuild && now - cachedMinBuild.at < MIN_BUILD_TTL_MS) return cachedMinBuild.value;
+    if (cachedBuildGates && now - cachedBuildGates.at < BUILD_GATES_TTL_MS) return cachedBuildGates.value;
     const { data, error } = await admin
         .from("app_config")
-        .select("minimum_build")
+        .select("minimum_build, meeting_lease_required_build")
         .eq("platform", "macos")
         .single();
-    // Failing open is deliberate — a config blip must not lock a paying user
-    // out. But silence is how the `singleton` column drop (2026-08-06) kept this
+    // Silence is how the `singleton` column drop (2026-08-06) kept the version
     // gate switched off for days while the config said it was enforcing, so a
-    // read failure is now loud.
+    // read failure is loud.
     if (error) {
-        console.error(`app_config.minimum_build unreadable, gate open: ${error.message}`);
+        console.error(`app_config build gates unreadable, failing open: ${error.message}`);
     }
-    const value = (!error && data && typeof data.minimum_build === "number") ? data.minimum_build : 0;
-    cachedMinBuild = { value, at: now };
+    const value: BuildGates = {
+        minimumBuild: (!error && data && typeof data.minimum_build === "number") ? data.minimum_build : 0,
+        meetingLeaseRequiredBuild: (!error && data && typeof data.meeting_lease_required_build === "number")
+            ? data.meeting_lease_required_build
+            : UNREACHABLE_BUILD,
+    };
+    cachedBuildGates = { value, at: now };
     return value;
 }
 
@@ -95,7 +117,9 @@ const entitlementCache = new Map<string, { ent: Entitlement; at: number }>();
 
 // Kinds exempt from the entitlement gate. Everything else is gated by default
 // (see the gate below) so a new billable kind can't be added without one.
-const UNGATED_KINDS = new Set(["device_claim", "device_release"]);
+// `meeting_start` carries the allowance check itself (atomically, in the RPC),
+// and `meeting_end` is cleanup that must work even on a lapsed plan.
+const UNGATED_KINDS = new Set(["device_claim", "device_release", "meeting_start", "meeting_end"]);
 
 async function entitlementFor(admin: ReturnType<typeof adminClient>, userId: string): Promise<Entitlement | null> {
     const cached = entitlementCache.get(userId);
@@ -168,9 +192,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // a legitimate call.
     const admin = adminClient();
     const appBuild = parseInt(req.headers.get("x-app-build") ?? "", 10) || 0;
-    const minBuild = await minimumBuild(admin);
-    if (appBuild < minBuild) {
-        return json({ error: "update_required", minimum_build: minBuild }, 426);
+    const gates = await buildGates(admin);
+    if (appBuild < gates.minimumBuild) {
+        return json({ error: "update_required", minimum_build: gates.minimumBuild }, 426);
     }
     try {
         await stampClientVersion(admin, user.id, req);
@@ -241,9 +265,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // recap/Ask, `index`, `search`) is blocked. The end-of-meeting summary (a
     // `chat` call) is therefore gated too, but it regenerates from the saved
     // transcript after the user renews — the recording itself is never lost.
-    // Blocking `transcribe` for a NEW meeting is the client start-gate's job
-    // (it checks isActive before recording); the proxy can't tell a new meeting
-    // from a continued one, since both are just transcribe calls.
+    // A NEW meeting is blocked by `meeting_start` instead: the lease decides
+    // once, up front, so this path never has to tell a new recording from a
+    // continued one.
     //
     // `search` is additionally gated on the SPECIFIC plan feature its scope
     // maps to (a Starter user can ask within one meeting but not across all).
@@ -265,14 +289,45 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }
     }
 
+    // The recording's start lease. A chunk presents the meeting id it belongs
+    // to; the id is stripped before the payload reaches a provider. Validation
+    // runs whenever an id is present — that call is also the lease's heartbeat,
+    // so an active recording keeps its slot even before enforcement is on — but
+    // it can only BLOCK once a build that speaks the protocol is the minimum.
+    let transcribePayload = body.payload;
+    if (body.kind === "transcribe") {
+        const parsed = transcribeLeasePayload(body.payload);
+        const leaseRequired = appBuild >= gates.meetingLeaseRequiredBuild;
+        if (!parsed) {
+            if (leaseRequired) return json({ error: "meeting_lease_required" }, 403);
+        } else {
+            transcribePayload = parsed.upstreamPayload;
+            const { data: valid, error } = await admin.rpc("validate_meeting_lease", {
+                p_user_id: user.id,
+                p_meeting_id: parsed.meetingId,
+            });
+            if (error) {
+                // Never cut a live meeting over a DB hiccup.
+                console.error(`meeting lease validation failed user=${user.id}: ${error.message}`);
+                if (leaseRequired) return json({ error: "meeting_lease_unavailable" }, 503);
+            } else if (valid !== true && leaseRequired) {
+                return json({ error: "meeting_lease_required" }, 403);
+            }
+        }
+    }
+
     switch (body.kind) {
         case "device_claim":
             // Reaching here means the device passed the lock above.
             return json({ ok: true }, 200);
         case "chat":
             return forwardChat(body.payload, user.id);
+        case "meeting_start":
+            return startMeeting(admin, user.id, body.payload);
+        case "meeting_end":
+            return endMeeting(admin, user.id, body.payload);
         case "transcribe":
-            return forwardTranscribe(body.payload, user.id, entitlement, admin);
+            return forwardTranscribe(transcribePayload, user.id, entitlement, admin);
         case "index":
             return handleIndex(body.payload, user.id);
         case "search":
@@ -281,6 +336,51 @@ Deno.serve(async (req: Request): Promise<Response> => {
             return json({ error: `Unknown kind: ${body.kind}` }, 400);
     }
 });
+
+// Allowance is enforced here, once, before any audio exists — not per chunk.
+// `start_meeting_lease` decides atomically, so two simultaneous starts cannot
+// both pass a cap with one hour left.
+async function startMeeting(
+    admin: ReturnType<typeof adminClient>,
+    userId: string,
+    payload: unknown,
+): Promise<Response> {
+    const meetingId = meetingIdFromPayload(payload);
+    if (!meetingId) return json({ error: "invalid_meeting_id" }, 400);
+
+    const { data, error } = await admin.rpc("start_meeting_lease", {
+        p_user_id: userId,
+        p_meeting_id: meetingId,
+    });
+    if (error || !isObject(data)) {
+        console.error(`meeting start failed user=${userId}: ${error?.message ?? "unexpected response"}`);
+        return json({ error: "meeting_lease_unavailable" }, 503);
+    }
+    if (data.granted === true) return json(data, 200);
+    const code = typeof data.error === "string" ? data.error : "meeting_limit_reached";
+    return json(data, leaseConflictStatus(code));
+}
+
+// Best-effort by design: the client fires this at End and does not wait. A lost
+// call only means the lease expires on its own a few minutes later.
+async function endMeeting(
+    admin: ReturnType<typeof adminClient>,
+    userId: string,
+    payload: unknown,
+): Promise<Response> {
+    const meetingId = meetingIdFromPayload(payload);
+    if (!meetingId) return json({ error: "invalid_meeting_id" }, 400);
+
+    const { data, error } = await admin.rpc("end_meeting_lease", {
+        p_user_id: userId,
+        p_meeting_id: meetingId,
+    });
+    if (error) {
+        console.error(`meeting end failed user=${userId}: ${error.message}`);
+        return json({ error: "meeting_lease_unavailable" }, 503);
+    }
+    return json({ ended: data === true, meeting_id: meetingId }, 200);
+}
 
 async function forwardTranscribe(payload: unknown, userId: string, entitlement: Entitlement | null, admin: ReturnType<typeof adminClient>): Promise<Response> {
     const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";

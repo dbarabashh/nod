@@ -45,6 +45,14 @@ interface CheckoutRequest {
     ref?: string;
 }
 
+interface PriceRow {
+    plan: string;
+    billing_cycle: string;
+    kind: string;
+    active: boolean;
+    available_for_new_checkout: boolean;
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
     if (req.method !== "POST") return json({ error: "Method Not Allowed" }, 405);
 
@@ -67,11 +75,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "Missing 'price_id'" }, 400);
     }
 
-    // Referral code is attribution only — normalize to the minted format
-    // (uppercase, unambiguous alphabet). Validation (exists, not self) happens at
-    // the webhook, the source of truth; here we just carry it.
     const ref = typeof body.ref === "string"
-        ? body.ref.trim().toUpperCase().slice(0, 16) || undefined
+        ? body.ref.trim().toUpperCase() || undefined
         : undefined;
 
     // One subscription per user. If they already have a live Paddle subscription,
@@ -79,11 +84,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // (which would double-bill). A new checkout is only for users with no active
     // subscription (trial, expired, or canceled).
     const admin = adminClient();
-    const { data: priceRow, error: priceError } = await admin
+    const { data: rawPrice, error: priceError } = await admin
         .from("plan_prices")
-        .select("plan, billing_cycle")
+        .select("plan, billing_cycle, kind, active, available_for_new_checkout")
         .eq("paddle_price_id", body.price_id)
         .maybeSingle();
+    const price = rawPrice as PriceRow | null;
+    // The client may only buy what the catalog currently offers, so a dark or
+    // superseded price can never be checked out by a patched or stale build.
+    if (priceError || !price || price.kind !== "subscription" || !price.active || !price.available_for_new_checkout) {
+        return json({ error: "offer_not_eligible" }, 422);
+    }
+    if (body.price_id.startsWith("pri_REPLACE_")) {
+        console.error(`checkout blocked for placeholder price=${body.price_id}`);
+        return json({ error: "pricing_unconfigured" }, 503);
+    }
+
     const { data: sub } = await admin
         .from("subscriptions")
         .select("paddle_subscription_id, paddle_customer_id, status")
@@ -98,6 +114,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
         && sub.status !== "canceled"
         && sub.status !== "expired";
     if (hasLiveSubscription) {
+        // The offer is for a first-ever payer, and a plan change is not one.
+        if (ref) return json({ error: "already_paid" }, 422);
         const res = await fetch(`${PADDLE_API_BASE}/subscriptions/${sub.paddle_subscription_id}`, {
             method: "PATCH",
             headers: PADDLE_HEADERS,
@@ -130,8 +148,49 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }
     }
 
+    // Referral eligibility is decided here, before Paddle is called, and it
+    // fails closed: a code we cannot fully verify gets no discount and no
+    // checkout, rather than a discount now and a dispute later.
+    let referralId: string | undefined;
+    if (ref) {
+        if (!PADDLE_REFERRAL_DISCOUNT_ID) {
+            console.error("referral checkout blocked: PADDLE_REFERRAL_DISCOUNT_ID not set");
+            return json({ error: "referral_unavailable" }, 503);
+        }
+        if (!customerId) {
+            console.error(`referral checkout blocked: Paddle customer unavailable user=${user.id}`);
+            return json({ error: "referral_unavailable" }, 503);
+        }
+        // Regional pricing and the referral discount must not stack, and Paddle
+        // applies both silently if we let them.
+        const priceStatus = await referralPriceStatus(body.price_id);
+        if (priceStatus === "overridden") return json({ error: "offer_not_eligible" }, 422);
+        if (priceStatus !== "eligible") return json({ error: "referral_unavailable" }, 503);
+
+        const payerStatus = await paddleCustomerPaymentStatus(customerId);
+        if (payerStatus === "paid") return json({ error: "already_paid" }, 422);
+        if (payerStatus !== "new") return json({ error: "referral_unavailable" }, 503);
+
+        const { data: verdict, error: referralError } = await admin.rpc("reserve_referral_attribution", {
+            p_referee_user_id: user.id,
+            p_code: ref,
+            p_price_id: body.price_id,
+            p_paddle_customer_id: customerId,
+        });
+        if (referralError || !isObject(verdict)) {
+            console.error(`referral validation failed user=${user.id}: ${referralError?.message ?? "unexpected verdict"}`);
+            return json({ error: "referral_unavailable" }, 503);
+        }
+        if (verdict.eligible !== true) {
+            return json({ error: typeof verdict.error === "string" ? verdict.error : "invalid_referral" }, 422);
+        }
+        referralId = typeof verdict.referral_id === "string" ? verdict.referral_id : undefined;
+    }
+
     const customData: Record<string, unknown> = { user_id: user.id };
-    if (ref) customData.ref = ref;
+    // The reservation id, not the raw code: the webhook resolves the referral
+    // from our own row, so nothing about the reward depends on client input.
+    if (referralId) customData.referral_id = referralId;
 
     const payload: Record<string, unknown> = {
         items: [{ price_id: body.price_id, quantity: 1 }],
@@ -139,22 +198,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
         collection_mode: "automatic",
     };
     if (customerId) payload.customer_id = customerId;
-
-    // Friend's −50% applies to MONTHLY prices only (see hard constraint). Resolve
-    // the cycle from our catalog rather than trusting the client.
-    if (ref && PADDLE_REFERRAL_DISCOUNT_ID) {
-        if (priceError || !priceRow) {
-            // Don't risk applying the discount to an unknown cycle, but make the
-            // miss loud — a monthly price with no catalog row silently drops the
-            // friend's −50%.
-            console.error(`referral discount skipped: price lookup ${priceError ? "errored" : "missed"} price=${body.price_id} ${priceError?.message ?? ""}`);
-        }
-        if (priceRow?.billing_cycle === "monthly") {
-            payload.discount_id = PADDLE_REFERRAL_DISCOUNT_ID;
-            console.log(`referral discount applied user=${user.id} ref=${ref}`);
-        } else {
-            console.log(`referral discount skipped (non-monthly) user=${user.id} ref=${ref}`);
-        }
+    if (referralId) {
+        payload.discount_id = PADDLE_REFERRAL_DISCOUNT_ID;
+        console.log(`referral discount applied user=${user.id} referral=${referralId}`);
     }
 
     const res = await fetch(`${PADDLE_API_BASE}/transactions`, {
@@ -169,8 +215,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     let url: string | undefined;
+    let transactionId: string | undefined;
     try {
-        url = JSON.parse(text)?.data?.checkout?.url;
+        const transaction = JSON.parse(text)?.data;
+        url = transaction?.checkout?.url;
+        transactionId = typeof transaction?.id === "string" ? transaction.id : undefined;
     } catch {
         // fall through to the missing-url branch
     }
@@ -182,11 +231,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "No checkout URL — configure a default payment link in Paddle" }, 502);
     }
 
-    const plan = priceRow?.plan === "starter" || priceRow?.plan === "pro"
-        ? priceRow.plan
-        : "unknown";
-    const billing = priceRow?.billing_cycle === "monthly" || priceRow?.billing_cycle === "yearly"
-        ? priceRow.billing_cycle
+    // Bind the reservation to the transaction that will actually be paid BEFORE
+    // handing out a payable URL. If two checkouts race, only the bound one can
+    // ever activate a referral — and an unbindable one is not payable at all.
+    if (referralId) {
+        if (!transactionId) return json({ error: "referral_unavailable" }, 503);
+        const { data: bound, error: bindError } = await admin.rpc("bind_referral_checkout_transaction", {
+            p_referral_id: referralId,
+            p_referee_user_id: user.id,
+            p_transaction_id: transactionId,
+        });
+        if (bindError || bound !== true) {
+            console.error(`referral checkout bind failed referral=${referralId} txn=${transactionId}: ${bindError?.message ?? "not bound"}`);
+            return json({ error: "referral_unavailable" }, 503);
+        }
+    }
+
+    const plan = price.plan === "starter" || price.plan === "pro" ? price.plan : "unknown";
+    const billing = price.billing_cycle === "monthly" || price.billing_cycle === "yearly"
+        ? price.billing_cycle
         : "unknown";
     const { error: telemetryError } = await admin.from("product_events").insert({
         id: crypto.randomUUID(),
@@ -229,4 +292,52 @@ async function findOrCreateCustomer(email: string): Promise<string | undefined> 
         return undefined;
     }
     return (await createRes.json())?.data?.id;
+}
+
+// A price with per-country overrides is already discounted for that customer, so
+// stacking the referral 50% on top is a giveaway we never agreed to. Unknown
+// means unknown: we refuse rather than guess.
+async function referralPriceStatus(priceId: string): Promise<"eligible" | "overridden" | "unavailable"> {
+    try {
+        const response = await fetch(`${PADDLE_API_BASE}/prices/${encodeURIComponent(priceId)}`, {
+            headers: PADDLE_HEADERS,
+        });
+        if (!response.ok) {
+            console.error(`referral price preflight failed price=${priceId} status=${response.status}`);
+            return "unavailable";
+        }
+        const payload = await response.json();
+        const overrides = isObject(payload?.data) ? payload.data.unit_price_overrides : undefined;
+        if (!Array.isArray(overrides)) {
+            console.error(`referral price preflight missing overrides array price=${priceId}`);
+            return "unavailable";
+        }
+        return overrides.length === 0 ? "eligible" : "overridden";
+    } catch (err) {
+        console.error(`referral price preflight threw price=${priceId}: ${err}`);
+        return "unavailable";
+    }
+}
+
+// Paddle is the authority on whether this customer ever completed a payment —
+// including under a different Nod account with the same card and email.
+async function paddleCustomerPaymentStatus(customerId: string): Promise<"new" | "paid" | "unavailable"> {
+    try {
+        const params = new URLSearchParams({ customer_id: customerId, status: "completed", per_page: "1" });
+        const response = await fetch(`${PADDLE_API_BASE}/transactions?${params}`, { headers: PADDLE_HEADERS });
+        if (!response.ok) {
+            console.error(`referral payer-history preflight failed customer=${customerId} status=${response.status}`);
+            return "unavailable";
+        }
+        const payload = await response.json();
+        if (!Array.isArray(payload?.data)) return "unavailable";
+        return payload.data.length > 0 ? "paid" : "new";
+    } catch (err) {
+        console.error(`referral payer-history preflight threw customer=${customerId}: ${err}`);
+        return "unavailable";
+    }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

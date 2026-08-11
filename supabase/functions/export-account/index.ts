@@ -71,7 +71,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
         const [
             profile, meetings, transcripts, chatMessages, entities, meetingEntities,
             labels, meetingLabels, embeddings, shares, devices, usageEvents,
-            subscription, usageCredits, consent, onboardingEvents, productEvents,
+            subscription, topupIntents, usageTopups, meetingLeases, consent,
+            referralCodes, referredFriends, referralAttribution, rewardCredits,
+            rewardPayouts, advocacyClaims, fraudBlocks, emailPreferences,
+            onboardingEvents, productEvents,
         ] = await Promise.all([
             fetchAll(admin, "profiles", "*", "user_id", uid),
             fetchAll(admin, "meetings", "*", "user_id", uid),
@@ -86,14 +89,26 @@ Deno.serve(async (req: Request): Promise<Response> => {
             fetchAll(admin, "user_devices", "*", "user_id", uid),
             fetchAll(admin, "usage_events", "*", "user_id", uid),
             fetchAll(admin, "subscriptions", "*", "user_id", uid),
-            fetchAll(admin, "usage_credits", "*", "user_id", uid),
+            fetchAll(admin, "topup_checkout_intents", "*", "user_id", uid),
+            fetchAll(admin, "usage_topups", "*", "user_id", uid),
+            fetchAll(admin, "meeting_start_leases", "*", "user_id", uid),
             fetchAll(admin, "consent_acknowledgements", "*", "user_id", uid),
+            fetchAll(admin, "referral_codes", "*", "user_id", uid),
+            // Both sides of a referral: the friends they brought, and the one
+            // referral that brought them.
+            fetchAll(admin, "referrals", "*", "referrer_user_id", uid),
+            fetchAll(admin, "referrals", "*", "referee_user_id", uid),
+            fetchAll(admin, "reward_credits", "*", "beneficiary_user_id", uid),
+            fetchAll(admin, "reward_payouts", "*", "beneficiary_user_id", uid),
+            fetchAll(admin, "advocacy_reward_claims", "*", "user_id", uid),
+            fetchAll(admin, "referral_fraud_blocks", "*", "user_id", uid),
+            fetchAll(admin, "email_preferences", "*", "user_id", uid),
             fetchAll(admin, "onboarding_events", "*", "user_id", uid),
             fetchAll(admin, "product_events", "*", "user_id", uid),
         ]);
 
         const exportDoc = {
-            export_format_version: 2,
+            export_format_version: 3,
             note:
                 "Your complete personal data held by Nod. Audio is never stored, so it is "
                 + "not included. Session-embedding vectors are omitted (derived numeric data); "
@@ -119,8 +134,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
             user_devices: devices,
             usage_events: usageEvents,
             subscription: subscription[0] ?? null,
-            usage_credits: usageCredits,
+            topup_checkout_intents: topupIntents,
+            usage_topups: usageTopups,
+            meeting_start_leases: meetingLeases,
             consent_acknowledgements: consent,
+            referral_codes: referralCodes,
+            referred_friends: referredFriends,
+            referral_attribution: referralAttribution,
+            reward_credits: rewardCredits,
+            reward_payouts: rewardPayouts,
+            advocacy_reward_claims: advocacyClaims,
+            referral_fraud_blocks: fraudBlocks,
+            email_preferences: emailPreferences,
             onboarding_events: onboardingEvents,
             product_events: productEvents,
         };

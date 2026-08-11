@@ -349,6 +349,24 @@ verify_jwt = false
 [functions.paddle-webhook]
 verify_jwt = false
 
+# Scheduled service workers. They authenticate with the shared
+# `INTERNAL_JOB_SECRET` bearer instead of a user JWT, because pg_cron calls them.
+[functions.billing-jobs]
+verify_jwt = false
+
+[functions.resend-worker]
+verify_jwt = false
+
+# Resend signs deliveries with Svix (HMAC over the raw body), verified in the
+# function itself.
+[functions.resend-webhook]
+verify_jwt = false
+
+# The email-preference page is opened from a link in an email, so the caller has
+# an opaque single-purpose token rather than a session.
+[functions.email-preferences]
+verify_jwt = false
+
 # External agent connections API. The caller authenticates with a Nod personal
 # access token (not a Supabase JWT), so the gateway check is disabled — the
 # function hashes the bearer token and resolves it against an un-revoked

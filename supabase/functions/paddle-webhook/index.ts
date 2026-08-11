@@ -9,32 +9,29 @@
 // Event handling (per Paddle's guidance — subscription.updated already covers
 // renewals, upgrades, downgrades, pauses, and past_due):
 //   subscription.created / .updated / .activated / .canceled / .past_due /
-//   .paused / .resumed  → upsert the subscription (plan + status + period)
-//   transaction.completed → record the first paid conversion with final net
-//   earnings and transaction currency
+//   .paused / .resumed  → upsert the subscription (plan + status + period),
+//   ordered by the event's own id and timestamp so a redelivery can't regress it
+//   transaction.completed → ads conversion, Starter top-up fulfilment, referral
+//   activation/earning, and any due reward payout
+//   adjustment.created / .updated → refunds and chargebacks
 //
-// Referral payout (NOD-22): a referred friend's first renewal (status 'active'
-// on a new billing period) earns the referrer a free month; it's paid out once
-// the referrer is a paying subscriber. It reads `custom_data.ref` (stamped by
-// create-checkout), advances the referral via `process_referee_payment`, and
-// pays via `claim_referral_rewards` + a Paddle "defer next_billed_at by N
-// months" call — so this function needs PADDLE_API_KEY too. The payout is
-// best-effort: a missing key or a Paddle error is logged and the claim released
-// for retry, never failing the subscription event itself.
+// Referral and reward decisions read only provider facts: the transaction id
+// bound at checkout, whether this customer ever paid before, the configured
+// first-period discount, and the billing period. Nothing depends on a code the
+// client sent. Reward payout itself lives in `_shared/reward-payout.ts`.
 //
 // Secrets (set via `supabase secrets set`, or a local --env-file):
-//   PADDLE_WEBHOOK_SECRET — destination signing secret (`pdl_ntfset_…`)
-//   PADDLE_API_KEY        — server-side API key (for the payout call)
+//   PADDLE_WEBHOOK_SECRET       — destination signing secret (`pdl_ntfset_…`)
+//   PADDLE_API_KEY              — server-side API key (reward payout writes)
+//   PADDLE_REFERRAL_DISCOUNT_ID — the first-period referral discount to verify
 //
 // Deployed per-branch via git: the `develop` branch (sandbox secret) and
 // `main` (live secret) each get their own copy from their git branch.
 
 import { adminClient } from "../_shared/supabase.ts";
 import { isObject, json } from "../_shared/http.ts";
-import { PADDLE_API_BASE, PADDLE_HEADERS } from "../_shared/paddle.ts";
-import { paidSubscriptionTransaction } from "../_shared/paddle-transaction.ts";
-
-const PADDLE_API_KEY = Deno.env.get("PADDLE_API_KEY");
+import { currencyAmount, paidSubscriptionTransaction } from "../_shared/paddle-transaction.ts";
+import { payoutDueRewards } from "../_shared/reward-payout.ts";
 
 // Reject a validly-signed delivery whose `ts` is older than this — a captured
 // event (e.g. an old `subscription.activated`) can't be replayed later to
@@ -43,6 +40,7 @@ const PADDLE_API_KEY = Deno.env.get("PADDLE_API_KEY");
 const SIGNATURE_MAX_AGE_SECONDS = 300;
 
 const PADDLE_WEBHOOK_SECRET     = Deno.env.get("PADDLE_WEBHOOK_SECRET");
+const PADDLE_REFERRAL_DISCOUNT_ID = Deno.env.get("PADDLE_REFERRAL_DISCOUNT_ID");
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
@@ -76,9 +74,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     try {
         if (type === "transaction.completed") {
-            await handleCompletedTransaction(admin, data, event.occurred_at);
+            await handleCompletedTransaction(admin, data, nullableStr(event.occurred_at));
         } else if (type.startsWith("subscription.")) {
-            await handleSubscription(admin, data);
+            await handleSubscription(admin, data, nullableStr(event.event_id), nullableStr(event.occurred_at));
+        } else if (type === "adjustment.created" || type === "adjustment.updated") {
+            await handleAdjustment(admin, data, nullableStr(event.occurred_at));
         } else {
             console.log(`paddle webhook ignored event_type=${type}`);
         }
@@ -93,36 +93,234 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json({ ok: true }, 200);
 });
 
+// A completed transaction is the only fact that moves money, so it drives three
+// things: the ads conversion, top-up fulfilment, and the referral lifecycle.
 async function handleCompletedTransaction(
     admin: ReturnType<typeof adminClient>,
     data: Record<string, unknown>,
-    occurredAt: string | undefined,
+    eventOccurredAt: string | null,
 ): Promise<void> {
-    const transaction = paidSubscriptionTransaction(data);
-    if (!transaction || !occurredAt) return;
+    const transactionId = str(data.id);
+    if (!transactionId) {
+        console.warn("completed transaction missing id");
+        return;
+    }
+    const subscriptionId = nullableStr(data.subscription_id);
+    const customerId = nullableStr(data.customer_id);
+    const userId = await resolveUserId(admin, data, subscriptionId ?? "", customerId);
 
-    const userId = await resolveUserId(
-        admin,
-        data,
-        transaction.subscriptionId,
-        transaction.customerId,
-    );
-    if (!userId) {
-        console.warn(`completed transaction without resolvable user — txn=${transaction.transactionId}`);
+    const paidTransaction = paidSubscriptionTransaction(data);
+    if (paidTransaction && eventOccurredAt) {
+        if (userId) {
+            const { data: accepted, error } = await admin.rpc("enqueue_paid_transaction_conversion", {
+                p_user_id: userId,
+                p_occurred_at: eventOccurredAt,
+                p_value: paidTransaction.value,
+                p_currency: paidTransaction.currency,
+            });
+            if (error) throw new Error(`enqueue_paid_transaction_conversion: ${error.message}`);
+            console.log(`paid conversion transaction=${transactionId} accepted=${accepted === true}`);
+        } else {
+            console.warn(`completed transaction without resolvable user — txn=${transactionId}`);
+        }
+    }
+
+    // Paddle's own billing time, not our receive time: a delivery retried hours
+    // later must not look like a later payment.
+    const occurredAt = nullableStr(data.billed_at)
+        ?? nullableStr(data.created_at)
+        ?? eventOccurredAt
+        ?? new Date().toISOString();
+    const origin = str(data.origin);
+    const billingPeriod = isObject(data.billing_period) ? data.billing_period : {};
+    const billingPeriodStart = nullableStr(billingPeriod.starts_at);
+    const discount = isObject(data.discount) ? data.discount : {};
+    const discountId = nullableStr(data.discount_id) ?? nullableStr(discount.id);
+    const referralDiscountApplied = !!PADDLE_REFERRAL_DISCOUNT_ID && discountId === PADDLE_REFERRAL_DISCOUNT_ID;
+
+    for (const priceId of priceIds(data.items)) {
+        const { data: price } = await admin
+            .from("plan_prices")
+            .select("kind")
+            .eq("paddle_price_id", priceId)
+            .maybeSingle();
+
+        if (price?.kind === "topup") {
+            await fulfilTopup(admin, transactionId, priceId, origin, occurredAt, data);
+        } else if (price?.kind === "subscription") {
+            if (!userId || !subscriptionId) {
+                console.warn(`subscription transaction missing identity txn=${transactionId}`);
+                continue;
+            }
+            // "First-ever payer" is a provider fact, so it is recorded before
+            // the referral decision that depends on it.
+            let isFirstPayerTransaction = false;
+            if (customerId) {
+                const { data: firstPayer, error: payerError } = await admin.rpc("record_billing_payer", {
+                    p_paddle_customer_id: customerId,
+                    p_user_id: userId,
+                    p_transaction_id: transactionId,
+                    p_paid_at: occurredAt,
+                });
+                if (payerError) throw new Error(`record_billing_payer: ${payerError.message}`);
+                isFirstPayerTransaction = firstPayer === true;
+            }
+
+            const { data: result, error } = await admin.rpc("record_referral_transaction", {
+                p_referee_user_id: userId,
+                p_transaction_id: transactionId,
+                p_price_id: priceId,
+                p_occurred_at: occurredAt,
+                p_origin: origin,
+                p_subscription_id: subscriptionId,
+                p_billing_period_start: billingPeriodStart,
+                p_referral_discount_applied: referralDiscountApplied,
+                p_is_first_payer_transaction: isFirstPayerTransaction,
+            });
+            if (error) throw new Error(`record_referral_transaction: ${error.message}`);
+            console.log(`referral transaction user=${userId} txn=${transactionId} result=${JSON.stringify(result)}`);
+        }
+    }
+
+    if (userId) await payoutDueRewards(admin, userId);
+}
+
+// A top-up is fulfilled only against the intent that created its checkout. The
+// intent id in custom_data is a bootstrap for the case where our own attach call
+// never completed; it is verified against the stored row before it is trusted.
+async function fulfilTopup(
+    admin: ReturnType<typeof adminClient>,
+    transactionId: string,
+    priceId: string,
+    origin: string,
+    occurredAt: string,
+    data: Record<string, unknown>,
+): Promise<void> {
+    if (origin !== "api") {
+        console.warn(`top-up ignored for unexpected origin=${origin} txn=${transactionId}`);
         return;
     }
 
-    const { data: accepted, error } = await admin.rpc("enqueue_paid_transaction_conversion", {
-        p_user_id: userId,
-        p_occurred_at: occurredAt,
-        p_value: transaction.value,
-        p_currency: transaction.currency,
+    let { data: intent, error: intentError } = await admin
+        .from("topup_checkout_intents")
+        .select("id, user_id, paddle_price_id")
+        .eq("paddle_transaction_id", transactionId)
+        .maybeSingle();
+
+    if (!intent && !intentError) {
+        const customData = isObject(data.custom_data) ? data.custom_data : {};
+        const intentId = nullableStr(customData.topup_intent_id);
+        if (intentId) {
+            const { data: candidate, error: candidateError } = await admin
+                .from("topup_checkout_intents")
+                .select("id, user_id, paddle_price_id")
+                .eq("id", intentId)
+                .maybeSingle();
+            if (!candidateError && candidate?.paddle_price_id === priceId) {
+                const { data: attached, error: attachError } = await admin.rpc("attach_topup_checkout_transaction", {
+                    p_intent_id: intentId,
+                    p_transaction_id: transactionId,
+                });
+                if (!attachError && attached === true) intent = candidate;
+                else intentError = attachError;
+            } else {
+                intentError = candidateError;
+            }
+        }
+    }
+
+    if (intentError || !intent || intent.paddle_price_id !== priceId) {
+        console.error(`top-up transaction has no matching intent txn=${transactionId}`);
+        return;
+    }
+
+    const { data: result, error } = await admin.rpc("apply_topup_purchase", {
+        p_user_id: intent.user_id,
+        p_transaction_id: transactionId,
+        p_price_id: priceId,
+        p_intent_id: intent.id,
     });
-    if (error) throw new Error(`enqueue_paid_transaction_conversion: ${error.message}`);
-    console.log(`paid conversion transaction=${transaction.transactionId} accepted=${accepted === true}`);
+    if (error) throw new Error(`apply_topup_purchase: ${error.message}`);
+    console.log(`top-up user=${intent.user_id} txn=${transactionId} result=${JSON.stringify(result)}`);
+
+    // Only a genuinely applied purchase is a conversion; one parked for
+    // reconciliation is not something to optimise ads against.
+    if (isObject(result) && result.applied === true) {
+        const { error: telemetryError } = await admin.rpc("record_server_product_event", {
+            p_user_id: intent.user_id,
+            p_event: "topup_purchased",
+            p_properties: { plan: "starter", billing: "one_time", outcome: "success" },
+        });
+        if (telemetryError) console.warn(`top-up telemetry failed: ${telemetryError.message}`);
+
+        const totals = isObject(data.details) && isObject(data.details.totals) ? data.details.totals : {};
+        const value = currencyAmount(str(totals.earnings), str(data.currency_code).toUpperCase());
+        if (value !== null) {
+            const { error: conversionError } = await admin.rpc("enqueue_topup_conversion", {
+                p_user_id: intent.user_id,
+                p_occurred_at: occurredAt,
+                p_value: value,
+                p_currency: str(data.currency_code).toUpperCase(),
+            });
+            if (conversionError) console.warn(`top-up conversion failed: ${conversionError.message}`);
+        }
+    }
 }
 
-async function handleSubscription(admin: ReturnType<typeof adminClient>, data: Record<string, unknown>): Promise<void> {
+// Refunds and chargebacks. Recorded first (so a later reversal is visible), then
+// applied: unapplied referral credit is cancelled, and a fully refunded top-up
+// gives back only the hours nobody used.
+async function handleAdjustment(
+    admin: ReturnType<typeof adminClient>,
+    data: Record<string, unknown>,
+    eventOccurredAt: string | null,
+): Promise<void> {
+    const transactionId = str(data.transaction_id);
+    if (!transactionId) return;
+
+    const action = str(data.action);
+    const status = str(data.status);
+    const isApprovedRefund = action === "refund" && status === "approved";
+    const isLiveChargeback = action === "chargeback" && status !== "rejected" && status !== "reversed";
+    const isFull = action === "chargeback" || str(data.type) === "full";
+    const reason = `${action}:${str(data.reason) || status}`;
+
+    const { error: adjustmentError } = await admin.rpc("record_billing_adjustment", {
+        p_transaction_id: transactionId,
+        p_action: action,
+        p_status: status,
+        p_is_full: isFull,
+        p_reason: reason,
+        p_occurred_at: eventOccurredAt,
+    });
+    if (adjustmentError) throw new Error(`record_billing_adjustment: ${adjustmentError.message}`);
+    if (!isApprovedRefund && !isLiveChargeback) return;
+
+    const { data: referral, error: referralError } = await admin.rpc("cancel_referral_transaction", {
+        p_transaction_id: transactionId,
+        p_reason: reason,
+    });
+    if (referralError) throw new Error(`cancel_referral_transaction: ${referralError.message}`);
+
+    const { data: topup, error: topupError } = isFull
+        ? await admin.rpc("refund_topup_transaction", { p_transaction_id: transactionId, p_reason: reason })
+        : await admin.rpc("review_topup_adjustment", {
+            p_transaction_id: transactionId,
+            p_reason: `partial_adjustment:${reason}`,
+        });
+    if (topupError) throw new Error(`topup adjustment: ${topupError.message}`);
+
+    console.log(
+        `billing adjustment txn=${transactionId} referral=${JSON.stringify(referral)} topup=${JSON.stringify(topup)}`,
+    );
+}
+
+async function handleSubscription(
+    admin: ReturnType<typeof adminClient>,
+    data: Record<string, unknown>,
+    eventId: string | null,
+    eventOccurredAt: string | null,
+): Promise<void> {
     const subscriptionId = str(data.id);
     const customerId     = nullableStr(data.customer_id);
     const status         = str(data.status);
@@ -144,157 +342,59 @@ async function handleSubscription(admin: ReturnType<typeof adminClient>, data: R
         return;
     }
 
-    const { error } = await admin.rpc("apply_paddle_subscription", {
-        p_user_id:         userId,
-        p_customer_id:     customerId,
-        p_subscription_id: subscriptionId,
-        p_price_id:        priceId,
-        p_paddle_status:   status,
-        p_period_start:    periodStart,
-        p_period_end:      periodEnd,
+    if (!eventId || !eventOccurredAt) {
+        console.warn("subscription event missing immutable event identity — skipping");
+        return;
+    }
+
+    // Ordered and idempotent: the RPC ignores an event older than the one it has
+    // already applied, so a Paddle redelivery cannot walk the status backwards.
+    const { data: applied, error } = await admin.rpc("apply_paddle_subscription", {
+        p_user_id:           userId,
+        p_customer_id:       customerId,
+        p_subscription_id:   subscriptionId,
+        p_price_id:          priceId,
+        p_paddle_status:     status,
+        p_period_start:      periodStart,
+        p_period_end:        periodEnd,
+        p_event_id:          eventId,
+        p_event_occurred_at: eventOccurredAt,
     });
     if (error) throw new Error(`apply_paddle_subscription: ${error.message}`);
-    console.log(`subscription applied user=${userId} status=${status} price=${priceId}`);
+    console.log(`subscription event user=${userId} status=${status} price=${priceId} applied=${applied === true}`);
 
-    // Referral lifecycle, on a PAID event (status 'active'): advance the friend's
-    // referral (first payment → activated; first renewal → earned), and try to
-    // pay out THIS user's own earned referrals — so a referrer who (re)subscribes
-    // collects any months that were waiting. Best-effort: a referral hiccup never
-    // fails the subscription event.
-    if (status === "active") {
-        const custom = isObject(data.custom_data) ? data.custom_data : {};
-        const ref = str(custom.ref);
-        if (ref) {
-            try {
-                const { data: r, error: refErr } = await admin.rpc("process_referee_payment", {
-                    p_referee_user_id: userId,
-                    p_code: ref,
-                    p_period_start: periodStart,
-                });
-                if (refErr) {
-                    console.error(`process_referee_payment failed referee=${userId} ref=${ref}: ${refErr.message}`);
-                } else if (isObject(r) && r.action === "earned") {
-                    await claimAndPay(admin, str(r.referrer_user_id));
-                }
-            } catch (err) {
-                console.error(`referral processing error referee=${userId} ref=${ref}: ${err}`);
-            }
-        }
+    // A referrer collects waiting credit as soon as they are billable again, so
+    // a resubscribe is also a payout opportunity.
+    if (applied === true && status === "active") {
         try {
-            await claimAndPay(admin, userId);
+            await payoutDueRewards(admin, userId);
         } catch (err) {
-            console.error(`referral claim error user=${userId}: ${err}`);
+            console.error(`reward payout error user=${userId}: ${err}`);
         }
     }
 }
 
-// Pay out a referrer's earned referrals. The RPC atomically claims up to the
-// annual cap (paying subscribers only); we defer their renewal by that many
-// months; on a Paddle failure we release the claim so a later event retries —
-// the reward is never silently lost.
-async function claimAndPay(admin: ReturnType<typeof adminClient>, referrerId: string): Promise<void> {
-    if (!referrerId) return;
-    const { data: claim, error } = await admin.rpc("claim_referral_rewards", {
-        p_referrer_user_id: referrerId,
-    });
-    if (error) {
-        console.error(`claim_referral_rewards failed referrer=${referrerId}: ${error.message}`);
-        return;
-    }
-    if (!isObject(claim)) return;
-    const months = Number(claim.count ?? 0);
-    if (months <= 0) return;
-
-    // A thrown error (e.g. a network failure mid-fetch) must release the claim
-    // too — otherwise the rows stay 'rewarded' but unpaid. Treat any failure as
-    // "not paid" and revert so a later event retries.
-    let ok = false;
-    try {
-        ok = await deferRenewal(str(claim.paddle_subscription_id), months);
-    } catch (err) {
-        console.error(`deferRenewal threw referrer=${referrerId}: ${err}`);
-    }
-    if (!ok) {
-        const ids = Array.isArray(claim.ids) ? claim.ids.map(String) : [];
-        const { error: revertErr } = await admin.rpc("revert_referral_claim", { p_ids: ids });
-        if (revertErr) {
-            console.error(`revert_referral_claim failed referrer=${referrerId}: ${revertErr.message}`);
-        } else {
-            console.warn(`referral payout failed — ${months} claim(s) released referrer=${referrerId}`);
-        }
-        return;
-    }
-    console.log(`referral payout: ${months} free month(s) via renewal defer referrer=${referrerId}`);
-}
-
-// The reward as subscription time: push the referrer's next renewal out by
-// `months` — never bonus hours, never a discount. Uniform across cycles (so
-// several accrued months grant at once, and a yearly plan can't get a free year
-// from a 100% discount). Returns false on a missing key or Paddle error so the
-// caller releases the claim for retry.
-async function deferRenewal(subscriptionId: string, months: number): Promise<boolean> {
-    if (!subscriptionId || months <= 0) return false;
-    if (!PADDLE_API_KEY) {
-        // Without the key, PADDLE_HEADERS sends 'Bearer undefined' and the base
-        // falls back to the sandbox host — never let that hit a real subscription.
-        console.error("referral payout skipped: PADDLE_API_KEY not set");
-        return false;
-    }
-
-    const getRes = await fetch(`${PADDLE_API_BASE}/subscriptions/${subscriptionId}`, { headers: PADDLE_HEADERS });
-    if (!getRes.ok) {
-        console.error(`referral payout fetch failed status=${getRes.status}`);
-        return false;
-    }
-    const current = (await getRes.json())?.data?.next_billed_at;
-    if (typeof current !== "string") {
-        console.error("referral payout: no next_billed_at to defer");
-        return false;
-    }
-    const res = await fetch(`${PADDLE_API_BASE}/subscriptions/${subscriptionId}`, {
-        method: "PATCH",
-        headers: PADDLE_HEADERS,
-        body: JSON.stringify({ next_billed_at: addMonths(current, months), proration_billing_mode: "do_not_bill" }),
-    });
-    if (!res.ok) {
-        console.error(`referral payout defer failed status=${res.status} ${(await res.text()).slice(0, 300)}`);
-        return false;
-    }
-    return true;
-}
-
-// Add `months` calendar months, clamping the day to the target month's length so
-// a month-end date doesn't overflow (Date.setMonth turns Jan 31 → Mar 3).
-function addMonths(iso: string, months: number): string {
-    const d = new Date(iso);
-    const day = d.getUTCDate();
-    d.setUTCDate(1);
-    d.setUTCMonth(d.getUTCMonth() + months);
-    const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
-    d.setUTCDate(Math.min(day, lastDay));
-    return d.toISOString();
-}
-
-// Prefer the custom_data breadcrumb our own checkout stamps; fall back to
-// matching the subscription/customer id against an existing row for events that
-// originated outside our flow.
+// Resolve provider-owned identity first. Checkout `custom_data` is only a
+// bootstrap for the very first event, before a subscription row exists — trusting
+// it afterwards would let a replayed checkout payload point at another account.
 async function resolveUserId(
     admin: ReturnType<typeof adminClient>,
     data: Record<string, unknown>,
     subscriptionId: string,
     customerId: string | null,
 ): Promise<string | null> {
-    const custom = isObject(data.custom_data) ? data.custom_data : {};
-    const fromCustom = str(custom.user_id);
-    if (fromCustom) return fromCustom;
-
     let query = admin.from("subscriptions").select("user_id").limit(1);
     if (subscriptionId) query = query.eq("paddle_subscription_id", subscriptionId);
     else if (customerId) query = query.eq("paddle_customer_id", customerId);
-    else return null;
+    else {
+        const custom = isObject(data.custom_data) ? data.custom_data : {};
+        return nullableStr(custom.user_id);
+    }
 
     const { data: row } = await query.maybeSingle();
-    return row?.user_id ?? null;
+    if (row?.user_id) return row.user_id;
+    const custom = isObject(data.custom_data) ? data.custom_data : {};
+    return nullableStr(custom.user_id);
 }
 
 // Paddle-Signature: `ts=<unix>;h1=<hex hmac>`. The signed payload is
@@ -344,8 +444,9 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 interface PaddleEvent {
+    event_id?: unknown;
     event_type?: string;
-    occurred_at?: string;
+    occurred_at?: unknown;
     data?: unknown;
 }
 
@@ -355,6 +456,15 @@ function firstPriceId(items: unknown): string | null {
     if (!isObject(first)) return null;
     if (isObject(first.price)) return nullableStr(first.price.id);
     return nullableStr(first.price_id);
+}
+
+function priceIds(items: unknown): string[] {
+    if (!Array.isArray(items)) return [];
+    return items.flatMap((item) => {
+        if (!isObject(item)) return [];
+        const id = isObject(item.price) ? nullableStr(item.price.id) : nullableStr(item.price_id);
+        return id ? [id] : [];
+    });
 }
 
 function str(value: unknown): string {
