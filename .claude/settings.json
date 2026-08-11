@@ -1,4 +1,5 @@
 {
+  "enableAllProjectMcpServers": true,
   "hooks": {
     "PostToolUse": [
       {
@@ -13,5 +14,7 @@
       }
     ]
   },
-  "enableAllProjectMcpServers": true
+  "enabledPlugins": {
+    "paddle@claude-community": true
+  }
 }
