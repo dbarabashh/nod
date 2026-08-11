@@ -100,19 +100,23 @@ final class ChatStore: ObservableObject {
     /// Pair with `appendUserTurn` / `beginRetry`, which set `.sending` first. On
     /// LLM failure the user turn stays (it's saved) and `sendState` carries the
     /// error so the view can offer a retry.
-    func reply(systemPrompt: String, meetingID: UUID, userID: UUID) async {
+    ///
+    /// `cachePrompt` must be false whenever the caller's `systemPrompt` isn't
+    /// the same text turn to turn — see `LLMProxyClient.chat(cachePrompt:)`
+    /// for why a varying prefix turns caching into a pure surcharge.
+    func reply(systemPrompt: String, meetingID: UUID, userID: UUID, cachePrompt: Bool = true) async {
         guard sendState == .sending else { return }
-        await requestReply(systemPrompt: systemPrompt, meetingID: meetingID, userID: userID)
+        await requestReply(systemPrompt: systemPrompt, meetingID: meetingID, userID: userID, cachePrompt: cachePrompt)
     }
 
-    private func requestReply(systemPrompt: String, meetingID: UUID, userID: UUID) async {
+    private func requestReply(systemPrompt: String, meetingID: UUID, userID: UUID, cachePrompt: Bool) async {
         let history = messages.map {
             LLMProxyClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
         }
         do {
             // Low temperature: grounded answers about a real recording should
             // stay faithful, not creative.
-            let reply = try await llm.chat(system: systemPrompt, history: history, temperature: 0.2)
+            let reply = try await llm.chat(system: systemPrompt, history: history, temperature: 0.2, cachePrompt: cachePrompt)
             guard openMeetingID == meetingID else { return }
             let assistantMessage = ChatMessage.new(meetingID: meetingID, userID: userID, role: .assistant, content: reply)
             messages.append(assistantMessage)

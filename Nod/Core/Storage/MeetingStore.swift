@@ -66,6 +66,13 @@ final class MeetingStore: ObservableObject {
     /// (`softDelete` sets, `dismissUndo` / `restore` / `hardDelete` clear).
     @Published private(set) var pendingUndo: Meeting?
 
+    /// Fires after a soft delete, restore, or hard delete lands — the set of
+    /// meetings retrieval is allowed to draw on just changed. Anything
+    /// caching search results keyed on content rather than on this set needs
+    /// telling, since it has no other way to notice a chunk it holds now
+    /// belongs to a trashed (or freshly un-trashed) session.
+    let onTrashChange = EventBroadcaster<Void>()
+
     /// True when the most recent `refresh()` attempt failed AND we kept
     /// cached `meetings` instead of flipping to `.failed`. Drives a
     /// non-blocking "couldn't sync, showing cached" warning in
@@ -559,6 +566,7 @@ final class MeetingStore: ObservableObject {
                     trashedMeetings.insert(trashed(meeting), at: 0)
                 }
                 pendingUndo = meeting
+                onTrashChange.fire()
                 return
             }
         #endif
@@ -577,6 +585,7 @@ final class MeetingStore: ObservableObject {
             trashedMeetings.insert(trashed(meeting), at: 0)
         }
         pendingUndo = meeting
+        onTrashChange.fire()
     }
 
     /// Restore — calls the `restore_meeting` RPC; row returns to
@@ -594,6 +603,7 @@ final class MeetingStore: ObservableObject {
                     meetings.sort { $0.startedAt > $1.startedAt }
                 }
                 if pendingUndo?.id == id { pendingUndo = nil }
+                onTrashChange.fire()
                 return
             }
         #endif
@@ -612,6 +622,7 @@ final class MeetingStore: ObservableObject {
             }
         }
         if pendingUndo?.id == id { pendingUndo = nil }
+        onTrashChange.fire()
     }
 
     enum HardDeleteError: Error {
@@ -634,6 +645,7 @@ final class MeetingStore: ObservableObject {
                 meetings.removeAll { $0.id == id }
                 trashedMeetings.removeAll { $0.id == id }
                 if pendingUndo?.id == id { pendingUndo = nil }
+                onTrashChange.fire()
                 return
             }
         #endif
@@ -646,6 +658,7 @@ final class MeetingStore: ObservableObject {
         meetings.removeAll { $0.id == id }
         trashedMeetings.removeAll { $0.id == id }
         if pendingUndo?.id == id { pendingUndo = nil }
+        onTrashChange.fire()
     }
 
     /// Dismiss the Undo toast without acting on it (user clicked the X

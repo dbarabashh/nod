@@ -496,10 +496,7 @@ struct SessionsListView: View {
     }
 
     private var hardDeleteAlertVisible: Binding<Bool> {
-        Binding(
-            get: { pendingHardDelete != nil },
-            set: { if !$0 { pendingHardDelete = nil } }
-        )
+        .isPresented(by: $pendingHardDelete)
     }
 }
 

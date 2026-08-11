@@ -38,6 +38,13 @@ struct SessionChatView: View {
     /// The first time saved history lands we jump to the bottom; every later
     /// update animates. Reset per-meeting because the view is rebuilt with
     /// `.id(meeting.id)`.
+    /// The language baked into the last system prompt this session sent —
+    /// compared against on the next turn so a language switch (the STYLE
+    /// section's `LANGUAGE:` line, ahead of the transcript in the same
+    /// string) is caught as a prefix change, not just a change inside the
+    /// retrieved excerpts. Nil before the first turn, which nothing is
+    /// cached against yet.
+    @State private var lastSystemPromptLanguage: AppLanguage?
     @State private var didInitialScroll = false
     /// The scroll content stays hidden until that first jump lands, so the
     /// chat appears already at the bottom instead of visibly scrolling down.
@@ -234,8 +241,13 @@ struct SessionChatView: View {
                 ? chatStore.beginRetry()
                 : await chatStore.appendUserTurn(text: text, meetingID: meeting.id, userID: meeting.userID)
             guard started else { return }
-            let systemPrompt = await buildSystemPrompt(for: text, history: priorHistory)
-            await chatStore.reply(systemPrompt: systemPrompt, meetingID: meeting.id, userID: meeting.userID)
+            let built = await buildSystemPrompt(for: text, history: priorHistory)
+            await chatStore.reply(
+                systemPrompt: built.system,
+                meetingID: meeting.id,
+                userID: meeting.userID,
+                cachePrompt: built.cacheable
+            )
             if chatStore.sendState == .idle {
                 analytics.record(
                     .aiActionCompleted,
@@ -252,12 +264,26 @@ struct SessionChatView: View {
         }
     }
 
-    private func buildSystemPrompt(for query: String, history: [LLMProxyClient.ChatTurn]) async -> String {
+    /// `cacheable` says whether this turn's `system` is the same text a
+    /// caching provider would already have on file from the last turn — see
+    /// `LLMProxyClient.chat(cachePrompt:)`. The cache breakpoint covers the
+    /// WHOLE system string, so two things can break it: retrieval chunks
+    /// (chosen fresh per question) and the detected reply language (the
+    /// STYLE section's `LANGUAGE:` line, which sits ahead of the transcript
+    /// — see `buildChatSystem`). Either one changing makes the write-only,
+    /// never matches the prior turn's prefix.
+    private func buildSystemPrompt(
+        for query: String,
+        history: [LLMProxyClient.ChatTurn]
+    ) async -> (system: String, cacheable: Bool) {
         // Match the user's typed language; fall back to the meeting's language.
         let language = AppLanguage.detect(from: query) ?? AppLanguage(rawValue: current.language) ?? .english
+        let languageStableSinceLastTurn = lastSystemPromptLanguage == nil || lastSystemPromptLanguage == language
+        lastSystemPromptLanguage = language
         let full = transcriptText ?? ""
         var grounding = full
         var isExcerpt = false
+        var cacheable = languageStableSinceLastTurn
         if full.count > Self.longTranscriptChars {
             // Retrieval only stands in for the transcript when the index
             // actually covers the session. A run that died part-way leaves the
@@ -287,6 +313,7 @@ struct SessionChatView: View {
                 } else {
                     grounding = chunks.map(\.content).joined(separator: "\n…\n")
                     isExcerpt = true
+                    cacheable = false
                 }
             } else {
                 grounding = String(full.prefix(Self.transcriptHardCap))
@@ -294,7 +321,7 @@ struct SessionChatView: View {
                 repairIndex(full)
             }
         }
-        return PromptLibrary.buildChatSystem(
+        let system = PromptLibrary.buildChatSystem(
             sessionKind: current.kind,
             title: current.title ?? "",
             summary: current.summary,
@@ -304,6 +331,7 @@ struct SessionChatView: View {
             personalContext: profileStore.promptContext,
             meetingDate: PromptLibrary.sessionDateString(current.startedAt)
         )
+        return (system, cacheable)
     }
 
     /// Rebuilds a short index in the background so the next question on this

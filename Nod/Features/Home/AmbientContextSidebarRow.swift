@@ -45,7 +45,7 @@ struct AmbientContextSidebarRow: View {
         .animation(.standard(reduceMotion: reduceMotion), value: screenContext.lastDeletion)
         .confirmationDialog(
             Self.confirmationTitle(pending),
-            isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
+            isPresented: .isPresented(by: $pending),
             titleVisibility: .visible
         ) {
             confirmationActions
@@ -224,13 +224,19 @@ struct AmbientContextSidebarRow: View {
 
     /// Says what happened in the user's terms, including when nothing did — a
     /// silent "0 deleted" reads as a broken button, and a failure the user never
-    /// hears about reads as a successful one.
+    /// hears about reads as a successful one. Names the app on a per-app delete
+    /// so this reads correctly wherever it surfaces — the sidebar's time-window
+    /// menu and Settings' per-app menu share one `lastDeletion`, and either can
+    /// be on screen when the other fires.
     static func deletionMessage(_ outcome: ScreenContextService.DeletionOutcome) -> String {
         switch outcome {
         case .failed: "Couldn't delete — check your connection."
-        case let .deleted(count) where count == 0: "Nothing captured in that window."
-        case .deleted(1): "Deleted 1 capture."
-        case let .deleted(count): "Deleted \(count) captures."
+        case let .deleted(count, appName) where count == 0:
+            appName.map { "Nothing captured from \($0)." } ?? "Nothing captured in that window."
+        case let .deleted(1, appName):
+            appName.map { "Deleted 1 capture from \($0)." } ?? "Deleted 1 capture."
+        case let .deleted(count, appName):
+            appName.map { "Deleted \(count) captures from \($0)." } ?? "Deleted \(count) captures."
         }
     }
 

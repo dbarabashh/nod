@@ -76,12 +76,39 @@ final class AmbientContextMenuTests: XCTestCase {
     /// A delete that removed nothing and a delete that failed are different
     /// facts, and the user acts differently on each.
     func testDeletionMessageDistinguishesEmptyFromFailed() {
-        XCTAssertEqual(AmbientContextSidebarRow.deletionMessage(.deleted(0)), "Nothing captured in that window.")
-        XCTAssertEqual(AmbientContextSidebarRow.deletionMessage(.deleted(1)), "Deleted 1 capture.")
-        XCTAssertEqual(AmbientContextSidebarRow.deletionMessage(.deleted(12)), "Deleted 12 captures.")
+        XCTAssertEqual(
+            AmbientContextSidebarRow.deletionMessage(.deleted(count: 0, appName: nil)),
+            "Nothing captured in that window."
+        )
+        XCTAssertEqual(
+            AmbientContextSidebarRow.deletionMessage(.deleted(count: 1, appName: nil)),
+            "Deleted 1 capture."
+        )
+        XCTAssertEqual(
+            AmbientContextSidebarRow.deletionMessage(.deleted(count: 12, appName: nil)),
+            "Deleted 12 captures."
+        )
         XCTAssertNotEqual(
             AmbientContextSidebarRow.deletionMessage(.failed),
-            AmbientContextSidebarRow.deletionMessage(.deleted(0))
+            AmbientContextSidebarRow.deletionMessage(.deleted(count: 0, appName: nil))
+        )
+    }
+
+    /// A per-app delete (Settings › Privacy) and a time-window delete (the
+    /// sidebar menu) share one `lastDeletion` — whichever fired last has to
+    /// name its own scope, or it reads as the other surface's action.
+    func testDeletionMessageNamesTheAppWhenScoped() {
+        XCTAssertEqual(
+            AmbientContextSidebarRow.deletionMessage(.deleted(count: 0, appName: "Slack")),
+            "Nothing captured from Slack."
+        )
+        XCTAssertEqual(
+            AmbientContextSidebarRow.deletionMessage(.deleted(count: 1, appName: "Slack")),
+            "Deleted 1 capture from Slack."
+        )
+        XCTAssertEqual(
+            AmbientContextSidebarRow.deletionMessage(.deleted(count: 12, appName: "Slack")),
+            "Deleted 12 captures from Slack."
         )
     }
 

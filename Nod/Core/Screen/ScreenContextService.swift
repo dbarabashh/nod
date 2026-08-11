@@ -327,17 +327,27 @@ final class ScreenContextService: ObservableObject {
     /// stays on screen are the surface's business, and a `Core/` service that
     /// owns English can't be re-worded or localized per surface.
     enum DeletionOutcome: Equatable {
-        case deleted(Int)
+        /// `appName` is nil for a time-window delete, set for a per-app one —
+        /// `AmbientContextSidebarRow`'s time-window menu and
+        /// `ScreenPrivacySection`'s per-app menu both render whichever of
+        /// these last fired (they share this one published property and can
+        /// be on screen together), so the message has to name its own scope
+        /// rather than read as whatever the OTHER surface would have said.
+        case deleted(count: Int, appName: String?)
         case failed
     }
 
-    /// Delete captured context observed since `cutoff` — nil clears all of it.
-    /// The result reaches the UI through `lastDeletion`, because the menu that
-    /// triggered this is already gone by the time it returns.
+    /// Delete captured context observed since `cutoff` — nil clears all of it —
+    /// and/or from one `sourceApp` — nil clears every app. The result reaches
+    /// the UI through `lastDeletion`, because the menu that triggered this is
+    /// already gone by the time it returns.
     ///
     /// The policy promises deletion is as easy as capture was
-    /// (`privacy.md` § 3.10(b)); this is the code that makes that true.
-    func deleteObservations(since cutoff: Date?) async {
+    /// (`privacy.md` § 3.10(b)); this is the code that makes that true —
+    /// including the narrower promise the table's own migration comment
+    /// makes: a user who excludes an app afterwards can find and delete what
+    /// was already captured from it specifically, not just by time window.
+    func deleteObservations(since cutoff: Date?, app sourceApp: String? = nil) async {
         guard let supabase else { return announce(.failed) }
         do {
             // `.minimal` + an exact count: the number comes back in a header
@@ -345,9 +355,10 @@ final class ScreenContextService: ObservableObject {
             // "Everything" over a 14-day index is thousands of ids parsed and
             // thrown away.
             let table = supabase.from("screen_observations").delete(returning: .minimal, count: .exact)
-            // RLS already scopes the delete to the caller, so the only filter
-            // here is the time window the user chose.
-            let filtered = cutoff.map { table.gte("observed_at", value: $0) } ?? table
+            // RLS already scopes the delete to the caller, so the remaining
+            // filters are only the ones the user chose.
+            let byTime = cutoff.map { table.gte("observed_at", value: $0) } ?? table
+            let filtered = sourceApp.map { byTime.eq("source_app", value: $0) } ?? byTime
             let deleted = try await filtered.execute().count ?? 0
             // `lastStoredAt` is deliberately NOT cleared. It is what stops the
             // window still on screen from being re-sent on the next 5s tick, and
@@ -355,7 +366,8 @@ final class ScreenContextService: ObservableObject {
             // undid itself within one interval, for the exact window they were
             // looking at when they reached for it.
             Log.screen.info("context: deleted \(deleted) observation(s)")
-            announce(.deleted(deleted))
+            let appName = sourceApp.map { AppDirectory.identity(forBundleID: $0).name }
+            announce(.deleted(count: deleted, appName: appName))
         } catch {
             Log.screen.error("context: delete failed — \(error.localizedDescription)")
             announce(.failed)

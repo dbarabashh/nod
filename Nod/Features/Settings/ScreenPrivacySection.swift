@@ -39,6 +39,10 @@ struct ScreenPrivacySection: View {
     @State private var alwaysIncludeDraft = ""
     @State private var alwaysIncludeError: String?
     @State private var showsCategories = true
+    /// Set by the app row's "Delete captured context" command, confirmed
+    /// before it runs — deletion can't be undone, same rule as the sidebar's
+    /// own delete menu (`AmbientContextSidebarRow`).
+    @State private var pendingAppDeletion: InstalledApp?
 
     private enum Scope: String, CaseIterable, Identifiable {
         case apps, websites
@@ -61,6 +65,19 @@ struct ScreenPrivacySection: View {
         .task {
             guard installedApps.isEmpty else { return }
             installedApps = await Task.detached(priority: .userInitiated) { InstalledApps.load() }.value
+        }
+        .confirmationDialog(
+            pendingAppDeletion.map { "Delete context captured from \($0.name)?" } ?? "",
+            isPresented: .isPresented(by: $pendingAppDeletion),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let app = pendingAppDeletion else { return }
+                Task { await screenContext.deleteObservations(since: nil, app: app.bundleID) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Deleted context can't be recovered. Your sessions and transcripts are not affected.")
         }
     }
 
@@ -188,6 +205,15 @@ struct ScreenPrivacySection: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 12))
 
+            // The delete itself is server-side and nothing on screen shrinks,
+            // so without this a per-app delete looks like it did nothing —
+            // same reasoning as the sidebar's own `lastDeletion` line.
+            if let outcome = screenContext.lastDeletion {
+                Text(AmbientContextSidebarRow.deletionMessage(outcome))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.Palette.muted)
+            }
+
             SettingsCard {
                 // Filtered once per pass, not once per reference — and lazily
                 // rendered: the list is every app on the Mac, so an eager stack
@@ -237,6 +263,14 @@ struct ScreenPrivacySection: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .contextMenu {
+            // Independent of the switch above: excluding an app going forward
+            // doesn't touch what it already captured, and this is the only
+            // way to find and remove that — the delete menu in the sidebar
+            // only scopes by time, not by app.
+            Button("Delete Captured Context from \(app.name)…") { pendingAppDeletion = app }
+        }
     }
 
     private func binding(for app: InstalledApp) -> Binding<Bool> {

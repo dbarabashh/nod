@@ -74,7 +74,10 @@ final class KnowledgeStore: ObservableObject {
         cacheOrder.append(key)
     }
 
-    private func invalidateCache() {
+    /// Not `private`: a trashed or restored meeting can change which chunks a
+    /// cached result set is allowed to surface, and the cache has no way to
+    /// notice that on its own — something outside this store has to tell it.
+    func invalidateCache() {
         cache.removeAll()
         cacheOrder.removeAll()
     }

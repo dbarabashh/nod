@@ -130,6 +130,9 @@ struct AppServices {
         let meetingStore = MeetingStore(supabase: supabase)
         let profileStore = ProfileStore(supabase: supabase, auth: auth)
         let knowledgeStore = KnowledgeStore(llm: llmClient, supabase: supabase)
+        // A trashed or restored meeting changes which chunks are retrievable;
+        // the cache is keyed only on query text and can't notice that itself.
+        meetingStore.onTrashChange.subscribe { [weak knowledgeStore] in knowledgeStore?.invalidateCache() }
         let screenExclusions = ScreenExclusions()
         let screenContext = ScreenContextService(supabase: supabase, exclusions: screenExclusions)
         let entitlements = EntitlementService(supabase: supabase)
