@@ -16,6 +16,7 @@ struct NotchRecapCard: View {
     let state: RecapState
     let onClose: () -> Void
     let onExpand: (UUID) -> Void
+    let onCopy: (SessionKind) -> Void
 
     private static let maxHeight: CGFloat = 300
 
@@ -99,12 +100,15 @@ struct NotchRecapCard: View {
             // what you do to the card, these are what you do with the meeting.
             HStack(spacing: 6) {
                 Spacer(minLength: 0)
-                NotchCopyGlyphButton {
-                    MeetingMarkdownExport.summaryPayload(
-                        meeting: meeting,
-                        actions: meeting.recap?.actionItems ?? []
-                    )
-                }
+                NotchCopyGlyphButton(
+                    text: {
+                        MeetingMarkdownExport.summaryPayload(
+                            meeting: meeting,
+                            actions: meeting.recap?.actionItems ?? []
+                        )
+                    },
+                    onCopy: { onCopy(meeting.kind) }
+                )
                 NotchGlyphButton(icon: "nc-arrow-up-right", help: "Open meeting") { onExpand(meeting.id) }
             }
         }

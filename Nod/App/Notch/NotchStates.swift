@@ -496,6 +496,7 @@ extension View {
 /// button is pressed, not on every redraw of whatever contains it.
 struct NotchCopyGlyphButton: View {
     let text: () -> String
+    var onCopy: () -> Void = {}
 
     @State private var copied = false
     @State private var flash: Task<Void, Never>?
@@ -510,6 +511,7 @@ struct NotchCopyGlyphButton: View {
 
     private func copy() {
         NSPasteboard.copyText(text())
+        onCopy()
         // Cancelled rather than left to run: without this, a second tap inside
         // the hold window leaves the first task to clear the check while the
         // user is still looking at the second one.

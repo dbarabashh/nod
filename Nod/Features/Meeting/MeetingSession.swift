@@ -912,6 +912,30 @@ final class MeetingSession: ObservableObject {
         justEndedMeetingID = nil
     }
 
+    /// The recap card's Copy. Recorded here rather than from the card because
+    /// this is where the analytics dependency already lives, and because the
+    /// notch is not the meeting detail view: `recordMeetingInteraction` hard-
+    /// codes `meetingDetail` for both entry point and surface, so calling it
+    /// would file this under a screen the user never opened. Same
+    /// `floatingPanel` / `capture` pair every other event from this surface
+    /// carries.
+    ///
+    /// No `captureID`: `resetPanelForIdle` clears it on the line after the one
+    /// that puts this card on screen, so it is always nil by the time anyone
+    /// can press Copy. The detail view's copy event carries none either.
+    func recordRecapCopied(kind: SessionKind) {
+        analytics.record(
+            .contentCopied,
+            properties: .init(
+                sessionKind: kind.rawValue,
+                entryPoint: .floatingPanel,
+                surface: .capture,
+                contentType: .summary,
+                outcome: .success
+            )
+        )
+    }
+
     private func cleanupToIdle() {
         streamTask?.cancel()
         streamTask = nil

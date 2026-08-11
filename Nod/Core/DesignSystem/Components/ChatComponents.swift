@@ -322,6 +322,7 @@ struct UserTextBubble: View {
 struct ChatCopyButton: View {
     let text: String
     @State private var copied = false
+    @State private var flash: Task<Void, Never>?
 
     var body: some View {
         Button(action: copy) {
@@ -340,8 +341,10 @@ struct ChatCopyButton: View {
 
     private func copy() {
         NSPasteboard.copyRichText(markdown: text)
-        copied = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
+        flash?.cancel()
+        flash = Task {
+            await flashConfirmation(set: { copied = true }, reset: { copied = false }, for: 1.5)
+        }
     }
 }
 

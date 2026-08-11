@@ -95,7 +95,8 @@ struct NotchStateContent: View {
             NotchRecapCard(
                 state: state,
                 onClose: model.session.dismissEndedMeeting,
-                onExpand: model.openMeeting
+                onExpand: model.openMeeting,
+                onCopy: model.session.recordRecapCopied
             )
         case .launch:
             NotchLaunch(session: model.session, onStart: model.requestStart)
