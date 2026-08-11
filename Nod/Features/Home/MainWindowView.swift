@@ -23,6 +23,7 @@ struct MainWindowView: View {
     @EnvironmentObject private var knowledgeThreads: KnowledgeThreadStore
     @EnvironmentObject private var hotkeys: HotkeyManager
     @EnvironmentObject private var settingsFocus: SettingsFocus
+    @EnvironmentObject private var demoPlayback: DemoPlayback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var surface: Surface = .chat
@@ -64,6 +65,7 @@ struct MainWindowView: View {
         case sessions
         case actionItems
         case settings
+        case dailyModes
     }
 
     var body: some View {
@@ -162,7 +164,7 @@ struct MainWindowView: View {
     /// needs the user isn't actionable while they're changing a setting.
     private var showsContextColumn: Bool {
         if openSession != nil { return true }
-        return surface != .settings && !contextCollapsed
+        return surface != .settings && surface != .dailyModes && !contextCollapsed
     }
 
     private var openSession: Meeting? {
@@ -248,6 +250,13 @@ struct MainWindowView: View {
             .transition(.opacity)
         case .settings:
             settings.transition(.opacity)
+        case .dailyModes:
+            // Only reachable via the sidebar row HomeSidebar shows while a
+            // scenario is armed, so `armed` is never nil here in practice.
+            if let scenario = demoPlayback.armed {
+                DemoDailyModesView(scenario: scenario)
+                    .transition(.opacity)
+            }
         }
     }
 

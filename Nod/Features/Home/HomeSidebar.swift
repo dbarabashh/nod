@@ -22,6 +22,7 @@ struct HomeSidebar: View {
     @EnvironmentObject private var chat: KnowledgeChatStore
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var entitlements: EntitlementService
+    @EnvironmentObject private var demoPlayback: DemoPlayback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var isAddingProject = false
@@ -55,6 +56,7 @@ struct HomeSidebar: View {
                     // as "the section you're in".
                     Color.clear.frame(height: 14)
                     chatRow
+                    dailyModesRow
                     navRow(
                         "Sessions",
                         icon: "nc-layers-3",
@@ -204,6 +206,21 @@ struct HomeSidebar: View {
             .onHover { newChatHovering = $0 }
             .linkCursor()
             .help("New chat")
+        }
+    }
+
+    /// Only shown while a scripted scenario is armed (Settings → Demo) — the
+    /// seven scripted modes behind it have nothing to show a real account, so
+    /// the row itself must not outlive the thing it opens.
+    @ViewBuilder
+    private var dailyModesRow: some View {
+        if demoPlayback.armed != nil {
+            navRow(
+                "Today",
+                icon: "nc-window-chart-line",
+                isSelected: surface == .dailyModes,
+                action: { onSelect(.dailyModes) }
+            )
         }
     }
 
