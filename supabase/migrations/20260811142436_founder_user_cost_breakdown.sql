@@ -27,6 +27,7 @@ returns table (
   app_version text,
   os_version text,
   kind text,
+  task text,
   model text,
   requests bigint,
   errors bigint,
@@ -53,6 +54,11 @@ begin
     p.app_version,
     p.os_version,
     ue.kind,
+    -- `task` (summary/title/utility/chat/stt) only exists where the routing
+    -- telemetry migration has landed. Reading it through `to_jsonb` yields NULL
+    -- instead of failing where the column is absent, so one function serves
+    -- both production and the sandbox branch.
+    to_jsonb(ue.*) ->> 'task',
     coalesce(ue.model, 'unknown'),
     count(*),
     count(*) filter (where ue.status < 200 or ue.status >= 300),
@@ -65,7 +71,8 @@ begin
   join auth.users u on u.id = ue.user_id
   left join profiles p on p.user_id = ue.user_id
   where ue.created_at >= since
-  group by ue.user_id, u.email, p.app_version, p.os_version, ue.kind, coalesce(ue.model, 'unknown')
+  group by ue.user_id, u.email, p.app_version, p.os_version, ue.kind,
+           to_jsonb(ue.*) ->> 'task', coalesce(ue.model, 'unknown')
   order by coalesce(round(sum(ue.cost_usd), 6), 0) desc;
 end;
 $$;
