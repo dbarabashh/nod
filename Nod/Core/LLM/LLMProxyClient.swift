@@ -161,6 +161,20 @@ final class LLMProxyClient: ObservableObject {
         }
     }
 
+    /// Whether to spend output tokens on a chain of thought. Derived from the
+    /// routing category rather than passed per call, for the same reason
+    /// `taskLabel` is: every utility call is `completeJSON` against a fixed
+    /// schema — the live pass, the HyDE search rewrite, the session router —
+    /// and none of them has anything to work out.
+    ///
+    /// Measured on a 46-minute meeting: the live analyst's replies were 13–614
+    /// characters but billed 82–504 completion tokens, so roughly 88% of what
+    /// we paid for on that call was reasoning nothing read. Output bills at
+    /// ~4× input. nil leaves the model's own default alone.
+    private func reasoning(for primaryModel: String) -> Reasoning? {
+        taskLabel(for: primaryModel) == "utility" ? Reasoning(enabled: false) : nil
+    }
+
     private func providerPreference(for primaryModel: String) -> ProviderPreference {
         guard primaryModel.hasPrefix("google/") else {
             return ProviderPreference(order: nil, ignore: nil, allow_fallbacks: true)
@@ -223,7 +237,12 @@ final class LLMProxyClient: ObservableObject {
         let content: String
     }
 
-    func complete(system: String, user: String, jsonMode: Bool = false, primaryModel: String? = nil) async throws -> String {
+    func complete(
+        system: String,
+        user: String,
+        jsonMode: Bool = false,
+        primaryModel: String? = nil
+    ) async throws -> String {
         Log.llm.info(
             "→ chat via proxy model=\(primaryModel ?? model) fallback=\(fallbackModel) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)"
         )
@@ -313,6 +332,7 @@ final class LLMProxyClient: ObservableObject {
             temperature: Self.acceptsTemperature(primary) ? temperature : nil,
             stream: nil,
             cache_prompt: cachePrompt ? true : nil,
+            reasoning: reasoning(for: primary),
             task: taskLabel(for: primary)
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
@@ -440,6 +460,7 @@ final class LLMProxyClient: ObservableObject {
                         temperature: Self.acceptsTemperature(primary) ? temperature : nil,
                         stream: true,
                         cache_prompt: cachePrompt ? true : nil,
+                        reasoning: reasoning(for: primary),
                         task: taskLabel(for: primary)
                     )
                     let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
@@ -1174,6 +1195,10 @@ private struct ChatRequest: Encodable {
     /// The proxy reads this flag, applies the provider cache_control marker,
     /// and strips the field before forwarding upstream. nil is omitted from JSON.
     let cache_prompt: Bool?
+    /// OpenRouter's unified reasoning switch, sent only to turn it off — see
+    /// `reasoning(for:)`. nil is omitted from the JSON, leaving the model's
+    /// own default alone.
+    let reasoning: Reasoning?
     /// Which of the four routing categories this call belongs to — derived
     /// from which model property resolved `model` above, not sent by the
     /// caller. Every single-shot generation call (summary/title/recap/
@@ -1181,6 +1206,10 @@ private struct ChatRequest: Encodable {
     /// first thing that lets it tell them apart. The proxy logs/records it
     /// and strips it before forwarding upstream, same as `cache_prompt`.
     let task: String?
+}
+
+private struct Reasoning: Encodable {
+    let enabled: Bool
 }
 
 private struct ResponseFormat: Encodable {

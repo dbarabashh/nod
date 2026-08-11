@@ -49,6 +49,48 @@ enum MeetingMarkdownExport {
         return out
     }
 
+    /// The recap on its own, for a clipboard rather than a file: title,
+    /// summary, and the action items under it. No frontmatter and no
+    /// transcript — this is what somebody pastes into Slack straight after the
+    /// call, and it reads as prose, not as a document.
+    ///
+    /// Takes the recap's own `[Action]` rather than `[ActionItem]` because the
+    /// caller is the notch, which has the recap in hand before the action-item
+    /// rows are persisted.
+    static func summaryPayload(meeting: Meeting, actions: [MeetingRecap.Action]) -> String {
+        var parts: [String] = []
+        if let title = meeting.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            parts.append(title)
+        }
+        let summary = meeting.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !summary.isEmpty {
+            parts.append(summary)
+        }
+        if !actions.isEmpty {
+            let lines = actions.map { actionLine(text: $0.text, deadline: $0.deadline, spokenAt: meeting.startedAt) }
+            parts.append((["ACTION ITEMS"] + lines).joined(separator: "\n"))
+        }
+        return parts.joined(separator: "\n\n")
+    }
+
+    /// One action item as a Markdown task list line. The deadline is resolved
+    /// against the meeting date first: "end of week" only means something next
+    /// to the day it was said, and an exported file is read long after that.
+    private static func taskLine(for item: ActionItem, spokenAt: Date) -> String {
+        let box = item.done ? "[x]" : "[ ]"
+        return "- \(box) " + actionLine(text: item.text, deadline: item.deadline, spokenAt: spokenAt)
+    }
+
+    /// The shared half of a written-out action item: its text, and its deadline
+    /// anchored to the day it was spoken.
+    private static func actionLine(text: String, deadline: String?, spokenAt: Date) -> String {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let deadline = deadline?.trimmingCharacters(in: .whitespacesAndNewlines), !deadline.isEmpty else {
+            return text
+        }
+        return "\(text) (\(ActionItemDeadline.exportLabel(phrase: deadline, spokenAt: spokenAt)))"
+    }
+
     /// A filesystem-safe `<name>.md` filename derived from the title (falling
     /// back to the date). Mirrors anarlog's sanitiser: strip path-hostile
     /// characters, collapse runs of `_`, trim, cap length.
@@ -90,18 +132,6 @@ enum MeetingMarkdownExport {
     private static func line(for record: TranscriptRecord, meetingStart: Date, names: [String: String]?) -> String {
         let stamp = offsetLabel(from: meetingStart, to: record.ts)
         return "[\(stamp)] **\(record.displayLabel(names: names))**: \(record.text)"
-    }
-
-    /// One action item as a Markdown task list line. The deadline is resolved
-    /// against the meeting date first: "end of week" only means something next
-    /// to the day it was said, and an exported file is read long after that.
-    private static func taskLine(for item: ActionItem, spokenAt: Date) -> String {
-        let box = item.done ? "[x]" : "[ ]"
-        let text = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let deadline = item.deadline?.trimmingCharacters(in: .whitespacesAndNewlines), !deadline.isEmpty else {
-            return "- \(box) \(text)"
-        }
-        return "- \(box) \(text) (\(ActionItemDeadline.exportLabel(phrase: deadline, spokenAt: spokenAt)))"
     }
 
     /// `[MM:SS]` (or `[H:MM:SS]` past an hour) offset of a transcript line from

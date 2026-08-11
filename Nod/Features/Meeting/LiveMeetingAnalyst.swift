@@ -66,13 +66,25 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// what actually gate the spend.
     private static let tickInterval: TimeInterval = 15
 
-    /// How much transcript each pass reads. Wider than the new material on
-    /// purpose: a commitment is usually made a few lines after the thing it
-    /// answers, and a window that starts exactly at the new material keeps
-    /// cutting that in half.
+    /// The ceiling on how much transcript one pass reads — and what a first
+    /// pass, or one after a long quiet stretch, actually gets.
     /// Not `private`: `LiveMeetingAnalyst+Assist.swift`'s `suggestFollowUps`
-    /// reads the same window size the background pass uses.
+    /// reads the same width.
     static let windowLines = 40
+
+    /// How far back a pass reads *behind* the new material. Wider than the new
+    /// material on purpose: a commitment is usually made a few lines after the
+    /// thing it answers, and a window starting exactly at the new material
+    /// keeps cutting that in half. Kept proportional rather than flat because
+    /// at Maximum a pass fires on 4 new lines, and a flat 40 then re-read 36
+    /// lines the previous pass had already reported on.
+    static let lookbackLines = 12
+
+    /// The window for a pass that has `newLines` of unread transcript. Capped
+    /// so a burst after a long silence still gets a full read.
+    nonisolated static func windowSize(forNewLines newLines: Int) -> Int {
+        min(windowLines, newLines + lookbackLines)
+    }
 
     /// How long a notice stays up before it goes away on its own. Long enough
     /// to read mid-sentence, short enough that it is gone before the user
@@ -169,14 +181,17 @@ final class LiveMeetingAnalyst: ObservableObject {
         guard lines - analyzedLines >= proactivity.level.minNewLines else { return }
         if let lastPassAt, Date().timeIntervalSince(lastPassAt) < interval { return }
 
-        analyzedLines = lines
+        // Not marked analysed yet: `run` commits on success, so a pass that
+        // fails leaves its lines for the next one to read again. `pass == nil`
+        // above is what stops a second pass seeing the same delta meanwhile.
+        let newLines = lines - analyzedLines
         lastPassAt = Date()
         // The handle is cleared only if it is still this task's. Pause/resume
         // cancels a pass and starts the loop again, and the cancelled task's
         // continuation still runs — clearing unconditionally it would drop its
         // successor's handle, and the next tick would start a second pass
         // alongside one already in flight.
-        let task = Task<Void, Never> { [weak self] in await self?.run() }
+        let task = Task<Void, Never> { [weak self] in await self?.run(newLines: newLines) }
         pass = task
         Task { [weak self] in
             _ = await task.value
@@ -185,8 +200,8 @@ final class LiveMeetingAnalyst: ObservableObject {
         }
     }
 
-    private func run() async {
-        let window = store.recentContext(maxEntries: Self.windowLines)
+    private func run(newLines: Int) async {
+        let window = store.recentContext(maxEntries: Self.windowSize(forNewLines: newLines))
         guard !window.isEmpty else { return }
 
         // A dismissed finding is the user's own veto — it must not block a later,
@@ -201,6 +216,7 @@ final class LiveMeetingAnalyst: ObservableObject {
                 as: PromptLibrary.LivePassResult.self,
                 primaryModel: llm.utilityModel
             )
+            analyzedLines += newLines
             apply(result.items, window: window, standing: standing)
         } catch {
             // The meeting is being recorded and summarised regardless; a failed

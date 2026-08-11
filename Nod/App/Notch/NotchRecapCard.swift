@@ -15,6 +15,7 @@ import SwiftUI
 struct NotchRecapCard: View {
     let state: RecapState
     let onClose: () -> Void
+    let onExpand: (UUID) -> Void
 
     private static let maxHeight: CGFloat = 300
 
@@ -68,30 +69,45 @@ struct NotchRecapCard: View {
     }
 
     private func ready(_ meeting: Meeting) -> some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: 13) {
-                Text(renderRecapMarkdown(meeting.summary))
-                    .font(.system(size: 11.5, weight: .regular))
-                    .foregroundStyle(Theme.Palette.graphite)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 11) {
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 13) {
+                    Text(renderRecapMarkdown(meeting.summary))
+                        .font(.system(size: 11.5, weight: .regular))
+                        .foregroundStyle(Theme.Palette.graphite)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                if let items = meeting.recap?.actionItems, !items.isEmpty {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("ACTION ITEMS")
-                            .font(.system(size: 9.5, weight: .bold))
-                            .kerning(0.6)
-                            .foregroundStyle(Theme.Palette.muted.opacity(0.9))
-                        VStack(alignment: .leading, spacing: 3) {
-                            ForEach(items, id: \.text) { item in
-                                actionRow(item)
+                    if let items = meeting.recap?.actionItems, !items.isEmpty {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("ACTION ITEMS")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .kerning(0.6)
+                                .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+                            VStack(alignment: .leading, spacing: 3) {
+                                ForEach(items, id: \.text) { item in
+                                    actionRow(item)
+                                }
                             }
                         }
                     }
                 }
+                .padding(.trailing, 4)
             }
-            .padding(.trailing, 4)
+            .frame(maxHeight: Self.maxHeight)
+
+            // Bottom-right rather than beside the dismiss glyph: closing is
+            // what you do to the card, these are what you do with the meeting.
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                NotchCopyGlyphButton {
+                    MeetingMarkdownExport.summaryPayload(
+                        meeting: meeting,
+                        actions: meeting.recap?.actionItems ?? []
+                    )
+                }
+                NotchGlyphButton(icon: "nc-arrow-up-right", help: "Open meeting") { onExpand(meeting.id) }
+            }
         }
-        .frame(maxHeight: Self.maxHeight)
     }
 
     private func actionRow(_ item: MeetingRecap.Action) -> some View {

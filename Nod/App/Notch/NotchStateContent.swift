@@ -92,7 +92,11 @@ struct NotchStateContent: View {
                 onCollapse: model.geometry.hasCutout ? { model.hideMeetingBar() } : nil
             )
         case let .recap(state):
-            NotchRecapCard(state: state, onClose: model.session.dismissEndedMeeting)
+            NotchRecapCard(
+                state: state,
+                onClose: model.session.dismissEndedMeeting,
+                onExpand: model.openMeeting
+            )
         case .launch:
             NotchLaunch(session: model.session, onStart: model.requestStart)
         case .languageConfirm:

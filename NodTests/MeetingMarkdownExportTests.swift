@@ -112,6 +112,41 @@ final class MeetingMarkdownExportTests: XCTestCase {
         XCTAssertTrue(md.contains("- [ ] Chase the invoice (“when Leo is back”, said 2023-11-14)"), md)
     }
 
+    // MARK: - Clipboard payload (the notch recap card's Copy)
+
+    func testSummaryPayloadCarriesTitleSummaryAndActionItems() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let meeting = makeMeeting(title: "Weekly Sync", summary: "Ship on Friday.", start: start, end: start)
+        let payload = MeetingMarkdownExport.summaryPayload(
+            meeting: meeting,
+            actions: [MeetingRecap.Action(text: "Send the deck")]
+        )
+
+        XCTAssertEqual(payload, "Weekly Sync\n\nShip on Friday.\n\nACTION ITEMS\nSend the deck")
+    }
+
+    /// The reason this goes through `MeetingMarkdownExport` rather than being
+    /// built in the view: a spoken phrase pasted into Slack is read days later,
+    /// where "end of week" means a different week.
+    func testSummaryPayloadResolvesDeadlinesAgainstTheMeetingDay() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let meeting = makeMeeting(title: nil, summary: "x", start: start, end: start)
+        let payload = MeetingMarkdownExport.summaryPayload(
+            meeting: meeting,
+            actions: [MeetingRecap.Action(text: "Chase the invoice", deadline: "when Leo is back")]
+        )
+
+        XCTAssertTrue(payload.contains("Chase the invoice (“when Leo is back”, said 2023-11-14)"), payload)
+    }
+
+    func testSummaryPayloadOmitsAnEmptyActionItemsBlock() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let meeting = makeMeeting(title: "Sync", summary: "x", start: start, end: start)
+        let payload = MeetingMarkdownExport.summaryPayload(meeting: meeting, actions: [])
+
+        XCTAssertFalse(payload.contains("ACTION ITEMS"))
+    }
+
     func testNoActionItemsSectionWhenEmpty() {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let meeting = makeMeeting(title: "Sync", summary: "x", start: start, end: start)

@@ -37,4 +37,15 @@ final class LiveMeetingAnalystTests: XCTestCase {
         XCTAssertFalse(LiveMeetingAnalyst.isQuoted("on pricing", in: window))
         XCTAssertFalse(LiveMeetingAnalyst.isQuoted("", in: window))
     }
+
+    // MARK: - Window sizing
+
+    func testWindowCoversTheNewMaterialPlusItsLookback() {
+        XCTAssertEqual(LiveMeetingAnalyst.windowSize(forNewLines: 4), 16)
+        XCTAssertEqual(LiveMeetingAnalyst.windowSize(forNewLines: 14), 26)
+    }
+
+    func testWindowIsCappedSoABurstAfterSilenceStillGetsAFullRead() {
+        XCTAssertEqual(LiveMeetingAnalyst.windowSize(forNewLines: 100), LiveMeetingAnalyst.windowLines)
+    }
 }

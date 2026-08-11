@@ -595,6 +595,18 @@ extension NotchModel {
         NotificationCenter.default.post(name: .nodOpenLibrary, object: nil)
     }
 
+    /// The recap card's expand. Posted rather than calling `WindowCoordinator`
+    /// directly because the notification has two independent observers —
+    /// `NodApp` raises and focuses the window, `MainWindowView` pushes the
+    /// detail view — and reaching the coordinator would only do the first.
+    func openMeeting(_ id: UUID) {
+        NotificationCenter.default.post(
+            name: .nodOpenMeetingDetail,
+            object: nil,
+            userInfo: [Notification.nodMeetingIDKey: id]
+        )
+    }
+
     /// The notch-gesture's hide — see `NotchGestureZone`. A no-op off a
     /// notched display or outside a meeting: nothing to tuck into, or nothing
     /// worth tucking.

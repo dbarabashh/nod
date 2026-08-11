@@ -1071,16 +1071,6 @@ struct MeetingDetailView: View {
             }
         }
     }
-
-    /// Apply a transient button confirmation: animate `set` in, hold for
-    /// `seconds`, then animate `reset` back. Shared by the copy and share
-    /// buttons so both flash identically.
-    @MainActor
-    private func flashConfirmation(set: () -> Void, reset: () -> Void, for seconds: Double) async {
-        withAnimation(.easeOut(duration: 0.15), set)
-        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-        withAnimation(.easeOut(duration: 0.2), reset)
-    }
 }
 
 private func meetingDurationString(from start: Date, to end: Date) -> String {

@@ -485,6 +485,41 @@ extension View {
 /// The notch's small circular glyph control — collapse, dismiss. Shared so the
 /// close affordance doesn't change size, chrome or press behaviour depending on
 /// which state happens to be showing.
+/// A glyph button that copies and flashes a check.
+///
+/// Its own view, not a `copied` flag on the card that hosts it: the flag is
+/// `@State`, so on the card it would re-run that card's whole body twice per
+/// tap — and the recap card's body parses the entire summary markdown on every
+/// pass. Here the toggle invalidates one 9pt glyph.
+///
+/// `text` is a closure for the same reason: the payload is built when the
+/// button is pressed, not on every redraw of whatever contains it.
+struct NotchCopyGlyphButton: View {
+    let text: () -> String
+
+    @State private var copied = false
+    @State private var flash: Task<Void, Never>?
+
+    var body: some View {
+        NotchGlyphButton(
+            icon: copied ? "nc-check" : "nc-files-2",
+            help: copied ? "Copied" : "Copy summary",
+            action: copy
+        )
+    }
+
+    private func copy() {
+        NSPasteboard.copyText(text())
+        // Cancelled rather than left to run: without this, a second tap inside
+        // the hold window leaves the first task to clear the check while the
+        // user is still looking at the second one.
+        flash?.cancel()
+        flash = Task {
+            await flashConfirmation(set: { copied = true }, reset: { copied = false }, for: 1.5)
+        }
+    }
+}
+
 struct NotchGlyphButton: View {
     let icon: String
     let help: String
