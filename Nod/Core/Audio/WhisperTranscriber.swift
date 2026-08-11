@@ -163,8 +163,11 @@ final class WhisperTranscriber: @unchecked Sendable {
 
     /// Drop sub-this speech blips ("um", "so") so they never reach Whisper.
     private static let minSpeechDuration: Float = 0.4
-    /// Cap an unbroken segment so a non-stop talker / media playback still
-    /// streams and chunks stay inside Whisper's ~30s window.
+    /// Nudge sherpa to split an unbroken segment. This is NOT a cap: the vendor
+    /// header spells out that exceeding it only makes the detector "temporarily
+    /// use a higher threshold to encourage a split", so a speaker who never
+    /// pauses keeps growing one segment (measured in production: p90 17s, p99
+    /// 27s, max 97.7s). `maxSegmentSamples` below is the actual ceiling.
     private static let maxSpeechDuration: Float = 15.0
 
     // Canonical Whisper/VAD input format: mono 16 kHz Float32. We normalize any
@@ -417,18 +420,26 @@ final class WhisperTranscriber: @unchecked Sendable {
         while !vad.isEmpty() {
             let segment = vad.front()
             vad.pop()
-            guard let segment,
-                  let wav = WhisperTranscriber.encodeWAV(segment.samples)
-            else { continue }
-            sendToWhisper(
-                wav: wav,
-                reason: reason,
-                timestamp: timestamp(forSampleIndex: segment.start),
-                prompt: promptTail,
-                promptLanguage: promptLanguage,
-                retrying: false,
-                segmentID: diarization?.record(segment.samples)
-            )
+            guard let segment else { continue }
+            let pieces = SpeechSegmentSplit.pieces(of: segment.samples)
+            if pieces.count > 1 {
+                Log.stt.info(
+                    "[\(source.label)] VAD segment ran \(segment.samples.count / 16_000)s past its cue — split into \(pieces.count)"
+                )
+            }
+            for piece in pieces {
+                let samples = Array(piece)
+                guard let wav = WhisperTranscriber.encodeWAV(samples) else { continue }
+                sendToWhisper(
+                    wav: wav,
+                    reason: reason,
+                    timestamp: timestamp(forSampleIndex: segment.start + piece.startIndex),
+                    prompt: promptTail,
+                    promptLanguage: promptLanguage,
+                    retrying: false,
+                    segmentID: diarization?.record(samples)
+                )
+            }
         }
     }
 
