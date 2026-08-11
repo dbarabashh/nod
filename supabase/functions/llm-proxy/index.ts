@@ -109,8 +109,15 @@ async function minimumBuild(admin: ReturnType<typeof adminClient>): Promise<numb
     const { data, error } = await admin
         .from("app_config")
         .select("minimum_build")
-        .eq("singleton", true)
+        .eq("platform", "macos")
         .single();
+    // Failing open is deliberate — a config blip must not lock a paying user
+    // out. But silence is how the `singleton` column drop (2026-08-06) kept this
+    // gate switched off for days while the config said it was enforcing, so a
+    // read failure is now loud.
+    if (error) {
+        console.error(`app_config.minimum_build unreadable, gate open: ${error.message}`);
+    }
     const value = (!error && data && typeof data.minimum_build === "number") ? data.minimum_build : 0;
     cachedMinBuild = { value, at: now };
     return value;
@@ -370,6 +377,55 @@ function applyPromptCaching(payload: Record<string, unknown>): Record<string, un
     return { ...rest, messages };
 }
 
+// Server-side model policy, one env var per routing task. Unset means "leave
+// the client's choice alone", so an empty environment reproduces today's
+// behavior exactly. This is what lets a model change ship as a secret update
+// instead of a desktop release.
+function taskModelOverride(task: string): string | undefined {
+    switch (task) {
+        case "summary": return Deno.env.get("SUMMARY_MODEL");
+        case "title": return Deno.env.get("TITLE_MODEL");
+        case "utility": return Deno.env.get("UTILITY_MODEL");
+        case "chat": return Deno.env.get("CHAT_MODEL");
+        default: return undefined;
+    }
+}
+
+// Model ids a stock client sends on its own. A request carrying one of these is
+// the desktop default and may be re-routed; anything else is an explicit user
+// override (`defaults write com.example.nod openrouter.model …`) and passes
+// through untouched — remapping it would silently undo a deliberate choice.
+// Keep this in sync with the defaults in `LLMProxyClient`.
+const CLIENT_DEFAULT_MODELS = new Set([
+    "anthropic/claude-sonnet-4.6",
+    "anthropic/claude-sonnet-5",
+    "anthropic/claude-haiku-4.5",
+]);
+
+interface RoutedModel {
+    payload: Record<string, unknown>;
+    requested: string;
+    routed: string;
+}
+
+// Swap in the policy model for this task, keeping the client's own chain behind
+// it as fallback so a bad policy value degrades to today's behavior instead of
+// failing the call.
+function applyModelPolicy(payload: Record<string, unknown>, task: string, requested: string): RoutedModel {
+    const override = taskModelOverride(task);
+    if (!override || override === requested || !CLIENT_DEFAULT_MODELS.has(requested)) {
+        return { payload, requested, routed: requested };
+    }
+
+    const clientChain = Array.isArray(payload.models) ? payload.models.filter((m) => typeof m === "string") : [];
+    const chain = [override, ...clientChain.filter((m) => m !== override)];
+    return {
+        payload: { ...payload, model: override, models: chain },
+        requested,
+        routed: override,
+    };
+}
+
 async function forwardChat(rawPayload: unknown, userId: string): Promise<Response> {
     const model = isObject(rawPayload) && typeof rawPayload.model === "string" ? rawPayload.model : "unknown";
     // Which of the four routing categories this call belongs to (summary/
@@ -391,7 +447,11 @@ async function forwardChat(rawPayload: unknown, userId: string): Promise<Respons
     // that internal flag before forwarding. Non-opted calls pass through
     // unchanged. The client still sends plain string message content; the
     // cache_control content-block rewrite happens here.
-    const payload = applyPromptCaching(withoutTask);
+    const cached = applyPromptCaching(withoutTask);
+    const { payload, requested, routed } = applyModelPolicy(cached, task, model);
+    if (routed !== requested) {
+        console.log(`routing user=${userId} task=${task} requested=${requested} routed=${routed} policy=${ROUTING_VERSION}`);
+    }
 
     // Streaming path (used by "Suggest reply"): pass the upstream SSE through
     // verbatim so the client renders tokens as they arrive. Usage is captured
@@ -775,11 +835,19 @@ const STT_RATES_TTL_MS = 60_000;
 async function sttRates(admin: ReturnType<typeof adminClient>): Promise<SttRates> {
     const now = Date.now();
     if (cachedSttRates && now - cachedSttRates.at < STT_RATES_TTL_MS) return cachedSttRates.value;
+    // `app_config` stopped being a singleton in `mobile_platform_support`
+    // (2026-08-06) and is now keyed by platform; the old `.eq("singleton", true)`
+    // filter errored on every call, which this function silently treated as
+    // "use the hardcoded fallback". Provider pricing is the same for both rows,
+    // so the desktop row is the card.
     const { data, error } = await admin
         .from("app_config")
         .select("stt_rates")
-        .eq("singleton", true)
+        .eq("platform", "macos")
         .single();
+    if (error) {
+        console.error(`app_config.stt_rates unreadable, pricing from the hardcoded card: ${error.message}`);
+    }
     const value = (!error && isObject(data) && isObject(data.stt_rates))
         ? data.stt_rates as SttRates
         : STT_RATES_FALLBACK;
@@ -803,6 +871,20 @@ function transcribeCostUsd(rates: SttRates, provider: string, model: string, aud
     return Math.round((billedSeconds / 3600) * rate * 1e6) / 1e6;
 }
 
+// The exact price the provider charged, when it says so. OpenRouter returns
+// `usage.cost` on every STT response; Groq and OpenAI return none, so those stay
+// on the rate-card estimate. Chat has always recorded the reported cost — this
+// is what puts transcribe on the same footing.
+function reportedCostUsd(body: string): number | null {
+    try {
+        const parsed = JSON.parse(body);
+        const cost = isObject(parsed) && isObject(parsed.usage) ? parsed.usage.cost : undefined;
+        return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : null;
+    } catch {
+        return null;
+    }
+}
+
 async function forwardTranscribe(payload: unknown, userId: string, entitlement: Entitlement | null, admin: ReturnType<typeof adminClient>): Promise<Response> {
     const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";
     const audioSeconds = audioSecondsFromPayload(payload);
@@ -815,12 +897,18 @@ async function forwardTranscribe(payload: unknown, userId: string, entitlement: 
     console.log(`transcribe served user=${userId} provider=${provider} status=${status} model=${model} failover=${trail || "-"}`);
 
     try {
-        // Providers return no usage for audio, so estimate from duration × the
-        // per-provider rate card in app_config. Only price — and only fetch the
-        // rate card — for successful calls; a failed upstream wasn't billable.
-        const cost = status >= 200 && status < 300
-            ? transcribeCostUsd(await sttRates(admin), provider, model, audioSeconds)
+        // Price only successful calls — a failed upstream wasn't billable. Take
+        // the provider's own figure when it reports one and fall back to
+        // duration × the app_config rate card otherwise, so the estimate covers
+        // exactly the providers that stay silent (Groq, OpenAI).
+        const served = status >= 200 && status < 300;
+        const reported = served ? reportedCostUsd(text) : null;
+        const cost = served
+            ? reported ?? transcribeCostUsd(await sttRates(admin), provider, model, audioSeconds)
             : null;
+        if (served && reported === null && provider === "openrouter") {
+            console.warn(`transcribe cost fell back to the rate card — openrouter reported no usage.cost`);
+        }
         await recordUsage({
             user_id: userId,
             kind: "transcribe",
