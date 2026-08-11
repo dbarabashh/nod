@@ -62,7 +62,7 @@ struct PaywallView: View {
     var body: some View {
         VStack(spacing: 20) {
             header
-            BillingCycleToggle(cycle: $cycle)
+            BillingCycleToggle(cycle: $cycle, annualDiscountPercent: annualDiscountPercent)
                 .frame(width: 240)
             HStack(alignment: .top, spacing: 14) {
                 ForEach(Self.plans, id: \.id) { plan in
@@ -179,9 +179,59 @@ struct PaywallView: View {
             if billing.hoursAreUnlimited(plan: ent.plan) {
                 return String(format: "%.1f hours recorded this period", ent.hoursUsed)
             }
-            return String(format: "%.1f of %.0f hours used this period", ent.hoursUsed, ent.hoursLimit)
+            let used = ent.consumedSeconds / 3_600
+            let total = (ent.includedSeconds + ent.topUpSeconds) / 3_600
+            if ent.hasPurchasedTopUp {
+                return String(format: "%.1f of %.0f hours used this period (includes bought hours)", used, total)
+            }
+            return String(format: "%.1f of %.0f hours used this period", used, total)
         }
         return nil
+    }
+
+    /// Percentage saved by paying yearly, computed from the catalogue: the number
+    /// used to be hardcoded, which would quietly lie the moment prices change.
+    private var annualDiscountPercent: Int? {
+        let discounts = Self.plans.map { plan -> Int? in
+            guard let yearly = billing.subscriptionPrice(plan: plan.id, cycle: "yearly"),
+                  let monthly = billing.subscriptionPrice(plan: plan.id, cycle: "monthly")
+            else { return nil }
+            return PaywallPriceMath.annualDiscountPercent(
+                monthlyPrice: monthly.displayAmount,
+                annualMonthlyEquivalent: yearly.displayAmount
+            )
+        }
+        return PaywallPriceMath.commonAnnualDiscountPercent(discounts)
+    }
+
+    /// True when this card is the plan AND cycle the subscriber is already on.
+    ///
+    /// An exact price match wins. Otherwise a grandfathered subscriber — whose
+    /// price is no longer in the catalogue — matches on plan plus the cycle the
+    /// server reported, so their own cycle reads "current plan" while the other
+    /// one stays an offered switch.
+    ///
+    /// A card is only ever locked when we can name the cycle. Matching on the plan
+    /// alone locked BOTH cycle cards, so anyone on Pro monthly who wanted Pro
+    /// yearly found the button dead — and a hand-granted plan, which has no Paddle
+    /// price at all, could never buy anything. The header already says which plan
+    /// they're on, so leaving both cards live loses nothing.
+    nonisolated static func isCurrentSelection(
+        isPaid: Bool,
+        currentPlan: String?,
+        currentPriceID: String?,
+        currentCycle: String?,
+        visiblePriceIDs: Set<String>,
+        selectedPlan: String,
+        selectedPriceID: String?,
+        selectedCycle: String
+    ) -> Bool {
+        guard isPaid else { return false }
+        if let currentPriceID, currentPriceID == selectedPriceID { return true }
+        guard currentPlan == selectedPlan else { return false }
+        if let currentPriceID, visiblePriceIDs.contains(currentPriceID) { return false }
+        guard let currentCycle else { return false }
+        return currentCycle == selectedCycle
     }
 
     /// A paid (not trial) subscription has a Paddle customer to manage. Includes
@@ -233,12 +283,21 @@ struct PaywallView: View {
 
     private func planCard(_ plan: PlanCopy) -> some View {
         let price = billing.subscriptionPrice(plan: plan.id, cycle: cycle)
-        // Match on the exact price, not just the plan, so the OTHER billing cycle
-        // of the current plan reads "Switch to …" (a real in-place change) rather
-        // than a disabled "Current plan".
-        let isCurrent = isPaid
-            && price?.paddlePriceID != nil
-            && entitlements.entitlement?.priceID == price?.paddlePriceID
+        let entitlement = entitlements.entitlement
+        // Two different questions. The PLAN they hold is always knowable, and it
+        // drives the badge — that's what tells someone what they're paying for.
+        // The plan AND cycle is what locks the button, and it needs the cycle.
+        let isCurrentPlan = isPaid && entitlement?.plan == plan.id
+        let isCurrent = Self.isCurrentSelection(
+            isPaid: isPaid,
+            currentPlan: entitlement?.plan,
+            currentPriceID: entitlement?.priceID,
+            currentCycle: entitlement?.billingCycle,
+            visiblePriceIDs: Set(billing.prices.map(\.paddlePriceID)),
+            selectedPlan: plan.id,
+            selectedPriceID: price?.paddlePriceID,
+            selectedCycle: cycle
+        )
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
@@ -246,14 +305,10 @@ struct PaywallView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
                 Spacer(minLength: 0)
-                if let badge = plan.badge {
-                    Text(badge.uppercased())
-                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                        .tracking(0.5)
-                        .foregroundStyle(Theme.GlassButton.text)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Capsule(style: .continuous).fill(Theme.GlassButton.fill))
+                if isCurrentPlan {
+                    planChip("Your plan", promotional: false)
+                } else if let badge = plan.badge {
+                    planChip(badge, promotional: true)
                 }
             }
             Text(plan.tagline)
@@ -274,7 +329,7 @@ struct PaywallView: View {
                 .font(.system(size: 11, weight: .regular))
                 .foregroundStyle(Theme.Palette.muted)
 
-            ctaButton(plan: plan, price: price, isCurrent: isCurrent)
+            ctaButton(plan: plan, price: price, isCurrent: isCurrent, isSamePlan: isCurrentPlan)
                 .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 8) {
@@ -292,14 +347,40 @@ struct PaywallView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
-                .stroke(plan.highlighted ? Theme.GlassButton.border : Theme.Palette.border, lineWidth: plan.highlighted ? 1 : 0.5)
+                .stroke(
+                    plan.highlighted || isCurrentPlan ? Theme.GlassButton.border : Theme.Palette.border,
+                    lineWidth: plan.highlighted || isCurrentPlan ? 1 : 0.5
+                )
         )
     }
 
-    private func ctaButton(plan: PlanCopy, price: PlanPrice?, isCurrent: Bool) -> some View {
+    /// The promotional badge ("Most popular") sells; the status badge ("Your plan")
+    /// informs. Same shape, different weight, and the status one wins the slot —
+    /// what someone already pays for matters more than what we'd like them to buy.
+    @ViewBuilder
+    private func planChip(_ text: String, promotional: Bool) -> some View {
+        let label = Text(text.uppercased())
+            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+            .tracking(0.5)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+
+        if promotional {
+            label
+                .foregroundStyle(Theme.GlassButton.text)
+                .background(Capsule(style: .continuous).fill(Theme.GlassButton.fill))
+        } else {
+            label
+                .foregroundStyle(Theme.Palette.graphite)
+                .background(Capsule(style: .continuous).fill(Theme.Palette.surface))
+                .overlay(Capsule(style: .continuous).stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
+        }
+    }
+
+    private func ctaButton(plan: PlanCopy, price: PlanPrice?, isCurrent: Bool, isSamePlan: Bool) -> some View {
         // Already subscribed → switching plans updates the one subscription in
         // place (no second checkout). Not subscribed → a fresh checkout.
-        let label = isCurrent ? "Current plan" : (isPaid ? "Switch to \(plan.name)" : "Choose \(plan.name)")
+        let label = ctaLabel(plan: plan, isCurrent: isCurrent, isSamePlan: isSamePlan)
         return Button {
             guard let id = price?.paddlePriceID else { return }
             Task {
@@ -321,6 +402,15 @@ struct PaywallView: View {
         }
         .buttonStyle(.plain)
         .disabled(isCurrent || price == nil || billing.isStartingCheckout)
+    }
+
+    /// "Switch to Pro" on the plan they already hold reads as a no-op, so when only
+    /// the billing cycle differs the button names the cycle instead.
+    private func ctaLabel(plan: PlanCopy, isCurrent: Bool, isSamePlan: Bool) -> String {
+        if isCurrent { return "Current plan" }
+        guard isPaid else { return "Choose \(plan.name)" }
+        guard isSamePlan else { return "Switch to \(plan.name)" }
+        return cycle == "yearly" ? "Switch to yearly billing" : "Switch to monthly billing"
     }
 
     @ViewBuilder
@@ -376,6 +466,9 @@ struct PaywallView: View {
 /// system `.segmented` style.
 private struct BillingCycleToggle: View {
     @Binding var cycle: String
+    /// Nil when the plans disagree on the discount, so we print no badge rather
+    /// than a number that is wrong for one of them.
+    let annualDiscountPercent: Int?
     @Namespace private var pill
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -390,8 +483,8 @@ private struct BillingCycleToggle: View {
                 let isSelected = cycle == option.id
                 HStack(spacing: 5) {
                     Text(option.label)
-                    if option.id == "yearly" {
-                        Text("−35%")
+                    if option.id == "yearly", let annualDiscountPercent {
+                        Text("−\(annualDiscountPercent)%")
                             .font(.system(size: 9.5, weight: .bold, design: .rounded))
                             .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.muted)
                     }
@@ -423,5 +516,20 @@ private struct BillingCycleToggle: View {
                         .stroke(Theme.Palette.border, lineWidth: 0.5)
                 )
         )
+    }
+}
+
+enum PaywallPriceMath {
+    static func annualDiscountPercent(monthlyPrice: Double, annualMonthlyEquivalent: Double) -> Int? {
+        guard monthlyPrice > 0, annualMonthlyEquivalent < monthlyPrice else { return nil }
+        return Int(((1 - annualMonthlyEquivalent / monthlyPrice) * 100).rounded())
+    }
+
+    /// One badge for the whole toggle, so it is only shown when every plan really
+    /// discounts by the same amount.
+    static func commonAnnualDiscountPercent(_ discounts: [Int?]) -> Int? {
+        let values = discounts.compactMap { $0 }
+        guard !discounts.isEmpty, values.count == discounts.count, Set(values).count == 1 else { return nil }
+        return values.first
     }
 }

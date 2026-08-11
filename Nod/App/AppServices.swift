@@ -13,6 +13,7 @@ struct AppServices {
     /// have for where a new user stops, since `OnboardingState` is local-only.
     let onboardingTelemetry: OnboardingTelemetry
     let productAnalytics: ProductAnalytics
+    let emailPreferences: EmailPreferenceService
     let audioCapture: AudioCaptureService
     let llmClient: LLMProxyClient
     let transcriptStore: TranscriptStore
@@ -112,7 +113,6 @@ struct AppServices {
         let llmClient = LLMProxyClient(supabase: supabase)
         // Free the single-device slot on every sign-out path (menu, forced
         // device-conflict), while the token is still valid.
-        auth.onSignOut = { [weak llmClient] in await llmClient?.releaseDevice() }
         let transcriptStore = TranscriptStore(client: llmClient)
         let consent = ConsentPreference(
             supabase: supabase,
@@ -120,6 +120,13 @@ struct AppServices {
         )
         let onboardingTelemetry = OnboardingTelemetry(supabase: supabase, auth: auth)
         let productAnalytics = ProductAnalytics(supabase: supabase, auth: auth)
+        let emailPreferences = EmailPreferenceService(supabase: supabase, auth: auth, analytics: productAnalytics)
+        // Every sign-out path frees the device slot and drops the previous
+        // account's email choices, so the next person to sign in starts blank.
+        auth.onSignOut = { [weak llmClient, weak emailPreferences] in
+            await llmClient?.releaseDevice()
+            emailPreferences?.clear()
+        }
 
         audioCapture.onMicBuffer = { [weak transcriptStore] buffer in
             transcriptStore?.appendMicBuffer(buffer)
@@ -161,6 +168,7 @@ struct AppServices {
             onboarding: onboarding,
             onboardingTelemetry: onboardingTelemetry,
             productAnalytics: productAnalytics,
+            emailPreferences: emailPreferences,
             audioCapture: audioCapture,
             llmClient: llmClient,
             transcriptStore: transcriptStore,

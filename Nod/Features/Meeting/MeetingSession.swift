@@ -76,6 +76,15 @@ struct AutoEndPrompt: Equatable {
 /// view-local @State did.
 @MainActor
 final class MeetingSession: ObservableObject {
+    /// What a start attempt did. `limitReached` is the allowance gate's cue;
+    /// `blocked` is a recoverable in-app message (another recording is running).
+    enum RecordingStartOutcome: Equatable {
+        case started
+        case limitReached
+        case blocked(String)
+        case failed(String)
+    }
+
     @Published private(set) var meeting: MeetingState = .idle
     /// What the next recording will be. Chosen while idle; fixed for the
     /// duration of a recording so the recap framing + audio streams stay
@@ -91,6 +100,12 @@ final class MeetingSession: ObservableObject {
     @Published private(set) var saveErrorToast: String?
     /// Drives the forgot-to-stop prompt; nil when no prompt is showing.
     @Published private(set) var autoEndPrompt: AutoEndPrompt?
+    /// A start request is in flight (asking the server for a lease).
+    @Published private(set) var isStartingRecording = false
+    /// The previous meeting is still uploading its last chunks. A new recording
+    /// stays blocked until this clears, or a fresh session would reset the shared
+    /// transcribers underneath the finalize.
+    @Published private(set) var isFinishingTranscription = false
     /// Non-nil when something outside the panel asked to start a meeting — the
     /// auto-detect card.
     ///
@@ -154,6 +169,10 @@ final class MeetingSession: ObservableObject {
     /// Wall-clock start of the current recording. Captured in beginRecording
     /// so we can stamp `started_at` accurately when we persist on summary.
     private var recordingStartedAt: Date?
+
+    /// The lease this recording holds. Detached at End (so the finalize can
+    /// close it after the last chunk) and released on every abandon path.
+    private var activeMeetingLeaseID: UUID?
 
     /// The meeting currently being recorded — created at `beginRecording` so the
     /// live transcript can stream to the server under a stable id, then reused
@@ -430,7 +449,53 @@ final class MeetingSession: ObservableObject {
         wantsAutoStart = false
     }
 
-    func beginRecording() {
+    /// Asks the server to admit a new recording, then starts capture under the
+    /// id it granted. The allowance is checked here, once — never per chunk — so
+    /// a meeting already running is never cut off by it.
+    func requestRecordingStart() async -> RecordingStartOutcome {
+        guard isFinishingTranscription == false else {
+            return .failed("The previous meeting is still finishing.")
+        }
+        guard meeting == .idle, !isStartingRecording else {
+            return .failed("A meeting is already starting.")
+        }
+        guard let userID = auth.currentSupabaseSession?.user.id else {
+            return .failed("Session expired, please sign in again.")
+        }
+
+        isStartingRecording = true
+        defer { isStartingRecording = false }
+        let meetingID = UUID()
+
+        do {
+            try await llm.startMeetingLease(meetingID: meetingID)
+        } catch LLMProxyClient.ClientError.meetingLimitReached {
+            return .limitReached
+        } catch let LLMProxyClient.ClientError.meetingBlocked(reason) {
+            return .blocked(reason)
+        } catch {
+            // The lease may have been granted before the response was lost, so
+            // hand it back rather than leaving a slot held by nobody.
+            Task { await llm.endMeetingLease(meetingID: meetingID) }
+            return .failed(error.localizedDescription)
+        }
+
+        // The user may have cancelled, signed out, or started something else
+        // while the round-trip was in flight.
+        guard meeting == .idle,
+              auth.currentSupabaseSession?.user.id == userID,
+              !Task.isCancelled
+        else {
+            await llm.endMeetingLease(meetingID: meetingID)
+            return .failed("Meeting start was cancelled.")
+        }
+
+        activeMeetingLeaseID = meetingID
+        beginRecording(meetingID: meetingID, userID: userID)
+        return .started
+    }
+
+    private func beginRecording(meetingID: UUID, userID: UUID) {
         Log.ui.info("Start Meeting")
         sessionGeneration += 1
         let captureID = UUID()
@@ -477,25 +542,31 @@ final class MeetingSession: ObservableObject {
         streamTask = nil
         streamedCount = 0
         recordingDraft = nil
-        if let userID = auth.currentSupabaseSession?.user.id {
-            let draft = Meeting.newCompleted(
-                userID: userID,
-                startedAt: startedAt,
-                endedAt: startedAt,
-                summary: "",
-                language: language.current.rawValue,
-                kind: selectedKind
-            )
-            recordingDraft = draft
-            Task { await outbox.begin(draft) }
-            startStreamLoop(draft: draft, generation: sessionGeneration)
-        }
+        let draft = Meeting.newCompleted(
+            id: meetingID,
+            userID: userID,
+            startedAt: startedAt,
+            endedAt: startedAt,
+            summary: "",
+            language: language.current.rawValue,
+            kind: selectedKind
+        )
+        recordingDraft = draft
+        Task { await outbox.begin(draft) }
+        startStreamLoop(draft: draft, generation: sessionGeneration)
 
         if shouldDiarize {
             startRosterSampling()
         }
         Task {
-            await store.start(diarizing: shouldDiarize)
+            await store.start(meetingID: meetingID, diarizing: shouldDiarize)
+            // The lease can be taken over while the models warm up; if this is no
+            // longer the active recording, stop instead of capturing audio the
+            // server will refuse.
+            guard activeMeetingLeaseID == meetingID, meeting != .idle else {
+                store.stop()
+                return
+            }
             await audioCapture.start(
                 captureMic: selectedKind.capturesMic,
                 captureSystem: selectedKind.capturesSystem
@@ -595,11 +666,13 @@ final class MeetingSession: ObservableObject {
                 outcome: .success
             )
         )
+        isFinishingTranscription = true
         store.stop()
         // Stopped, not reset: the finalize still has to write down what it
         // found, and that runs after the surface is back at rest.
         analyst.stop()
         Task { await audioCapture.stop() }
+        let meetingLeaseID = detachActiveMeetingLease()
         streamTask?.cancel()
         streamTask = nil
         // Before the finalize below reads the count: the call is over, so no
@@ -624,12 +697,14 @@ final class MeetingSession: ObservableObject {
                 )
             )
             // Empty start→stop: drop the WAL entry so no orphan row is created.
+            endMeetingLeaseNow(meetingLeaseID)
             if let id = recordingDraftID { Task { await outbox.discard(id) } }
             cleanupToIdle()
             return
         }
         guard let userID = auth.currentSupabaseSession?.user.id else {
             Log.ui.error("End Meeting skipped — no session")
+            endMeetingLeaseNow(meetingLeaseID)
             if let id = recordingDraftID { Task { await outbox.discard(id) } }
             cleanupToIdle()
             return
@@ -661,7 +736,9 @@ final class MeetingSession: ObservableObject {
         // even on the no-streaming fallback path (no auth at record time, or a
         // meeting shorter than one stream tick).
         let draft = Meeting(
-            id: recordingDraftID ?? UUID(),
+            // The leased id, so the lease, every chunk, the WAL row and the
+            // final meeting are all one identity.
+            id: recordingDraftID ?? meetingLeaseID ?? UUID(),
             userID: userID,
             createdAt: nil,
             startedAt: startedAt,
@@ -723,6 +800,12 @@ final class MeetingSession: ObservableObject {
             await outbox.begin(draft)
 
             await store.flushPending()
+            isFinishingTranscription = false
+            // Only now: every chunk has either landed or been given up on, so
+            // closing the lease cannot refuse audio that is still in flight.
+            if let meetingLeaseID {
+                await llm.endMeetingLease(meetingID: meetingLeaseID)
+            }
 
             // Clustering a long call costs minutes, and the recap prompt wants
             // the labels, so the finalize does wait here — but only for
@@ -936,7 +1019,42 @@ final class MeetingSession: ObservableObject {
         )
     }
 
+    /// The allowance gate lives in the notch, which has no analytics of its own.
+    /// One entry point keeps the recorder a private dependency.
+    func recordAllowanceGate(
+        _ event: ProductAnalytics.Event,
+        outcome: ProductAnalytics.Outcome,
+        plan: String? = nil,
+        billing: String? = nil
+    ) {
+        analytics.record(
+            event,
+            properties: .init(
+                entryPoint: .notch,
+                stage: .entitlement,
+                reasonCode: .hoursExhausted,
+                surface: .capture,
+                outcome: outcome,
+                plan: plan,
+                billing: billing
+            )
+        )
+    }
+
+    private func detachActiveMeetingLease() -> UUID? {
+        let meetingID = activeMeetingLeaseID
+        activeMeetingLeaseID = nil
+        return meetingID
+    }
+
+    private func endMeetingLeaseNow(_ meetingID: UUID?) {
+        guard let meetingID else { return }
+        Task { await llm.endMeetingLease(meetingID: meetingID) }
+    }
+
     private func cleanupToIdle() {
+        isFinishingTranscription = false
+        endMeetingLeaseNow(detachActiveMeetingLease())
         streamTask?.cancel()
         streamTask = nil
         stopRosterSampling()

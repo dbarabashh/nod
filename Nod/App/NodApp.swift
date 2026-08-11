@@ -139,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 guard services.auth.session != nil else { return }
                 await services.entitlements.refresh()
+                await services.emailPreferences.refresh()
                 await services.productAnalytics.flush()
                 // Retry any meeting still stuck in the outbox now that the app
                 // (and likely the network) is active again — scoped to the
@@ -198,6 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     services.actionItemStore.clear()
                     services.labelStore.clear()
                     services.entitlements.clear()
+                    services.emailPreferences.clear()
                     windows.closeMainWindow()
                 }
                 if isSignedIn {

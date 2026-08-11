@@ -22,6 +22,9 @@ final class WhisperTranscriber: @unchecked Sendable {
     private let client: LLMProxyClient
     private let queue: DispatchQueue
     private var keepRecognizing = false
+    /// The recording every chunk belongs to. Set at start and read on the queue,
+    /// so a chunk can never be attributed to a meeting that has already ended.
+    private var meetingID: UUID?
 
     /// Buffers admitted to `queue` but not yet processed. The old `queue.sync`
     /// gave natural backpressure (a stalled queue blocked the audio callback);
@@ -211,10 +214,11 @@ final class WhisperTranscriber: @unchecked Sendable {
         }
     }
 
-    func start(retainingAudioForDiarization: Bool = false) async {
+    func start(meetingID: UUID, retainingAudioForDiarization: Bool = false) async {
         Log.stt.info("[\(source.label)] Whisper start() — Silero VAD (sherpa)")
         queue.async {
             self.generation &+= 1
+            self.meetingID = meetingID
             self.keepRecognizing = true
             // Reset Silero state for a fresh stream (also drops any queued segments).
             self.vad?.reset()
@@ -489,6 +493,12 @@ final class WhisperTranscriber: @unchecked Sendable {
         Log.stt.info("[\(source.label)] chunk #\(chunkID) → Whisper (\(wav.count) bytes, \(reason))")
 
         let src = source
+        // No meeting means no lease to present, so the chunk is dropped rather
+        // than sent unattributed. Only reachable if audio arrives before start.
+        guard let meetingID else {
+            Log.stt.error("[\(src.label)] chunk #\(chunkID) dropped — no active meeting id")
+            return
+        }
         let taskID = UUID()
         let capturedGeneration = generation
         let task = Task<Void, Never> {
@@ -496,7 +506,7 @@ final class WhisperTranscriber: @unchecked Sendable {
                 self.queue.async { self.inFlightFlushes.removeValue(forKey: taskID) }
             }
             do {
-                var result = try await self.client.transcribe(audio: wav, prompt: prompt)
+                var result = try await self.client.transcribe(audio: wav, meetingID: meetingID, prompt: prompt)
                 // If the speaker switched language, the (prior-language) prompt
                 // biases the output back toward it — Whisper detects the new
                 // language but emits the old one (translating). Re-transcribe the
@@ -510,7 +520,7 @@ final class WhisperTranscriber: @unchecked Sendable {
                     Log.stt.info(
                         "[\(src.label)] chunk #\(chunkID) language switch (tail=\(promptLang) chunk=\(detected)) — re-transcribing without prompt"
                     )
-                    if let reprompted = try? await self.client.transcribe(audio: wav) {
+                    if let reprompted = try? await self.client.transcribe(audio: wav, meetingID: meetingID) {
                         result = reprompted
                     }
                 }
@@ -521,7 +531,12 @@ final class WhisperTranscriber: @unchecked Sendable {
                     Log.stt.info(
                         "[\(src.label)] chunk #\(chunkID) detected \(detected) against a \(promptLang) tail — re-transcribing pinned to \(promptLang)"
                     )
-                    if let pinned = try? await self.client.transcribe(audio: wav, language: promptLang, prompt: prompt) {
+                    if let pinned = try? await self.client.transcribe(
+                        audio: wav,
+                        meetingID: meetingID,
+                        language: promptLang,
+                        prompt: prompt
+                    ) {
                         result = pinned
                     }
                 }

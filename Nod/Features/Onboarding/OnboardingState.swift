@@ -6,10 +6,11 @@ enum OnboardingStep: Int, Codable, CaseIterable {
     case profile = 2
     case permissions = 3
     case tutorial = 4
+    case emailPreferences = 5
 }
 
 struct OnboardingStatus: Codable {
-    static let currentVersion = "1.1"
+    static let currentVersion = "1.2"
 
     var version: String = currentVersion
     var completed: Bool = false

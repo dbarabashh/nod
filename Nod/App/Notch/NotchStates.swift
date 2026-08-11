@@ -391,6 +391,8 @@ struct NotchMicMenuButton: View {
 /// notch said nothing except "press me", which is a lot of screen for one verb.
 struct NotchLaunch: View {
     @ObservedObject var session: MeetingSession
+    var isLoading = false
+    var error: String?
     let onStart: () -> Void
 
     var body: some View {
@@ -411,8 +413,16 @@ struct NotchLaunch: View {
                 NotchActionButton(
                     title: session.selectedKind.startActionTitle,
                     icon: session.selectedKind.icon,
+                    isLoading: isLoading || session.isStartingRecording || session.isFinishingTranscription,
                     action: onStart
                 )
+
+                if let error {
+                    Text(error)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Theme.Palette.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Spacer(minLength: 0)
@@ -441,12 +451,17 @@ extension MeetingSession {
 struct NotchActionButton: View {
     let title: String
     var icon: String?
+    var isLoading = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                if let icon {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Theme.GlassButton.text)
+                } else if let icon {
                     Image(icon)
                         .icon(12)
                 }
@@ -462,6 +477,7 @@ struct NotchActionButton: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.pressable)
+        .disabled(isLoading)
         .linkCursor()
     }
 }

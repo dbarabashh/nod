@@ -127,6 +127,7 @@ struct Meeting: Codable, Identifiable, Equatable {
     /// server side via PK). `createdAt` is intentionally nil so the DB
     /// default supplies an accurate server-side timestamp.
     static func newCompleted(
+        id: UUID = UUID(),
         userID: UUID,
         startedAt: Date,
         endedAt: Date,
@@ -137,7 +138,7 @@ struct Meeting: Codable, Identifiable, Equatable {
         recap: MeetingRecap? = nil
     ) -> Meeting {
         Meeting(
-            id: UUID(),
+            id: id,
             userID: userID,
             createdAt: nil,
             startedAt: startedAt,

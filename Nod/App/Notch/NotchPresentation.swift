@@ -55,6 +55,7 @@ enum NotchPresentation: Equatable {
 enum NotchAlert: Equatable {
     case autoEnd(AutoEndPrompt)
     case saveFailed(String)
+    case allowance
 }
 
 /// The meeting bar's own panel, expanded below the always-visible header row
@@ -154,6 +155,7 @@ extension NotchPresentation {
         case .consent: "consent"
         case .alert(.autoEnd): "alert.autoEnd"
         case .alert(.saveFailed): "alert.saveFailed"
+        case .alert(.allowance): "alert.allowance"
         case let .demo(stage): stage.contentID
         }
     }

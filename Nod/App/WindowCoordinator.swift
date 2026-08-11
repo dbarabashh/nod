@@ -188,6 +188,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         .environmentObject(services.auth)
         .environmentObject(services.onboardingTelemetry)
         .environmentObject(services.modeStore)
+        .environmentObject(services.emailPreferences)
 
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)
@@ -280,6 +281,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 ),
                 consent: services.consent,
                 entitlements: services.entitlements,
+                billing: services.billing,
                 meetingStore: services.meetingStore
             ),
             sharing: services.panelSharing.sharingType
@@ -314,6 +316,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 connections: services.connections,
                 modeStore: services.modeStore,
                 referral: services.referral,
+                emailPreferences: services.emailPreferences,
+                productAnalytics: services.productAnalytics,
                 screenExclusions: services.screenExclusions,
                 screenContext: services.screenContext,
                 meetingDetection: services.meetingDetection,
@@ -357,25 +361,27 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         // window level instead (`contentMinSize`, set after the controller is
         // attached), so the content always fills the window and the rail stays
         // pinned at the leading edge.
-        let root = MainWindowView(initialFocusMeetingID: meetingID, settings: settingsPane)
-            .environmentObject(services.meetingStore)
-            .environmentObject(services.chatStore)
-            .environmentObject(services.profileStore)
-            .environmentObject(services.entityStore)
-            .environmentObject(services.knowledgeStore)
-            .environmentObject(services.knowledgeChat)
-            .environmentObject(services.knowledgeThreads)
-            .environmentObject(services.actionItemStore)
-            .environmentObject(services.llmClient)
-            .environmentObject(services.languagePreference)
-            .environmentObject(services.labelStore)
-            .environmentObject(services.entitlements)
-            .environmentObject(services.hotkeys)
-            .environmentObject(services.settingsFocus)
-            .environmentObject(services.screenContext)
-            .environmentObject(services.summaryRegeneration)
-            .environmentObject(services.productAnalytics)
-            .environmentObject(services.demoPlayback)
+        let root = EmailConsentPromptHost(preferences: services.emailPreferences) {
+            MainWindowView(initialFocusMeetingID: meetingID, settings: settingsPane)
+                .environmentObject(services.meetingStore)
+                .environmentObject(services.chatStore)
+                .environmentObject(services.profileStore)
+                .environmentObject(services.entityStore)
+                .environmentObject(services.knowledgeStore)
+                .environmentObject(services.knowledgeChat)
+                .environmentObject(services.knowledgeThreads)
+                .environmentObject(services.actionItemStore)
+                .environmentObject(services.llmClient)
+                .environmentObject(services.languagePreference)
+                .environmentObject(services.labelStore)
+                .environmentObject(services.entitlements)
+                .environmentObject(services.hotkeys)
+                .environmentObject(services.settingsFocus)
+                .environmentObject(services.screenContext)
+                .environmentObject(services.summaryRegeneration)
+                .environmentObject(services.productAnalytics)
+                .environmentObject(services.demoPlayback)
+        }
 
         let hosting = NSHostingController(rootView: root)
         // Don't let the hosting controller derive the window's min/max size from

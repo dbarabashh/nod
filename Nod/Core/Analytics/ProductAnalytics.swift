@@ -17,6 +17,10 @@ final class ProductAnalytics: ObservableObject {
         case meetingExported = "meeting_exported"
         case aiActionCompleted = "ai_action_completed"
         case paywallViewed = "paywall_viewed"
+        case allowanceGateViewed = "allowance_gate_viewed"
+        case allowanceGateAction = "allowance_gate_action"
+        case referralLinkShared = "referral_link_shared"
+        case emailConsentSaved = "email_consent_saved"
     }
 
     enum EntryPoint: String, Codable {
@@ -26,6 +30,7 @@ final class ProductAnalytics: ObservableObject {
         case floatingPanel = "floating_panel"
         case hotkey
         case deepLink = "deep_link"
+        case notch
         case home
         case library
         case quickCapture = "quick_capture"
@@ -164,6 +169,25 @@ final class ProductAnalytics: ObservableObject {
 
     let appSessionID = UUID()
 
+    /// Product analytics is first-party, bounded and never shared, so it runs on
+    /// legitimate interest rather than consent — but it must be switchable off,
+    /// and switching off has to drop what is already queued instead of merely
+    /// stopping new events.
+    @Published var isOptedOut: Bool {
+        didSet {
+            guard isOptedOut != oldValue else { return }
+            defaults.set(isOptedOut, forKey: Self.optOutKey)
+            if isOptedOut {
+                queue.removeAll()
+                deduplicationKeys.removeAll()
+                persistQueue()
+                Log.ui.info("product analytics opted out — queue discarded")
+            }
+        }
+    }
+
+    private static let optOutKey = "analytics.productEventsOptedOut"
+
     private let supabase: SupabaseClient
     private let auth: AuthService
     private let defaults: UserDefaults
@@ -175,6 +199,7 @@ final class ProductAnalytics: ObservableObject {
         self.supabase = supabase
         self.auth = auth
         self.defaults = defaults
+        isOptedOut = defaults.bool(forKey: Self.optOutKey)
         if let data = defaults.data(forKey: Self.queueKey),
            let stored = try? JSONDecoder().decode([QueuedEvent].self, from: data) {
             queue = stored
@@ -189,7 +214,7 @@ final class ProductAnalytics: ObservableObject {
         properties: Properties = Properties(),
         oncePerSession key: String? = nil
     ) {
-        guard let userID = auth.currentSupabaseSession?.user.id else { return }
+        guard !isOptedOut, let userID = auth.currentSupabaseSession?.user.id else { return }
         if let key {
             let deduplicationKey = "\(userID.uuidString):\(event.rawValue):\(key)"
             guard deduplicationKeys.insert(deduplicationKey).inserted else { return }
@@ -213,7 +238,7 @@ final class ProductAnalytics: ObservableObject {
     }
 
     func flush() async {
-        guard !isFlushing, let userID = auth.currentSupabaseSession?.user.id else { return }
+        guard !isOptedOut, !isFlushing, let userID = auth.currentSupabaseSession?.user.id else { return }
         let batch = Array(queue.filter { $0.userID == userID }.prefix(25))
         guard !batch.isEmpty else { return }
         isFlushing = true

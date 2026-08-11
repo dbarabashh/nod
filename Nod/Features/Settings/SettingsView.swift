@@ -18,6 +18,8 @@ struct SettingsView: View {
     private let connections: ConnectionService?
     private let modeStore: ModeStore?
     private let referral: ReferralService?
+    private let emailPreferences: EmailPreferenceService?
+    private let productAnalytics: ProductAnalytics?
     private let screenExclusions: ScreenExclusions?
     private let screenContext: ScreenContextService?
     private let meetingDetection: MeetingDetectionPreference?
@@ -39,6 +41,8 @@ struct SettingsView: View {
         connections: ConnectionService? = nil,
         modeStore: ModeStore? = nil,
         referral: ReferralService? = nil,
+        emailPreferences: EmailPreferenceService? = nil,
+        productAnalytics: ProductAnalytics? = nil,
         screenExclusions: ScreenExclusions? = nil,
         screenContext: ScreenContextService? = nil,
         meetingDetection: MeetingDetectionPreference? = nil,
@@ -61,6 +65,8 @@ struct SettingsView: View {
         self.connections = connections
         self.modeStore = modeStore
         self.referral = referral
+        self.emailPreferences = emailPreferences
+        self.productAnalytics = productAnalytics
         self.screenExclusions = screenExclusions
         self.screenContext = screenContext
         self.meetingDetection = meetingDetection
@@ -307,7 +313,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var rewardsPane: some View {
         if let referral, let entitlements {
-            RewardsSection(service: referral, entitlements: entitlements)
+            RewardsSection(service: referral, entitlements: entitlements, analytics: productAnalytics)
         } else {
             Text("Sign in to see your referral rewards.")
                 .font(.system(size: 12.5))
@@ -332,6 +338,12 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 if let screenExclusions, let screenContext {
                     ScreenPrivacySection(exclusions: screenExclusions, screenContext: screenContext)
+                }
+                if let emailPreferences {
+                    EmailPreferencesSection(preferences: emailPreferences)
+                }
+                if let productAnalytics {
+                    ProductAnalyticsSection(analytics: productAnalytics)
                 }
                 AccountDataSection(auth: auth, export: accountExport)
             }

@@ -101,7 +101,12 @@ struct NotchStateContent: View {
                 onCopy: model.session.recordRecapCopied
             )
         case .launch:
-            NotchLaunch(session: model.session, onStart: model.requestStart)
+            NotchLaunch(
+                session: model.session,
+                isLoading: model.isRequestingRecording,
+                error: model.recordingStartError,
+                onStart: model.requestStart
+            )
         case .languageConfirm:
             languageConfirm
         case .consent:
@@ -148,7 +153,79 @@ struct NotchStateContent: View {
                 onRetry: model.session.retryPendingSaves,
                 onDismiss: model.session.dismissSaveError
             )
+        case .allowance:
+            StarterAllowanceGate(
+                billing: model.billing,
+                recommendPro: model.shouldRecommendProUpgrade,
+                onDismiss: model.dismissAllowanceGate,
+                onUpgrade: model.openSubscriptionFromAllowanceGate,
+                onTopUp: model.buyStarterTopUp
+            )
         }
+    }
+}
+
+/// Shown when a healthy Starter plan has spent this period's hours. It sells the
+/// two honest ways forward and says out loud that a meeting in progress is never
+/// interrupted — because that is the promise the enforcement is built around.
+private struct StarterAllowanceGate: View {
+    @ObservedObject var billing: BillingService
+    let recommendPro: Bool
+    let onDismiss: () -> Void
+    let onUpgrade: () -> Void
+    let onTopUp: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image("nc-hourglass")
+                    .icon(17)
+                    .foregroundStyle(Theme.Palette.warning)
+                Text("You've used this period's hours")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+            }
+
+            Text(detail)
+                .font(.system(size: 11.5))
+                .foregroundStyle(Theme.Palette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let error = billing.lastError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 10) {
+                Button("Not now", action: onDismiss)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .linkCursor()
+
+                Spacer(minLength: 0)
+
+                Button("Upgrade to Pro", action: onUpgrade)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                    .linkCursor()
+
+                NotchActionButton(
+                    title: "Buy 5 hours · $12",
+                    isLoading: billing.isStartingTopUp,
+                    action: onTopUp
+                )
+            }
+        }
+    }
+
+    private var detail: String {
+        recommendPro
+            ? "You've already topped up this period, so Pro's unlimited hours are probably the cheaper answer. A meeting already in progress is never stopped."
+            : "Add 5 meeting hours for $12, or move to Pro for unlimited hours. A meeting already in progress is never stopped."
     }
 }
 

@@ -24,6 +24,11 @@ final class LLMProxyClient: ObservableObject {
         case updateRequired
         case deviceConflict
         case entitlementRequired
+        case meetingLimitReached
+        /// A recording cannot start for a reason the user can resolve in the app
+        /// (another meeting is still finishing). Deliberately NOT a 409: that
+        /// status means the single-device lock and signs the user out.
+        case meetingBlocked(String)
         case requestFailed(status: Int, body: String)
         case emptyResponse
         case decodingFailed(String)
@@ -40,6 +45,10 @@ final class LLMProxyClient: ObservableObject {
                 "This account is already in use on another device."
             case .entitlementRequired:
                 "Your plan doesn't cover this. Please choose a plan to continue."
+            case .meetingLimitReached:
+                "You've used this period's meeting hours."
+            case let .meetingBlocked(reason):
+                reason
             case let .requestFailed(status, body):
                 "LLM proxy HTTP \(status): \(body)"
             case .emptyResponse:
@@ -576,8 +585,8 @@ final class LLMProxyClient: ObservableObject {
             status == 429 || (status >= 500 && status < 600)
         case .networkFailed:
             true
-        case .unauthenticated, .updateRequired, .deviceConflict, .entitlementRequired, .emptyResponse, .decodingFailed,
-             .indexIncomplete:
+        case .unauthenticated, .updateRequired, .deviceConflict, .entitlementRequired, .meetingLimitReached,
+             .meetingBlocked, .emptyResponse, .decodingFailed, .indexIncomplete:
             false
         }
     }
@@ -614,9 +623,18 @@ final class LLMProxyClient: ObservableObject {
     /// per-segment metrics the caller filters on. The decoder tolerates a plain
     /// `{ text }` response too, so a provider that ignores `verbose_json` still
     /// works (just with empty `segments`).
-    func transcribe(audio: Data, language: String? = nil, prompt: String? = nil) async throws -> Transcription {
+    /// `meetingID` names the recording this chunk belongs to. The proxy checks it
+    /// against the meeting's start lease and strips it before the payload reaches
+    /// a provider — no chunk ever carries our identifiers upstream.
+    func transcribe(
+        audio: Data,
+        meetingID: UUID,
+        language: String? = nil,
+        prompt: String? = nil
+    ) async throws -> Transcription {
         let promptText = (prompt?.isEmpty == false) ? prompt : nil
         let inner = TranscriptionRequest(
+            meeting_id: meetingID,
             model: whisperModel,
             input_audio: .init(data: audio.base64EncodedString(), format: "wav"),
             language: language,
@@ -702,7 +720,8 @@ final class LLMProxyClient: ObservableObject {
     /// can't clear them and the user has to act (or already has).
     private static func endsIndexing(_ error: ClientError) -> Bool {
         switch error {
-        case .entitlementRequired, .unauthenticated, .updateRequired, .deviceConflict:
+        case .entitlementRequired, .meetingLimitReached, .meetingBlocked, .unauthenticated, .updateRequired,
+             .deviceConflict:
             true
         case .requestFailed, .emptyResponse, .decodingFailed, .networkFailed, .indexIncomplete:
             false
@@ -841,6 +860,51 @@ final class LLMProxyClient: ObservableObject {
         try JSONEncoder().encode(ProxyEnvelope(kind: kind, payload: EmptyPayload()))
     }
 
+    /// Asks the server to admit one new recording under `meetingID`. This is the
+    /// allowance check: it happens once, before any audio exists, so an active
+    /// meeting is never interrupted by it.
+    func startMeetingLease(meetingID: UUID) async throws {
+        let data = try await postToProxyWithRetry(
+            body: Self.meetingLifecycleEnvelope(kind: "meeting_start", meetingID: meetingID)
+        )
+        struct Response: Decodable {
+            let granted: Bool
+            let meetingID: UUID
+
+            enum CodingKeys: String, CodingKey {
+                case granted
+                case meetingID = "meeting_id"
+            }
+        }
+        do {
+            let response = try JSONDecoder().decode(Response.self, from: data)
+            guard response.granted, response.meetingID == meetingID else {
+                throw ClientError.decodingFailed("Meeting lease response did not match the request")
+            }
+        } catch let error as ClientError {
+            throw error
+        } catch {
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+
+    /// Frees the slot at End. Best-effort on purpose: the lease is short-lived
+    /// and renewed by use, so a lost call costs minutes, never hours.
+    func endMeetingLease(meetingID: UUID) async {
+        do {
+            _ = try await postToProxyWithRetry(
+                body: Self.meetingLifecycleEnvelope(kind: "meeting_end", meetingID: meetingID)
+            )
+        } catch {
+            Log.llm.error("meeting_end failed (lease expires server-side): \(error.localizedDescription)")
+        }
+    }
+
+    nonisolated static func meetingLifecycleEnvelope(kind: String, meetingID: UUID) throws -> Data {
+        struct Payload: Encodable { let meeting_id: UUID }
+        return try JSONEncoder().encode(ProxyEnvelope(kind: kind, payload: Payload(meeting_id: meetingID)))
+    }
+
     // MARK: - Transport
 
     /// Wraps `postToProxy` with exponential-backoff retries on transient
@@ -963,6 +1027,22 @@ final class LLMProxyClient: ObservableObject {
     /// (`{ "error": "entitlement_required" | "feature_required" }`) rather than
     /// the unrelated ownership 403 (`"meeting does not belong to user"`), which
     /// must stay a hard error.
+    nonisolated static func proxyErrorCode(_ data: Data) -> String? {
+        guard let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return parsed["error"] as? String
+    }
+
+    nonisolated static func meetingBlockedMessage(_ code: String?) -> String {
+        switch code {
+        case "meeting_already_active":
+            "Another recording is still running. Stop it before starting a new one."
+        case "meeting_lease_ended":
+            "That meeting has already finished."
+        default:
+            "Couldn't start recording just now. Please try again."
+        }
+    }
+
     private static func isEntitlementError(_ data: Data) -> Bool {
         guard let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let error = parsed["error"] as? String else { return false }
@@ -1007,6 +1087,14 @@ final class LLMProxyClient: ObservableObject {
             Log.llm.error("proxy 403 entitlement — opening paywall")
             NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
             throw ClientError.entitlementRequired
+        }
+        if http.statusCode == 403, Self.proxyErrorCode(data) == "meeting_limit_reached" {
+            throw ClientError.meetingLimitReached
+        }
+        // 423 Locked is the lease's own refusal. It must never be confused with
+        // 409 (single-device lock), which signs the user out.
+        if http.statusCode == 423 {
+            throw ClientError.meetingBlocked(Self.meetingBlockedMessage(Self.proxyErrorCode(data)))
         }
         if http.statusCode >= 400 {
             let raw = String(data: data, encoding: .utf8) ?? "<binary>"
@@ -1086,6 +1174,7 @@ private struct TranscriptionRequest: Encodable {
         let format: String
     }
 
+    let meeting_id: UUID
     let model: String
     let input_audio: InputAudio
     let language: String?
@@ -1099,6 +1188,7 @@ private struct TranscriptionRequest: Encodable {
     let timestamp_granularities: [String]?
 
     init(
+        meeting_id: UUID,
         model: String,
         input_audio: InputAudio,
         language: String? = nil,
@@ -1107,6 +1197,7 @@ private struct TranscriptionRequest: Encodable {
         response_format: String? = nil,
         timestamp_granularities: [String]? = nil
     ) {
+        self.meeting_id = meeting_id
         self.model = model
         self.input_audio = input_audio
         self.language = language

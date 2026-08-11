@@ -8,6 +8,8 @@ import SwiftUI
 struct RewardsSection: View {
     @ObservedObject var service: ReferralService
     @ObservedObject var entitlements: EntitlementService
+    /// Optional so the section still previews without the composition root.
+    var analytics: ProductAnalytics?
     @State private var linkCopied = false
 
     /// Whether the entitlement has loaded yet. Until it has we don't know if the
@@ -176,6 +178,11 @@ struct RewardsSection: View {
 
     private func copyLink(_ link: String) {
         NSPasteboard.copyText(link)
+        // The referral funnel starts here, so it is the one place worth counting.
+        analytics?.record(
+            .referralLinkShared,
+            properties: .init(entryPoint: .settings, surface: .settings, outcome: .success)
+        )
         linkCopied = true
         Task {
             try? await Task.sleep(nanoseconds: 1_400_000_000)

@@ -62,6 +62,18 @@ struct Entitlement: Decodable {
     let features: Set<String>
     let hoursUsed: Double
     let hoursLimit: Double
+    /// The allowance in seconds, split so the paywall can say "8 hours + 5 you
+    /// bought" instead of one blended number. `canStartMeeting` is the server's
+    /// own verdict — the client never re-derives it from the parts.
+    let includedSeconds: Double
+    let topUpSeconds: Double
+    let consumedSeconds: Double
+    let remainingSeconds: Double
+    let canStartMeeting: Bool?
+    /// The cycle the subscription is actually on. Resolved server-side because a
+    /// grandfathered price is hidden from the client catalogue, so the app cannot
+    /// derive it from `priceID` alone.
+    let billingCycle: String?
     let trialEndsAt: Date?
     let renewalDate: Date?
     private let limits: [String: Double]
@@ -72,6 +84,16 @@ struct Entitlement: Decodable {
 
     var remainingHours: Double {
         max(0, hoursLimit - hoursUsed)
+    }
+
+    /// An exhausted allowance on an otherwise healthy plan — the one case the
+    /// notch offers a top-up instead of the paywall.
+    var isAllowanceExhausted: Bool {
+        isActive && canStartMeeting == false
+    }
+
+    var hasPurchasedTopUp: Bool {
+        topUpSeconds > 0
     }
 
     var deviceLimit: Int {
@@ -87,6 +109,12 @@ struct Entitlement: Decodable {
         case priceID = "price_id"
         case hoursUsed = "hours_used"
         case hoursLimit = "hours_limit"
+        case includedSeconds = "included_seconds"
+        case topUpSeconds = "top_up_seconds"
+        case consumedSeconds = "consumed_seconds"
+        case remainingSeconds = "remaining_seconds"
+        case canStartMeeting = "can_start_meeting"
+        case billingCycle = "billing_cycle"
         case trialEndsAt = "trial_ends_at"
         case renewalDate = "renewal_date"
     }
@@ -99,6 +127,15 @@ struct Entitlement: Decodable {
         features = try Set(c.decodeIfPresent([String].self, forKey: .features) ?? [])
         hoursUsed = try c.decodeIfPresent(Double.self, forKey: .hoursUsed) ?? 0
         hoursLimit = try c.decodeIfPresent(Double.self, forKey: .hoursLimit) ?? 0
+        // Derive from hours when the server predates these fields, so an older
+        // backend degrades to the previous behaviour instead of reading as zero.
+        includedSeconds = try c.decodeIfPresent(Double.self, forKey: .includedSeconds) ?? hoursLimit * 3_600
+        topUpSeconds = try c.decodeIfPresent(Double.self, forKey: .topUpSeconds) ?? 0
+        consumedSeconds = try c.decodeIfPresent(Double.self, forKey: .consumedSeconds) ?? hoursUsed * 3_600
+        remainingSeconds = try c.decodeIfPresent(Double.self, forKey: .remainingSeconds)
+            ?? max(0, includedSeconds + topUpSeconds - consumedSeconds)
+        canStartMeeting = try c.decodeIfPresent(Bool.self, forKey: .canStartMeeting)
+        billingCycle = try c.decodeIfPresent(String.self, forKey: .billingCycle)
         limits = try c.decodeIfPresent([String: Double].self, forKey: .limits) ?? [:]
         // The RPC returns timestamptz as ISO-8601 strings; parse leniently so a
         // null/absent date is simply "no date", not a decode failure.

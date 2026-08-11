@@ -24,6 +24,13 @@ final class NotchModel: ObservableObject {
         didSet { defaults.set(askLanguageEachTime, forKey: MeetingLanguagePromptDefaults.defaultsKey) }
     }
 
+    /// A start request is waiting on the server's allowance answer, so Start
+    /// shows a spinner rather than appearing to do nothing.
+    @Published private(set) var isRequestingRecording = false
+    /// Why the last start attempt didn't take. Shown under Start; cleared by the
+    /// next attempt.
+    @Published private(set) var recordingStartError: String?
+
     /// Drives the scripted landing-page demo. Only ever running when the demo
     /// is armed in Settings; the real capture path never sees it.
     let demo = DemoDirector()
@@ -36,6 +43,8 @@ final class NotchModel: ObservableObject {
     let audioCapture: AudioCaptureService
     let language: LanguagePreference
     let updateGate: UpdateGate
+    /// Owned by the allowance gate: it sells the top-up in place.
+    let billing: BillingService
 
     /// Resolves `session.justEndedMeetingID` into a `RecapState` — the same
     /// generating/finished state `MeetingDetailView` already reads, just
@@ -91,6 +100,9 @@ final class NotchModel: ObservableObject {
     private enum Gate {
         case language
         case consent
+        /// The plan is healthy but this period's hours are gone — offer a top-up
+        /// or Pro, never the full paywall.
+        case allowance
     }
 
     init(
@@ -106,6 +118,7 @@ final class NotchModel: ObservableObject {
         briefing: CallBriefing,
         consent: ConsentPreference,
         entitlements: EntitlementService,
+        billing: BillingService,
         meetingStore: MeetingStore,
         defaults: UserDefaults = .standard
     ) {
@@ -121,6 +134,7 @@ final class NotchModel: ObservableObject {
         self.briefing = briefing
         self.consent = consent
         self.entitlements = entitlements
+        self.billing = billing
         self.meetingStore = meetingStore
         self.defaults = defaults
         askLanguageEachTime = defaults.object(forKey: MeetingLanguagePromptDefaults.defaultsKey) as? Bool
@@ -289,13 +303,67 @@ final class NotchModel: ObservableObject {
     }
 
     private func beginRecording() {
+        guard !isRequestingRecording, !session.isStartingRecording, !session.isFinishingTranscription else { return }
         gate = nil
-        isOpened = false
         meetingBarPanel = .passive
         meetingBarHidden = false
         session.clearAutoStartRequest()
-        session.beginRecording()
+        recordingStartError = nil
+        isRequestingRecording = true
         refresh()
+
+        Task { @MainActor in
+            let outcome = await session.requestRecordingStart()
+            isRequestingRecording = false
+            switch outcome {
+            case .started:
+                isOpened = false
+            case .limitReached:
+                // Refresh first: the gate's copy quotes the allowance, and the
+                // server just told us it changed.
+                await entitlements.refresh()
+                billing.lastError = nil
+                gate = .allowance
+                isOpened = true
+                session.recordAllowanceGate(.allowanceGateViewed, outcome: .viewed)
+            case let .blocked(message), let .failed(message):
+                recordingStartError = message
+                isOpened = true
+            }
+            refresh()
+        }
+    }
+
+    var shouldRecommendProUpgrade: Bool {
+        // Someone who has already bought hours this period is telling us the
+        // allowance does not fit them.
+        entitlements.entitlement?.hasPurchasedTopUp == true
+    }
+
+    func dismissAllowanceGate() {
+        session.recordAllowanceGate(.allowanceGateAction, outcome: .cancelled)
+        cancelGate()
+    }
+
+    func openSubscriptionFromAllowanceGate() {
+        session.recordAllowanceGate(.allowanceGateAction, outcome: .granted, plan: "pro")
+        cancelGate()
+        NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+    }
+
+    func buyStarterTopUp() {
+        Task { @MainActor in
+            let outcome = await billing.startStarterTopUp()
+            session.recordAllowanceGate(
+                .allowanceGateAction,
+                outcome: outcome == .opened ? .success : .failure,
+                plan: "starter",
+                billing: "one_time"
+            )
+            if outcome == .opened {
+                cancelGate()
+            }
+        }
     }
 
     private func enter(_ gate: Gate) {
@@ -472,6 +540,7 @@ final class NotchModel: ObservableObject {
         switch gate {
         case .language: return .languageConfirm
         case .consent: return .consent
+        case .allowance: return .alert(.allowance)
         case nil: break
         }
 

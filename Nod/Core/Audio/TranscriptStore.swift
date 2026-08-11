@@ -85,7 +85,7 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         }
     }
 
-    func start(diarizing: Bool = false) async {
+    func start(meetingID: UUID, diarizing: Bool = false) async {
         Log.stt.info("TranscriptStore.start() — Whisper (mic + system)")
         // Built now, used at End: the models download on first ever use and
         // then compile, and the finalize only waits `speakerJoinTimeout` for
@@ -106,10 +106,10 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             self.lastError = nil
         }
         pathMonitor.start()
-        await mic.start()
+        await mic.start(meetingID: meetingID)
         // Only the system stream is clustered: the mic is the user, already a
         // single known speaker.
-        await system.start(retainingAudioForDiarization: diarizing)
+        await system.start(meetingID: meetingID, retainingAudioForDiarization: diarizing)
     }
 
     func stop() {
