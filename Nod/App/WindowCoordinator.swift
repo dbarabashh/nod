@@ -343,7 +343,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 1040, height: 640),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         )
+        // The title still feeds the Window menu, ⌘-Tab and Mission Control, but
+        // older macOS draws it in the transparent titlebar while macOS 26 does
+        // not — hide it explicitly so every version looks the same.
         window.title = "Nod"
+        window.titleVisibility = .hidden
         // The panel is kept out of screen captures unless the user opts in, and
         // this window now opens by itself on launch — a window listing their
         // meeting titles, open actions and unresolved points must follow the
