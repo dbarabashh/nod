@@ -73,40 +73,46 @@ struct SettingsView: View {
         self.calendar = calendar
         self.demoPlayback = demoPlayback
         self.captureSurface = captureSurface
-        _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .profile))
+        _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .general))
     }
 
-    /// Left-rail categories. Each maps to one detail pane.
+    /// Left-rail categories, ordered by how often they're opened: the everyday
+    /// knobs first, then the account and its money, then the data controls
+    /// people come looking for rather than browse. `allCases` drives the rail,
+    /// so this declaration order is the on-screen order.
     private enum Tab: String, CaseIterable, Identifiable {
-        case profile, subscription, rewards, general, modes, connections, shortcuts, privacy
+        case general, modes, shortcuts, connections, profile, subscription, rewards, privacy
         var id: String {
             rawValue
         }
 
-        var title: String {
+        /// One table rather than a switch per attribute, so a new tab spells its
+        /// name once and the compiler still demands both halves.
+        private var display: (title: String, icon: String) {
             switch self {
-            case .profile: "Profile"
-            case .subscription: "Subscription"
-            case .rewards: "Rewards"
-            case .general: "General"
-            case .modes: "Modes"
-            case .connections: "Connections"
-            case .shortcuts: "Shortcuts"
-            case .privacy: "Privacy"
+            case .general: ("General", "nc-gear-2")
+            case .modes: ("Modes", "nc-layers-3")
+            case .shortcuts: ("Shortcuts", "nc-keyboard")
+            case .connections: ("Connections", "nc-puzzle-piece")
+            case .profile: ("Profile", "nc-user")
+            case .subscription: ("Subscription", "nc-credit-card")
+            case .rewards: ("Rewards", "nc-gift")
+            case .privacy: ("Privacy", "nc-shield-check")
             }
         }
 
+        var title: String {
+            display.title
+        }
+
         var icon: String {
-            switch self {
-            case .profile: "nc-user"
-            case .subscription: "nc-credit-card"
-            case .rewards: "nc-gift"
-            case .general: "nc-gear-2"
-            case .modes: "nc-layers-3"
-            case .connections: "nc-puzzle-piece"
-            case .shortcuts: "nc-keyboard"
-            case .privacy: "nc-shield-check"
-            }
+            display.icon
+        }
+
+        /// The rail's single break: everyday settings above, the account and the
+        /// data it holds below.
+        var startsAccountGroup: Bool {
+            self == .profile
         }
     }
 
@@ -131,7 +137,9 @@ struct SettingsView: View {
     /// notification to a view that didn't exist yet.
     private func applyPendingFocus() {
         switch focus.consume() {
+        case .general: tab = .general
         case .subscription: tab = .subscription
+        case .rewards: tab = .rewards
         case .modes: tab = .modes
         case .privacy: tab = .privacy
         case .profile: tab = .profile
@@ -150,6 +158,12 @@ struct SettingsView: View {
                 .padding(.bottom, 10)
 
             ForEach(Tab.allCases) { item in
+                if item.startsAccountGroup {
+                    Divider()
+                        .overlay(Theme.Palette.border)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                }
                 navButton(item)
             }
             Spacer(minLength: 0)

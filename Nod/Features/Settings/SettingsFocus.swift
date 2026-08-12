@@ -11,8 +11,10 @@ import Foundation
 @MainActor
 final class SettingsFocus: ObservableObject {
     enum Pane: String {
+        case general
         case profile
         case subscription
+        case rewards
         case modes
         case privacy
     }

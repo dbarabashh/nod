@@ -76,39 +76,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Settings is a section of the main window, not a window of its own —
         // every entry point raises the pane request first, then brings the
         // window up on it.
-        NotificationCenter.default.addObserver(forName: .nodOpenSettings, object: nil, queue: nil) { [weak windows] _ in
-            Task { @MainActor in
-                services.settingsFocus.open(.profile)
-                windows?.showMainWindow()
-                NSApp.activate(ignoringOtherApps: true)
+        func observeSettingsPane(_ name: Notification.Name, _ pane: SettingsFocus.Pane) {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak windows] _ in
+                Task { @MainActor in
+                    services.settingsFocus.open(pane)
+                    windows?.showMainWindow()
+                    NSApp.activate(ignoringOtherApps: true)
+                }
             }
         }
-        NotificationCenter.default.addObserver(forName: .nodOpenPrivacySettings, object: nil, queue: nil) { [weak windows] _ in
-            Task { @MainActor in
-                services.settingsFocus.open(.privacy)
-                windows?.showMainWindow()
-                NSApp.activate(ignoringOtherApps: true)
-            }
-        }
-        NotificationCenter.default.addObserver(forName: .nodOpenModes, object: nil, queue: nil) { [weak windows] _ in
-            Task { @MainActor in
-                services.settingsFocus.open(.modes)
-                windows?.showMainWindow()
-                NSApp.activate(ignoringOtherApps: true)
-            }
-        }
+        observeSettingsPane(.nodOpenSettings, .general)
+        observeSettingsPane(.nodOpenPrivacySettings, .privacy)
+        observeSettingsPane(.nodOpenModes, .modes)
+        observeSettingsPane(.nodOpenRewards, .rewards)
+        // Posted by upsell buttons and the post-checkout deep link.
+        observeSettingsPane(.nodOpenSubscription, .subscription)
+
         NotificationCenter.default.addObserver(forName: .nodOpenLibrary, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in
                 windows?.showMainWindow(focusing: nil)
-                NSApp.activate(ignoringOtherApps: true)
-            }
-        }
-        // Upsell buttons (and the post-checkout deep link) route here to open
-        // Settings on the Subscription tab.
-        NotificationCenter.default.addObserver(forName: .nodOpenSubscription, object: nil, queue: nil) { [weak windows] _ in
-            Task { @MainActor in
-                services.settingsFocus.open(.subscription)
-                windows?.showMainWindow()
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
@@ -377,6 +363,8 @@ extension Notification.Name {
     /// Posted after a completed checkout, and by the paywall gate, to open
     /// Settings on the Subscription tab — the single home for plan/billing.
     static let nodOpenSubscription = Notification.Name("nod.app.openSubscription")
+    /// Posted by the menu-bar item to open Settings on the Rewards tab.
+    static let nodOpenRewards = Notification.Name("nod.app.openRewards")
 }
 
 extension Notification {

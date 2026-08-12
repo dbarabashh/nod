@@ -70,6 +70,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         return item
     }
 
+    /// Copied before tinting — `NSImage(named:)` hands back a shared cached
+    /// instance, so sizing it in place would resize that glyph everywhere else
+    /// it is drawn. Template rendering inverts it with the row's highlight
+    /// instead of leaving it dark on the selection fill.
+    private static let rewardsIcon: NSImage? = {
+        guard let icon = NSImage(named: "nc-gift")?.copy() as? NSImage else { return nil }
+        icon.isTemplate = true
+        icon.size = NSSize(width: 16, height: 16)
+        return icon
+    }()
+
     private static func statusItemImage(dotColor: NSColor?) -> NSImage? {
         guard let glyph = NSImage(named: "NTemplate") else { return nil }
         let size = NSSize(width: 18, height: 18)
@@ -131,6 +142,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // Settings is a section of the main window now; the observer in
         // AppDelegate raises it and brings the window up.
         NotificationCenter.default.post(name: .nodOpenSettings, object: nil)
+    }
+
+    @objc private func showRewardsAction() {
+        NotificationCenter.default.post(name: .nodOpenRewards, object: nil)
     }
 
     private func displayName(for user: User) -> String {
@@ -198,6 +213,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 )
                 settings.target = self
                 menu.addItem(settings)
+
+                let rewards = NSMenuItem(
+                    title: "Rewards…",
+                    action: #selector(showRewardsAction),
+                    keyEquivalent: ""
+                )
+                rewards.target = self
+                rewards.image = Self.rewardsIcon
+                menu.addItem(rewards)
 
                 menu.addItem(.separator())
             } else if !signedIn {
