@@ -46,6 +46,27 @@ directories, with symlinks for Claude Code:
 Claude-only config (`.claude/settings.json` hooks) stays in `.claude/`.
 `CONVENTIONS.md` is now an index that points into `.agents/rules/`.
 
+## Nod knowledge contract
+
+`nod-playbook` is the ecosystem source of truth for product context and durable
+decisions. For every new or materially changed feature:
+
+1. Locate the `nod-playbook` checkout (normally `../nod-playbook`; from a
+   worktree, locate the workspace's checkout by repository name) and read
+   `LLMS.md`, `context/README.md`, `context/features/README.md`, the existing
+   feature record and related decisions before implementation.
+2. In the same work item as the code, create or update one indexed feature
+   record and update broader context owners only when their facts changed.
+3. Add or supersede a decision record for choices that change product
+   boundaries, privacy, retention, entitlements, shared schemas or APIs,
+   cross-repo contracts, or costly-to-reverse architecture.
+4. Run the playbook's `./scripts/validate.sh` and report the playbook files in
+   the final handoff.
+
+This repo remains authoritative for implementation details. Do not copy them
+into the playbook. If the playbook is unavailable or read-only, report that as
+a completion blocker instead of silently skipping the update.
+
 ## Commands
 
 ```sh
@@ -74,6 +95,7 @@ Full build, lint/format, git-hook, and CI-pin details: `docs/build-setup.md`.
 | Which policy to update when code changes | `docs/policy-bindings.md` |
 | Release pipeline (Sparkle, notarization, appcast) | `docs/release.md` |
 | Pricing model | `docs/pricing.md` |
+| Product context, feature records and durable decisions | `nod-playbook` (`LLMS.md`) |
 
 ## Backend
 
