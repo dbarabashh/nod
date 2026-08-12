@@ -21,10 +21,11 @@ struct DemoBeat {
 /// Whether Start plays a scripted story instead of opening a microphone, which
 /// story it tells, and how fast.
 ///
-/// Its own settings rather than the existing `DemoMode` flag: that one is
-/// DEBUG-only and fills the app with canned history, which is a different job.
-/// This has to work in whatever build gets screen-recorded, and it has to name a
-/// scenario — four presets are useless behind a boolean.
+/// Its own settings rather than the existing `DemoMode` flag: that one fills the
+/// app with canned history, which is a different job, and it has to name a
+/// scenario — four presets are useless behind a boolean. Both are DEBUG-only:
+/// the settings card that arms this is compiled out of shipping builds, so a
+/// screen recording has to be taken from a Debug build.
 @MainActor
 final class DemoPlayback: ObservableObject {
     @Published var isEnabled: Bool {

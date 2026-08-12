@@ -291,9 +291,11 @@ struct GeneralSettingsPane: View {
             if let launchBehavior {
                 LaunchBehaviorSection(behavior: launchBehavior)
             }
-            if let demoPlayback {
-                DemoSettingsSection(playback: demoPlayback)
-            }
+            #if DEBUG
+                if let demoPlayback {
+                    DemoSettingsSection(playback: demoPlayback)
+                }
+            #endif
             SettingsCard {
                 SettingsRow(
                     icon: "nc-earth",
