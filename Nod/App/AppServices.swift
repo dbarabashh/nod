@@ -105,6 +105,7 @@ struct AppServices {
             supabaseKey: SupabaseConfig.anonKey,
             options: SupabaseClientOptions(
                 auth: SupabaseClientOptions.AuthOptions(
+                    storage: AuthSessionStorage(),
                     emitLocalSessionAsInitialSession: true
                 )
             )
