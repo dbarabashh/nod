@@ -142,7 +142,7 @@ approval).
 
 | Switch | Default | What it gates |
 |---|---|---|
-| `plan_prices.available_for_new_checkout = false` on the replacement rows | dark | The new catalog and the top-up. `create-checkout` also refuses any `pri_REPLACE_*` id outright. |
+| `plan_prices.available_for_new_checkout = false` on the replacement rows | **thrown on prod 2026-08-12** | The new catalog and the top-up. `create-checkout` also refuses any `pri_REPLACE_*` id outright. Sandbox is still dark. |
 | `app_config.meeting_lease_required_build = 2147483647` | dark | Chunk-level lease enforcement. Start-time allowance still applies to any build that speaks the protocol. |
 | `email_program_config.program_not_before is null` | dark | **All** Resend traffic — optional email, transactional referral notices, and contact sync alike. |
 

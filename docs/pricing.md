@@ -11,9 +11,9 @@ The prices in **Plans** below are the approved ones. This document exists becaus
 the *limits* are derived, and the derivation has to be written down or it gets
 re-guessed.
 
-The NOD-76 replacement catalog was **approved on 2026-08-12** and the numbers
-below are already the new ones. It is not yet what a customer is charged — see
-"Cutover status" for exactly which surfaces have moved and which have not.
+The NOD-76 replacement catalog was **approved on 2026-08-12** and cut over on
+prod the same day, so the numbers below are what a new customer is charged.
+Existing subscribers keep the price they bought at — see "Cutover status".
 
 ---
 
@@ -35,29 +35,39 @@ There is no overage and no usage credits. Both were built once and deleted
 (`df98ba8 remove overage feature`); the landing advertised `$0.60 / hr` for
 weeks after the code stopped being able to charge it.
 
-## Cutover status — approved, partially rolled out
+## Cutover status — live since 2026-08-12
 
-The prices above are decided. They are **not yet what anyone is charged**, and
-the surfaces disagree right now:
+Every surface now carries the prices above. The cutover ran on prod that day,
+after the NOD-76 migrations landed and the live Paddle prices were created:
 
 | Surface | Carries | State |
 |---|---|---|
-| `hellonod.app/pricing` | $15 / $24 (new) | **moved 2026-08-12** |
+| `hellonod.app/pricing` | $15 / $24 (new) | moved 2026-08-12 |
 | `docs/pricing.md` (this file) | new | moved |
 | Paddle **sandbox** catalog | new | moved |
-| Paddle **live** catalog | $14 / $29 (old) | **not moved** |
-| Prod `plan_prices` | $14 / $29 (old) | **not moved** |
-| In-app paywall | reads `plan_prices` | follows prod — still old |
+| Paddle **live** catalog | new | **moved 2026-08-12** |
+| Prod `plan_prices` | new | **moved 2026-08-12** |
+| In-app paywall | reads `plan_prices` | follows prod — new on every build |
 
-**The landing page therefore advertises a price the checkout will not charge.**
-Pro is the dangerous direction: the page says $24 / mo and live Paddle bills $29.
+The paywall needed no release to follow: the `plan_prices` RLS policy for
+`authenticated` is `active AND available_for_new_checkout`, so the superseded
+rows stop being readable the moment the cutover flips them, and builds that
+predate the new catalog render the new prices too.
 
-Closing it takes more than calling one function. Prod's `plan_prices` is still on
-the **9-column** schema — no `sku`, no `top_up_hours`, no
-`available_for_new_checkout` — and `cutover_pricing_catalog(…)` does not exist
-there at all. The NOD-76 migrations have to reach prod first, then the live
-Paddle prices have to be created, and only then can the cutover run with real
-prod price IDs.
+### Live catalog
+
+| SKU | Live price id |
+|---|---|
+| `starter_monthly_usd_15` | `pri_01kzv9ye8z5hc9d8ap0d5kcr91` |
+| `starter_yearly_usd_144` | `pri_01kzv9yeetzmhetcnjtea3tby5` |
+| `pro_monthly_usd_24` | `pri_01kzv9yem47q6qhqytkx2k61qr` |
+| `pro_yearly_usd_240` | `pri_01kzv9yesgja1edh4d8w0x1f1e` |
+| `starter_5h_usd_12` | `pri_01kzv9yeyyrqtmwsz46hrcypsr` |
+
+The three marketing discounts on live (`Discount for friends` 40%,
+`Friendly discount` 15%, `Nod Pro monthly - 1 month free` 100%) are still
+restricted to the superseded price ids, so they no longer apply to a new
+checkout. The two referral discounts are unrestricted and follow the catalog.
 
 ### Nobody already paying gets repriced
 
