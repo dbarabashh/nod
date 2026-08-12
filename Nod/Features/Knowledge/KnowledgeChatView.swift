@@ -130,7 +130,21 @@ struct KnowledgeChatView: View {
                     // more are coming: it is the only thing on screen that says
                     // the answer isn't finished, and losing it at the first
                     // paragraph would read as a truncated reply.
-                    if chat.isSending { typingIndicator.id(Self.typingAnchor) }
+                    // Separate elements with separate identities. Sharing
+                    // `typingAnchor` between the two let SwiftUI treat the swap
+                    // as "same view, unchanged" and keep the indicator on screen
+                    // while an approval was already waiting.
+                    if let approval = chat.pendingApproval {
+                        ToolApprovalCard(
+                            approval: approval,
+                            onApprove: chat.approvePendingTools,
+                            onDeny: chat.denyPendingTools
+                        )
+                        .id(Self.approvalAnchor)
+                    }
+                    if chat.isSending, chat.pendingApproval == nil {
+                        typingIndicator.id(Self.typingAnchor)
+                    }
                     if let errorText = chat.errorText {
                         Text(errorText)
                             .font(.system(size: 11.5))
@@ -208,6 +222,10 @@ struct KnowledgeChatView: View {
                     isStreaming: chat.isStreaming && message.id == chat.messages.last?.id
                 )
                 .padding(.trailing, 40)
+                // What the turn did, collapsed. Below the answer rather than
+                // above it: the answer is what was asked for, the record of how
+                // it was reached is there to be checked, not read.
+                ChatTurnTrace(steps: message.steps)
                 // Sessions and apps are both just "where this came from", so
                 // they read as one row of chips rather than two lists in two
                 // shapes. A session opens; an app is a label — the chip says
@@ -295,7 +313,10 @@ struct KnowledgeChatView: View {
     }
 
     private var typingIndicator: some View {
-        ThinkingIndicator(script: chat.thinkingScript)
+        ThinkingIndicator(
+            script: chat.thinkingScript,
+            icon: chat.callingProvider?.iconName
+        )
     }
 
     private var composer: some View {
@@ -533,9 +554,13 @@ struct KnowledgeChatView: View {
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
-        let target: AnyHashable? = chat.isSending
-            ? AnyHashable(Self.typingAnchor)
-            : chat.messages.last.map { AnyHashable($0.id) }
+        let target: AnyHashable? = if chat.pendingApproval != nil {
+            AnyHashable(Self.approvalAnchor)
+        } else if chat.isSending {
+            AnyHashable(Self.typingAnchor)
+        } else {
+            chat.messages.last.map { AnyHashable($0.id) }
+        }
         guard let target else { return }
         // Mid-stream each flush would restart a 150ms scroll before the last
         // finished, which is what makes streaming scroll feel rubbery.
@@ -547,6 +572,7 @@ struct KnowledgeChatView: View {
     }
 
     private static let typingAnchor = "nod.knowledge.typing"
+    private static let approvalAnchor = "nod.knowledge.approval"
 }
 
 /// One folder in the scope picker: the same swatch-name-checkmark shape the

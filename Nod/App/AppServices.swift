@@ -44,6 +44,7 @@ struct AppServices {
     let referral: ReferralService
     let accountExport: AccountExportService
     let connections: ConnectionService
+    let integrations: IntegrationService
     let panelSharing: PanelSharingPreference
     /// How eagerly the live meeting analyst interrupts — see
     /// `ProactivityPreference.Level`.
@@ -115,6 +116,7 @@ struct AppServices {
         // Free the single-device slot on every sign-out path (menu, forced
         // device-conflict), while the token is still valid.
         let transcriptStore = TranscriptStore(client: llmClient)
+        let integrations = IntegrationService(supabase: supabase)
         let consent = ConsentPreference(
             supabase: supabase,
             auth: auth
@@ -195,6 +197,7 @@ struct AppServices {
                 actionItems: actionItemStore,
                 threads: knowledgeThreads,
                 feedback: retrievalFeedback,
+                integrations: integrations,
                 screenContext: screenContext
             ),
             knowledgeThreads: knowledgeThreads,
@@ -204,6 +207,7 @@ struct AppServices {
             referral: ReferralService(supabase: supabase),
             accountExport: AccountExportService(supabase: supabase),
             connections: ConnectionService(supabase: supabase),
+            integrations: integrations,
             panelSharing: PanelSharingPreference(),
             proactivityPreference: ProactivityPreference(),
             launchBehavior: LaunchBehavior(),

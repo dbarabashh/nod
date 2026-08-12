@@ -16,6 +16,7 @@ struct SettingsView: View {
     private let auth: AuthService?
     private let accountExport: AccountExportService?
     private let connections: ConnectionService?
+    private let integrations: IntegrationService?
     private let modeStore: ModeStore?
     private let referral: ReferralService?
     private let emailPreferences: EmailPreferenceService?
@@ -39,6 +40,7 @@ struct SettingsView: View {
         auth: AuthService? = nil,
         accountExport: AccountExportService? = nil,
         connections: ConnectionService? = nil,
+        integrations: IntegrationService? = nil,
         modeStore: ModeStore? = nil,
         referral: ReferralService? = nil,
         emailPreferences: EmailPreferenceService? = nil,
@@ -63,6 +65,7 @@ struct SettingsView: View {
         self.auth = auth
         self.accountExport = accountExport
         self.connections = connections
+        self.integrations = integrations
         self.modeStore = modeStore
         self.referral = referral
         self.emailPreferences = emailPreferences
@@ -81,7 +84,7 @@ struct SettingsView: View {
     /// people come looking for rather than browse. `allCases` drives the rail,
     /// so this declaration order is the on-screen order.
     private enum Tab: String, CaseIterable, Identifiable {
-        case general, modes, shortcuts, connections, profile, subscription, rewards, privacy
+        case general, modes, shortcuts, connections, integrations, profile, subscription, rewards, privacy
         var id: String {
             rawValue
         }
@@ -94,6 +97,7 @@ struct SettingsView: View {
             case .modes: ("Modes", "nc-layers-3")
             case .shortcuts: ("Shortcuts", "nc-keyboard")
             case .connections: ("Connections", "nc-puzzle-piece")
+            case .integrations: ("Integrations", "nc-link")
             case .profile: ("Profile", "nc-user")
             case .subscription: ("Subscription", "nc-credit-card")
             case .rewards: ("Rewards", "nc-gift")
@@ -245,6 +249,7 @@ struct SettingsView: View {
                 case .general: generalPane
                 case .modes: modesPane
                 case .connections: connectionsPane
+                case .integrations: integrationsPane
                 case .shortcuts: shortcutsPane
                 case .privacy: privacyPane
                 }
@@ -341,6 +346,17 @@ struct SettingsView: View {
             ConnectionsSection(service: connections)
         } else {
             Text("Sign in to connect Nod to your AI.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.muted)
+        }
+    }
+
+    @ViewBuilder
+    private var integrationsPane: some View {
+        if let integrations {
+            IntegrationsSection(service: integrations)
+        } else {
+            Text("Sign in to connect Nod to your tools.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.Palette.muted)
         }

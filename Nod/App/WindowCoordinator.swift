@@ -314,6 +314,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 auth: services.auth,
                 accountExport: services.accountExport,
                 connections: services.connections,
+                integrations: services.integrations,
                 modeStore: services.modeStore,
                 referral: services.referral,
                 emailPreferences: services.emailPreferences,

@@ -386,6 +386,12 @@ verify_jwt = false
 [functions.sync-google-ads]
 verify_jwt = false
 
+# Nango posts the OAuth result here, so there is no Supabase JWT. The gate is
+# the HMAC Nango signs each delivery with, verified against the webhook signing
+# key in the function.
+[functions.nango-webhook]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

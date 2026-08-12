@@ -150,7 +150,7 @@ struct ChatSuggestionChip: View {
 /// supply the trailing layout (gutter spacer, any sources row).
 struct AssistantTextBubble: View {
     private let content: String
-    private let rendered: AttributedString
+    private let rendered: [AnswerPiece]
     private let showsBubble: Bool
     private let isStreaming: Bool
     @State private var isHovering = false
@@ -167,7 +167,11 @@ struct AssistantTextBubble: View {
         // Rendered once here, not in `body`: re-parsing the whole markdown on
         // every body pass is quadratic in the answer's length. While streaming,
         // `StreamingAnswer` parses per block instead — also once each.
-        rendered = isStreaming ? AttributedString() : renderRecapMarkdown(content)
+        rendered = isStreaming
+            ? []
+            : AnswerBlocks.complete(in: content, isFinished: true)
+            .enumerated()
+            .map { AnswerPiece.from($0.element, at: $0.offset) }
     }
 
     /// Nothing to show yet: the turn exists but no paragraph has finished. The
@@ -186,7 +190,7 @@ struct AssistantTextBubble: View {
                     if isStreaming {
                         StreamingAnswer(content: content)
                     } else {
-                        Text(rendered)
+                        AnswerPieces(pieces: rendered)
                     }
                 }
                 .font(.system(size: 13.5))
@@ -230,12 +234,12 @@ private struct StreamingAnswer: View {
     /// so re-parsing the ones already on screen — twenty times a second, for the
     /// length of the answer — is the quadratic cost the non-streaming path
     /// avoids by parsing in `init`.
-    @State private var rendered: [AttributedString] = []
+    @State private var rendered: [AnswerPiece] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(rendered.enumerated()), id: \.offset) { _, block in
-                Text(block)
+            ForEach(rendered) { piece in
+                AnswerPieceView(piece: piece)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.answerArrival(reduceMotion: reduceMotion))
             }
@@ -250,7 +254,55 @@ private struct StreamingAnswer: View {
     private func absorb(_ text: String) {
         let blocks = AnswerBlocks.complete(in: text, isFinished: false)
         guard blocks.count > rendered.count else { return }
-        rendered += blocks[rendered.count...].map(renderRecapMarkdown)
+        let first = rendered.count
+        rendered += blocks[first...].enumerated().map { AnswerPiece.from($0.element, at: first + $0.offset) }
+    }
+}
+
+/// One rendered piece of an answer.
+struct AnswerPiece: Identifiable {
+    enum Content {
+        case prose(AttributedString)
+        case links([ProviderLinkItem])
+    }
+
+    /// Blocks are append-only while an answer streams, so a piece's position is
+    /// its identity — and reading it must not cost a copy of the paragraph, in a
+    /// list SwiftUI re-diffs at every stream flush.
+    let id: Int
+    let content: Content
+
+    static func from(_ block: String, at index: Int) -> AnswerPiece {
+        if let items = ProviderLinkItem.list(in: block) {
+            return AnswerPiece(id: index, content: .links(items))
+        }
+        return AnswerPiece(id: index, content: .prose(renderRecapMarkdown(block)))
+    }
+}
+
+/// Draws a sequence of answer pieces with the paragraph spacing of a reply.
+struct AnswerPieces: View {
+    let pieces: [AnswerPiece]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(pieces) { AnswerPieceView(piece: $0) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct AnswerPieceView: View {
+    let piece: AnswerPiece
+
+    var body: some View {
+        switch piece.content {
+        case let .prose(block):
+            Text(block)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case let .links(items):
+            ProviderLinkList(items: items)
+        }
     }
 }
 
@@ -305,16 +357,30 @@ private struct ChatBubbleFill: ViewModifier {
 struct UserTextBubble: View {
     let text: AttributedString
 
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        Text(text)
-            .font(.system(size: 13.5))
-            .tint(.white)
-            .foregroundStyle(Color.white)
-            .textSelection(.enabled)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .chatBubbleBackground(isUser: true)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+        VStack(alignment: .trailing, spacing: 4) {
+            Text(text)
+                .font(.system(size: 13.5))
+                .tint(.white)
+                .foregroundStyle(Color.white)
+                .textSelection(.enabled)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .chatBubbleBackground(isUser: true)
+            // Copying your own turn is how a question gets reused — reworded in
+            // a new thread, or pasted somewhere else. The affordance mirrors the
+            // assistant's, flipped to the side this bubble sits on.
+            ChatCopyButton(text: String(text.characters))
+                .padding(.trailing, 2)
+                .revealOnHover(isHovering, reduceMotion: reduceMotion, anchor: .trailing)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .animation(.hoverReveal(reduceMotion: reduceMotion), value: isHovering)
     }
 }
 
@@ -360,9 +426,14 @@ struct ChatCopyButton: View {
 struct ThinkingIndicator: View {
     private let phrases: [String]
     private let interval: Double
+    private let icon: String?
 
-    init(script: [String], interval: Double = 1.6) {
+    /// `icon` marks work that left Nod: while the chat is calling a connected
+    /// product, its mark stands next to the dots so the wait is attributable
+    /// rather than anonymous.
+    init(script: [String], icon: String? = nil, interval: Double = 1.6) {
         phrases = script.isEmpty ? [""] : script
+        self.icon = icon
         self.interval = interval
     }
 
@@ -371,6 +442,12 @@ struct ThinkingIndicator: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            if let icon {
+                Image(icon)
+                    .icon(13)
+                    .foregroundStyle(Theme.Palette.ink.opacity(0.85))
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
             BouncingDots()
             ZStack(alignment: .leading) {
                 Text(displayed)
@@ -390,6 +467,7 @@ struct ThinkingIndicator: View {
             .animation(.standard(reduceMotion: reduceMotion), value: displayed)
             Spacer(minLength: 0)
         }
+        .animation(.standard(reduceMotion: reduceMotion), value: icon)
         // Keyed on the script, so handing over a new stage's phrases restarts
         // the walk instead of leaving the previous stage's timer running.
         .task(id: phrases) {

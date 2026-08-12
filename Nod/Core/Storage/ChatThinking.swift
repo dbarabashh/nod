@@ -39,7 +39,32 @@ enum ChatThinking {
         }
     }
 
-    private static func counted(_ count: Int, _ noun: String) -> String {
+    /// The wait before a self-contained action. Says nothing about sessions:
+    /// on this path none were read, and claiming otherwise is the kind of small
+    /// lie that teaches people to distrust the whole surface.
+    static let acting: [String] = [
+        "Working on it…"
+    ]
+
+    /// The model has the question and is deciding whether to reach for a
+    /// connected product. Nothing is being written yet, and saying "writing"
+    /// here is the same small lie as claiming sessions were read.
+    static let deciding: [String] = [
+        "Thinking it through…"
+    ]
+
+    /// Shown while a tool call is in flight. Names the product rather than the
+    /// action: the user approved the action a moment ago and already knows what
+    /// it was — what they can't see is that the wait is now somebody else's
+    /// server.
+    static func calling(_ provider: IntegrationProvider) -> [String] {
+        [
+            "Asking \(provider.displayName)…",
+            "Waiting on \(provider.displayName)…"
+        ]
+    }
+
+    static func counted(_ count: Int, _ noun: String) -> String {
         "\(count) \(noun)\(count == 1 ? "" : "s")"
     }
 }

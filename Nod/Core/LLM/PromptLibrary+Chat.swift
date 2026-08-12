@@ -117,7 +117,7 @@ extension PromptLibrary {
     ) -> (system: String, user: String) {
         let lang = language.promptName
         let base = """
-        You prepare a user's question for semantic search over the transcripts of meetings, voice notes, and recordings they made. You do NOT answer the question for the user — you output a JSON object with exactly three fields.
+        You prepare a user's question for semantic search over the transcripts of meetings, voice notes, and recordings they made. You do NOT answer the question for the user — you output a JSON object with exactly four fields.
 
         1. "standalone_query": rewrite the LATEST question so it stands on its own without the conversation history. Resolve pronouns, ellipsis, and back-references ("it", "that", "the second one", "the enterprise one") into explicit terms using the earlier turns. If the question is already self-contained, return it essentially unchanged. Write it in \(
             lang
@@ -129,9 +129,11 @@ extension PromptLibrary {
 
         3. "about_screen": true when the user is asking about their own recent activity — what they were doing, working on, looking at, or have missed — rather than about what was said in a recorded session. Nod also keeps a short-lived record of the windows the user had open, and this flag is what reaches for it. Say true for "what have I been working on", "що було за останні 20 хвилин", "any updates?", "catch me up", "what did I miss" — anything a colleague would answer by looking over their shoulder rather than by reading meeting notes. Say false for questions about a specific meeting, person, decision, or topic ("what did Leo say about pricing", "які дедлайни по проєкту"). When both readings fit, prefer true: the screen record is added to the session excerpts, never used instead of them.
 
+        4. "needs_sessions": false when the answer lives somewhere other than the recordings. Two cases: the request carries everything it needs ("create a ticket titled X", "file this in Linear"), or the user names a connected product as the SOURCE — "based on what we have in Linear", "what's on my Linear board", "my progress today according to Linear". Say true only when the answer depends on what was actually said, decided or promised in a session, including requests that name a meeting ("do we have tickets for what we discussed here"). When neither reading is clear, say true.
+
         [OUTPUT FORMAT]
         Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
-        {"standalone_query": "<the self-contained question>", "hypothetical_answer": "<the transcript-style passage>", "about_screen": <true|false>}
+        {"standalone_query": "<the self-contained question>", "hypothetical_answer": "<the transcript-style passage>", "about_screen": <true|false>, "needs_sessions": <true|false>}
         """
         let system = personalContext.isEmpty ? base : personalContext + "\n\n" + base
 
@@ -163,7 +165,8 @@ extension PromptLibrary {
         language: AppLanguage = .english,
         personalContext: String = "",
         now: Date = Date(),
-        observations: [String] = []
+        observations: [String] = [],
+        connectedTools: [ChatTool] = []
     ) -> String {
         let lang = language.promptName
         let today = sessionDateString(now)
@@ -171,6 +174,7 @@ extension PromptLibrary {
         let context = excerpts.isEmpty
             ? "(No relevant excerpts were found in your sessions for this question.)"
             : excerpts.joined(separator: "\n\n---\n\n")
+        let tools = connectedToolsRules(connectedTools)
         let screen = observations.isEmpty ? "" : """
 
 
@@ -213,7 +217,7 @@ extension PromptLibrary {
         - LANGUAGE: reply in \(lang) unless the user clearly writes in another language.
 
         === RETRIEVED FROM YOUR SESSIONS ===
-        \(context)\(screen)
+        \(context)\(screen)\(tools)
         """
         return personalContext.isEmpty ? body : personalContext + "\n\n" + body
     }
@@ -231,6 +235,33 @@ extension PromptLibrary {
 }
 
 /// that would otherwise push `PromptLibrary` past its size limit.
+/// What the model must be told once a product is connected.
+///
+/// Without this the chat answers "yes, you have three tasks" from the OPEN
+/// ACTION ITEMS block — which the prompt above calls the user's real task list,
+/// and which is true only of what was *said*. Whether something is *tracked* is
+/// a different question, and only the tool can answer it.
+///
+/// Emitted only when something is connected, so nobody pays for these tokens
+/// until they mean something.
+private func connectedToolsRules(_ tools: [ChatTool]) -> String {
+    guard !tools.isEmpty else { return "" }
+    let products = Set(tools.map(\.provider.displayName)).sorted().joined(separator: ", ")
+    return """
+
+
+    [CONNECTED TOOLS]
+    - Connected: \(products). You can read from and write to them with the tools you were given.
+    - Sessions and OPEN ACTION ITEMS record what was SAID. They are not evidence of what is TRACKED. Never answer whether something is filed, ticketed, assigned or already exists as a task from them alone.
+    - When the user asks whether something is tracked, filed, or already a task — or asks you to file one — search the connected product first, then answer from what came back.
+    - Say what you actually found, with identifiers. "No match in \(products)" is a real answer; guessing is not.
+    - Search with the USER'S words. Session excerpts and the screen record are background; they are not a list of things to go looking for. Turning a topic the user never raised into a search is how an answer about today's progress comes back full of last week's projects.
+    - One search answers most questions. Search again only when the first came back empty or plainly missed what was asked — every extra call is another round trip the user waits through and another approval they have to read.
+    - Report a finished action in one line: what it is now, its identifier, and its link. Never restate the title or description the user just gave you — they wrote it, they can see it, and repeating it back is the difference between a receipt and a wall of text.
+    - Put every reference to a connected product on its OWN line, as a markdown link, never inside a sentence: `[NOD-57 — Provide team access](https://linear.app/…)`. Nod draws those lines itself; a link buried mid-sentence is drawn as plain text and looks like a mistake.
+    """
+}
+
 private let screenContextRules = """
 [YOUR SCREEN]
 - The SEEN ON YOUR SCREEN section below is what the user actually had open, captured from their own Mac and grouped by app. It is evidence of the same standing as the session excerpts, not a guess.

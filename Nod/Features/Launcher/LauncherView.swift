@@ -203,12 +203,20 @@ struct LauncherView: View {
         Divider().overlay(Theme.Palette.border)
         if !canAskAcross {
             upsell
+        } else if let approval = chat.pendingApproval {
+            ToolApprovalCard(
+                approval: approval,
+                onApprove: chat.approvePendingTools,
+                onDeny: chat.denyPendingTools
+            )
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
         } else if chat.isSending, launcherAnswerHasContent == false {
             // The chat's own indicator, not a bare spinner: it names the stage
             // it's on (searching → reading N sessions → writing), which is the
             // difference between "it's working" and "it's stuck".
             HStack {
-                ThinkingIndicator(script: chat.thinkingScript)
+                ThinkingIndicator(script: chat.thinkingScript, icon: chat.callingProvider?.iconName)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
