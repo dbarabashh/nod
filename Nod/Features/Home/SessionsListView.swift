@@ -120,8 +120,13 @@ struct SessionsListView: View {
 
     private var segmentBar: some View {
         HStack(spacing: 8) {
-            SegmentedControl(selection: $segment, animation: Self.contentFade)
-                .frame(width: 200)
+            SegmentedControl(
+                selection: $segment,
+                options: Segment.allCases,
+                title: \.rawValue,
+                animation: Self.contentFade
+            )
+            .frame(width: 200)
             Spacer(minLength: 12)
             listActions
         }
@@ -497,50 +502,6 @@ struct SessionsListView: View {
 
     private var hardDeleteAlertVisible: Binding<Bool> {
         .isPresented(by: $pendingHardDelete)
-    }
-}
-
-// MARK: - Segmented control
-
-/// Design-system segmented control — replaces `.pickerStyle(.segmented)`, whose
-/// selection paints with the macOS system accent (blue) that's off-palette here.
-private struct SegmentedControl: View {
-    @Binding var selection: SessionsListView.Segment
-    let animation: Animation
-    @Namespace private var pill
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(SessionsListView.Segment.allCases) { segment in
-                let isSelected = selection == segment
-                Text(segment.rawValue)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.muted)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
-                    .background {
-                        if isSelected {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(Theme.Palette.surfaceStrong)
-                                .matchedGeometryEffect(id: "pill", in: pill)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard selection != segment else { return }
-                        withAnimation(animation) { selection = segment }
-                    }
-            }
-        }
-        .padding(2)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Theme.Palette.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Theme.Palette.border, lineWidth: 0.5)
-                )
-        )
     }
 }
 

@@ -190,6 +190,7 @@
 		A6FACF51DC778FBAD3EE35DA /* AttentionColumn.swift in Sources */ = {isa = PBXBuildFile; fileRef = C520EDA0C5CCCA214E4A3DEC /* AttentionColumn.swift */; };
 		A82134CBD44394E2E79C3E59 /* UISoundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA021557027302C1B7CDF7D2 /* UISoundTests.swift */; };
 		A9E26257152D322E60FDF723 /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21901ABF0AF2D42F20E6E170 /* ChatMessage.swift */; };
+		AAE983C36D51A61DC01204D2 /* SegmentedControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08E15061DB401211F675D939 /* SegmentedControl.swift */; };
 		AB9180C08829E72F431FF696 /* ConsentPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31D47EBC1238C9F5C5284120 /* ConsentPreference.swift */; };
 		ADB0AA911F1742CAF904DB5E /* BillingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F186092CBCFE2453631F2736 /* BillingService.swift */; };
 		AE2DC59D41A1E7D2110665D3 /* KnowledgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B99CB1F0EFEAC3E666485766 /* KnowledgeStore.swift */; };
@@ -311,6 +312,7 @@
 		05E7AAA4DB031B53A6BF4844 /* MeetingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingMode.swift; sourceTree = "<group>"; };
 		06312CCFA4904884915A5C08 /* SessionChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionChatView.swift; sourceTree = "<group>"; };
 		06B697F7832C46F767AA38B8 /* ActionItemMatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemMatchTests.swift; sourceTree = "<group>"; };
+		08E15061DB401211F675D939 /* SegmentedControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SegmentedControl.swift; sourceTree = "<group>"; };
 		09CCA1A45E3E89AFEC2DC6A3 /* ScheduledMeetingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledMeetingTests.swift; sourceTree = "<group>"; };
 		0B1D3D5DBA0BDE4920B4905A /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		0E235E0FCF17894FE6D3E085 /* DemoDataBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoDataBundle.swift; sourceTree = "<group>"; };
@@ -1124,6 +1126,7 @@
 				5827D9550C00025CB7F67975 /* PanelMaterial.swift */,
 				5AFE449B6DC41C5B2B99EF3E /* PressableButtonStyle.swift */,
 				4591AE7FD372470488004750 /* SectionLabel.swift */,
+				08E15061DB401211F675D939 /* SegmentedControl.swift */,
 				CFC2A9390F8A9041B448474F /* ThreeBalls.swift */,
 				B8E532D092AC652ED8FE19B2 /* ViewWidthReader.swift */,
 				C1EFEC847FBE3EA10AC2575F /* WindowBackdrop.swift */,
@@ -1604,6 +1607,7 @@
 				DF1B1A01287689BF46C89525 /* ScreenPrivacySection.swift in Sources */,
 				C72B91984D0F9667C0529D8B /* ScreenTextRecognizer.swift in Sources */,
 				D601AC9C67882D28025E10D7 /* SectionLabel.swift in Sources */,
+				AAE983C36D51A61DC01204D2 /* SegmentedControl.swift in Sources */,
 				7EE572687DCE2192E46A2104 /* SessionChatView.swift in Sources */,
 				17A029A28D3CE63E91BEC34C /* SessionKind.swift in Sources */,
 				E65A63FB5B77CAC785371CFA /* SessionTimeRange.swift in Sources */,

@@ -200,6 +200,7 @@ struct ProactivitySettingsSection: View {
                     in: 0 ... Double(ProactivityPreference.Level.allCases.count - 1),
                     step: 1
                 )
+                .tint(Theme.Palette.violet)
                 .frame(width: 190)
             }
         }
@@ -247,13 +248,11 @@ struct CaptureSurfaceSection: View {
                 title: "Capture surface",
                 subtitle: preference.surface.detail
             ) {
-                Picker("", selection: $preference.surface) {
-                    ForEach(CaptureSurfacePreference.Surface.allCases) { surface in
-                        Text(surface.title).tag(surface)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
+                SegmentedControl(
+                    selection: $preference.surface,
+                    options: CaptureSurfacePreference.Surface.allCases,
+                    title: \.title
+                )
                 .frame(width: 190)
             }
         }
