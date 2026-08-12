@@ -1,20 +1,19 @@
 # Nod — Pricing
 
-_Last updated: 2026-08-11_
+_Last updated: 2026-08-12_
 
 The spec the pricing surfaces are built from. Three of them have to agree, and
 each has its own copy: `plans` / `plan_prices` in Supabase (the only enforced
 truth), `hellonod.app/pricing` (`nod-landing`, 12 locales), and the in-app
 paywall (`PaywallView`). When a number here changes, all three move.
 
-The prices in **Plans** below are the ones in force. This document exists because
+The prices in **Plans** below are the approved ones. This document exists because
 the *limits* are derived, and the derivation has to be written down or it gets
 re-guessed.
 
-A replacement catalog is under discussion in
-[NOD-76](https://linear.app/hellonod/issue/NOD-76) and is **not approved**. It is
-implemented behind a switch so it can be validated, and the code being written is
-not a decision — see "Replacement catalog under discussion" below.
+The NOD-76 replacement catalog was **approved on 2026-08-12** and the numbers
+below are already the new ones. It is not yet what a customer is charged — see
+"Cutover status" for exactly which surfaces have moved and which have not.
 
 ---
 
@@ -22,8 +21,8 @@ not a decision — see "Replacement catalog under discussion" below.
 
 | | **Trial** | **Starter** | **Pro** |
 |---|---|---|---|
-| Price, billed yearly | **$0** for 14 days | **$9 / mo** ($108 / yr) | **$19 / mo** ($228 / yr) |
-| Price, billed monthly | — | **$14 / mo** | **$29 / mo** |
+| Price, billed yearly | **$0** for 14 days | **$12 / mo** ($144 / yr) | **$20 / mo** ($240 / yr) |
+| Price, billed monthly | — | **$15 / mo** | **$24 / mo** |
 | Meeting hours / month | **5** | **8** | **Unlimited** (fair use) |
 | Devices | 1 | 1 | 3 |
 | Card required to start | no | — | — |
@@ -36,34 +35,63 @@ There is no overage and no usage credits. Both were built once and deleted
 (`df98ba8 remove overage feature`); the landing advertised `$0.60 / hr` for
 weeks after the code stopped being able to charge it.
 
-## Replacement catalog under discussion — NOT approved
+## Cutover status — approved, partially rolled out
 
-Implemented, dark, and awaiting an explicit founder pricing decision. Nothing
-below is live: the rows exist in `plan_prices` with
-`available_for_new_checkout = false`, so no client can offer them, and the app
-keeps selling the catalog above until `cutover_pricing_catalog(…)` is called with
-real per-branch Paddle IDs.
+The prices above are decided. They are **not yet what anyone is charged**, and
+the surfaces disagree right now:
 
-| | **Starter** | **Pro** |
+| Surface | Carries | State |
 |---|---|---|
-| Proposed monthly | $15 / mo | $24 / mo |
-| Proposed yearly | $144 / yr ($12 / mo) | $240 / yr ($20 / mo) |
-| Change vs live | $14 → $15 monthly; $108 → $144 yearly | $29 → $24 monthly; $228 → $240 yearly |
+| `hellonod.app/pricing` | $15 / $24 (new) | **moved 2026-08-12** |
+| `docs/pricing.md` (this file) | new | moved |
+| Paddle **sandbox** catalog | new | moved |
+| Paddle **live** catalog | $14 / $29 (old) | **not moved** |
+| Prod `plan_prices` | $14 / $29 (old) | **not moved** |
+| In-app paywall | reads `plan_prices` | follows prod — still old |
 
-This is not an across-the-board increase, and the annual discount depth changes
-materially: the live page advertises roughly 35%, the proposal is 20% on Starter
-and 16.7% on Pro. The paywall now computes that badge from the catalog instead of
-hardcoding it, so it cannot advertise a discount the prices do not give.
+**The landing page therefore advertises a price the checkout will not charge.**
+Pro is the dangerous direction: the page says $24 / mo and live Paddle bills $29.
+
+Closing it takes more than calling one function. Prod's `plan_prices` is still on
+the **9-column** schema — no `sku`, no `top_up_hours`, no
+`available_for_new_checkout` — and `cutover_pricing_catalog(…)` does not exist
+there at all. The NOD-76 migrations have to reach prod first, then the live
+Paddle prices have to be created, and only then can the cutover run with real
+prod price IDs.
+
+### Nobody already paying gets repriced
+
+This is the part that must not be broken by the cutover, and it is already built
+two ways:
+
+- **Paddle never reprices an existing subscription** because the catalog changed.
+  A subscription is bound to the price ID it was created with, and renewals bill
+  that ID. We only have to refrain from calling an update on it.
+- **We keep resolving the superseded ID.** `cutover_pricing_catalog` leaves every
+  old row `active` and only flips `available_for_new_checkout = false`, so it
+  drops out of the storefront without leaving the mapping. The webhook's lookup
+  is `select plan from plan_prices where paddle_price_id = p_price_id` — no
+  storefront filter — so a renewal on the $29 Pro price still resolves to `pro`.
+  If an ID were ever missing entirely, `apply_paddle_subscription` falls back to
+  the plan already on the row rather than dropping the subscriber.
+
+The one-way valve is `create-checkout`, which refuses any price that is not
+`active` **and** `available_for_new_checkout`, and refuses `pri_REPLACE_*`
+outright. So the new prices reach new purchases only, and existing subscribers
+move only if they change plan or cycle themselves.
+
+Change vs the old catalog: Starter $14 → $15 monthly and $108 → $144 yearly;
+Pro $29 → $24 monthly and $228 → $240 yearly. Not an across-the-board increase —
+Pro's monthly price drops while its annual rises.
+
+The annual discount depth changes materially: the old page advertised roughly
+35%, the new prices give 20% on Starter and 16.7% on Pro. The landing copy now
+says ~20%, and the paywall computes the badge from the catalog rather than
+hardcoding it, so neither can advertise a discount the prices do not give.
 
 Alongside it: a **Starter top-up** of +5 hours for $12 — explicit, repeatable,
 never automatic, expires with the billing month, no rollover, and no Pro
-equivalent. Existing subscriptions keep their current Paddle price unless the
-subscriber changes plan or cycle themselves; the webhook still resolves
-superseded price IDs so a renewal never silently reprices anyone.
-
-The open questions (is $24 the right conversion move, is $108 → $144 too abrupt,
-does the live "AI coworker" positioning justify moving now) belong to NOD-76 and
-NOD-66, not to this file.
+equivalent. It is not on the landing page yet.
 
 ## Features
 
@@ -83,7 +111,7 @@ happens to be true because no plan restricts it.
 | Folder-scoped questions | ✅ | — | ✅ | `llm-proxy`, `label_scoping` |
 | **Screen context (ambient)** | ✅ | — | ✅ | `screen_observations` RLS + client |
 | Early access + priority support | ✅ | — | ✅ | operational, not code |
-| Speaker labels | — | — | — | **not shipped** — see below |
+| Speaker labels | ✅ | ✅ | ✅ | `SessionKind.supportsDiarization`, on device |
 
 `plans.features` is the mapping; the client's `Feature` enum only knows the key
 names. Re-pricing which plan unlocks what is a data change, not a release.
@@ -110,26 +138,30 @@ Merchant of Record, so **~79% of a yearly price reaches us**:
 
 | | Charged | − VAT (20%) | − Paddle (5% + $0.50) | **Net / month** |
 |---|---|---|---|---|
-| Starter, yearly | $108 / yr | $90.00 | $85.00 | **$7.08** |
-| Starter, monthly | $14 | $11.67 | $10.58 | **$10.58** |
-| Pro, yearly | $228 / yr | $190.00 | $180.00 | **$15.00** |
-| Pro, monthly | $29 | $24.17 | $22.46 | **$22.46** |
+| Starter, yearly | $144 / yr | $120.00 | $113.50 | **$9.46** |
+| Starter, monthly | $15 | $12.50 | $11.38 | **$11.38** |
+| Pro, yearly | $240 / yr | $200.00 | $189.50 | **$15.79** |
+| Pro, monthly | $24 | $20.00 | $18.50 | **$18.50** |
 
 The yearly buyer is the binding case everywhere below — the annual discount and
 the VAT haircut stack.
 
-**Starter's 8 hours is a real ceiling.** `price > limit × worst-profile cost`:
-$7.08 × 65% ÷ $0.574 = 8.0. At 8 hours the worst profile costs $4.59 and leaves
-35%; the median profile costs $3.25 and leaves 54%.
+**Starter's 8 hours is a real ceiling, with more room than it used to have.**
+`price > limit × worst-profile cost`: $9.46 × 65% ÷ $0.574 = 10.7, so 8 hours now
+sits under what the price would carry rather than exactly on it. At 8 hours the
+worst profile costs $4.59 and leaves 51%; the median profile costs $3.25 and
+leaves 66%. The cap was derived at $108 / yr, where the same arithmetic gave
+exactly 8.0 — it was not re-derived upward on the new price, because the ceiling
+also has to keep the top-up worth buying.
 
 **Pro's "unlimited" is a bounded promise, not an uncapped one.**
 `plans.pro.limits.hours_per_month` is **40** — the fair-use threshold from
 `terms.md` § 7, never displayed. It is 2.6× the largest month ever recorded on
 any plan (15.4 h, a trial) and ~6× the p90 paying user; the largest Pro month to
-date is 6.2 h. Someone who reached it would cost ~$23 against $15 of revenue, so
-the claim costs at most ~$8 a month per outlier — against an unbounded liability
-if no ceiling existed. Break-even on Pro is 26 hours for the worst profile and
-37 for the median.
+date is 6.2 h. Someone who reached it would cost ~$23 against $15.79 of revenue,
+so the claim costs at most ~$7 a month per outlier — against an unbounded
+liability if no ceiling existed. Break-even on Pro is 28 hours for the worst
+profile and 39 for the median.
 
 `plans.hours_are_unlimited` decides whether a surface prints the number.
 `hours_per_month` stays the truth for metering. A sentinel value was rejected:
@@ -185,10 +217,12 @@ above assume exists. None of them is live.
       *before* acting on extraordinary usage, which requires knowing they are
       approaching 40 hours in their billing period. Nothing computes that today —
       see the founder-dashboard gap below.
-- [ ] **Speaker labels are advertised but not released.** `hellonod.app/pricing`
-      carries the row in `en` and `uk`; diarization lives on branch
-      `diarization-phase1`, and 1 meeting out of 237 has `speaker_names`. Either
-      ship it or pull the row.
+- [ ] **Speaker *names* rarely resolve.** Clustering itself shipped in `v12.11.0`
+      (`36934d0 move diarization to speakerkit`) and runs on device for any
+      `SessionKind.supportsDiarization`, so the advertised row is true — the
+      transcript carries `[Them · Speaker N]`. Putting a real name to a cluster
+      is the weak half: it needs a roster, and 1 prod meeting out of 313 has
+      `speaker_names`.
 - [ ] **`ask_live` has no server gate.** `llm-proxy` feature-checks only the
       three `search` scopes; the in-meeting Ask box is gated client-side only.
 - [ ] **`label_scoping` has no client gate.** The proxy enforces it, so a Starter
