@@ -2,8 +2,8 @@ import Combine
 import Foundation
 import Supabase
 
-/// Server-driven update gate. On launch it reads the single `app_config` row
-/// and compares the running `AppVersion.build` against two thresholds:
+/// Server-driven update gate. On launch it reads this platform's `app_config`
+/// row and compares the running `AppVersion.build` against two thresholds:
 ///
 /// Below `minimum_build` → `.required`: the notch blocks a capture from
 /// starting, because a backend change has (or soon will) break this build.
@@ -25,6 +25,7 @@ final class UpdateGate: ObservableObject {
 
     private let supabase: SupabaseClient?
     private static let tableName = "app_config"
+    private static let platform = "macos"
 
     init(supabase: SupabaseClient?) {
         self.supabase = supabase
@@ -54,6 +55,7 @@ final class UpdateGate: ObservableObject {
             let rows: [AppConfig] = try await supabase
                 .from(Self.tableName)
                 .select()
+                .eq("platform", value: Self.platform)
                 .limit(1)
                 .execute()
                 .value
