@@ -44,13 +44,13 @@ async function resolveIssue(connection: Connection, key: string) {
         connection,
         `query($team: String!, $number: Float!) {
             issues(filter: { team: { key: { eq: $team } }, number: { eq: $number } }, first: 1) {
-                nodes { id state { type } team { id } }
+                nodes { id description state { type } team { id } }
             }
         }`,
         { team: parts[1].toUpperCase(), number: Number(parts[2]) },
     );
     const issue = (data.issues as {
-        nodes?: { id: string; state?: { type?: string }; team?: { id?: string } }[];
+        nodes?: { id: string; description?: string; state?: { type?: string }; team?: { id?: string } }[];
     } | undefined)?.nodes?.[0];
     if (!issue?.team?.id) {
         throw new ActionError("not_found", `${key} no longer exists in Linear.`, 404);
@@ -58,6 +58,7 @@ async function resolveIssue(connection: Connection, key: string) {
     return {
         id: issue.id,
         teamID: issue.team.id,
+        description: issue.description ?? "",
         closed: issue.state?.type === "completed" || issue.state?.type === "canceled",
     };
 }
@@ -197,23 +198,52 @@ export const LINEAR_ACTIONS: ActionHandlers = {
     /// argue with the person using it.
     update_issue: async (connection, params) => {
         const key = requireString(params, "key");
-        const closed = requireBoolean(params, "closed");
-        const issue = await resolveIssue(connection, key);
-        if (issue.closed === closed) return { key, closed };
+        const note = typeof params.note === "string" ? params.note.trim() : "";
+        const hasClosed = params.closed !== undefined;
+        const closed = hasClosed ? requireBoolean(params, "closed") : false;
+        if (!note && !hasClosed) {
+            throw new ActionError("invalid_params", "Nothing to update — pass `note`, `closed`, or both.");
+        }
 
-        const stateID = await stateOfType(connection, issue.teamID, closed ? "completed" : "unstarted");
+        const issue = await resolveIssue(connection, key);
+        const input: Record<string, unknown> = {};
+
+        // Appended, never replaced. A ticket description is somebody's writing,
+        // possibly a whole spec; a meeting adds to it and does not get to
+        // overwrite it. The heading is what makes the addition legible as an
+        // addition three weeks later.
+        if (note) {
+            input.description = issue.description
+                ? `${issue.description}\n\n---\n\n${note}`
+                : note;
+        }
+        if (hasClosed && issue.closed !== closed) {
+            input.stateId = await stateOfType(connection, issue.teamID, closed ? "completed" : "unstarted");
+        }
+        if (Object.keys(input).length === 0) return { key, closed: issue.closed };
+
         const data = await graphql(
             connection,
             `mutation($id: String!, $input: IssueUpdateInput!) {
-                issueUpdate(id: $id, input: $input) { success }
+                issueUpdate(id: $id, input: $input) { success issue { identifier title url } }
             }`,
-            { id: issue.id, input: { stateId: stateID } },
+            { id: issue.id, input },
         );
-        const result = data.issueUpdate as { success?: boolean } | undefined;
-        if (!result?.success) {
+        const result = data.issueUpdate as {
+            success?: boolean;
+            issue?: { identifier: string; title: string; url: string };
+        } | undefined;
+        if (!result?.success || !result.issue) {
             throw new ActionError("provider_error", `Linear did not update ${key}.`, 502);
         }
-        return { key, closed };
+        // The same three words `create_issue` answers with, so a client that
+        // just filed and a client that just updated read the result the same.
+        return {
+            key: result.issue.identifier,
+            title: result.issue.title,
+            url: result.issue.url,
+            closed: hasClosed ? closed : issue.closed,
+        };
     },
 
     search_issues: async (connection, params) => {

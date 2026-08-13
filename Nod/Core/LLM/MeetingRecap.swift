@@ -48,22 +48,39 @@ struct MeetingRecap: Codable, Equatable {
 
     /// A single action item, emitted by the recap in a dedicated top-level
     /// `action_items` array (NOT as a `sections` entry) so the app can promote
-    /// each to a first-class, checkable to-do. Single-user product: there is no
-    /// owner field — every item is the user's own task; any "ask Sam" lives
-    /// inside `text`. `deadline` is the verbatim deadline if one was stated.
+    /// each to a first-class, checkable to-do. `deadline` is the verbatim
+    /// deadline if one was stated.
+    ///
+    /// `owner` is not an assignee field and does not become one: the person is
+    /// still named inside `text`, and this stays a single-user product. It
+    /// answers one question the checklist cannot work out for itself — is this
+    /// the user's to do? — and it is set only when the answer is no. A meeting
+    /// the user sat in on without speaking is otherwise all commitments and no
+    /// tasks, and the recap had no way to say so except by dropping them.
     struct Action: Codable, Equatable {
         let text: String
         let deadline: String?
+        let owner: String?
 
-        init(text: String, deadline: String? = nil) {
+        init(text: String, deadline: String? = nil, owner: String? = nil) {
             self.text = text
             self.deadline = deadline
+            self.owner = owner
         }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             text = (try? c.decode(String.self, forKey: .text)) ?? ""
             deadline = try? c.decodeIfPresent(String.self, forKey: .deadline)
+            owner = try? c.decodeIfPresent(String.self, forKey: .owner)
+        }
+
+        /// Somebody other than the user committed to this. A blank string is
+        /// the model's own way of saying "nobody in particular" and means the
+        /// same as the field being absent.
+        var isSomeoneElses: Bool {
+            guard let owner else { return false }
+            return !owner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
 

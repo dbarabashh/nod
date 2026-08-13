@@ -127,6 +127,20 @@ enum TodayDigest {
         return openSignals.contains { title.contains($0) }
     }
 
+    /// The mirror of `leavesSomethingOpen`: a section holding what the room
+    /// settled. Matched the same way and for the same reason — the model writes
+    /// these titles in the user's language, so the signal has to be the word,
+    /// not the exact heading.
+    static func settlesSomething(_ sectionTitle: String) -> Bool {
+        let title = sectionTitle.lowercased()
+        return decisionSignals.contains { title.contains($0) }
+    }
+
+    private static let decisionSignals = [
+        "decision", "decided", "agreed", "agreement", "resolved",
+        "рішенн", "вирішен", "домовил", "погодж"
+    ]
+
     private static let openSignals = [
         "open question", "open thread", "open item", "unresolved", "undecided",
         "pending", "to decide", "risk", "blocker",

@@ -9,10 +9,9 @@ struct KnowledgeChatView: View {
     /// Navigate the host (the Meetings window's left column) to a session —
     /// used when a mention or source is clicked.
     let onOpenMeeting: (UUID) -> Void
-    /// Set by the main window: the home state then carries the memory brief
-    /// under its openers, and tapping it opens what needs attention. nil where
-    /// the chat has no attention column beside it.
-    var onOpenAttention: (() -> Void)?
+    /// Opens what needs the user — the memory brief under the openers is a
+    /// button, and this is where it goes.
+    let onOpenAttention: () -> Void
 
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var profileStore: ProfileStore
@@ -36,16 +35,12 @@ struct KnowledgeChatView: View {
     @State private var mentionSearch = ""
     @FocusState private var mentionSearchFocused: Bool
 
-    /// When non-empty, questions are answered using ONLY sessions carrying at
-    /// least one of these labels. Persists across turns until the user clears
-    /// it. An explicit @mention overrides it for that message.
-    @State private var scopeLabelIDs: Set<UUID> = []
     @State private var showScopePicker = false
 
     /// Resolved against the store rather than held as models, so a renamed or
     /// deleted folder can't leave a stale name in the composer.
     private var scopeLabels: [SessionLabel] {
-        labelStore.labels.filter { scopeLabelIDs.contains($0.id) }
+        labelStore.labels.filter { chat.scopeLabelIDs.contains($0.id) }
     }
 
     var body: some View {
@@ -66,8 +61,8 @@ struct KnowledgeChatView: View {
         .task { await meetingStore.refresh() }
         .onChange(of: labelStore.labels) { labels in
             let live = Set(labels.map(\.id))
-            guard !scopeLabelIDs.isSubset(of: live) else { return }
-            scopeLabelIDs.formIntersection(live)
+            guard !chat.scopeLabelIDs.isSubset(of: live) else { return }
+            chat.scopeLabelIDs.formIntersection(live)
         }
         // Intercept taps on inline mention links (nod-meeting://m/<uuid>).
         .environment(\.openURL, OpenURLAction { url in
@@ -186,10 +181,8 @@ struct KnowledgeChatView: View {
                     suggestion(opener)
                 }
             }
-            if let onOpenAttention {
-                MemoryBriefCard(onOpenAttention: onOpenAttention)
-                    .padding(.top, 18)
-            }
+            MemoryBriefCard(onOpenAttention: onOpenAttention)
+                .padding(.top, 18)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 28)
@@ -319,13 +312,68 @@ struct KnowledgeChatView: View {
         )
     }
 
+    /// The composer carries the product: asking is the main way into everything
+    /// Nod remembers, so it gets a surface of its own rather than sitting as a
+    /// line of controls at the bottom of the window. The scope lives inside that
+    /// surface because "what this reaches" is part of the question, not a
+    /// setting beside it.
     private var composer: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             composerInput
-            if !labelStore.labels.isEmpty { scopeButton }
+            scopeRow
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
+                .fill(Theme.Palette.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
+                        .stroke(inputFocused ? Theme.Palette.violet.opacity(0.5) : Theme.Palette.border, lineWidth: 0.5)
+                )
+        )
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    /// What the next question will reach, always stated. An empty scope is a
+    /// claim worth making out loud — "All memory" is the reason to type here
+    /// rather than into a chatbot.
+    private var scopeRow: some View {
+        HStack(spacing: 6) {
+            if labelStore.labels.isEmpty {
+                scopeChip(label: "All memory", isActive: false, hasChevron: false)
+            } else {
+                scopeButton
+            }
+            if !mentions.isEmpty {
+                scopeChip(
+                    label: mentions.count == 1 ? "@\(mentions[0].title)" : "@\(mentions.count) sessions",
+                    isActive: true,
+                    hasChevron: false
+                )
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func scopeChip(label: String, isActive: Bool, hasChevron: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+            if hasChevron {
+                Image("nc-chevron-down")
+                    .icon(7)
+            }
+        }
+        .foregroundStyle(isActive ? Theme.Palette.violet : Theme.Palette.muted)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Theme.Palette.surfaceStrong)
+        )
     }
 
     private var composerInput: some View {
@@ -367,7 +415,7 @@ struct KnowledgeChatView: View {
     }
 
     private var composerPrompt: String {
-        guard !scopeLabelIDs.isEmpty else { return "Ask across all memory  (@ to mention a session)" }
+        guard !chat.scopeLabelIDs.isEmpty else { return "Ask across all memory  (@ to mention a session)" }
         return ChatHomeSuggestions.scopeHeadline(projects: scopeLabels.map(\.name), titleLimit: 48)
     }
 
@@ -375,7 +423,7 @@ struct KnowledgeChatView: View {
     /// one project names itself, several are counted — the names don't fit.
     private var scopeSummary: String {
         switch scopeLabels.count {
-        case 0: "All sessions"
+        case 0: "All memory"
         case 1: scopeLabels[0].name
         case let count: "\(count) projects"
         }
@@ -387,18 +435,11 @@ struct KnowledgeChatView: View {
     /// three-times-reopened chore.
     private var scopeButton: some View {
         Button { showScopePicker.toggle() } label: {
-            HStack(spacing: 4) {
-                Image("nc-filter")
-                    .icon(9)
-                Text(scopeSummary)
-                    .font(.system(size: 11, weight: .medium))
-                Image("nc-chevron-down")
-                    .icon(8)
-            }
-            .foregroundStyle(scopeLabelIDs.isEmpty ? Theme.Palette.muted : Theme.Palette.violet)
-            .contentShape(Rectangle())
+            scopeChip(label: scopeSummary, isActive: !chat.scopeLabelIDs.isEmpty, hasChevron: true)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .linkCursor()
         .fixedSize()
         .help("Scope questions to one or more projects")
         // Anchored to a fixed point rather than to the button: the button's
@@ -413,8 +454,8 @@ struct KnowledgeChatView: View {
 
     private var scopePicker: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ScopePickerRow(text: "All sessions", isSelected: scopeLabelIDs.isEmpty, swatch: nil) {
-                scopeLabelIDs.removeAll()
+            ScopePickerRow(text: "All sessions", isSelected: chat.scopeLabelIDs.isEmpty, swatch: nil) {
+                chat.scopeLabelIDs.removeAll()
             }
             Divider()
                 .padding(.vertical, 4)
@@ -423,7 +464,7 @@ struct KnowledgeChatView: View {
                     ForEach(labelStore.labels) { label in
                         ScopePickerRow(
                             text: label.name,
-                            isSelected: scopeLabelIDs.contains(label.id),
+                            isSelected: chat.scopeLabelIDs.contains(label.id),
                             swatch: label.swatchColor
                         ) {
                             toggleScope(label)
@@ -439,10 +480,10 @@ struct KnowledgeChatView: View {
     }
 
     private func toggleScope(_ label: SessionLabel) {
-        if scopeLabelIDs.contains(label.id) {
-            scopeLabelIDs.remove(label.id)
+        if chat.scopeLabelIDs.contains(label.id) {
+            chat.scopeLabelIDs.remove(label.id)
         } else {
-            scopeLabelIDs.insert(label.id)
+            chat.scopeLabelIDs.insert(label.id)
         }
     }
 

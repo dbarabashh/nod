@@ -50,7 +50,8 @@ extension PromptLibrary {
             - First-person commitment: "I'll move the ticket" → Priya will move the ticket.
             - Direct assignment + acceptance: "can you check with Tim?" + "yes" → responder will check with Tim.
             - Group commitment with an obvious owner: "we need to scrub the YAML entries" + nodding agreement, when one person clearly owns that area → that person will scrub.
-            REQUIRED: every action must have an owner on PEOPLE (or a clearly named role like "the maintainers"). If you can't identify an owner, drop the item — never invent one.
+            REQUIRED: every action must have an owner on PEOPLE (or a clearly named role like "the maintainers", "the messaging lead"). If you can't identify an owner at all, drop the item — never invent one.
+            WHOSE it is, is a second question, and it sets the `owner` field rather than deciding whether the item survives. The user's own commitments — and anything they were asked to do and accepted — leave `owner` null. A commitment somebody ELSE made carries that person or role in `owner`. Never drop an action for belonging to someone else: on a call the user mostly listened to, those are the only concrete things that were said.
             Decisions and Actions often overlap (the team decides to do X, person Y commits to doing X). When they do, capture in both, but state the decision in DECISIONS and the assignment in ACTIONS — do not duplicate the same sentence.
 
             CRITICAL GUARDS against fabricated actions:
@@ -71,7 +72,7 @@ extension PromptLibrary {
         STEP 2 — ORGANIZE the grounded items from your six lists into recap sections, then EMIT JSON. Every bullet must trace back to an item on a Step-1 list; if it's not on a list, it MUST NOT appear. No exceptions.
 
         [ACTION ITEMS GO IN THEIR OWN ARRAY — NOT A SECTION]
-        Your Step-1 ACTIONS list does NOT become a `sections` entry. Emit every action in the dedicated top-level `action_items` array (see OUTPUT FORMAT). Do NOT also create a "To-dos" / "Action items" / "Next steps" / "Follow-ups" / "Commitments" section in `sections` — that would duplicate them. Each action_items entry is the task, phrased so it reads on its own (e.g. "Move the release ticket"), with the owner folded into the text only when it is someone other than the user (e.g. "Ask Tim to review the YAML"). DECISIONS, OPEN_THREADS, and topic content still become `sections` as normal.
+        Your Step-1 ACTIONS list does NOT become a `sections` entry. Emit every action in the dedicated top-level `action_items` array (see OUTPUT FORMAT). Do NOT also create a "To-dos" / "Action items" / "Next steps" / "Follow-ups" / "Commitments" section in `sections` — that would duplicate them. Each action_items entry is the task, phrased so it reads on its own (e.g. "Move the release ticket"); when it belongs to someone else, name them in the text as well as in `owner` (e.g. "Ask Tim to review the YAML", "Tracy takes over what Colin left"). DECISIONS, OPEN_THREADS, and topic content still become `sections` as normal.
 
         \(sectionPlan)
 
@@ -91,7 +92,11 @@ extension PromptLibrary {
             }
           ],
           "action_items": [
-            { "text": "<the task, phrased to read on its own, in \(lang)>", "deadline": "<verbatim deadline if one was stated, else null>" }
+            {
+              "text": "<the task, phrased to read on its own, in \(lang)>",
+              "deadline": "<verbatim deadline if one was stated, else null>",
+              "owner": "<the person or role who owns it, when that is NOT the user; else null>"
+            }
           ]
         }
 
@@ -103,7 +108,7 @@ extension PromptLibrary {
         - Group related exchanges into ONE bullet — bullets are organized by substance, NOT chronological position. Merge back-to-back discussion of the same area.
         - Across the WHOLE recap, at least 1-2 bullets MUST carry a non-null `quote` (3-10 words, verbatim from the transcript, no quotation marks inside the string). Quotes are a grounding tripwire — you cannot quote what isn't there. Use null when you can't quote exactly; attribute a quote only if the speaker's name is on PEOPLE.
         - A decision/commitment bullet must NOT contain speculative phrasing ("maybe", "might", "could", "perhaps", "may"). If it can't be stated firmly, it's an open question, not a decision — route it to the open-questions section instead.
-        - Each `action_items` entry is one outstanding task. Put a deadline in `deadline` only if one was stated (else null) — never inside `text`. When the owner is someone other than the user, fold them into `text` ("Ask Tim to review the YAML"); a task the user themselves owns needs no name. Re-check each against the idiom / past-tense / within-meeting-completion traps from Step 1 before keeping it; drop anything you cannot tie to a literal commitment.
+        - Each `action_items` entry is one outstanding task. Put a deadline in `deadline` only if one was stated (else null) — never inside `text`. Set `owner` only when the task is somebody else's, naming them exactly as the transcript does, and name them in `text` too; a task the user owns leaves `owner` null. Re-check each against the idiom / past-tense / within-meeting-completion traps from Step 1 before keeping it; drop anything you cannot tie to a literal commitment.
         - Personal milestones (births, anniversaries, promotions, joins, departures) MUST surface if mentioned, even briefly — give them their own bullet.
 
         ===========================
@@ -142,6 +147,7 @@ extension PromptLibrary {
         - "Andy (Speaker 3) opened two PRs." / "Speaker 2 (Nicola) will finish the website." — never pair a name with a cluster number; pick one label, and it is never the number.
         - a decision bullet "The team will maybe start a weekly bug bash." — speculative phrasing belongs under open questions, not decisions.
         - an `action_items` entry with no real commitment behind it ("Follow up on things") — drop it instead of inventing a task.
+        - dropping "Tracy takes over what Colin left" because the user is not Tracy — that is an action with `owner` set, not a non-action.
         - a section titled "Action items" / "Next steps" / "To-dos" — actions belong in the `action_items` array, never in `sections`.
         - `"quote": "the team agreed on this"` — paraphrase in a quote; a quote is verbatim from the transcript or null.
         - "Alex will bury the lead..." — idiom trap; figurative phrases are not actions.
@@ -157,9 +163,22 @@ extension PromptLibrary {
 
     private static func summarySectionPlan(template: SummaryTemplate, language lang: String) -> String {
         guard let titles = template.sections else {
+            // A fixed spine rather than headings the model invents per meeting.
+            // Two reasons, both about what happens after the recap is written:
+            // a reader scanning a session wants the same four questions answered
+            // in the same order every time, and the app counts decisions and
+            // loose ends by section title — headings that change run to run make
+            // both the counters and the attention list unreliable.
             return """
-            [SECTIONS — you choose the layout]
-            Choose 3-6 section headings that fit what was actually discussed, each written in \(lang). Prefer concrete, specific headings over generic ones. Do NOT create an "Overview", "Introduction", or "Participants" section unless the meeting was explicitly about that.
+            [SECTIONS — use exactly these, in this order]
+            Translate each title into \(lang), keeping the meaning:
+            1. Overview — ONE bullet, 2-3 sentences of plain prose: what this session was and what came of it.
+            2. Decisions — what the room actually settled. One bullet each, stated as the decision, not the discussion.
+            3. Unresolved — questions left open, decisions deferred, risks raised with no answer. One bullet each.
+            4. Key facts — numbers, prices, dates, names, limits, links stated out loud and worth having later. One bullet each, with the figure in it.
+            Drop any of these that has no grounded content rather than padding it — a session with nothing unresolved must not carry an "Unresolved" section.
+            You may add ONE extra section at the end, with a heading of your choosing, only if substantial grounded content fits none of the four.
+            Outstanding tasks do NOT go in a section — emit them in the top-level `action_items` array as instructed above.
             """
         }
         // Action-type headings in a template are NOT sections — they map to the
@@ -224,7 +243,7 @@ extension PromptLibrary {
 
             GOOD JSON (this is the quality bar):
 
-            {"sections":[{"title":"Topics covered","bullets":[{"text":"Two users were still being logged out after yesterday's auth fix; Priya traced one case to Safari and the team agreed to pair on it.","quote":"the refresh token isn't rotating on Safari"},{"text":"Timing of the 0.4 release was settled — pushed back a week so the auth fix can land first.","quote":null}]},{"title":"Decisions made","bullets":[{"text":"Release 0.4 will ship next week instead of this week, so the auth fix can land first.","quote":null}]},{"title":"Open questions","bullets":[{"text":"Whether to start a weekly bug bash — Priya wants to think about it.","quote":null}]}],"action_items":[{"text":"Pair with Priya on the Safari refresh-token bug after standup.","deadline":null},{"text":"Priya to move the release ticket.","deadline":null}]}
+            {"sections":[{"title":"Topics covered","bullets":[{"text":"Two users were still being logged out after yesterday's auth fix; Priya traced one case to Safari and the team agreed to pair on it.","quote":"the refresh token isn't rotating on Safari"},{"text":"Timing of the 0.4 release was settled — pushed back a week so the auth fix can land first.","quote":null}]},{"title":"Decisions made","bullets":[{"text":"Release 0.4 will ship next week instead of this week, so the auth fix can land first.","quote":null}]},{"title":"Open questions","bullets":[{"text":"Whether to start a weekly bug bash — Priya wants to think about it.","quote":null}]}],"action_items":[{"text":"Pair with Priya on the Safari refresh-token bug after standup.","deadline":null,"owner":null},{"text":"Priya to move the release ticket.","deadline":null,"owner":"Priya"}]}
 
             REMINDER: Alex, Priya, Safari, "0.4 release" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
             """
@@ -243,7 +262,7 @@ extension PromptLibrary {
 
             GOOD JSON (this is the quality bar):
 
-            {"sections":[{"title":"Topics covered","bullets":[{"text":"You worked through the pricing page rewrite and settled on two tiers instead of three.","quote":"two is cleaner"}]},{"title":"Decisions made","bullets":[{"text":"The pricing page will have two tiers — free, and pro at twelve euros.","quote":null}]},{"title":"Open questions","bullets":[{"text":"Whether to offer an annual discount — twenty percent was floated, pending a look at competitors.","quote":null}]}],"action_items":[{"text":"Mock up the two-tier pricing page in Figma and send it to Olena.","deadline":"before Friday"}]}
+            {"sections":[{"title":"Topics covered","bullets":[{"text":"You worked through the pricing page rewrite and settled on two tiers instead of three.","quote":"two is cleaner"}]},{"title":"Decisions made","bullets":[{"text":"The pricing page will have two tiers — free, and pro at twelve euros.","quote":null}]},{"title":"Open questions","bullets":[{"text":"Whether to offer an annual discount — twenty percent was floated, pending a look at competitors.","quote":null}]}],"action_items":[{"text":"Mock up the two-tier pricing page in Figma and send it to Olena.","deadline":"before Friday","owner":null}]}
 
             REMINDER: the pricing page, Figma, Olena, "twelve euros" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
             """

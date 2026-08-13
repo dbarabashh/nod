@@ -1,12 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// The main window: a labelled sidebar, the surface you're working in down the
-/// middle, and a context column on the right.
+/// The main window: a labelled sidebar and the surface you're working in down
+/// the middle.
 ///
-/// The right column is the point of the layout — it always carries either what
-/// needs the user or, while a session is open, that session's chat. Nothing
-/// about "what happened and what's next" is ever a click away.
+/// A third column appears for one reason only — a session is open, and its chat
+/// belongs beside it. Everything else is a surface you navigate to, including
+/// what needs the user: a list of outstanding work standing permanently down the
+/// side is what made a memory workspace read as an inbox.
 struct MainWindowView: View {
     /// Session to open on first mount. Set when AppDelegate opens the window in
     /// response to a just-ended meeting.
@@ -35,9 +36,6 @@ struct MainWindowView: View {
     /// optionals: exclusivity is then a property of the type, instead of a
     /// `= nil` that every navigation path has to remember.
     @State private var focus: Focus?
-    /// Collapsed context column — the centre is the working surface, and a
-    /// 380pt panel of open work is not always what you want beside it.
-    @AppStorage("home.contextColumn.collapsed") private var contextCollapsed = false
     @State private var confirmingClearChat = false
     @StateObject private var contextWidth = ContextColumnWidth()
     @State private var windowWidth: CGFloat = 1180
@@ -65,6 +63,7 @@ struct MainWindowView: View {
         case chat
         case sessions
         case actionItems
+        case attention
         case settings
         case dailyModes
     }
@@ -80,8 +79,7 @@ struct MainWindowView: View {
                     onOpenProject: openProject,
                     onOpenThread: openThread,
                     onCapture: capture,
-                    panelShortcut: hotkeys.combo(for: .togglePanel).displayString,
-                    contextCollapsed: $contextCollapsed
+                    panelShortcut: hotkeys.combo(for: .togglePanel).displayString
                 )
                 centreColumn
                     .frame(maxWidth: .infinity)
@@ -164,34 +162,16 @@ struct MainWindowView: View {
         .onChange(of: focus?.id) { _ in confirmingClearChat = false }
     }
 
-    /// Settings already has a sidebar and a detail pane of its own — a third
-    /// column beside them is four columns of chrome for one form, and what
-    /// needs the user isn't actionable while they're changing a setting.
+    /// The right column is now one thing only: the open session's chat. What
+    /// needs the user is a screen you go to, not a panel that stands beside
+    /// whatever you were doing — a memory workspace with a permanent list of
+    /// outstanding work down its side is an inbox wearing a chat.
     private var showsContextColumn: Bool {
-        if openSession != nil { return true }
-        return surface != .settings && surface != .dailyModes && !contextCollapsed
+        openSession != nil
     }
 
     private var openSession: Meeting? {
         focus?.session
-    }
-
-    /// Hides the attention column. The counterpart lives in the sidebar footer,
-    /// so a collapsed column is never a dead end.
-    private var collapseButton: some View {
-        Button {
-            withAnimation(.standard(reduceMotion: reduceMotion)) { contextCollapsed = true }
-        } label: {
-            Image("nc-sidebar-right")
-                .icon(11)
-                .foregroundStyle(Theme.Palette.muted)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.top, 12)
-        .padding(.trailing, 10)
-        .help("Hide what needs your attention")
     }
 
     // MARK: - Centre column
@@ -243,6 +223,7 @@ struct MainWindowView: View {
                 filterLabelID: $filterLabelID,
                 onOpen: { focus = .session($0) },
                 onStartCapture: capture,
+                onAskAboutProject: askAboutProject,
                 panelShortcut: hotkeys.combo(for: .togglePanel).displayString
             )
             .transition(.opacity)
@@ -252,6 +233,15 @@ struct MainWindowView: View {
                 onOpenMeeting: openMeeting,
                 onBack: { show(.chat) }
             )
+            .transition(.opacity)
+        case .attention:
+            AttentionColumn(
+                onOpenMeeting: openMeeting,
+                onOpenAction: { focus = .action($0) },
+                onOpenActionItems: { show(.actionItems) }
+            )
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
             .transition(.opacity)
         case .settings:
             settings.transition(.opacity)
@@ -270,9 +260,7 @@ struct MainWindowView: View {
     private var chatHome: some View {
         KnowledgeChatView(
             onOpenMeeting: openMeeting,
-            onOpenAttention: {
-                withAnimation(.standard(reduceMotion: reduceMotion)) { contextCollapsed = false }
-            }
+            onOpenAttention: { show(.attention) }
         )
         .frame(maxWidth: 780)
         .frame(maxWidth: .infinity)
@@ -280,27 +268,18 @@ struct MainWindowView: View {
 
     // MARK: - Context column (right)
 
-    /// What needs the user, or — while a session is open — that session's chat.
-    /// One slot, two jobs: the question you'd ask about what's on screen is
-    /// always in the same place.
-    private func contextColumn(width: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            if let meeting = openSession {
+    /// The open session's chat, beside the session itself — the question you'd
+    /// ask about what's on screen, in the same place every time.
+    @ViewBuilder private func contextColumn(width: CGFloat) -> some View {
+        if let meeting = openSession {
+            VStack(spacing: 0) {
                 sessionChatHeader(meeting)
                 Divider().overlay(Theme.Palette.border)
                 SessionChatView(meeting: meeting).id(meeting.id)
-            } else {
-                AttentionColumn(
-                    onOpenMeeting: openMeeting,
-                    onOpenAction: { focus = .action($0) },
-                    onOpenActionItems: { show(.actionItems) },
-                    onOpenSessions: { show(.sessions) }
-                )
-                .overlay(alignment: .topTrailing) { collapseButton }
             }
+            .frame(width: width)
+            .background(Color.white.opacity(0.025))
         }
-        .frame(width: width)
-        .background(Color.white.opacity(0.025))
     }
 
     private func sessionChatHeader(_ meeting: Meeting) -> some View {
@@ -376,6 +355,14 @@ struct MainWindowView: View {
 
     private func closeFocus() {
         focus = nil
+    }
+
+    /// Everything Nod knows about this project becomes the scope of the next
+    /// question. The list stays where it was — the user is leaving it, not
+    /// filtering it further.
+    private func askAboutProject(_ label: SessionLabel) {
+        knowledgeChat.scopeLabelIDs = [label.id]
+        show(.chat)
     }
 
     private func openProject(_ label: SessionLabel) {

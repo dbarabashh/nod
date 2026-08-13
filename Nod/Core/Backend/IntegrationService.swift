@@ -168,6 +168,35 @@ final class IntegrationService: ObservableObject {
         }
     }
 
+    /// Adds what this meeting said to a task that already exists.
+    ///
+    /// The other half of filing, and the one that stops a tracker filling with
+    /// near-duplicates: a conversation about work already ticketed is an update
+    /// to that ticket, not a second one. The note is appended, never swapped in
+    /// — a description is somebody's writing, and a meeting has no business
+    /// overwriting it.
+    func update(_ reference: ProviderLinkItem, note: String) async -> Bool {
+        guard let action = reference.provider.taskActions?.update else { return false }
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        do {
+            let data = try await invokeAction(
+                provider: reference.provider,
+                action: action,
+                params: ["key": reference.title, "note": trimmed]
+            )
+            if let message = Self.failure(in: String(bytes: data, encoding: .utf8) ?? "") {
+                Log.ui.error("IntegrationService.update refused: \(message)")
+                return false
+            }
+            Log.ui.info("IntegrationService.update appended to \(reference.title)")
+            return true
+        } catch {
+            Log.ui.error("IntegrationService.update failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     /// A task already in the product that says the same thing as this item.
     ///
     /// `external_key` stops the same *row* being filed twice; this is the other

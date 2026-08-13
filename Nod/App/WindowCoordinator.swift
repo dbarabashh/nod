@@ -284,6 +284,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 billing: services.billing,
                 meetingStore: services.meetingStore
             ),
+            filing: FilingEnvironment(
+                integrations: services.integrations,
+                actionItems: services.actionItemStore,
+                drafts: services.taskDrafts
+            ),
             sharing: services.panelSharing.sharingType
         )
 

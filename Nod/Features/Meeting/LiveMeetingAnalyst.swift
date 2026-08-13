@@ -43,6 +43,25 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// mattered arrives looking like the four that didn't.
     @Published private(set) var notice: LiveFinding?
 
+    /// What Nod already knew and the room just made relevant. Separate from
+    /// `notice` because it answers a different question — that one says "you
+    /// just committed to something", this one says "you settled this in
+    /// August" — and because only this one can be wrong about a session the
+    /// user is not in.
+    @Published private(set) var recall: LiveRecall?
+
+    /// The meeting in progress, so a search for what was said *before* can
+    /// exclude what is being said now. Set by `MeetingSession` at start.
+    var currentMeetingID: UUID?
+    /// Resolves a session id to "Product Sync · Aug 8". Injected rather than
+    /// looked up: the analyst has no business holding the meeting list, and a
+    /// recall with no readable source is one we refuse to show.
+    var recallSourceLabel: ((UUID) -> String?)?
+    var recallLanguage: AppLanguage = .english
+    var recallsUsed = 0
+    var lastRecallAt: Date?
+    private var recallExpiry: Task<Void, Never>?
+
     /// Not `private`: `LiveMeetingAnalyst+Assist.swift` (the on-demand
     /// catch-up/follow-ups/ask calls) reads both directly, from a separate
     /// file — same rationale as `windowLines` below.
@@ -89,7 +108,7 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// How long a notice stays up before it goes away on its own. Long enough
     /// to read mid-sentence, short enough that it is gone before the user
     /// wonders whether they have to do something about it.
-    private static let noticeLifetime: TimeInterval = 12
+    static let noticeLifetime: TimeInterval = 12
 
     /// A soft finding's own, longer lifetime — reading it is not the whole job,
     /// deciding whether to dismiss it is, and 12 seconds is not enough to do
@@ -148,7 +167,10 @@ final class LiveMeetingAnalyst: ObservableObject {
         lastPassAt = nil
         lastNoticeAt = nil
         analyzedLines = 0
+        lastRecallAt = nil
+        recallsUsed = 0
         dismissNotice()
+        dismissRecall()
         findings = []
     }
 
@@ -203,6 +225,11 @@ final class LiveMeetingAnalyst: ObservableObject {
     private func run(newLines: Int) async {
         let window = store.recentContext(maxEntries: Self.windowSize(forNewLines: newLines))
         guard !window.isEmpty else { return }
+        // Same window, same cadence, one more question asked of it: does
+        // anything the user already knows bear on this? Fired alongside rather
+        // than after, because it must not wait on the live pass to finish and
+        // it never blocks it.
+        Task { [weak self] in await self?.considerRecall(window: window) }
 
         // A dismissed finding is the user's own veto — it must not block a later,
         // genuine version of the same thing from registering as new, and it has
@@ -275,6 +302,26 @@ final class LiveMeetingAnalyst: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             dismissNotice()
         }
+    }
+
+    /// Puts a recall on screen, with the same lifetime the findings use: it
+    /// says its piece and gets out of the way, because the user is in a
+    /// conversation and did not ask.
+    func raise(_ recalled: LiveRecall) {
+        recallExpiry?.cancel()
+        recall = recalled
+        recallExpiry = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.noticeLifetime * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            dismissRecall()
+        }
+    }
+
+    func dismissRecall() {
+        recallExpiry?.cancel()
+        recallExpiry = nil
+        guard recall != nil else { return }
+        recall = nil
     }
 
     /// The model's half of the contract, checked. A finding survives only if it

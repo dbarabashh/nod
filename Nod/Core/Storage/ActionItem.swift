@@ -96,6 +96,15 @@ struct ActionItem: Codable, Identifiable, Equatable {
 
     enum Kind: String, Codable, Equatable {
         case action
+        /// A commitment somebody else made, which the user only witnessed.
+        ///
+        /// Not an owner column — this stays a single-user product and the
+        /// person is named inside `text` as before. It is the answer to a
+        /// narrower question the recap alone could not record: is this the
+        /// user's to do? Without it the only options were to put someone
+        /// else's task in the user's checklist or to drop it, and dropping it
+        /// is what a call the user sat in on but did not speak at reduces to.
+        case theirs
         case decision
         case question
         case risk
@@ -223,9 +232,14 @@ struct ActionItem: Codable, Identifiable, Equatable {
     /// whole transcript, stronger model. What survives from the live row is its
     /// `evidenceIdx` and its `source`, which is the half the recap cannot know:
     /// the line this came from, and that Nod caught it while the meeting ran.
+    ///
+    /// The recap also settles whose task it is. The live pass hears a
+    /// commitment and cannot tell, from a few minutes of window, whether the
+    /// user is the one on the hook for it.
     func corroborating(_ action: MeetingRecap.Action, position: Int?) -> ActionItem {
         var copy = self
         copy.status = .confirmed
+        copy.kind = action.isSomeoneElses ? .theirs : .action
         copy.position = position
         copy.text = action.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let restated = action.deadline?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

@@ -7,6 +7,15 @@ import SwiftUI
 ///
 /// Built once per signed-in session and torn down with it, so a mid-recording
 /// sign-out can't leave the next user looking at the previous one's capture.
+/// What the notch needs beyond its own model, purely so a filing button drawn
+/// there is the same one drawn everywhere else.
+@MainActor
+struct FilingEnvironment {
+    let integrations: IntegrationService
+    let actionItems: ActionItemStore
+    let drafts: TaskDraftComposer
+}
+
 @MainActor
 final class NotchController {
     private(set) var model: NotchModel?
@@ -21,11 +30,20 @@ final class NotchController {
 
     /// The model arrives already built: assembling it needs the whole service
     /// graph, which lives with the coordinator. This owns the window.
-    func build(model: NotchModel, sharing: NSWindow.SharingType) {
+    ///
+    /// `filing` is the one thing the model doesn't carry: the recap card reuses
+    /// `ActionItemFilingButton`, which reads its stores from the environment
+    /// exactly as it does in the main window, so that one surface behaves the
+    /// same in both places instead of growing a second implementation.
+    func build(model: NotchModel, filing: FilingEnvironment, sharing: NSWindow.SharingType) {
         guard panel == nil else { return }
         self.model = model
 
-        let panel = NotchPanel(content: NotchView(model: model), sharing: sharing)
+        let content = NotchView(model: model)
+            .environmentObject(filing.integrations)
+            .environmentObject(filing.actionItems)
+            .environmentObject(filing.drafts)
+        let panel = NotchPanel(content: content, sharing: sharing)
         self.panel = panel
         anchor()
         panel.orderFrontRegardless()

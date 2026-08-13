@@ -1,9 +1,12 @@
 import SwiftUI
 
-/// The right column when no session is open: what still needs the user, always
-/// on screen rather than behind a tab. Three blocks — open actions, threads the
-/// meetings left open, and the recent sessions themselves — each row pointing
-/// back at the conversation it came from.
+/// A screen of its own: what still needs the user. Three blocks — open actions,
+/// threads the meetings left open, and the recent sessions themselves — each row
+/// pointing back at the conversation it came from.
+///
+/// It used to be a column standing open beside every other surface, which is
+/// what made a memory workspace read as an inbox. Reached now from the sidebar,
+/// where it is one line and a number until someone wants it.
 ///
 /// Everything here is derived from data already loaded (`TodayDigest`); the
 /// column never asks the model anything.
@@ -14,7 +17,6 @@ struct AttentionColumn: View {
     let onOpenAction: (TodayDigest.OpenAction) -> Void
     /// Open the full cross-session checklist from the block header.
     let onOpenActionItems: () -> Void
-    let onOpenSessions: () -> Void
 
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var actionItemStore: ActionItemStore
@@ -26,7 +28,6 @@ struct AttentionColumn: View {
     /// so a task doesn't vanish from under the pointer mid-click.
     @State private var actions: [TodayDigest.OpenAction] = []
     @State private var points: [TodayDigest.OpenPoint] = []
-    @State private var recentSessions: [Meeting] = []
     /// Totals, not the length of the truncated lists below — the brief on the
     /// home screen counts the same way, and a header that said 8 while the card
     /// said 12 would make both numbers worthless.
@@ -43,7 +44,6 @@ struct AttentionColumn: View {
         case all = "All"
         case actions = "Actions"
         case unresolved = "Unresolved"
-        case sessions = "Sessions"
         var id: String {
             rawValue
         }
@@ -86,12 +86,11 @@ struct AttentionColumn: View {
                 }
             }
             if shows(.unresolved), !points.isEmpty { unresolvedBlock }
-            if shows(.sessions), !recentSessions.isEmpty { recentBlock }
         }
     }
 
     private var isEmpty: Bool {
-        actions.isEmpty && points.isEmpty && recentSessions.isEmpty
+        actions.isEmpty && points.isEmpty
     }
 
     // MARK: - Header
@@ -159,7 +158,6 @@ struct AttentionColumn: View {
         case .all: nil
         case .actions: openActionCount
         case .unresolved: unresolvedCount
-        case .sessions: recentSessions.count
         }
     }
 
@@ -305,43 +303,6 @@ struct AttentionColumn: View {
         }
     }
 
-    // MARK: - Recent sessions
-
-    private var recentBlock: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            blockHeader("Recent sessions", count: 0, action: onOpenSessions)
-            card {
-                let sessions = recentSessions
-                ForEach(Array(sessions.enumerated()), id: \.element.id) { index, meeting in
-                    sessionRow(meeting)
-                    if index < sessions.count - 1 { rowDivider(leading: 34) }
-                }
-            }
-        }
-    }
-
-    private func sessionRow(_ meeting: Meeting) -> some View {
-        rowShell(id: meeting.id.uuidString, open: { onOpenMeeting(meeting.id) }) {
-            HStack(alignment: .top, spacing: 9) {
-                Image(meeting.kind.icon)
-                    .icon(11)
-                    .foregroundStyle(Theme.Palette.ink.opacity(0.7))
-                    .frame(width: 16, height: 16)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title(of: meeting))
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(Theme.Palette.ink)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    Text(Meeting.ago(meeting.startedAt))
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.Palette.muted)
-                }
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
     // MARK: - Shared chrome
 
     private func card(@ViewBuilder content: () -> some View) -> some View {
@@ -362,9 +323,6 @@ struct AttentionColumn: View {
             .padding(.leading, leading)
     }
 
-    /// One row = one interactive lock-up: a single containing shape that
-    /// highlights on hover, inset inside the card so neighbouring highlights
-    /// never touch, with a radius concentric to the card's (12 − 4 inset = 8).
     private func rowShell(
         id: String,
         open: @escaping () -> Void,
@@ -437,7 +395,6 @@ struct AttentionColumn: View {
     private func deriveLocal() {
         points = TodayDigest.openPoints(meetings: meetingStore.meetings, limit: 3)
         unresolvedCount = TodayDigest.openPointCount(meetings: meetingStore.meetings)
-        recentSessions = TodayDigest.recentSessions(meetingStore.meetings, limit: 4)
     }
 
     /// The store owns the flip and its rollback. The row is only rewritten in

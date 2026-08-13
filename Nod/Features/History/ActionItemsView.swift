@@ -23,11 +23,23 @@ struct ActionItemsView: View {
         return actionItemStore.items(forMeeting: meeting.id)
     }
 
-    /// What the meeting settled or left open, caught as it was said. Loaded
-    /// here rather than held in the store: these are not tasks, and a decision
-    /// counted among the user's open commitments would be wrong on every screen
-    /// that reads them.
+    /// What the meeting settled, left open, or committed somebody else to,
+    /// caught as it was said. Loaded here rather than held in the store: none
+    /// of it is the user's to do, and any of it counted among their open
+    /// commitments would be wrong on every screen that reads them.
     @State private var notes: [ActionItem] = []
+
+    /// Real tasks with a real owner who is not the user. Their own group
+    /// rather than a line in "Also noted": the user cannot tick them off, but
+    /// they are the answer to "what did the room take on", and on a call the
+    /// user mostly listened to they are most of what it produced.
+    private var theirs: [ActionItem] {
+        notes.filter { $0.kind == .theirs }
+    }
+
+    private var alsoNoted: [ActionItem] {
+        notes.filter { $0.kind != .theirs }
+    }
 
     var body: some View {
         Group {
@@ -44,15 +56,11 @@ struct ActionItemsView: View {
                             }
                         }
                     }
-                    if !notes.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            sectionHeader("Also noted")
-                            VStack(spacing: 4) {
-                                ForEach(notes) { note in
-                                    noteRow(note)
-                                }
-                            }
-                        }
+                    if !theirs.isEmpty {
+                        noteGroup("Committed by others", theirs, labelled: false)
+                    }
+                    if !alsoNoted.isEmpty {
+                        noteGroup("Also noted", alsoNoted, labelled: true)
                     }
                 }
                 .padding(.top, 4)
@@ -75,16 +83,32 @@ struct ActionItemsView: View {
         }
     }
 
+    private func noteGroup(_ title: String, _ rows: [ActionItem], labelled: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader(title)
+            VStack(spacing: 4) {
+                ForEach(rows) { note in
+                    noteRow(note, labelled: labelled)
+                }
+            }
+        }
+    }
+
     /// No checkbox: nothing here is the user's to complete. A decision the room
     /// made is a fact about the meeting, and offering to tick it off would
     /// invite them to edit the record rather than read it.
-    private func noteRow(_ note: ActionItem) -> some View {
+    ///
+    /// `labelled` is off for a group whose heading already says what every row
+    /// in it is — a column of identical "THEIRS" chips is noise.
+    private func noteRow(_ note: ActionItem, labelled: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(label(for: note.kind))
-                .font(.system(size: 10, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(Theme.Palette.muted)
-                .frame(width: 62, alignment: .leading)
+            if labelled {
+                Text(label(for: note.kind))
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(Theme.Palette.muted)
+                    .frame(width: 62, alignment: .leading)
+            }
             Text(note.text)
                 .font(.system(size: 13.5, weight: .regular))
                 .foregroundStyle(Theme.Palette.ink.opacity(0.92))
@@ -98,6 +122,7 @@ struct ActionItemsView: View {
     private func label(for kind: ActionItem.Kind) -> String {
         switch kind {
         case .action: "TASK"
+        case .theirs: "THEIRS"
         case .decision: "DECIDED"
         case .question: "OPEN"
         case .risk: "RISK"

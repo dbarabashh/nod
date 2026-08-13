@@ -14,7 +14,6 @@ struct HomeSidebar: View {
     /// there, and a sidebar button must not skip them.
     let onCapture: () -> Void
     let panelShortcut: String
-    @Binding var contextCollapsed: Bool
 
     @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var meetingStore: MeetingStore
@@ -62,6 +61,16 @@ struct HomeSidebar: View {
                         icon: "nc-layers-3",
                         isSelected: surface == .sessions,
                         action: { onSelect(.sessions) }
+                    )
+                    // A place of its own: what Nod extracted is one of the
+                    // things the main window is for, and the only route in used
+                    // to be a header inside the attention list — which left the
+                    // full list reachable but unfindable.
+                    navRow(
+                        "Actions",
+                        icon: "nc-check",
+                        isSelected: surface == .actionItems,
+                        action: { onSelect(.actionItems) }
                     )
                     projectsSection
                     threadsSection
@@ -433,17 +442,10 @@ struct HomeSidebar: View {
             Divider()
                 .overlay(Theme.Palette.border)
                 .padding(.bottom, 6)
-            if contextCollapsed {
-                navRow(
-                    "Needs your attention",
-                    icon: "nc-sidebar-right",
-                    isSelected: false,
-                    action: {
-                        withAnimation(.standard(reduceMotion: reduceMotion)) { contextCollapsed = false }
-                    }
-                )
-                .transition(.opacity)
-            }
+            AttentionSidebarRow(
+                isSelected: surface == .attention,
+                onSelect: { onSelect(.attention) }
+            )
             // Takes the service from the environment itself. Holding it here
             // instead meant every capture tick — one every 5 seconds while
             // ambient context runs — invalidated the whole sidebar body to

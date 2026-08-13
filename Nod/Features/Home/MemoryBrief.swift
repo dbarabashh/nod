@@ -13,13 +13,17 @@ struct MemoryBrief: Equatable {
     let capturedSpansWeek: Bool
     let openCommitments: Int
     let unresolved: Int
+    /// What the week actually settled — the half of memory that isn't a to-do.
+    /// Without it the brief only ever counted work outstanding, which is the
+    /// reading of Nod this UX is moving away from.
+    let decisions: Int
     /// The session the user has been in most recently: what "where was I"
     /// resolves to without asking.
     let mostActiveContext: String?
 
     /// True when there is nothing worth taking the space for.
     var isEmpty: Bool {
-        captured == 0 && openCommitments == 0 && unresolved == 0
+        captured == 0 && openCommitments == 0 && unresolved == 0 && decisions == 0
     }
 
     /// `openCommitments` is passed in rather than derived: it's a server-side
@@ -42,6 +46,7 @@ struct MemoryBrief: Equatable {
             capturedSpansWeek: today.isEmpty,
             openCommitments: openCommitments,
             unresolved: TodayDigest.openPointCount(meetings: meetings, now: now),
+            decisions: SessionKnowledge.across(Array(week)).decisions,
             mostActiveContext: live.first?.title?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyOrNil
         )
     }
@@ -59,6 +64,9 @@ struct MemoryBrief: Equatable {
         }
         if openCommitments > 0 {
             parts.append("\(openCommitments) open \(openCommitments == 1 ? "commitment" : "commitments")")
+        }
+        if decisions > 0 {
+            parts.append("\(decisions) \(decisions == 1 ? "decision" : "decisions") this week")
         }
         if unresolved > 0 {
             parts.append("\(unresolved) unresolved")

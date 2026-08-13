@@ -231,6 +231,53 @@ struct NotchNotice: View {
     }
 }
 
+/// What Nod already knew, raised because the room just made it relevant.
+///
+/// Reads deliberately unlike `NotchNotice`. That card reports something the
+/// user just said; this one makes a claim about a session they are not in, so
+/// it carries where the claim comes from and a way to go and check it. A
+/// remembered fact with no provenance is indistinguishable from an invented
+/// one, and the user cannot verify it without leaving the call.
+struct NotchRecall: View {
+    let recall: LiveRecall
+    let onOpenSource: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image("nc-sparkle-3")
+                .icon(12)
+                .foregroundStyle(Theme.Palette.violet)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(recall.kind.label.uppercased())
+                    .font(.system(size: 9.5, weight: .bold))
+                    .kerning(0.6)
+                    .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+                Text(recall.text)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Text(recall.sourceLabel)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .lineLimit(1)
+                    Button("View context", action: onOpenSource)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.violet)
+                        .linkCursor()
+                }
+                .padding(.top, 1)
+            }
+
+            Spacer(minLength: 0)
+            NotchGlyphButton(icon: "nc-xmark", help: "Dismiss", action: onDismiss)
+        }
+    }
+}
+
 // MARK: - Live input level
 
 /// The live microphone level, as five bars that move with what Nod is hearing.

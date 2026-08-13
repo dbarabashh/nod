@@ -199,7 +199,7 @@ final class NotchModel: ObservableObject {
         // same shape as those two — it arrived on its own, not because the
         // user opened the surface, so a stray click elsewhere isn't them
         // dismissing it either. Its own close glyph is the only way out.
-        case .updateRequired, .dormant, .tucked, .offer, .noticed, .recap,
+        case .updateRequired, .dormant, .tucked, .offer, .noticed, .recalled, .recap,
              .languageConfirm, .consent, .alert, .demo: false
         }
     }
@@ -213,6 +213,7 @@ final class NotchModel: ObservableObject {
         guard !isOpened else { return }
         isOpened = true
         session.analyst.dismissNotice()
+        session.analyst.dismissRecall()
         refresh()
     }
 
@@ -236,6 +237,22 @@ final class NotchModel: ObservableObject {
     /// See `LiveMeetingAnalyst.dismissNotice(userRejected:)`.
     func rejectNotice() {
         session.analyst.dismissNotice(userRejected: true)
+    }
+
+    func dismissRecall() {
+        session.analyst.dismissRecall()
+    }
+
+    /// Opens the session the recall came from. Takes the card down first: it
+    /// has been answered, and leaving it up over a window the user just asked
+    /// for would be the interruption repeating itself.
+    func openRecallSource(_ recall: LiveRecall) {
+        session.analyst.dismissRecall()
+        NotificationCenter.default.post(
+            name: .nodOpenMeetingDetail,
+            object: nil,
+            userInfo: [Notification.nodMeetingIDKey: recall.sourceMeetingID]
+        )
     }
 
     // MARK: - Starting a capture
@@ -455,6 +472,7 @@ final class NotchModel: ObservableObject {
             session.$saveErrorToast.map { _ in () }.eraseToAnyPublisher(),
             offers.$current.map { _ in () }.eraseToAnyPublisher(),
             session.analyst.$notice.map { _ in () }.eraseToAnyPublisher(),
+            session.analyst.$recall.map { _ in () }.eraseToAnyPublisher(),
             session.$justEndedMeetingID.map { _ in () }.eraseToAnyPublisher(),
             meetingStore.$meetings.map { _ in () }.eraseToAnyPublisher(),
             meetingStore.$generatingSummaryIDs.map { _ in () }.eraseToAnyPublisher(),
@@ -571,6 +589,11 @@ final class NotchModel: ObservableObject {
                 // a notice sits blocked, so this would otherwise repeat well
                 // past what `.info` is for.
                 Log.ui.debug("notch: notice pending but panel=\(String(describing: meetingBarPanel)) blocks it")
+            }
+            // Same guard as a notice, and after it: what was just said in this
+            // room outranks what was said in another one.
+            if let recalled = session.analyst.recall, meetingBarPanel == .passive {
+                return .recalled(recalled)
             }
             if meetingBarHidden {
                 return .tucked

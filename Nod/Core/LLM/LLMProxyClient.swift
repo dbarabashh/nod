@@ -153,16 +153,23 @@ final class LLMProxyClient: ObservableObject {
         return !withoutSampling.contains { model.contains($0) }
     }
 
-    /// Which routing category a resolved primary model belongs to, for the
-    /// proxy's `task` telemetry. Matched against the four model properties
-    /// rather than passed explicitly by each call site — every call already
-    /// resolves to exactly one of them, so this reuses that instead of
-    /// threading a parallel `task:` argument through `complete`/`chat`/
+    /// Which routing category a call belongs to, for the proxy's `task` field —
+    /// which is what `model-policy.ts` routes on. Matched against the three
+    /// explicit model properties rather than passed by each call site — every
+    /// call already resolves to exactly one of them, so this reuses that instead
+    /// of threading a parallel `task:` argument through `complete`/`chat`/
     /// `completeJSON`/`streamChat` and every one of their callers.
-    /// `"summary"` is the fallback: it's what a bare `model` resolves to
-    /// (summary/recap/title before `titleModel` existed, entities, etc.).
-    private func taskLabel(for primaryModel: String) -> String {
-        switch primaryModel {
+    ///
+    /// Takes the caller's OPTIONAL `primaryModel`, not the resolved one, and
+    /// that is the whole point: `titleModel` and `model` share a default id, so
+    /// matching on the resolved value labelled every summary, recap, entity and
+    /// speaker-naming call `title` — the first case that happened to match —
+    /// and routed all of them by `TITLE_MODEL`, leaving `SUMMARY_MODEL` dead.
+    /// Only the title call passes `titleModel` explicitly; a nil primary is a
+    /// summary-class call by construction and can never be mistaken for one.
+    private func taskLabel(for primaryModel: String?) -> String {
+        guard let primaryModel else { return "summary" }
+        return switch primaryModel {
         case chatModel: "chat"
         case utilityModel: "utility"
         case titleModel: "title"
@@ -364,7 +371,7 @@ final class LLMProxyClient: ObservableObject {
             stream: nil,
             cache_prompt: cachePrompt ? true : nil,
             reasoning: reasoning(for: primary),
-            task: taskLabel(for: primary)
+            task: taskLabel(for: primaryModel)
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
 
@@ -579,7 +586,7 @@ final class LLMProxyClient: ObservableObject {
                         stream: true,
                         cache_prompt: cachePrompt ? true : nil,
                         reasoning: reasoning(for: primary),
-                        task: taskLabel(for: primary)
+                        task: taskLabel(for: primaryModel)
                     )
                     payload.tools = tools.isEmpty ? nil : tools
                     let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))

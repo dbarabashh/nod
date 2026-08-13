@@ -11,6 +11,9 @@ struct SessionsListView: View {
     /// Same intent the sidebar's Capture button dispatches, minus the kind
     /// picker: the empty state offers one thing, and it's a meeting.
     let onStartCapture: () -> Void
+    /// Scope Ask Nod to this project and go there — the one action that treats
+    /// a project as memory rather than as a filter.
+    let onAskAboutProject: (SessionLabel) -> Void
     let panelShortcut: String
 
     @EnvironmentObject private var meetingStore: MeetingStore
@@ -73,6 +76,7 @@ struct SessionsListView: View {
             }
             .padding(.horizontal, 18)
             .padding(.top, 18)
+            projectSummary
             searchField
             segmentBar
             labelFilterBar
@@ -85,6 +89,49 @@ struct SessionsListView: View {
     private var activeProject: SessionLabel? {
         guard let filterLabelID else { return nil }
         return labelStore.labels.first { $0.id == filterLabelID }
+    }
+
+    /// A project is a scope over memory, not a folder of files — so opening one
+    /// says what Nod knows about it before it lists what it was told. The button
+    /// is the point: the useful thing to do with everything known about Capable
+    /// is to ask about Capable.
+    @ViewBuilder private var projectSummary: some View {
+        if let project = activeProject {
+            let sessions = projectSessions
+            let counts = SessionKnowledge.across(sessions)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(Self.projectLine(sessions: sessions.count, counts: counts))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.muted)
+                Spacer(minLength: 8)
+                Button { onAskAboutProject(project) } label: {
+                    HStack(spacing: 5) {
+                        Image("nc-sparkle-3")
+                            .icon(10)
+                        Text("Ask about \(project.name)")
+                            .font(.system(size: 11.5, weight: .semibold))
+                    }
+                    .foregroundStyle(Theme.Palette.violet)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .linkCursor()
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 6)
+        }
+    }
+
+    private var projectSessions: [Meeting] {
+        guard let filterLabelID else { return [] }
+        let ids = labelStore.meetingIDs(withLabel: filterLabelID)
+        return meetingStore.meetings.live().filter { ids.contains($0.id) }
+    }
+
+    private static func projectLine(sessions: Int, counts: SessionKnowledge) -> String {
+        var parts = ["\(sessions) \(sessions == 1 ? "session" : "sessions")"]
+        if !counts.isEmpty { parts.append(counts.summary) }
+        return parts.joined(separator: " · ")
     }
 
     private var searchField: some View {
@@ -545,6 +592,8 @@ private struct MeetingRow: View {
                     .foregroundStyle(Theme.Palette.graphite)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
+
+                knowledge
             }
         }
         .padding(.vertical, 6)
@@ -556,6 +605,19 @@ private struct MeetingRow: View {
 
     private var showRestore: Bool {
         mode == .trash && isHovering
+    }
+
+    /// What Nod took out of the session, under what the session was about. The
+    /// third level on the card, and deliberately the quietest of the three —
+    /// title, then gist, then what it yielded.
+    @ViewBuilder private var knowledge: some View {
+        let counts = SessionKnowledge.of(meeting)
+        if !counts.isEmpty {
+            Text(counts.summary)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(Theme.Palette.muted)
+                .padding(.top, 1)
+        }
     }
 
     private var trailingMeta: some View {

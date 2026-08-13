@@ -8,15 +8,21 @@ import SwiftUI
 /// straight off `MeetingStore`, the same source `MeetingDetailView` renders
 /// from, so the two never disagree about what happened.
 ///
-/// No "completed automatically" section, no auto-booked follow-up: those
-/// exist in the landing-page demo (`DemoSummaryCard`) as the destination once
-/// integrations land. This shows only what is real today — the recap and its
-/// action items.
+/// The action items carry the filing button, which is the point of showing them
+/// here rather than only in the window: the moment a commitment is worth putting
+/// in a tracker is the moment it was made, and that moment is now — not after
+/// the user remembers to go looking for it.
 struct NotchRecapCard: View {
     let state: RecapState
     let onClose: () -> Void
     let onExpand: (UUID) -> Void
     let onCopy: (SessionKind) -> Void
+
+    /// Rows, not the recap's own `action_items`: filing writes a pointer back
+    /// onto the row, so the button needs the persisted item and its id. They are
+    /// written by `saveExtracted` as the meeting finalises, which is the same
+    /// moment this card appears.
+    @EnvironmentObject private var actionItemStore: ActionItemStore
 
     private static let maxHeight: CGFloat = 300
 
@@ -78,7 +84,25 @@ struct NotchRecapCard: View {
                         .foregroundStyle(Theme.Palette.graphite)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    if let items = meeting.recap?.actionItems, !items.isEmpty {
+                    let filed = actionItemStore.items(forMeeting: meeting.id).filter(\.isOpen)
+                    if !filed.isEmpty {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("ACTION ITEMS")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .kerning(0.6)
+                                .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+                            VStack(alignment: .leading, spacing: 3) {
+                                ForEach(filed) { item in
+                                    actionRow(item)
+                                }
+                            }
+                        }
+                    } else if let items = meeting.recap?.actionItems, !items.isEmpty {
+                        // The rows haven't landed yet (a save still in flight, or
+                        // one that failed). Showing the recap's own list keeps the
+                        // card honest about what the meeting produced; it just
+                        // can't be filed from here until there is a row to point
+                        // the reference at.
                         VStack(alignment: .leading, spacing: 5) {
                             Text("ACTION ITEMS")
                                 .font(.system(size: 9.5, weight: .bold))
@@ -86,7 +110,7 @@ struct NotchRecapCard: View {
                                 .foregroundStyle(Theme.Palette.muted.opacity(0.9))
                             VStack(alignment: .leading, spacing: 3) {
                                 ForEach(items, id: \.text) { item in
-                                    actionRow(item)
+                                    pendingRow(item.text, deadline: item.deadline)
                                 }
                             }
                         }
@@ -95,6 +119,10 @@ struct NotchRecapCard: View {
                 .padding(.trailing, 4)
             }
             .frame(maxHeight: Self.maxHeight)
+            // The rows were written server-side as this meeting finalised, and
+            // the notch can run a whole session without the main window ever
+            // opening — so this is the one place that has to go and get them.
+            .task(id: meeting.id) { await actionItemStore.refresh(force: true) }
 
             // Bottom-right rather than beside the dismiss glyph: closing is
             // what you do to the card, these are what you do with the meeting.
@@ -114,18 +142,26 @@ struct NotchRecapCard: View {
         }
     }
 
-    private func actionRow(_ item: MeetingRecap.Action) -> some View {
+    private func actionRow(_ item: ActionItem) -> some View {
+        HStack(alignment: .top, spacing: 7) {
+            pendingRow(item.text, deadline: item.deadline)
+            ActionItemFilingButton(item: item)
+                .padding(.top, 1)
+        }
+    }
+
+    private func pendingRow(_ text: String, deadline: String?) -> some View {
         HStack(alignment: .top, spacing: 7) {
             Circle()
                 .fill(Theme.Palette.muted.opacity(0.7))
                 .frame(width: 3, height: 3)
                 .padding(.top, 5.5)
             VStack(alignment: .leading, spacing: 1) {
-                Text(item.text)
+                Text(text)
                     .font(.system(size: 11.5, weight: .regular))
                     .foregroundStyle(Theme.Palette.graphite)
                     .fixedSize(horizontal: false, vertical: true)
-                if let deadline = item.deadline {
+                if let deadline {
                     Text(deadline)
                         .font(.system(size: 10.5, weight: .regular))
                         .foregroundStyle(Theme.Palette.muted)

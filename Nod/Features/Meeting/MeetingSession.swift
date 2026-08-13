@@ -516,6 +516,16 @@ final class MeetingSession: ObservableObject {
         // Only kinds that carry personal to-dos are worth listening to live —
         // the same gate the finalize applies before writing any of this down.
         analyst.reset()
+        // The recall pass needs three things the analyst has no business
+        // holding itself: which session to exclude from its own search, how to
+        // turn a session id into something a person can read, and the output
+        // language.
+        analyst.currentMeetingID = recordingDraft?.id
+        analyst.recallLanguage = language.current
+        analyst.recallSourceLabel = { [weak meetingStore] id in
+            guard let meeting = meetingStore?.meetings.first(where: { $0.id == id }) else { return nil }
+            return meeting.displayTitle(dateFormatter: Meeting.listDateFormatter)
+        }
         if selectedKind.extractsActionItems { analyst.start() }
         knowledgeStore.isCapturing = true
         elapsed = 0

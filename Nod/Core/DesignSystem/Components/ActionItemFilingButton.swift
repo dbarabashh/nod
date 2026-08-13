@@ -153,12 +153,31 @@ struct ActionItemFilingButton: View {
             if isFiling {
                 ProgressView().controlSize(.small)
             }
-            Button("Create") { create(current, in: provider) }
-                .buttonStyle(.plain)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(current.title.isEmpty ? Theme.Palette.muted : Theme.Palette.cyan)
-                .disabled(current.title.isEmpty || isFiling)
-                .linkCursor()
+            // What was discussed decides the verb. A match means the room was
+            // talking about work that already exists, and the useful thing to do
+            // with what they said is add it to that ticket — so updating is the
+            // primary action and creating a second one is the escape hatch.
+            if let match {
+                Button("Create new") { create(current, in: provider) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .disabled(current.title.isEmpty || isFiling)
+                    .linkCursor()
+                Button("Update \(match.reference.title)") { update(current, to: match) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.cyan)
+                    .disabled(isFiling)
+                    .linkCursor()
+            } else {
+                Button("Create") { create(current, in: provider) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(current.title.isEmpty ? Theme.Palette.muted : Theme.Palette.cyan)
+                    .disabled(current.title.isEmpty || isFiling)
+                    .linkCursor()
+            }
         }
     }
 
@@ -172,26 +191,21 @@ struct ActionItemFilingButton: View {
     }
 
     /// The one thing on this sheet that isn't about wording: something matching
-    /// is already there, and creating a second is usually not what was meant.
+    /// is already there, so what the meeting produced is an update to it rather
+    /// than a second ticket beside it.
     private func duplicate(_ match: TaskMatch) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image("nc-triangle-warning")
+            Image(match.reference.provider.iconName)
                 .icon(11)
                 .foregroundStyle(Theme.Palette.muted)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(match.reference.title) already says this")
+                Text("\(match.reference.title) already covers this")
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
                 Text(match.summary)
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.Palette.muted)
                     .lineLimit(2)
-                Button("Link to it instead") { link(to: match) }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.cyan)
-                    .linkCursor()
-                    .padding(.top, 2)
             }
         }
         .padding(10)
@@ -232,9 +246,24 @@ struct ActionItemFilingButton: View {
         match = nil
     }
 
-    private func link(to match: TaskMatch) {
-        dismiss()
-        Task { await actionItemStore.recordFiling(itemID: item.id, reference: match.reference) }
+    /// Appends the draft to the existing ticket and records the item as filed
+    /// there. One gesture, because they are one intent: this meeting's take on
+    /// work that already exists, and the row pointing at where it went.
+    private func update(_ draft: TaskDraft, to match: TaskMatch) {
+        isFiling = true
+        Task {
+            let note = [draft.title, draft.description]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n\n")
+            if await integrations.update(match.reference, note: note) {
+                await actionItemStore.recordFiling(itemID: item.id, reference: match.reference)
+                dismiss()
+            } else {
+                failed = true
+                dismiss()
+            }
+            isFiling = false
+        }
     }
 
     private func create(_ draft: TaskDraft, in provider: IntegrationProvider) {

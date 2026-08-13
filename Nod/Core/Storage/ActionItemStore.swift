@@ -156,12 +156,17 @@ final class ActionItemStore: ObservableObject {
         var unclaimed = live
             .filter { $0.kind == .action && $0.state == .standing }
             .compactMap { rows[$0.id] }
+        let liveActions = unclaimed.count
+        var alreadyOnServer = 0
 
         for (position, action) in recap {
             let text = action.text.trimmingCharacters(in: .whitespacesAndNewlines)
             // Already on the server, in whatever state — an earlier run's row,
             // or one the user deleted. Left exactly as it is.
-            if existing.contains(where: { ActionItemDedup.same($0.text, text) }) { continue }
+            if existing.contains(where: { ActionItemDedup.same($0.text, text) }) {
+                alreadyOnServer += 1
+                continue
+            }
 
             if let matchIndex = unclaimed.firstIndex(where: { ActionItemDedup.same($0.text, text) }) {
                 let match = unclaimed.remove(at: matchIndex)
@@ -180,7 +185,8 @@ final class ActionItemStore: ObservableObject {
                 userID: userID,
                 text: text,
                 deadline: action.deadline?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                position: position
+                position: position,
+                kind: action.isSomeoneElses ? .theirs : .action
             )
         }
 
@@ -190,6 +196,14 @@ final class ActionItemStore: ObservableObject {
 
         let inserts = Array(rows.values)
         guard !inserts.isEmpty else { return }
+        // The one place the two passes are reconciled, and until now it was
+        // silent: a live finding the recap did not restate is retired here, and
+        // the only way to see that had been to notice a card during the meeting
+        // and its absence from the checklist afterwards. Counts only — the text
+        // of any of these is the user's meeting content.
+        Log.ui.info(
+            "action items: recap=\(recap.count) live.actions=\(liveActions) corroborated=\(liveActions - unclaimed.count) theirs=\(inserts.filter { $0.kind == .theirs }.count) dropped=\(unclaimed.count) known=\(alreadyOnServer) rows=\(inserts.count)"
+        )
         do {
             try await supabase.from(Self.tableName).insert(inserts).execute()
         } catch {

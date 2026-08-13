@@ -58,6 +58,11 @@ final class KnowledgeChatStore: ObservableObject {
         var steps: [ChatTurnStep] = []
     }
 
+    /// Projects the next question is scoped to. Held here rather than in the
+    /// chat view because it is now set from outside it — "Ask about Capable"
+    /// opens the chat already narrowed, which is what makes a project a scope
+    /// over memory instead of a filter on a list.
+    @Published var scopeLabelIDs: Set<UUID> = []
     @Published private(set) var messages: [Message] = []
     @Published private(set) var isSending = false
     /// True from the first token until the answer completes — the UI shows the

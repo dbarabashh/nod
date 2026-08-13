@@ -470,9 +470,9 @@ struct ActionItemsAggregateView: View {
         Button {
             Task { await delete(item) }
         } label: {
-            Image("nc-trash")
+            Image("nc-xmark")
                 .icon(11)
-                .foregroundStyle(Theme.Palette.danger)
+                .foregroundStyle(Theme.Palette.muted)
                 .frame(width: 26, height: 26)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -484,7 +484,12 @@ struct ActionItemsAggregateView: View {
                 )
         }
         .buttonStyle(.plain)
-        .help("Delete task")
+        // "Not an action", not "Delete": these rows are extractions, and the
+        // common reason one goes is that the model heard a commitment where
+        // there wasn't one. Naming it a deletion asks the user to think of this
+        // as their task list, which is the reading the product is moving away
+        // from.
+        .help("Not an action")
     }
 
     @ViewBuilder
@@ -510,7 +515,7 @@ struct ActionItemsAggregateView: View {
         Button(role: .destructive) {
             Task { await delete(item) }
         } label: {
-            IconLabel(title: "Delete", icon: "nc-trash")
+            IconLabel(title: "Not an action", icon: "nc-xmark")
         }
     }
 

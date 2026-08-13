@@ -44,7 +44,7 @@ struct NotchStateContent: View {
     private var showsGestureZone: Bool {
         switch model.presentation {
         case .tucked, .meetingBar: true
-        case .updateRequired, .dormant, .offer, .noticed, .recap, .launch,
+        case .updateRequired, .dormant, .offer, .noticed, .recalled, .recap, .launch,
              .languageConfirm, .consent, .alert, .demo: false
         }
     }
@@ -68,6 +68,12 @@ struct NotchStateContent: View {
             )
         case let .noticed(finding):
             NotchNotice(finding: finding, onDismiss: model.rejectNotice)
+        case let .recalled(recall):
+            NotchRecall(
+                recall: recall,
+                onOpenSource: { model.openRecallSource(recall) },
+                onDismiss: model.dismissRecall
+            )
         case let .offer(offer):
             NotchOffer(
                 offer: offer,
