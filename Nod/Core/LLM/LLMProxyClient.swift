@@ -191,16 +191,32 @@ final class LLMProxyClient: ObservableObject {
         return ProviderPreference(order: ["google-vertex"], ignore: ["google-ai-studio"], allow_fallbacks: true)
     }
 
-    /// Whisper model override — same rationale as above. Default is full
-    /// `large-v3`: meaningfully better WER on code-switched (uk/ru/en surzhik)
-    /// speech than the distilled `large-v3-turbo`, where the missing decoder
-    /// layers produced phonetic hallucinations on mixed-language audio. On Groq
-    /// (the primary STT provider) both run on the same LPU, so full v3 costs
-    /// almost no extra latency. Override with `defaults write com.example.nod
-    /// whisper.model "openai/whisper-large-v3-turbo"` to A/B against turbo, or
-    /// `"openai/whisper-1"` if a route drops the v3 family.
+    /// Speech-to-text model override.
+    ///
+    /// Default is `gpt-4o-transcribe` rather than any Whisper build because
+    /// Whisper conditions its decoder on **one** language token per segment: it
+    /// picks a language for the chunk and renders the whole chunk in it,
+    /// translating the rest. A Ukrainian sentence carrying English loanwords
+    /// ("зроби апрув на реліз") therefore comes back wholly English or wholly
+    /// Ukrainian — never as it was spoken. No prompt, temperature or language
+    /// pin fixes that; it is what the architecture does. `gpt-4o-transcribe` has
+    /// no such single-language token and keeps code-switching intact, which is
+    /// the property this product is built on.
+    ///
+    /// Whisper stays one `defaults write com.example.nod whisper.model
+    /// "openai/whisper-large-v3"` away — for an A/B, or if the new model's cost
+    /// or latency turns out worse in practice.
     private var whisperModel: String {
-        UserDefaults.standard.string(forKey: Self.whisperModelKey) ?? "openai/whisper-large-v3"
+        UserDefaults.standard.string(forKey: Self.whisperModelKey) ?? "openai/gpt-4o-transcribe"
+    }
+
+    /// `verbose_json` — and with it the per-segment metrics the hallucination
+    /// filter prefers and the detected language — is a Whisper-only format;
+    /// `gpt-4o-transcribe` rejects it outright, and a 400 is deliberately not
+    /// failed over. Both consumers already treat the extra fields as optional
+    /// (`Transcription.segments`, `HallucinationFilter`).
+    private var whisperResponseFormat: String {
+        whisperModel.contains("whisper") ? "verbose_json" : "json"
     }
 
     private let proxyURL: URL
@@ -640,7 +656,7 @@ final class LLMProxyClient: ObservableObject {
             language: language,
             prompt: promptText,
             temperature: 0,
-            response_format: "verbose_json"
+            response_format: whisperResponseFormat
         )
         let bodyData = try JSONEncoder().encode(ProxyEnvelope(kind: "transcribe", payload: inner))
 

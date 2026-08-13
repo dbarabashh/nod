@@ -85,11 +85,21 @@ The data flow that produces a transcript:
    streams and chunks stay within Whisper's window). The VAD also subsumes the
    old "skip silence so Whisper doesn't hallucinate 'Thanks for watching!'"
    gate — it simply emits no segment for silence.
-4. Transcription requests intentionally omit a fixed `language` and `prompt` so
-   Whisper can auto-detect mixed-language speech within a meeting without being
-   nudged toward a prior chunk's language or wording. The language picker
-   controls generated output (summary, title, chat default) and the meeting's
-   stored language code, not a hard STT lock.
+4. Transcription requests intentionally omit a fixed `language` so the model can
+   follow mixed-language speech without being nudged toward a prior chunk's
+   language. The language picker controls generated output (summary, title, chat
+   default) and the meeting's stored language code, not a hard STT lock.
+5. The STT model is `openai/gpt-4o-transcribe`, not Whisper. Whisper conditions
+   its decoder on one language token per segment, so it renders a whole chunk in
+   the single language it picked and translates the rest — a Ukrainian sentence
+   carrying English loanwords comes back wholly one or wholly the other, never as
+   spoken. `gpt-4o-transcribe` has no such token and keeps code-switching intact.
+   Whisper is a `whisper.model` override away, and everything Whisper-only
+   degrades rather than breaks: `verbose_json` (hence per-segment metrics and the
+   detected language) is Whisper-only, so `HallucinationFilter` falls back to its
+   text heuristics and diarization keeps span-level accuracy without
+   sentence-level splits. The rolling `prompt` tail is still sent but OpenRouter
+   ignores it; only the direct-Groq path ever applied it.
 
 ## Floating-panel UX
 
