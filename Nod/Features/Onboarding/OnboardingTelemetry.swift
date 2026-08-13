@@ -243,7 +243,7 @@ final class OnboardingTelemetry: ObservableObject {
     }
 
     private static func reasonCode(for event: Event) -> String? {
-        return switch event {
+        switch event {
         case .permissionDenied: "permission_denied"
         case .relaunchFailed: "unknown"
         default: nil

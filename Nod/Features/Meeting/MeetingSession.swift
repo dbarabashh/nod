@@ -69,6 +69,55 @@ struct AutoEndPrompt: Equatable {
     }
 }
 
+/// What a start attempt did. `limitReached` is the allowance gate's cue;
+/// `blocked` is a recoverable in-app message (another recording is running).
+///
+/// At file scope beside `MeetingState`, not nested in `MeetingSession`: it
+/// carries none of the session's state, and the class sits on the
+/// `type_body_length` ceiling that SwiftLint fails the build over.
+enum RecordingStartOutcome: Equatable {
+    case started
+    case limitReached
+    case blocked(String)
+    case failed(Failure)
+
+    enum Failure: Equatable {
+        case finishing
+        case startInProgress
+        case authentication
+        case lease(String)
+        case cancelled
+
+        var message: String {
+            switch self {
+            case .finishing: "The previous meeting is still finishing."
+            case .startInProgress: "A meeting is already starting."
+            case .authentication: "Session expired, please sign in again."
+            case let .lease(message): message
+            case .cancelled: "Meeting start was cancelled."
+            }
+        }
+
+        var analyticsStage: ProductAnalytics.Stage {
+            switch self {
+            case .finishing: .finalization
+            case .startInProgress, .cancelled: .capture
+            case .authentication: .authentication
+            case .lease: .entitlement
+            }
+        }
+
+        var analyticsReason: ProductAnalytics.ReasonCode {
+            switch self {
+            case .finishing, .startInProgress: .interrupted
+            case .authentication: .authenticationFailed
+            case .lease: .unknown
+            case .cancelled: .userCancelled
+            }
+        }
+    }
+}
+
 /// Owns the recording lifecycle, mid-call generation, and end-of-meeting
 /// persistence that used to live as @State + private funcs in ContentView.
 /// One instance per floating panel — created in `showFloatingPanel` and
@@ -76,51 +125,6 @@ struct AutoEndPrompt: Equatable {
 /// view-local @State did.
 @MainActor
 final class MeetingSession: ObservableObject {
-    /// What a start attempt did. `limitReached` is the allowance gate's cue;
-    /// `blocked` is a recoverable in-app message (another recording is running).
-    enum RecordingStartOutcome: Equatable {
-        case started
-        case limitReached
-        case blocked(String)
-        case failed(Failure)
-
-        enum Failure: Equatable {
-            case finishing
-            case startInProgress
-            case authentication
-            case lease(String)
-            case cancelled
-
-            var message: String {
-                switch self {
-                case .finishing: "The previous meeting is still finishing."
-                case .startInProgress: "A meeting is already starting."
-                case .authentication: "Session expired, please sign in again."
-                case let .lease(message): message
-                case .cancelled: "Meeting start was cancelled."
-                }
-            }
-
-            var analyticsStage: ProductAnalytics.Stage {
-                switch self {
-                case .finishing: .finalization
-                case .startInProgress, .cancelled: .capture
-                case .authentication: .authentication
-                case .lease: .entitlement
-                }
-            }
-
-            var analyticsReason: ProductAnalytics.ReasonCode {
-                switch self {
-                case .finishing, .startInProgress: .interrupted
-                case .authentication: .authenticationFailed
-                case .lease: .unknown
-                case .cancelled: .userCancelled
-                }
-            }
-        }
-    }
-
     @Published private(set) var meeting: MeetingState = .idle
     /// What the next recording will be. Chosen while idle; fixed for the
     /// duration of a recording so the recap framing + audio streams stay

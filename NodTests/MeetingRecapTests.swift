@@ -59,25 +59,25 @@ final class MeetingRecapTests: XCTestCase {
 final class RecordingStartOutcomeTests: XCTestCase {
     func testFailureMessagesStayBounded() {
         XCTAssertEqual(
-            MeetingSession.RecordingStartOutcome.Failure.finishing.message,
+            RecordingStartOutcome.Failure.finishing.message,
             "The previous meeting is still finishing."
         )
         XCTAssertEqual(
-            MeetingSession.RecordingStartOutcome.Failure.authentication.message,
+            RecordingStartOutcome.Failure.authentication.message,
             "Session expired, please sign in again."
         )
         XCTAssertEqual(
-            MeetingSession.RecordingStartOutcome.Failure.cancelled.message,
+            RecordingStartOutcome.Failure.cancelled.message,
             "Meeting start was cancelled."
         )
     }
 
     func testFailuresMapToBoundedAnalyticsDimensions() {
-        let failure = MeetingSession.RecordingStartOutcome.Failure.authentication
+        let failure = RecordingStartOutcome.Failure.authentication
         XCTAssertEqual(failure.analyticsStage, .authentication)
         XCTAssertEqual(failure.analyticsReason, .authenticationFailed)
 
-        let cancelled = MeetingSession.RecordingStartOutcome.Failure.cancelled
+        let cancelled = RecordingStartOutcome.Failure.cancelled
         XCTAssertEqual(cancelled.analyticsStage, .capture)
         XCTAssertEqual(cancelled.analyticsReason, .userCancelled)
     }
