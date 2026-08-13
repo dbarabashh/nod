@@ -127,6 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await services.entitlements.refresh()
                 await services.emailPreferences.refresh()
                 await services.productAnalytics.flush()
+                await services.onboardingTelemetry.flush()
                 // Retry any meeting still stuck in the outbox now that the app
                 // (and likely the network) is active again — scoped to the
                 // signed-in user so a previous account's rows aren't re-pushed.

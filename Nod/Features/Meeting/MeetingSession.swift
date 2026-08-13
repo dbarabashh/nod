@@ -82,7 +82,43 @@ final class MeetingSession: ObservableObject {
         case started
         case limitReached
         case blocked(String)
-        case failed(String)
+        case failed(Failure)
+
+        enum Failure: Equatable {
+            case finishing
+            case startInProgress
+            case authentication
+            case lease(String)
+            case cancelled
+
+            var message: String {
+                switch self {
+                case .finishing: "The previous meeting is still finishing."
+                case .startInProgress: "A meeting is already starting."
+                case .authentication: "Session expired, please sign in again."
+                case let .lease(message): message
+                case .cancelled: "Meeting start was cancelled."
+                }
+            }
+
+            var analyticsStage: ProductAnalytics.Stage {
+                switch self {
+                case .finishing: .finalization
+                case .startInProgress, .cancelled: .capture
+                case .authentication: .authentication
+                case .lease: .entitlement
+                }
+            }
+
+            var analyticsReason: ProductAnalytics.ReasonCode {
+                switch self {
+                case .finishing, .startInProgress: .interrupted
+                case .authentication: .authenticationFailed
+                case .lease: .unknown
+                case .cancelled: .userCancelled
+                }
+            }
+        }
     }
 
     @Published private(set) var meeting: MeetingState = .idle
@@ -452,32 +488,56 @@ final class MeetingSession: ObservableObject {
     /// Asks the server to admit a new recording, then starts capture under the
     /// id it granted. The allowance is checked here, once — never per chunk — so
     /// a meeting already running is never cut off by it.
-    func requestRecordingStart() async -> RecordingStartOutcome {
+    func recordRecordingStartRequested() -> UUID {
+        let meetingID = UUID()
+        analytics.record(
+            .captureStartRequested,
+            captureID: meetingID,
+            properties: .init(
+                sessionKind: selectedKind.rawValue,
+                entryPoint: .floatingPanel,
+                stage: .capture,
+                surface: .capture
+            )
+        )
+        return meetingID
+    }
+
+    func requestRecordingStart(meetingID: UUID) async -> RecordingStartOutcome {
         guard isFinishingTranscription == false else {
-            return .failed("The previous meeting is still finishing.")
+            return recordingStartFailed(.finishing, meetingID: meetingID)
         }
         guard meeting == .idle, !isStartingRecording else {
-            return .failed("A meeting is already starting.")
+            return recordingStartFailed(.startInProgress, meetingID: meetingID)
         }
         guard let userID = auth.currentSupabaseSession?.user.id else {
-            return .failed("Session expired, please sign in again.")
+            return recordingStartFailed(.authentication, meetingID: meetingID)
         }
 
         isStartingRecording = true
         defer { isStartingRecording = false }
-        let meetingID = UUID()
 
         do {
             try await llm.startMeetingLease(meetingID: meetingID)
         } catch LLMProxyClient.ClientError.meetingLimitReached {
+            recordRecordingStartFailure(
+                meetingID: meetingID,
+                stage: .entitlement,
+                reason: .hoursExhausted
+            )
             return .limitReached
         } catch let LLMProxyClient.ClientError.meetingBlocked(reason) {
+            recordRecordingStartFailure(
+                meetingID: meetingID,
+                stage: .entitlement,
+                reason: .interrupted
+            )
             return .blocked(reason)
         } catch {
             // The lease may have been granted before the response was lost, so
             // hand it back rather than leaving a slot held by nobody.
             Task { await llm.endMeetingLease(meetingID: meetingID) }
-            return .failed(error.localizedDescription)
+            return recordingStartFailed(.lease(error.localizedDescription), meetingID: meetingID)
         }
 
         // The user may have cancelled, signed out, or started something else
@@ -487,7 +547,7 @@ final class MeetingSession: ObservableObject {
               !Task.isCancelled
         else {
             await llm.endMeetingLease(meetingID: meetingID)
-            return .failed("Meeting start was cancelled.")
+            return recordingStartFailed(.cancelled, meetingID: meetingID)
         }
 
         activeMeetingLeaseID = meetingID
@@ -498,18 +558,8 @@ final class MeetingSession: ObservableObject {
     private func beginRecording(meetingID: UUID, userID: UUID) {
         Log.ui.info("Start Meeting")
         sessionGeneration += 1
-        let captureID = UUID()
+        let captureID = meetingID
         self.captureID = captureID
-        analytics.record(
-            .captureStartRequested,
-            captureID: captureID,
-            properties: .init(
-                sessionKind: selectedKind.rawValue,
-                entryPoint: .floatingPanel,
-                stage: .capture,
-                surface: .capture
-            )
-        )
         meeting = .recording
         liveTitle = pendingRecordingTitle
         pendingRecordingTitle = nil
@@ -598,6 +648,37 @@ final class MeetingSession: ObservableObject {
                 )
             }
         }
+    }
+
+    private func recordingStartFailed(
+        _ failure: RecordingStartOutcome.Failure,
+        meetingID: UUID
+    ) -> RecordingStartOutcome {
+        recordRecordingStartFailure(
+            meetingID: meetingID,
+            stage: failure.analyticsStage,
+            reason: failure.analyticsReason
+        )
+        return .failed(failure)
+    }
+
+    func recordRecordingStartFailure(
+        meetingID: UUID,
+        stage: ProductAnalytics.Stage,
+        reason: ProductAnalytics.ReasonCode
+    ) {
+        analytics.record(
+            .captureFailed,
+            captureID: meetingID,
+            properties: .init(
+                sessionKind: selectedKind.rawValue,
+                entryPoint: .floatingPanel,
+                stage: stage,
+                reasonCode: reason,
+                surface: .capture,
+                outcome: .failure
+            )
+        )
     }
 
     /// Periodically forward newly-settled transcript entries to the WAL + server

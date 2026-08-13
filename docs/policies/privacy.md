@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-11_
+_Last updated: 2026-08-13_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -138,8 +138,8 @@ outcomes, summary/transcript/action-item views, Ask completion, copy/export,
 paywall views, and successful checkout creation. Each row contains a random
 event ID, timestamp, app-session or capture ID where relevant, platform, app
 version, event name, and bounded categories such as session kind, entry point,
-stage, failure reason, surface, content type, AI feature, outcome, plan, and
-billing cycle.
+stage, permission type (microphone or screen recording), failure reason,
+surface, content type, AI feature, outcome, plan, and billing cycle.
 
 The event log never contains meeting titles, transcript or summary text,
 questions, answers, arbitrary error messages, email, clipboard contents, share

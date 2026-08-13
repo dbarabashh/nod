@@ -119,8 +119,12 @@ struct AppServices {
             supabase: supabase,
             auth: auth
         )
-        let onboardingTelemetry = OnboardingTelemetry(supabase: supabase, auth: auth)
         let productAnalytics = ProductAnalytics(supabase: supabase, auth: auth)
+        let onboardingTelemetry = OnboardingTelemetry(
+            supabase: supabase,
+            auth: auth,
+            analytics: productAnalytics
+        )
         let emailPreferences = EmailPreferenceService(supabase: supabase, auth: auth, analytics: productAnalytics)
         // Every sign-out path frees the device slot and drops the previous
         // account's email choices, so the next person to sign in starts blank.
