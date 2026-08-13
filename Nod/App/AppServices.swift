@@ -45,6 +45,7 @@ struct AppServices {
     let accountExport: AccountExportService
     let connections: ConnectionService
     let integrations: IntegrationService
+    let taskDrafts: TaskDraftComposer
     let panelSharing: PanelSharingPreference
     /// How eagerly the live meeting analyst interrupts — see
     /// `ProactivityPreference.Level`.
@@ -161,7 +162,9 @@ struct AppServices {
         }
         let labelStore = LabelStore(supabase: supabase, auth: auth)
         let entityStore = EntityStore(supabase: supabase)
-        let actionItemStore = ActionItemStore(supabase: supabase)
+        let actionItemStore = ActionItemStore(supabase: supabase) { reference, done in
+            await integrations.setTaskClosed(done, reference: reference)
+        }
         let knowledgeThreads = KnowledgeThreadStore(supabase: supabase)
         let retrievalFeedback = RetrievalFeedbackStore(supabase: supabase)
         let modeStore = ModeStore()
@@ -208,6 +211,11 @@ struct AppServices {
             accountExport: AccountExportService(supabase: supabase),
             connections: ConnectionService(supabase: supabase),
             integrations: integrations,
+            taskDrafts: TaskDraftComposer(
+                llm: llmClient,
+                meetings: meetingStore,
+                language: languagePreference
+            ),
             panelSharing: PanelSharingPreference(),
             proactivityPreference: ProactivityPreference(),
             launchBehavior: LaunchBehavior(),

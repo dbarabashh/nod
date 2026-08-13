@@ -127,6 +127,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await services.entitlements.refresh()
                 await services.emailPreferences.refresh()
                 await services.productAnalytics.flush()
+                // A task filed in Linear is finished in Linear, and coming back
+                // to Nod is exactly when that has just happened. Without this
+                // the checkbox here only ever reflects work closed in Nod.
+                await services.actionItemStore.refresh()
+                let states = await services.integrations.remoteCompletions(
+                    among: services.actionItemStore.items
+                )
+                await services.actionItemStore.applyRemoteCompletions(states)
                 // Retry any meeting still stuck in the outbox now that the app
                 // (and likely the network) is active again — scoped to the
                 // signed-in user so a previous account's rows aren't re-pushed.

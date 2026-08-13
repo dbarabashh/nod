@@ -25,9 +25,18 @@ final class ActionItemStore: ObservableObject {
     private static let tableName = "action_items"
     private var didLoad = false
     private var loading: Task<Void, Never>?
+    private let mirrorCompletion: ((ProviderLinkItem, Bool) async -> Void)?
 
-    init(supabase: SupabaseClient) {
+    /// `mirrorCompletion` carries a tick on a filed task out to the product it
+    /// was filed in. Injected rather than reached for: this store must not know
+    /// what an integration is, or `Core/Storage` and `Core/Backend` would point
+    /// at each other.
+    init(
+        supabase: SupabaseClient,
+        mirrorCompletion: ((ProviderLinkItem, Bool) async -> Void)? = nil
+    ) {
         self.supabase = supabase
+        self.mirrorCompletion = mirrorCompletion
     }
 
     private func didMutate() {
@@ -344,6 +353,13 @@ final class ActionItemStore: ObservableObject {
 
     /// Check / uncheck a task, stamping `done_at`.
     func setDone(_ done: Bool, itemID: UUID) async {
+        await markDone(done, itemID: itemID, mirroring: true)
+    }
+
+    /// `mirroring` is false only when the tick *came* from the other side —
+    /// telling a tracker what it just told us is a wasted call, and on a
+    /// reconnect it would be a whole list of them.
+    private func markDone(_ done: Bool, itemID: UUID, mirroring: Bool) async {
         guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
         let previous = items[index]
         items[index] = previous.marked(done: done, at: done ? Date() : nil)
@@ -353,6 +369,22 @@ final class ActionItemStore: ObservableObject {
         } catch {
             restore(previous)
             Log.ui.error("ActionItemStore.setDone failed: \(error.localizedDescription)")
+            return
+        }
+        if mirroring, let reference = previous.filed {
+            await mirrorCompletion?(reference, done)
+        }
+    }
+
+    /// Brings filed items into line with the tracker they live in.
+    ///
+    /// Writes only the ones that disagree, so a pass where nothing moved — which
+    /// is nearly every pass — costs nothing. One write each rather than a batch:
+    /// an item crosses this line once or twice in its life.
+    func applyRemoteCompletions(_ states: [UUID: Bool]) async {
+        for (itemID, closed) in states {
+            guard let item = items.first(where: { $0.id == itemID }), item.done != closed else { continue }
+            await markDone(closed, itemID: itemID, mirroring: false)
         }
     }
 
@@ -366,19 +398,36 @@ final class ActionItemStore: ObservableObject {
         let filedAt = Date()
         items[index] = previous.filed(in: reference, at: filedAt)
         didMutate()
-        do {
-            try await patch(FilingBody(
-                external_provider: reference.provider.rawValue,
-                external_key: reference.title,
-                external_url: reference.url.absoluteString,
-                external_created_at: filedAt,
-                updated_at: filedAt
-            ), itemID: itemID)
-        } catch {
-            restore(previous)
-            Log.ui.error("ActionItemStore.recordFiling failed: \(error.localizedDescription)")
+
+        let body = FilingBody(
+            external_provider: reference.provider.rawValue,
+            external_key: reference.title,
+            external_url: reference.url.absoluteString,
+            external_created_at: filedAt,
+            updated_at: filedAt
+        )
+        for delay in Self.filingRetryDelays {
+            do {
+                try await patch(body, itemID: itemID)
+                return
+            } catch {
+                Log.ui.error("ActionItemStore.recordFiling failed: \(error.localizedDescription)")
+                guard delay > 0 else { break }
+                try? await Task.sleep(nanoseconds: delay)
+            }
         }
+        // Deliberately no `restore`. Every other write here is undone on failure
+        // because nothing happened; this one has already happened, in another
+        // product. Reverting the row to "not filed" is what re-offers the button
+        // for a ticket that exists, and that is how a duplicate gets created.
+        // The pointer is lost until the next `refresh`, not the ticket.
+        Log.ui.error("ActionItemStore.recordFiling gave up; \(reference.title) is filed but unrecorded")
     }
+
+    /// Between attempts, ending in 0 — the last pass doesn't wait, it reports.
+    /// A failure here is a network blip or an expired session, and both are
+    /// gone or permanent within a couple of seconds.
+    private static let filingRetryDelays: [UInt64] = [500_000_000, 1_500_000_000, 0]
 
     private struct FilingBody: Encodable {
         let external_provider: String

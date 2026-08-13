@@ -1,13 +1,18 @@
 import AppKit
 import SwiftUI
 
-/// Files an action item into a connected tracker, in one click.
+/// Files an action item into a connected tracker.
 ///
-/// Draws one mark per connected tracker and files into the one that is clicked.
-/// Nothing connected means nothing drawn — a button offering an integration the
-/// user hasn't set up is an advert, not an affordance — and no confirmation is
-/// asked, because clicking this item *is* the decision, unlike the chat, where a
-/// model made it.
+/// Draws one mark per connected tracker. Nothing connected means nothing drawn
+/// — a button offering an integration the user hasn't set up is an advert, not
+/// an affordance.
+///
+/// Clicking opens the task before it exists, not after. An action item is a note
+/// to self written from one sentence; a ticket is read by someone with none of
+/// the meeting in their head, so what goes across is drafted from the
+/// conversation around it and shown for editing first. Two things are decided on
+/// that sheet: what the task says, and whether it should exist at all — a match
+/// already in the tracker is offered there rather than in a separate prompt.
 ///
 /// Once filed the button is replaced by the reference, which is also what stops
 /// the same item being filed twice.
@@ -16,18 +21,27 @@ struct ActionItemFilingButton: View {
 
     @EnvironmentObject private var integrations: IntegrationService
     @EnvironmentObject private var actionItemStore: ActionItemStore
-    @State private var filing: IntegrationProvider?
+    @EnvironmentObject private var composer: TaskDraftComposer
+
+    @State private var composing: IntegrationProvider?
+    @State private var draft: TaskDraft?
+    @State private var match: TaskMatch?
+    @State private var isFiling = false
     /// Local, not the service's `lastError`: that one is rendered in Settings,
     /// and a row on Home failing to file has no way to show it there.
     @State private var failed = false
+    @FocusState private var titleFocused: Bool
 
     var body: some View {
+        content
+            .popover(isPresented: isComposing, arrowEdge: .bottom) {
+                if let provider = composing { sheet(provider) }
+            }
+    }
+
+    @ViewBuilder private var content: some View {
         if let filed = item.filed {
             reference(filed)
-        } else if let filing {
-            ProgressView()
-                .controlSize(.small)
-                .help("Filing in \(filing.displayName)…")
         } else {
             HStack(spacing: 4) {
                 ForEach(integrations.taskTargets) { provider in
@@ -37,8 +51,12 @@ struct ActionItemFilingButton: View {
         }
     }
 
+    private var isComposing: Binding<Bool> {
+        Binding(get: { composing != nil }, set: { if !$0 { dismiss() } })
+    }
+
     private func mark(_ provider: IntegrationProvider) -> some View {
-        Button { file(in: provider) } label: {
+        Button { compose(in: provider) } label: {
             Image(provider.iconName)
                 .icon(11)
                 .foregroundStyle(failed ? Theme.Palette.danger : Theme.Palette.muted)
@@ -65,16 +83,171 @@ struct ActionItemFilingButton: View {
         .help("Open \(filed.title) in \(filed.provider.displayName)")
     }
 
-    private func file(in provider: IntegrationProvider) {
-        filing = provider
+    // MARK: - Compose sheet
+
+    private func sheet(_ provider: IntegrationProvider) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            header(provider)
+            if let draft {
+                editor(draft, in: provider)
+            } else {
+                drafting
+            }
+        }
+        .padding(14)
+        .frame(width: 380)
+    }
+
+    private func header(_ provider: IntegrationProvider) -> some View {
+        HStack(spacing: 6) {
+            Image(provider.iconName)
+                .icon(12)
+            Text("New task in \(provider.displayName)")
+                .font(.system(size: 12.5, weight: .semibold))
+        }
+        .foregroundStyle(Theme.Palette.ink)
+    }
+
+    private var drafting: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Reading the meeting…")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.Palette.muted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 24)
+    }
+
+    @ViewBuilder private func editor(_ current: TaskDraft, in provider: IntegrationProvider) -> some View {
+        TextField("Title", text: titleBinding(current))
+            .textFieldStyle(.plain)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Theme.Palette.ink)
+            .focused($titleFocused)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(field)
+
+        TextEditor(text: descriptionBinding(current))
+            .font(.system(size: 12))
+            .foregroundStyle(Theme.Palette.ink)
+            .scrollContentBackground(.hidden)
+            .frame(height: 130)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 4)
+            .background(field)
+
+        if let match { duplicate(match) }
+
+        HStack(spacing: 10) {
+            Button("Cancel") { dismiss() }
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.Palette.muted)
+                .linkCursor()
+
+            Spacer(minLength: 8)
+
+            if isFiling {
+                ProgressView().controlSize(.small)
+            }
+            Button("Create") { create(current, in: provider) }
+                .buttonStyle(.plain)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(current.title.isEmpty ? Theme.Palette.muted : Theme.Palette.cyan)
+                .disabled(current.title.isEmpty || isFiling)
+                .linkCursor()
+        }
+    }
+
+    private var field: some View {
+        RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+            .fill(Theme.Palette.surfaceStrong)
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                    .stroke(Theme.Palette.border, lineWidth: 0.5)
+            )
+    }
+
+    /// The one thing on this sheet that isn't about wording: something matching
+    /// is already there, and creating a second is usually not what was meant.
+    private func duplicate(_ match: TaskMatch) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image("nc-triangle-warning")
+                .icon(11)
+                .foregroundStyle(Theme.Palette.muted)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(match.reference.title) already says this")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                Text(match.summary)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .lineLimit(2)
+                Button("Link to it instead") { link(to: match) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.cyan)
+                    .linkCursor()
+                    .padding(.top, 2)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(field)
+    }
+
+    private func titleBinding(_ current: TaskDraft) -> Binding<String> {
+        Binding(get: { current.title }, set: { draft?.title = $0 })
+    }
+
+    private func descriptionBinding(_ current: TaskDraft) -> Binding<String> {
+        Binding(get: { current.description }, set: { draft?.description = $0 })
+    }
+
+    // MARK: - Actions
+
+    private func compose(in provider: IntegrationProvider) {
+        composing = provider
+        draft = nil
+        match = nil
         failed = false
+        // Two independent questions asked at once: the draft is what the task
+        // will say, the search is whether it should be a task at all. Serialising
+        // them would make the sheet wait for an answer it doesn't need yet.
         Task {
-            if let filed = await integrations.file(item, in: provider) {
+            draft = await composer.draft(for: item)
+            titleFocused = true
+        }
+        Task {
+            match = await integrations.existingTask(for: item, in: provider)
+        }
+    }
+
+    private func dismiss() {
+        composing = nil
+        draft = nil
+        match = nil
+    }
+
+    private func link(to match: TaskMatch) {
+        dismiss()
+        Task { await actionItemStore.recordFiling(itemID: item.id, reference: match.reference) }
+    }
+
+    private func create(_ draft: TaskDraft, in provider: IntegrationProvider) {
+        isFiling = true
+        Task {
+            if let filed = await integrations.file(draft, in: provider) {
                 await actionItemStore.recordFiling(itemID: item.id, reference: filed)
+                dismiss()
             } else {
                 failed = true
+                dismiss()
             }
-            filing = nil
+            isFiling = false
         }
     }
 }

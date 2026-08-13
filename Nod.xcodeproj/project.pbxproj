@@ -218,6 +218,7 @@
 		BCD7DA1B5A8E022C6AC40454 /* TranscriptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B57B25FFEF5C263E341153E /* TranscriptStore.swift */; };
 		BF524B87A98F0B94E3219E90 /* DiarizationBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D71C40B9BBB159754BB4B48D /* DiarizationBuffer.swift */; };
 		BF90705DF129DA8C8F36AB2F /* WhisperTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F6977F26E80D48858FF9640 /* WhisperTranscriber.swift */; };
+		C054D858242C940E52A16849 /* TaskDraftComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96911BC6E0A0289BEA6E33B2 /* TaskDraftComposer.swift */; };
 		C1A2C114067F4F275FCEBB3D /* ActionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA25E8453BA3EEDE88B84324 /* ActionDetailView.swift */; };
 		C29EE47D46FFB20F1A8782D5 /* GranolaImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE73691018B361CE3DA5E7A2 /* GranolaImporter.swift */; };
 		C4377967519AC3B45896626D /* ScheduledMeeting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3E0F3BCD4C1D755BA8E829F /* ScheduledMeeting.swift */; };
@@ -245,6 +246,7 @@
 		D7A8D9C1BA0D2ECA21AADFA3 /* QuestionIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E81B216E67321BA64692A15 /* QuestionIntent.swift */; };
 		D7E2D914A12612D46977211E /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE28F6AA9F8A89E081448732 /* Connection.swift */; };
 		D891613014AF43BEB5C82E55 /* PromptLibrary+Assist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E262BBE3ACF9732C0FDA8EE /* PromptLibrary+Assist.swift */; };
+		DAD57B9415A070B133BB16BF /* PromptLibrary+Task.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E2D736A1AB7EA4EA4214B4 /* PromptLibrary+Task.swift */; };
 		DB440E5D9C513F7B9CFA1639 /* ViewWidthReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8E532D092AC652ED8FE19B2 /* ViewWidthReader.swift */; };
 		DC6BF854600A2E080CE96A57 /* ThreeBalls.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFC2A9390F8A9041B448474F /* ThreeBalls.swift */; };
 		DD20EB04957BFF40AC3612D9 /* ActionItemStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40A6B4A87AB7FC689037663C /* ActionItemStore.swift */; };
@@ -466,6 +468,7 @@
 		94936609404CC7E07696E3D6 /* CalendarOccurrenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarOccurrenceTests.swift; sourceTree = "<group>"; };
 		9496A244C92728C9DE194FC3 /* TextSnippet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSnippet.swift; sourceTree = "<group>"; };
 		95793025AE4598E28C5A0CE2 /* EventBroadcasterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventBroadcasterTests.swift; sourceTree = "<group>"; };
+		96911BC6E0A0289BEA6E33B2 /* TaskDraftComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDraftComposer.swift; sourceTree = "<group>"; };
 		97EB9F794903A06D016C651F /* GranolaCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GranolaCache.swift; sourceTree = "<group>"; };
 		9852D15740B533840DAC4B1B /* Nod-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Nod-Bridging-Header.h"; sourceTree = "<group>"; };
 		98DD38FF3A1AFC0ECF9BB51F /* ChatTurnStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTurnStep.swift; sourceTree = "<group>"; };
@@ -539,6 +542,7 @@
 		D0E4C074549FE7A406A1CB8B /* PromptLibrary+Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PromptLibrary+Live.swift"; sourceTree = "<group>"; };
 		D1AF822695CA2FDBCC7AB9D0 /* ChatHomeSuggestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHomeSuggestions.swift; sourceTree = "<group>"; };
 		D2BD7296E771E66D9A7F8743 /* MeetingMarkdownExportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingMarkdownExportTests.swift; sourceTree = "<group>"; };
+		D2E2D736A1AB7EA4EA4214B4 /* PromptLibrary+Task.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PromptLibrary+Task.swift"; sourceTree = "<group>"; };
 		D37A065AD7206583757F3498 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D382D1AD1CB8C95AB62A8E2F /* AppLanguageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguageTests.swift; sourceTree = "<group>"; };
 		D3DDE26A0DA66D8BD7049EE2 /* ChatThinkingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatThinkingTests.swift; sourceTree = "<group>"; };
@@ -1020,8 +1024,10 @@
 				9AEE025DF0CCB53B16B2FE1F /* PromptLibrary+Extraction.swift */,
 				D0E4C074549FE7A406A1CB8B /* PromptLibrary+Live.swift */,
 				712C1BB3C8E46B4817080905 /* PromptLibrary+Recap.swift */,
+				D2E2D736A1AB7EA4EA4214B4 /* PromptLibrary+Task.swift */,
 				6FBF8024188E6DB586248C75 /* RecapGenerator.swift */,
 				9B6FA69328C6F9B9E12ED22D /* SummaryTemplate.swift */,
+				96911BC6E0A0289BEA6E33B2 /* TaskDraftComposer.swift */,
 			);
 			path = LLM;
 			sourceTree = "<group>";
@@ -1632,6 +1638,7 @@
 				CAA2260E98A8D49A4039586F /* PromptLibrary+Extraction.swift in Sources */,
 				03582965C8BEF7CE603F7D63 /* PromptLibrary+Live.swift in Sources */,
 				70C78557DAD1E05F7BF03CC6 /* PromptLibrary+Recap.swift in Sources */,
+				DAD57B9415A070B133BB16BF /* PromptLibrary+Task.swift in Sources */,
 				7B0C0A97E5703B316B12DA4D /* PromptLibrary.swift in Sources */,
 				EA499A4589EC80C7DD7A09A4 /* ProviderLinkList.swift in Sources */,
 				D7A8D9C1BA0D2ECA21AADFA3 /* QuestionIntent.swift in Sources */,
@@ -1668,6 +1675,7 @@
 				6E4264D8ABCC6B7EEB3EA9A8 /* SummaryTemplate.swift in Sources */,
 				50A2FBCED7FD216A15E8AA6E /* SupabaseConfig.swift in Sources */,
 				7B8A4DB668B927255C8650FC /* SystemSettings.swift in Sources */,
+				C054D858242C940E52A16849 /* TaskDraftComposer.swift in Sources */,
 				32140BBF96EDF918BD824B86 /* TextList.swift in Sources */,
 				F441DCCD8CA78C019E38645E /* TextSnippet.swift in Sources */,
 				476A166CE3338935B4BDFD92 /* TextTokens.swift in Sources */,

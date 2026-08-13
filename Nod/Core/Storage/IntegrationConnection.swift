@@ -1,6 +1,34 @@
 import AppKit
 import Foundation
 
+/// What a product must do to be somewhere an action item can live: take a task,
+/// say whether it is finished, and be searchable for one that is already there.
+/// All three or none — a product that accepts a task and can never tell us it
+/// closed turns Nod's checkbox into a guess, and one that cannot be searched
+/// turns every second meeting about the same thing into a second ticket.
+///
+/// Named actions rather than a `canFileTasks` flag because the callers need the
+/// names anyway, and a bool would leave them to be guessed from a prefix —
+/// which is how `create_page` in a notes app would have become a filing target.
+struct TaskActions {
+    let create: String
+    let readStatus: String
+    let search: String
+    let update: String
+}
+
+/// A task already in the product that looks like the one about to be filed.
+///
+/// Carries both names because they answer different questions: `reference.title`
+/// is the key the row will show once linked, `summary` is what the task actually
+/// says, which is the only thing that lets a person tell a real duplicate from a
+/// coincidence of wording.
+struct TaskMatch: Equatable {
+    let reference: ProviderLinkItem
+    let summary: String
+    let closed: Bool
+}
+
 /// A third-party product Nod can *act in* — create a Linear issue from an action
 /// item, and later write a Notion page or post to Slack.
 ///
@@ -16,6 +44,17 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     var displayName: String {
         switch self {
         case .linear: "Linear"
+        }
+    }
+
+    var taskActions: TaskActions? {
+        switch self {
+        case .linear: TaskActions(
+                create: "create_issue",
+                readStatus: "read_issues",
+                search: "search_issues",
+                update: "update_issue"
+            )
         }
     }
 
