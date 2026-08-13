@@ -38,15 +38,40 @@ Deno.serve(async (req: Request): Promise<Response> => {
   let sent = 0;
   let failed = 0;
   let suppressed = 0;
+  let skipped = 0;
   for (const row of (data ?? []) as ConversionRow[]) {
+    // Claim the row before sending it, by bumping the attempt counter under the
+    // value we read it at. `status` has no in-flight state to move it to (the
+    // check constraint allows pending/sent/failed/suppressed only) and PostgREST
+    // cannot express `for update skip locked`, so the counter is the lock: two
+    // runners racing on the same row both try the same expected value, Postgres
+    // serializes them on the row, and the loser matches nothing and steps aside.
+    //
+    // Counting the attempt up front also means a crash mid-send is remembered as
+    // an attempt. Incrementing afterwards, as this did, let a run that died
+    // between the POST and the update retry the same conversion forever.
+    const { data: claimed, error: claimError } = await admin
+      .from("google_conversion_outbox")
+      .update({
+        attempt_count: row.attempt_count + 1,
+        last_attempt_at: new Date().toISOString(),
+      })
+      .eq("id", row.id)
+      .eq("attempt_count", row.attempt_count)
+      .in("status", ["pending", "failed"])
+      .select("id");
+    if (claimError) return json({ error: claimError.message }, 500);
+    if (!claimed || claimed.length === 0) {
+      skipped += 1;
+      continue;
+    }
+
     const result = await sendConversion(row);
     const status = result.status;
     const { error: updateError } = await admin
       .from("google_conversion_outbox")
       .update({
         status,
-        attempt_count: row.attempt_count + 1,
-        last_attempt_at: new Date().toISOString(),
         last_error: result.error,
         sent_at: status === "sent" ? new Date().toISOString() : null,
         transport_accepted_at: status === "sent"
@@ -63,8 +88,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (status === "suppressed") suppressed += 1;
   }
 
+  // `processed` counts rows this run actually owned. `skipped` is rows another
+  // runner had already claimed — expected to be zero once the duplicate cron is
+  // gone, and the number to watch if it isn't.
   return json(
-    { processed: (data ?? []).length, sent, failed, suppressed },
+    { selected: (data ?? []).length, processed: sent + failed + suppressed, skipped, sent, failed, suppressed },
     200,
   );
 });
