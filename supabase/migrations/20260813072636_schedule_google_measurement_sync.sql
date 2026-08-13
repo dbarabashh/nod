@@ -40,9 +40,14 @@ $$;
 revoke all on function public.invoke_google_measurement_sync() from public, anon, authenticated;
 grant execute on function public.invoke_google_measurement_sync() to service_role;
 
+-- Both names, because production is already running a hand-created job called
+-- `sync-google-measurement` on this very schedule. Unscheduling only the name
+-- this migration introduces would leave the two side by side, every fifteen
+-- minutes, against an outbox whose rows are claimed optimistically rather than
+-- exclusively — so the same conversions would be posted to GA4 twice.
 select cron.unschedule(jobid)
 from cron.job
-where jobname = 'sync-google-measurement-fifteen-minute';
+where jobname in ('sync-google-measurement', 'sync-google-measurement-fifteen-minute');
 
 select cron.schedule(
     'sync-google-measurement-fifteen-minute',
