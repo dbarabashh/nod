@@ -291,6 +291,7 @@
 		FD68A789BCCAA0F224974438 /* OnboardingTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAB61071DEF3962836503A8A /* OnboardingTelemetry.swift */; };
 		FD8DD4296E60C631F106DE30 /* DiarizationScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10DF54ECE09256160EB708EF /* DiarizationScore.swift */; };
 		FDA896480CD4F6BF6E5DA881 /* ActionCheckbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9304B4FAD03EB638DDBAD2E7 /* ActionCheckbox.swift */; };
+		FE4E965D5A90285949AD6939 /* IconLabelSizingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B83D8AB7C90C13303DA7CE52 /* IconLabelSizingTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -490,6 +491,7 @@
 		B40AB7D3A4F062324209440A /* NotchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchModel.swift; sourceTree = "<group>"; };
 		B431A23226913EAA28BAA78D /* InputLevelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputLevelTests.swift; sourceTree = "<group>"; };
 		B57140C26B9CFD4BDBEEC83E /* Pasteboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pasteboard.swift; sourceTree = "<group>"; };
+		B83D8AB7C90C13303DA7CE52 /* IconLabelSizingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IconLabelSizingTests.swift; sourceTree = "<group>"; };
 		B8E532D092AC652ED8FE19B2 /* ViewWidthReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewWidthReader.swift; sourceTree = "<group>"; };
 		B99CB1F0EFEAC3E666485766 /* KnowledgeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeStore.swift; sourceTree = "<group>"; };
 		B9C3A4C994928DF1D6A7079B /* DeviceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceIdentity.swift; sourceTree = "<group>"; };
@@ -928,6 +930,7 @@
 				3945E2F6E438FBEBE9BE3B5A /* GlyphIconInkTests.swift */,
 				86B3C74B36E44417C932ED13 /* GranolaCacheTests.swift */,
 				F704C7A39EDEA75CC33ED560 /* HallucinationFilterTests.swift */,
+				B83D8AB7C90C13303DA7CE52 /* IconLabelSizingTests.swift */,
 				B431A23226913EAA28BAA78D /* InputLevelTests.swift */,
 				C34C7933012B48057D126797 /* KnowledgeExcerptTests.swift */,
 				145615DE4F4AE466C9D6B487 /* LiveFindingNotesTests.swift */,
@@ -1396,6 +1399,7 @@
 				0BC5D6BAE73AA499E37C9FB6 /* GlyphIconInkTests.swift in Sources */,
 				8950400000488AF416E4BB65 /* GranolaCacheTests.swift in Sources */,
 				D479DBE3050AEA62E59C7FA7 /* HallucinationFilterTests.swift in Sources */,
+				FE4E965D5A90285949AD6939 /* IconLabelSizingTests.swift in Sources */,
 				F1C64DD5F0BFCC31346279AE /* InputLevelTests.swift in Sources */,
 				BA5D8F79A27BD846F534BF84 /* KnowledgeExcerptTests.swift in Sources */,
 				5A9D69D8D00030F92026C09B /* LLMProxyClientHelperTests.swift in Sources */,
