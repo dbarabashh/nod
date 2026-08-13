@@ -76,8 +76,15 @@ The data flow that produces a transcript:
    via a cached `AVAudioConverter` and feeds them to an on-device **Silero VAD**
    (sherpa-onnx, `SherpaVAD.swift`). The VAD detects whole speech segments —
    start at speech onset, end after a natural pause — so each chunk is a
-   complete utterance cut on a real silence, never mid-word. Each emitted
-   segment is POSTed as a 16-bit PCM WAV through
+   complete utterance cut on a real silence, never mid-word. Silero only calls a
+   frame speech once its probability crosses the threshold, a window or two after
+   the word began, so `PreRollWindow` re-attaches the 0.25 s before the onset to
+   each segment's audio (matching `minSilenceDuration`, the most that can be
+   prepended without reaching into the previous utterance). Without it the
+   decoder guesses the attack it never heard — "там на проді все ок" came back as
+   "там напродів совок". The lead-in goes to the model only: timestamps still
+   mark the speech onset, and diarization still clusters on the speech alone.
+   Each emitted segment is POSTed as a 16-bit PCM WAV through
    `OpenRouterClient.transcribe(...)` and surfaces as one `TranscriptEntry`.
    Segmentation is owned by the VAD config in `makeVAD()`: `minSilenceDuration`
    (the pause that closes a segment), `minSpeechDuration` (drops sub-blips like
