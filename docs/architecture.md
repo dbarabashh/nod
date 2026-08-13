@@ -181,7 +181,10 @@ evaluate the candidate's English from the original passages.
     chat, and meeting metadata (e.g. `"uk"`). Transcription itself stays
     auto/multilingual and preserves the language actually spoken. Set via the
     in-app picker; the `defaults write` route is for testing only.
-  - `audio.input.deviceUID` — preferred microphone device, set via the UI.
+  - `audio.input.deviceUID` — preferred microphone device, set in Settings →
+    General → Microphone, or from the chevron on the meeting bar's mic control
+    (whose other half mutes). Unset means "follow the system default", which the
+    service keeps following live.
 
 ## In-flight changes the code doesn't yet reflect
 

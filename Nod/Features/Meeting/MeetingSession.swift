@@ -571,7 +571,7 @@ final class MeetingSession: ObservableObject {
                 captureMic: selectedKind.capturesMic,
                 captureSystem: selectedKind.capturesSystem
             )
-            if audioCapture.lastError == nil {
+            if audioCapture.activeCaptureError == nil {
                 analytics.record(
                     .captureStarted,
                     captureID: captureID,

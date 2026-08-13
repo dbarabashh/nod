@@ -8,6 +8,17 @@ struct AudioInputDevice: Identifiable, Hashable {
     let isDefault: Bool
 }
 
+extension [AudioInputDevice] {
+    var systemDefaultName: String? {
+        first(where: \.isDefault)?.name
+    }
+
+    func name(forUID uid: String?) -> String? {
+        guard let uid else { return nil }
+        return first { $0.uid == uid }?.name
+    }
+}
+
 enum AudioDeviceCatalog {
     static func inputDevices() -> [AudioInputDevice] {
         let allIDs = enumerateDeviceIDs()
@@ -15,8 +26,9 @@ enum AudioDeviceCatalog {
         var result: [AudioInputDevice] = []
         for id in allIDs {
             guard hasInputStreams(id) else { continue }
-            let name = stringProperty(id, kAudioObjectPropertyName) ?? "<unnamed>"
             let uid = stringProperty(id, kAudioDevicePropertyDeviceUID) ?? ""
+            guard !isPrivateAggregate(id, uid: uid) else { continue }
+            let name = stringProperty(id, kAudioObjectPropertyName) ?? "<unnamed>"
             result.append(AudioInputDevice(
                 id: id, uid: uid, name: name,
                 isDefault: id == defaultID
@@ -28,11 +40,18 @@ enum AudioDeviceCatalog {
     static func deviceID(forUID uid: String) -> AudioDeviceID? {
         for id in enumerateDeviceIDs() {
             if stringProperty(id, kAudioDevicePropertyDeviceUID) == uid,
-               hasInputStreams(id) {
+               hasInputStreams(id), !isPrivateAggregate(id, uid: uid) {
                 return id
             }
         }
         return nil
+    }
+
+    /// Whether a UID can never name a real microphone again, however long we
+    /// wait — as opposed to an unplugged headset, which comes back. The pid
+    /// baked into a private aggregate's UID died with the process that made it.
+    static func isPrivateAggregateUID(_ uid: String) -> Bool {
+        uid.hasPrefix(privateAggregateUIDPrefix)
     }
 
     static func name(forDeviceID id: AudioDeviceID) -> String? {
@@ -111,6 +130,48 @@ enum AudioDeviceCatalog {
         var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
         guard AudioObjectGetPropertyData(system, &addr, 0, nil, &size, &ids) == noErr else { return [] }
         return ids
+    }
+
+    private static let privateAggregateUIDPrefix = "CADefaultDeviceAggregate"
+
+    /// macOS publishes a private aggregate — `CADefaultDeviceAggregate-<pid>-<n>`
+    /// — for every process that opens the default input, so our own capture
+    /// creates one the moment a meeting starts. Listing it offered the user a
+    /// mirror of the recording they were already in: it appears mid-meeting,
+    /// disappears when capture stops, and a preference pointing at it resolves
+    /// to nothing afterwards ("Selected microphone isn't available").
+    ///
+    /// The name gates the check and the composition's private flag decides it.
+    /// Neither half is enough alone: the transport type is shared with the
+    /// aggregates a user builds in Audio MIDI Setup, which are perfectly real
+    /// choices, while reading the composition means asking the HAL to serialize
+    /// every sub-device and channel map — far too much to spend on each device
+    /// of an enumeration that reruns whenever the machine's audio topology
+    /// shifts, which our own capture makes it do.
+    private static func isPrivateAggregate(_ id: AudioDeviceID, uid: String) -> Bool {
+        guard uid.hasPrefix(privateAggregateUIDPrefix),
+              transportType(of: id) == kAudioDeviceTransportTypeAggregate,
+              let composition = aggregateComposition(id)
+        else { return false }
+        let key = kAudioAggregateDeviceIsPrivateKey as String
+        return (composition[key] as? NSNumber)?.boolValue == true
+    }
+
+    /// Taken *retained* for the same reason as `stringProperty` — the HAL hands
+    /// the dictionary back at +1 and the caller owns it.
+    private static func aggregateComposition(_ id: AudioDeviceID) -> [String: Any]? {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioAggregateDevicePropertyComposition,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size = UInt32(MemoryLayout<Unmanaged<CFDictionary>?>.size)
+        var value: Unmanaged<CFDictionary>?
+        let status = withUnsafeMutablePointer(to: &value) {
+            AudioObjectGetPropertyData(id, &addr, 0, nil, &size, $0)
+        }
+        guard status == noErr, let value else { return nil }
+        return value.takeRetainedValue() as? [String: Any]
     }
 
     private static func hasInputStreams(_ id: AudioDeviceID) -> Bool {
