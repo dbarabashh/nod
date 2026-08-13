@@ -123,6 +123,15 @@ struct ChatToolPayload: Encodable {
 /// the result is sorted, so the same set of connections always produces the same
 /// bytes. A user with Linear alone never pays for Notion's vocabulary.
 enum ChatTools {
+    /// The action that files a task in a product, if it has one — the mutating
+    /// `create_*` tool it already declares. Deriving it here is what keeps
+    /// "Linear files issues" a fact stated once.
+    static func taskAction(for provider: IntegrationProvider) -> String? {
+        definitions(for: [provider])
+            .first { $0.mutating && $0.action.hasPrefix("create") }?
+            .action
+    }
+
     static func definitions(for connected: Set<IntegrationProvider>) -> [ChatTool] {
         connected
             .sorted { $0.rawValue < $1.rawValue }

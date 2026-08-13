@@ -126,6 +126,11 @@ struct ActionDetailView: View {
                     .strikethrough(current.done, color: Theme.Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .onTapGesture { startEdit() }
+                Spacer(minLength: 8)
+                // Always visible here, unlike the lists: this screen is about
+                // one item, so filing it is a primary thing to do rather than
+                // something that appears under the pointer.
+                ActionItemFilingButton(item: current)
             }
         }
     }

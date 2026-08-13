@@ -103,10 +103,16 @@ export const LINEAR_ACTIONS: ActionHandlers = {
             }`,
             { input: { title, description, teamId } },
         );
-        const result = data.issueCreate as { success?: boolean; issue?: unknown } | undefined;
+        const result = data.issueCreate as {
+            success?: boolean;
+            issue?: { identifier: string; title: string; url: string };
+        } | undefined;
         if (!result?.success || !result.issue) {
             throw new ActionError("provider_error", "Linear did not create the issue.", 502);
         }
-        return result.issue;
+        // `key`, not `identifier`: what a task action returns is the same three
+        // words whichever product answered, so a client can read the result
+        // without knowing which one it asked.
+        return { key: result.issue.identifier, title: result.issue.title, url: result.issue.url };
     },
 };

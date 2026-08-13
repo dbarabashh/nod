@@ -438,18 +438,26 @@ struct ActionItemsAggregateView: View {
             // Reserve the trailing zone the hover delete button occupies, so a
             // long task never wraps under it (kept always, to avoid reflow on
             // hover).
-            Spacer(minLength: 34)
+            Spacer(minLength: 62)
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 12)
         .contentShape(Rectangle())
         .overlay(alignment: .trailing) {
-            let show = hoveredID == item.id && editingID != item.id
-            deleteButton(item)
-                .padding(.trailing, 10)
-                .opacity(show ? 1 : 0)
-                .allowsHitTesting(show)
-                .animation(.easeInOut(duration: 0.12), value: show)
+            let hovering = hoveredID == item.id && editingID != item.id
+            // A filed item shows its reference whether or not the pointer is
+            // there — that one is information, not an affordance.
+            let show = hovering || item.isFiled
+            HStack(spacing: 6) {
+                ActionItemFilingButton(item: item)
+                deleteButton(item)
+                    .opacity(hovering ? 1 : 0)
+                    .allowsHitTesting(hovering)
+            }
+            .padding(.trailing, 10)
+            .opacity(show ? 1 : 0)
+            .allowsHitTesting(show)
+            .animation(.easeInOut(duration: 0.12), value: show)
         }
         .onHover { hovering in
             if hovering { hoveredID = item.id }

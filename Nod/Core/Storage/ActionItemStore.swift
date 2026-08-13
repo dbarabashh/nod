@@ -356,6 +356,38 @@ final class ActionItemStore: ObservableObject {
         }
     }
 
+    /// Records that an item has been filed in a connected product. Optimistic
+    /// like `setDone`: the row is already created on the other side, so the UI
+    /// must stop offering the button immediately — a slow write here would
+    /// otherwise invite a second, duplicate ticket.
+    func recordFiling(itemID: UUID, reference: ProviderLinkItem) async {
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+        let previous = items[index]
+        let filedAt = Date()
+        items[index] = previous.filed(in: reference, at: filedAt)
+        didMutate()
+        do {
+            try await patch(FilingBody(
+                external_provider: reference.provider.rawValue,
+                external_key: reference.title,
+                external_url: reference.url.absoluteString,
+                external_created_at: filedAt,
+                updated_at: filedAt
+            ), itemID: itemID)
+        } catch {
+            restore(previous)
+            Log.ui.error("ActionItemStore.recordFiling failed: \(error.localizedDescription)")
+        }
+    }
+
+    private struct FilingBody: Encodable {
+        let external_provider: String
+        let external_key: String
+        let external_url: String
+        let external_created_at: Date
+        let updated_at: Date
+    }
+
     /// Insert one user-added task under a meeting. Returns nil when the write
     /// failed, so the caller can leave its field open instead of pretending.
     @discardableResult
@@ -379,34 +411,20 @@ final class ActionItemStore: ObservableObject {
     }
 
     private func persistSoftDelete(itemID: UUID) async throws {
-        #if DEBUG
-            if DemoMode.isEnabled { return }
-        #endif
-        struct Patch: Encodable {
+        struct Body: Encodable {
             let deleted_at: Date
             let updated_at: Date
         }
         let now = Date()
-        try await supabase
-            .from(Self.tableName)
-            .update(Patch(deleted_at: now, updated_at: now))
-            .eq("id", value: itemID.uuidString)
-            .execute()
+        try await patch(Body(deleted_at: now, updated_at: now), itemID: itemID)
     }
 
     private func persistText(_ text: String, itemID: UUID) async throws {
-        #if DEBUG
-            if DemoMode.isEnabled { return }
-        #endif
-        struct Patch: Encodable {
+        struct Body: Encodable {
             let text: String
             let updated_at: Date
         }
-        try await supabase
-            .from(Self.tableName)
-            .update(Patch(text: text, updated_at: Date()))
-            .eq("id", value: itemID.uuidString)
-            .execute()
+        try await patch(Body(text: text, updated_at: Date()), itemID: itemID)
     }
 
     /// The owner is resolved from the current session so the view needn't thread
@@ -436,22 +454,27 @@ final class ActionItemStore: ObservableObject {
         return item
     }
 
-    private func persistDone(_ done: Bool, itemID: UUID) async throws {
+    /// The one update path: every mutation here is the same
+    /// demo-guard-then-patch-by-id, and it was written four times.
+    private func patch(_ body: some Encodable, itemID: UUID) async throws {
         #if DEBUG
             if DemoMode.isEnabled { return }
         #endif
-        struct Patch: Encodable {
+        try await supabase
+            .from(Self.tableName)
+            .update(body)
+            .eq("id", value: itemID.uuidString)
+            .execute()
+    }
+
+    private func persistDone(_ done: Bool, itemID: UUID) async throws {
+        struct Body: Encodable {
             let done: Bool
             let done_at: Date?
             let updated_at: Date
         }
         let now = Date()
-        let patch = Patch(done: done, done_at: done ? now : nil, updated_at: now)
-        try await supabase
-            .from(Self.tableName)
-            .update(patch)
-            .eq("id", value: itemID.uuidString)
-            .execute()
+        try await patch(Body(done: done, done_at: done ? now : nil, updated_at: now), itemID: itemID)
     }
 }
 

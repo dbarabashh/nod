@@ -104,6 +104,7 @@
 		5DE0BE05D3AC50D0B386C1D2 /* AmbientContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89BBED8E7CD86E493FF9BB2C /* AmbientContextMenuTests.swift */; };
 		5E23F07E0B900FAFCA6B73AC /* ChatTurnTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = E34EC9A24A2C7E557B92B173 /* ChatTurnTrace.swift */; };
 		5EC633D4E1BCAAF55093FADA /* NotchRecapCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0029A735707E5E0BB0B10751 /* NotchRecapCard.swift */; };
+		5F96C4E48EB1753AB107CA17 /* ActionItemFilingButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA27FA369738ABDE9D365D7C /* ActionItemFilingButton.swift */; };
 		60400C80DEB5E735414253C1 /* MeetingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ABCFB381D43BE1DEC15196D /* MeetingSession.swift */; };
 		61261A816574C934D31830F5 /* NotchPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15626DA107AF5FB8216F5F10 /* NotchPresentation.swift */; };
 		624348146B9FE2015B7FCC57 /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF4F90BC0B709AB40CEC27DF /* PaywallView.swift */; };
@@ -526,6 +527,7 @@
 		C7FAE9369B52205814C7126D /* ActionItemsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemsView.swift; sourceTree = "<group>"; };
 		CA0979EA27D2391B1497FAF3 /* Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profile.swift; sourceTree = "<group>"; };
 		CA25E8453BA3EEDE88B84324 /* ActionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionDetailView.swift; sourceTree = "<group>"; };
+		CA27FA369738ABDE9D365D7C /* ActionItemFilingButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemFilingButton.swift; sourceTree = "<group>"; };
 		CAA51F7F3256B9BDA839DA61 /* WhisperSegmentSplitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperSegmentSplitTests.swift; sourceTree = "<group>"; };
 		CCA30DF5B98CDB6D9948EAF8 /* ChatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStore.swift; sourceTree = "<group>"; };
 		CD23C2D080E5A2E8CD6A32E3 /* ScreenActivityDigestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenActivityDigestTests.swift; sourceTree = "<group>"; };
@@ -1141,6 +1143,7 @@
 			isa = PBXGroup;
 			children = (
 				9304B4FAD03EB638DDBAD2E7 /* ActionCheckbox.swift */,
+				CA27FA369738ABDE9D365D7C /* ActionItemFilingButton.swift */,
 				77CC55E246DF44FD3DFD4FB6 /* ChatComponents.swift */,
 				E34EC9A24A2C7E557B92B173 /* ChatTurnTrace.swift */,
 				5E123E13C65C0201052152E2 /* FlashConfirmation.swift */,
@@ -1465,6 +1468,7 @@
 				C7E6963ED271DFA9E3C6564F /* ActionItem.swift in Sources */,
 				11B4C3E85E7D58FF18742FFE /* ActionItemDeadline.swift in Sources */,
 				9323C40CF643A7389AC19D3D /* ActionItemDedup.swift in Sources */,
+				5F96C4E48EB1753AB107CA17 /* ActionItemFilingButton.swift in Sources */,
 				DD20EB04957BFF40AC3612D9 /* ActionItemStore.swift in Sources */,
 				63023D26AA904D8EE12A776A /* ActionItemsAggregateView.swift in Sources */,
 				43FD0B0E18F91EAFA91DEFBE /* ActionItemsView.swift in Sources */,

@@ -21,6 +21,7 @@ struct MainWindowView: View {
     @EnvironmentObject private var chatStore: ChatStore
     @EnvironmentObject private var knowledgeChat: KnowledgeChatStore
     @EnvironmentObject private var knowledgeThreads: KnowledgeThreadStore
+    @EnvironmentObject private var integrations: IntegrationService
     @EnvironmentObject private var hotkeys: HotkeyManager
     @EnvironmentObject private var settingsFocus: SettingsFocus
     @EnvironmentObject private var demoPlayback: DemoPlayback
@@ -112,7 +113,11 @@ struct MainWindowView: View {
             async let meetings: Void = meetingStore.refresh()
             async let labels: Void = labelStore.refresh()
             async let threads: Void = knowledgeThreads.refreshIfNeeded()
-            _ = await (meetings, labels, threads)
+            // Action items offer to file themselves in whatever is connected, so
+            // every surface in this window needs to know what that is — not just
+            // the two that happened to load it themselves.
+            async let linked: Void = integrations.refreshIfNeeded()
+            _ = await (meetings, labels, threads, linked)
             contextWidth.prune(keeping: Set(meetingStore.meetings.map(\.id)))
             if let id = initialFocusMeetingID {
                 focus(on: id)

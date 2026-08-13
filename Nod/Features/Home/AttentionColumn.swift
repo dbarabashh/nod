@@ -231,6 +231,9 @@ struct AttentionColumn: View {
                     .foregroundStyle(Theme.Palette.muted)
                 }
                 Spacer(minLength: 0)
+                // Its own tap target inside a row whose background opens the
+                // session — the filing control must not inherit that gesture.
+                ActionItemFilingButton(item: action.item)
             }
         }
     }

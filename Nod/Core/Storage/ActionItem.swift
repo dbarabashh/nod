@@ -43,6 +43,12 @@ struct ActionItem: Codable, Identifiable, Equatable {
     var position: Int?
     var done: Bool
     var doneAt: Date?
+    /// Where this was filed, once it has been. All four move together — see the
+    /// check constraint in `20260812195722_action_item_external_refs.sql`.
+    var externalProvider: String?
+    var externalKey: String?
+    var externalURL: String?
+    var externalCreatedAt: Date?
     let createdAt: Date?
     let updatedAt: Date?
     let deletedAt: Date?
@@ -51,6 +57,31 @@ struct ActionItem: Codable, Identifiable, Equatable {
     /// has no `position` of its own and falls to the end.
     var order: Int {
         position ?? .max
+    }
+
+    /// Whether this has been filed in a connected product — the cheap question,
+    /// for callers that only need to know whether to offer to file it.
+    var isFiled: Bool {
+        externalKey != nil
+    }
+
+    /// Where it was filed, for the caller that draws the reference.
+    var filed: ProviderLinkItem? {
+        guard let externalProvider, let provider = IntegrationProvider(rawValue: externalProvider),
+              let externalKey, let externalURL, let url = URL(string: externalURL)
+        else { return nil }
+        return ProviderLinkItem(provider: provider, title: externalKey, url: url)
+    }
+
+    /// Records where this landed, matching the value-returning mutators its
+    /// siblings use rather than poking fields at the call site.
+    func filed(in reference: ProviderLinkItem, at filedAt: Date) -> ActionItem {
+        var copy = self
+        copy.externalProvider = reference.provider.rawValue
+        copy.externalKey = reference.title
+        copy.externalURL = reference.url.absoluteString
+        copy.externalCreatedAt = filedAt
+        return copy
     }
 
     /// Still outstanding: a real task, not ticked off, not in the trash.
@@ -106,6 +137,10 @@ struct ActionItem: Codable, Identifiable, Equatable {
         case position
         case done
         case doneAt = "done_at"
+        case externalProvider = "external_provider"
+        case externalKey = "external_key"
+        case externalURL = "external_url"
+        case externalCreatedAt = "external_created_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case deletedAt = "deleted_at"

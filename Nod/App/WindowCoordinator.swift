@@ -376,6 +376,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 .environmentObject(services.knowledgeChat)
                 .environmentObject(services.knowledgeThreads)
                 .environmentObject(services.actionItemStore)
+                .environmentObject(services.integrations)
                 .environmentObject(services.llmClient)
                 .environmentObject(services.languagePreference)
                 .environmentObject(services.labelStore)

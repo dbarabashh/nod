@@ -106,6 +106,13 @@ struct ActionItemsView: View {
     }
 
     private func row(_ item: ActionItem) -> some View {
+        HStack(spacing: 6) {
+            toggleRow(item)
+            ActionItemFilingButton(item: item)
+        }
+    }
+
+    private func toggleRow(_ item: ActionItem) -> some View {
         Button {
             Task { await actionItemStore.setDone(!item.done, itemID: item.id) }
         } label: {
