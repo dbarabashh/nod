@@ -151,13 +151,7 @@ struct MeetingDetailView: View {
         .onAppear {
             editableTitle = current.title ?? ""
             editableSummary = current.summary
-            analytics.recordMeetingInteraction(
-                .summaryViewed,
-                contentType: .summary,
-                meeting: current,
-                outcome: .viewed,
-                oncePerSession: "summary:\(meeting.id.uuidString)"
-            )
+            recordSummaryViewedIfRendered()
         }
         .onChange(of: selectedTab) { tab in
             if tab == .transcript, !isFinalizing, case .idle = transcriptLoad {
@@ -171,6 +165,8 @@ struct MeetingDetailView: View {
                     outcome: .viewed,
                     oncePerSession: "transcript:\(meeting.id.uuidString)"
                 )
+            } else {
+                recordSummaryViewedIfRendered()
             }
         }
         .onChange(of: isGenerating) { generating in
@@ -189,6 +185,7 @@ struct MeetingDetailView: View {
             if editableTitle != liveTitle {
                 editableTitle = liveTitle
             }
+            recordSummaryViewedIfRendered()
         }
         .onChange(of: isFinalizing) { finalizing in
             if finalizing {
@@ -198,6 +195,7 @@ struct MeetingDetailView: View {
             if selectedTab == .transcript, shouldLoadTranscriptAfterFinalizing {
                 Task { await loadTranscript() }
             }
+            recordSummaryViewedIfRendered()
         }
         .onDisappear(perform: flushPendingSaveOnDisappear)
     }
@@ -951,6 +949,21 @@ struct MeetingDetailView: View {
             "\(titleLine)\n\(date)\n\n\(editableSummary)"
         }
         copyAndFlash(payload)
+    }
+
+    private func recordSummaryViewedIfRendered() {
+        guard selectedTab == .summary,
+              !isGenerating,
+              !isFinalizing,
+              !current.lacksRecap
+        else { return }
+        analytics.recordMeetingInteraction(
+            .summaryViewed,
+            contentType: .summary,
+            meeting: current,
+            outcome: .viewed,
+            oncePerSession: "summary:\(meeting.id.uuidString)"
+        )
     }
 
     /// Writes `text` to the clipboard and runs the shared copy-button flash.

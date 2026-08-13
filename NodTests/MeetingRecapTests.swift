@@ -55,3 +55,30 @@ final class MeetingRecapTests: XCTestCase {
         XCTAssertEqual(recap.actionItems[1].text, "scrub the YAML")
     }
 }
+
+final class RecordingStartOutcomeTests: XCTestCase {
+    func testFailureMessagesStayBounded() {
+        XCTAssertEqual(
+            RecordingStartOutcome.Failure.finishing.message,
+            "The previous meeting is still finishing."
+        )
+        XCTAssertEqual(
+            RecordingStartOutcome.Failure.authentication.message,
+            "Session expired, please sign in again."
+        )
+        XCTAssertEqual(
+            RecordingStartOutcome.Failure.cancelled.message,
+            "Meeting start was cancelled."
+        )
+    }
+
+    func testFailuresMapToBoundedAnalyticsDimensions() {
+        let failure = RecordingStartOutcome.Failure.authentication
+        XCTAssertEqual(failure.analyticsStage, .authentication)
+        XCTAssertEqual(failure.analyticsReason, .authenticationFailed)
+
+        let cancelled = RecordingStartOutcome.Failure.cancelled
+        XCTAssertEqual(cancelled.analyticsStage, .capture)
+        XCTAssertEqual(cancelled.analyticsReason, .userCancelled)
+    }
+}
