@@ -84,6 +84,8 @@ final class NotchModel: ObservableObject {
     }
 
     private var gate: Gate?
+    private var pendingCaptureID: UUID?
+    private var recordingStartTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     /// The fold-shut-then-expand swap between two opened states, and the state
     /// it is on its way to. Held so a third state arriving mid-swap replaces the
@@ -226,6 +228,7 @@ final class NotchModel: ObservableObject {
         if session.meeting != .idle {
             meetingBarPanel = .passive
         } else {
+            cancelPendingRecordingStart()
             isOpened = false
             gate = nil
         }
@@ -270,6 +273,10 @@ final class NotchModel: ObservableObject {
             return
         }
 
+        guard pendingCaptureID == nil else { return }
+        let captureID = session.recordRecordingStartRequested()
+        pendingCaptureID = captureID
+
         Task { @MainActor in
             // The proxy keeps serving `transcribe` on a lapsed plan so a live
             // meeting is never cut; this client check is the only thing that
@@ -277,7 +284,14 @@ final class NotchModel: ObservableObject {
             // counts. An unresolved entitlement falls through — a paying user is
             // never blocked on a failed fetch.
             await entitlements.refresh()
+            guard pendingCaptureID == captureID else { return }
             if entitlements.entitlement?.isActive == false {
+                session.recordRecordingStartFailure(
+                    meetingID: captureID,
+                    stage: .entitlement,
+                    reason: .entitlementRequired
+                )
+                pendingCaptureID = nil
                 Log.ui.info("notch start blocked — entitlement not active; opening paywall")
                 NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
                 // Clear the request as well as closing: `wantsAutoStart` left
@@ -305,10 +319,26 @@ final class NotchModel: ObservableObject {
     }
 
     func cancelGate() {
+        cancelPendingRecordingStart()
         gate = nil
         isOpened = false
         session.clearAutoStartRequest()
         refresh()
+    }
+
+    private func cancelPendingRecordingStart() {
+        guard let captureID = pendingCaptureID else { return }
+        if let recordingStartTask {
+            recordingStartTask.cancel()
+            pendingCaptureID = nil
+            return
+        }
+        session.recordRecordingStartFailure(
+            meetingID: captureID,
+            stage: .capture,
+            reason: .userCancelled
+        )
+        pendingCaptureID = nil
     }
 
     private func proceedPastLanguage() {
@@ -320,7 +350,8 @@ final class NotchModel: ObservableObject {
     }
 
     private func beginRecording() {
-        guard !isRequestingRecording, !session.isStartingRecording, !session.isFinishingTranscription else { return }
+        guard !isRequestingRecording else { return }
+        guard let captureID = pendingCaptureID else { return }
         gate = nil
         meetingBarPanel = .passive
         meetingBarHidden = false
@@ -329,9 +360,11 @@ final class NotchModel: ObservableObject {
         isRequestingRecording = true
         refresh()
 
-        Task { @MainActor in
-            let outcome = await session.requestRecordingStart()
+        recordingStartTask = Task { @MainActor in
+            let outcome = await session.requestRecordingStart(meetingID: captureID)
             isRequestingRecording = false
+            pendingCaptureID = nil
+            recordingStartTask = nil
             switch outcome {
             case .started:
                 isOpened = false
@@ -343,8 +376,11 @@ final class NotchModel: ObservableObject {
                 gate = .allowance
                 isOpened = true
                 session.recordAllowanceGate(.allowanceGateViewed, outcome: .viewed)
-            case let .blocked(message), let .failed(message):
+            case let .blocked(message):
                 recordingStartError = message
+                isOpened = true
+            case let .failed(failure):
+                recordingStartError = failure.message
                 isOpened = true
             }
             refresh()

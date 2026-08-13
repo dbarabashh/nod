@@ -19,7 +19,7 @@ struct EmailConsentChoiceList: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(topic.title)
                                 .font(.system(size: 12.5, weight: .semibold))
-                                .foregroundStyle(Theme.Palette.ink)
+                                .foregroundStyle(Theme.Palette.muted)
                             Text(topic.detail)
                                 .font(.system(size: 11.5))
                                 .foregroundStyle(Theme.Palette.muted)

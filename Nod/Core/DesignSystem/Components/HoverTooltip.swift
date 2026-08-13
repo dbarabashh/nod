@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The app's own hover explainer, replacing `.help(_:)` where the tooltip is
@@ -31,41 +32,56 @@ private struct HoverTooltipModifier: ViewModifier {
     /// enough that a deliberate hover doesn't feel unresponsive.
     private static let dwell: Duration = .milliseconds(320)
 
+    /// An open `NSMenu` takes the mouse, so the hover-exit that would otherwise
+    /// close the card never arrives and it sits there behind the menu it just
+    /// explained. Any menu, not only this anchor's: the pointer is inside one
+    /// of them either way, and the notification carries the root menu, which
+    /// says nothing about which control opened it.
+    private static let menuOpened = NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)
+
     func body(content: Content) -> some View {
         content
             // Installed only while the card is up: every anchor in a list
             // carries this, and an always-on reader means a layout-reading
             // subtree plus a preference walk per row, forever, for a card that
-            // is visible on one row at a time.
+            // is visible on one row at a time. The menu subscription rides
+            // along for the same reason — one subscriber, not one per row.
             .background {
                 if isVisible {
                     GeometryReader { geo in
-                        Color.clear.preference(
-                            key: TooltipAnchorKey.self,
-                            value: TooltipRequest(
-                                id: identity,
-                                text: text,
-                                detail: detail,
-                                icon: icon,
-                                isCompact: isCompact,
-                                anchor: geo.frame(in: .named(TooltipSpace.name))
+                        Color.clear
+                            .preference(
+                                key: TooltipAnchorKey.self,
+                                value: TooltipRequest(
+                                    id: identity,
+                                    text: text,
+                                    detail: detail,
+                                    icon: icon,
+                                    isCompact: isCompact,
+                                    anchor: geo.frame(in: .named(TooltipSpace.name))
+                                )
                             )
-                        )
+                            .onReceive(Self.menuOpened) { _ in dismiss() }
                     }
                 }
             }
             .onHover { hovering in
-                dwellTask?.cancel()
                 guard hovering else {
-                    withAnimation(.standard(reduceMotion: reduceMotion)) { isVisible = false }
+                    dismiss()
                     return
                 }
+                dwellTask?.cancel()
                 dwellTask = Task {
                     try? await Task.sleep(for: Self.dwell)
                     guard !Task.isCancelled else { return }
                     withAnimation(.hoverReveal(reduceMotion: reduceMotion)) { isVisible = true }
                 }
             }
+    }
+
+    private func dismiss() {
+        dwellTask?.cancel()
+        withAnimation(.standard(reduceMotion: reduceMotion)) { isVisible = false }
     }
 }
 
@@ -160,6 +176,15 @@ extension View {
     func compactHoverTooltip(_ text: String) -> some View {
         modifier(HoverTooltipModifier(text: text, detail: nil, icon: nil, isCompact: true))
             .accessibilityHint(text)
+    }
+
+    /// The compact tooltip for a control whose only content is a glyph, where
+    /// the text is the control's *name* rather than a note about it: mirrored to
+    /// a hint it would leave VoiceOver announcing the asset ("nc sliders") as
+    /// the name and the real one as an afterthought.
+    func glyphTooltip(_ text: String) -> some View {
+        modifier(HoverTooltipModifier(text: text, detail: nil, icon: nil, isCompact: true))
+            .accessibilityLabel(text)
     }
 }
 

@@ -329,7 +329,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 meetingDetection: services.meetingDetection,
                 calendar: services.calendar,
                 demoPlayback: services.demoPlayback,
-                captureSurface: services.captureSurface
+                captureSurface: services.captureSurface,
+                audioCapture: services.audioCapture
             )
         )
     }

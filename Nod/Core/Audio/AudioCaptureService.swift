@@ -17,13 +17,31 @@ enum CaptureState: Equatable {
 final class AudioCaptureService: NSObject, ObservableObject {
     @Published private(set) var state: CaptureState = .idle
     @Published private(set) var micEnabled: Bool = true
-    @Published private(set) var micSamples: Int = 0
-    @Published private(set) var systemSamples: Int = 0
-    /// Smoothed mic peak (0…1) for the panel's recording level meter. Updated
-    /// from the audio tap (~10×/sec); zeroed on pause/stop/mute so the meter
-    /// can't show stale activity once capture isn't flowing.
-    @Published private(set) var inputLevel: Float = 0
-    @Published private(set) var lastError: String?
+    /// The level meter's own publisher. Its own object because it ticks ~10×
+    /// a second and everything else here changes a few times a meeting — on
+    /// one object, every observer of either pays for both, which is what had
+    /// each consumer hand-mirroring the two or three properties it actually
+    /// read instead of just observing the service.
+    let inputLevel = InputLevel()
+    /// Two independent capture paths, so two error slots: they fail and
+    /// recover on their own schedules, and a shared one meant a mic restart
+    /// (which the watchdog and the device listener trigger routinely) either
+    /// wiped a live system-audio failure or left a fixed mic reading broken.
+    @Published private(set) var micError: String?
+    @Published private(set) var systemAudioError: String?
+    /// Whichever of the two slots belongs to a path this session actually asked
+    /// for. Callers ask this rather than reading both: a voice note captures no
+    /// system audio, so a stale `systemAudioError` says nothing about whether
+    /// it started.
+    var activeCaptureError: String? {
+        (captureMic ? micError : nil) ?? (captureSystem ? systemAudioError : nil)
+    }
+
+    /// Every microphone the machine currently offers, republished whenever the
+    /// HAL's device set or default input changes. Settings reads this rather
+    /// than enumerating CoreAudio from `body` — the pane stays open across a
+    /// headset being plugged in, and the list has to follow.
+    @Published private(set) var availableInputs: [AudioInputDevice] = []
     @Published private(set) var preferredInputUID: String? {
         didSet {
             if let preferredInputUID {
@@ -38,6 +56,19 @@ final class AudioCaptureService: NSObject, ObservableObject {
     var onSystemBuffer: ((AVAudioPCMBuffer) -> Void)?
 
     private static let preferredInputKey = "audio.input.deviceUID"
+
+    /// Drops a preference left over from when the picker still listed the
+    /// machine's private per-process aggregates: that UID can never resolve
+    /// again, so every later recording would open on "microphone isn't
+    /// available" with no way to tell it from an unplugged headset.
+    private static func storedPreferredInput() -> String? {
+        guard let uid = UserDefaults.standard.string(forKey: preferredInputKey) else { return nil }
+        guard AudioDeviceCatalog.isPrivateAggregateUID(uid) else { return uid }
+        UserDefaults.standard.removeObject(forKey: preferredInputKey)
+        Log.audio.error("dropped stale private-aggregate input preference UID=\(uid)")
+        return nil
+    }
+
     /// Lock-protected mirror of `micEnabled` for the audio-tap thread — the
     /// `@MainActor` property can't be read off-actor without a data race.
     /// Same one-frame tolerance on toggle as before; only the unsynchronized
@@ -84,19 +115,17 @@ final class AudioCaptureService: NSObject, ObservableObject {
     private var deviceListenerActive = false
 
     override init() {
-        preferredInputUID = UserDefaults.standard.string(forKey: Self.preferredInputKey)
+        preferredInputUID = Self.storedPreferredInput()
         super.init()
-        outputHandler.onSampleCount = { [weak self] count in
+        outputHandler.onSampleCount = { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                systemSamples += count
-                lastSystemFrameAt = Date()
+                self?.lastSystemFrameAt = Date()
             }
         }
         outputHandler.onError = { [weak self] message in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                lastError = message
+                systemAudioError = message
                 Log.audio.error("\(message)")
             }
         }
@@ -107,6 +136,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
             self?.onSystemBuffer?(buffer)
         }
         registerInputDeviceListener()
+        Task { [weak self] in await self?.refreshAvailableInputs() }
     }
 
     deinit {
@@ -125,9 +155,8 @@ final class AudioCaptureService: NSObject, ObservableObject {
 
     func start(captureMic: Bool = true, captureSystem: Bool = true) async {
         guard state == .idle else { return }
-        lastError = nil
-        micSamples = 0
-        systemSamples = 0
+        micError = nil
+        systemAudioError = nil
         self.captureMic = captureMic
         self.captureSystem = captureSystem
         state = .capturing
@@ -153,7 +182,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
         let stream = scStream
         scStream = nil
         Task { try? await stream?.stopCapture() }
-        inputLevel = 0
+        inputLevel.reset()
         state = .paused
     }
 
@@ -182,7 +211,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
         stopSystemWatchdog()
         stopMicrophone()
         await stopSystemAudio()
-        inputLevel = 0
+        inputLevel.reset()
         state = .idle
     }
 
@@ -273,12 +302,9 @@ final class AudioCaptureService: NSObject, ObservableObject {
                 lastMicFrameAt = Date()
                 consecutiveMicStallRestarts = 0
                 if micEnabled {
-                    micSamples += count
-                    // Decaying peak hold — rises instantly to a loud frame,
-                    // eases back down so the meter doesn't strobe between buffers.
-                    inputLevel = max(peak, inputLevel * 0.8)
+                    inputLevel.hold(peak: peak)
                 } else {
-                    inputLevel = 0
+                    inputLevel.reset()
                 }
             }
         }
@@ -288,7 +314,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
             audioEngine = engine
             Log.audio.info("microphone engine.start() OK")
         } catch {
-            lastError = "Microphone capture failed: \(error.localizedDescription)"
+            micError = "Microphone capture failed: \(error.localizedDescription)"
             Log.audio.error("microphone failed: \(error.localizedDescription)")
         }
     }
@@ -300,11 +326,18 @@ final class AudioCaptureService: NSObject, ObservableObject {
     }
 
     /// Applies `preferredInputUID` to the engine's input node, verifying the
-    /// device actually bound and surfacing an explicit `lastError` when the
-    /// chosen mic can't be honored — instead of silently recording from whatever
-    /// the system default happens to be (the old behavior, which made a user who
-    /// once picked a Bluetooth headset unable to switch back to any other input).
-    /// Must run before `engine.prepare()` so the change is picked up on init.
+    /// device actually bound and surfacing an explicit `micError` when
+    /// the chosen mic can't be honored — instead of silently recording from
+    /// whatever the system default happens to be (the old behavior, which made
+    /// a user who once picked a Bluetooth headset unable to switch back to any
+    /// other input). Must run before `engine.prepare()` so the change is picked
+    /// up on init.
+    ///
+    /// Clears on every success, not only sets on failure: this runs on each mic
+    /// (re)start, so without the clear one bad pick left the warning glyph and
+    /// its message up for the rest of the meeting — switching to a working
+    /// microphone visibly changed nothing, which reads as the switch itself
+    /// having failed.
     private func applyInputDeviceSelection(to input: AVAudioInputNode) {
         guard let uid = preferredInputUID else {
             applyContinuityFallbackIfNeeded(to: input)
@@ -313,22 +346,23 @@ final class AudioCaptureService: NSObject, ObservableObject {
 
         guard let deviceID = AudioDeviceCatalog.deviceID(forUID: uid) else {
             Log.audio.error("preferred input UID=\(uid) not connected; using system default")
-            lastError = "Selected microphone isn't available — using the system default."
+            micError = "Selected microphone isn't available — using the system default."
             return
         }
 
         switch bindInputDevice(deviceID, on: input) {
         case .noAudioUnit:
             Log.audio.error("input node exposes no audio unit; cannot select UID=\(uid)")
-            lastError = "Couldn't select the microphone — using the system default."
+            micError = "Couldn't select the microphone — using the system default."
         case let .mismatch(status, actual):
             let actualName = actual.flatMap(AudioDeviceCatalog.name(forDeviceID:)) ?? "the default microphone"
             Log.audio.error(
                 "input override to UID=\(uid) (id=\(deviceID)) failed: OSStatus=\(status), unit reports id=\(actual.map(String.init) ?? "?") (\(actualName))"
             )
-            lastError = "Couldn't switch to the selected microphone — still using \(actualName)."
+            micError = "Couldn't switch to the selected microphone — still using \(actualName)."
         case .bound:
             Log.audio.info("input device overridden to UID=\(uid) (id=\(deviceID))")
+            micError = nil
         }
     }
 
@@ -345,22 +379,33 @@ final class AudioCaptureService: NSObject, ObservableObject {
         else {
             let defaultName = AVCaptureDevice.default(for: .audio)?.localizedName ?? "<unknown>"
             Log.audio.info("using system default input device: \(defaultName)")
+            micError = nil
             return
         }
 
         guard let builtInID = AudioDeviceCatalog.builtInInputDeviceID() else {
             Log.audio.error("default input is a Continuity device (id=\(defaultID)) and no built-in mic was found; leaving system default")
+            micError = continuityStuckMessage
             return
         }
 
         switch bindInputDevice(builtInID, on: input) {
         case .noAudioUnit, .mismatch:
             Log.audio.error("fallback off Continuity default (id=\(defaultID)) to built-in mic failed")
+            micError = continuityStuckMessage
         case .bound:
             let builtInName = AudioDeviceCatalog.name(forDeviceID: builtInID) ?? "the built-in microphone"
             Log.audio.error("system default input was a Continuity device (id=\(defaultID)) — switched to \(builtInName)")
-            lastError = "Switched off an iPhone/iPad mic to \(builtInName) — Continuity can silently take over the microphone."
+            micError = "Switched off an iPhone/iPad mic to \(builtInName) — Continuity can silently take over the microphone."
         }
+    }
+
+    /// Every branch of the Continuity fallback ends in a state worth naming:
+    /// either we steered off the iPhone mic, or we're still on it. Leaving the
+    /// failed ones silent let a stale message from an earlier bind stand while
+    /// the recording went to a phone in another room.
+    private var continuityStuckMessage: String {
+        "Recording through an iPhone/iPad mic — Continuity has the microphone and Nod couldn't switch off it."
     }
 
     private enum DeviceBindResult {
@@ -444,7 +489,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
                 "preferred input UID=\(badUID) delivered zero buffers across \(consecutiveMicStallRestarts) restarts; falling back to system default"
             )
             preferredInputUID = nil
-            lastError = "The selected microphone stopped responding — switched to the system default."
+            micError = "The selected microphone stopped responding — switched to the system default."
             consecutiveMicStallRestarts = 0
         }
         await restartMicrophone(reason: "no mic buffers for \(String(format: "%.1f", elapsed))s")
@@ -452,7 +497,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
 
     /// Tears down and rebuilds the mic engine, which re-runs
     /// `applyInputDeviceSelection` — so a vanished preferred device recovers to
-    /// the system default (surfacing `lastError`), and a changed default is
+    /// the system default (surfacing `micError`), and a changed default is
     /// picked up. Guarded by `micRestartInFlight` so the watchdog and the device
     /// listener can't restart concurrently.
     private func restartMicrophone(reason: String) async {
@@ -500,20 +545,43 @@ final class AudioCaptureService: NSObject, ObservableObject {
         deviceListenerActive = true
     }
 
+    /// Enumerated off the actor: the walk is synchronous IPC to `coreaudiod`
+    /// for every device on the machine, and it runs on launch and on every
+    /// topology change — including the ones our own capture causes.
+    ///
+    /// Publishes only on a real change. Both monitored selectors fire for one
+    /// physical event, and our own capture adds a private aggregate the filter
+    /// then strips — so most of these callbacks produce a list identical to the
+    /// last one, and assigning it anyway would redraw every open picker
+    /// mid-meeting for nothing.
+    private func refreshAvailableInputs() async {
+        let refreshed = await Task.detached { AudioDeviceCatalog.inputDevices() }.value
+        guard refreshed != availableInputs else { return }
+        availableInputs = refreshed
+    }
+
     /// Compares the device the engine is bound to against the one it *should* be
     /// on and restarts only when they diverge — so unrelated device toggles don't
     /// churn a running capture. The target is the preferred device when present,
     /// otherwise the system default (which is also the fallback when a preferred
     /// device is unplugged); if neither can be resolved we leave capture alone
     /// rather than restart toward an unknown device.
+    ///
+    /// The device list is republished first, above every guard: a picker open
+    /// outside a meeting has to see a headset appear too, and all the guards
+    /// below are about capture, not about what exists.
     private func handleInputDeviceChange() async {
+        await refreshAvailableInputs()
         guard state == .capturing, captureMic, !micRestartInFlight else { return }
         guard let unit = audioEngine?.inputNode.audioUnit else {
             await restartMicrophone(reason: "input device changed while engine down")
             return
         }
-        let preferred = preferredInputUID.flatMap(AudioDeviceCatalog.deviceID(forUID:))
-        guard let intended = preferred ?? AudioDeviceCatalog.currentDefaultInputDeviceID() else { return }
+        // Resolved from the list just refreshed above rather than through
+        // `AudioDeviceCatalog` again: both lookups would re-walk the HAL for
+        // ids `availableInputs` is already carrying.
+        let preferred = availableInputs.first { $0.uid == preferredInputUID }?.id
+        guard let intended = preferred ?? availableInputs.first(where: \.isDefault)?.id else { return }
         if intended != currentInputDevice(of: unit) {
             await restartMicrophone(reason: "active input device changed")
         }
@@ -525,7 +593,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             guard let display = content.displays.first else {
-                lastError = "No display available for system audio capture"
+                systemAudioError = "No display available for system audio capture"
                 return
             }
 
@@ -551,7 +619,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
             lastSystemFrameAt = Date()
             Log.audio.info("system audio started (SCStream)")
         } catch {
-            lastError = "System audio capture failed: \(error.localizedDescription)"
+            systemAudioError = "System audio capture failed: \(error.localizedDescription)"
             Log.audio.error("system audio failed: \(error.localizedDescription)")
         }
     }
@@ -585,7 +653,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
 
         systemRestartInFlight = true
         Log.audio.error("system audio stalled — no buffers for \(String(format: "%.1f", elapsed))s; restarting SCStream")
-        lastError = "System audio capture stalled; restarting…"
+        systemAudioError = "System audio capture stalled; restarting…"
 
         let stream = scStream
         scStream = nil
@@ -598,7 +666,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
         lastSystemFrameAt = Date()
         await startSystemAudio()
         if scStream != nil {
-            lastError = nil
+            systemAudioError = nil
             Log.audio.info("system audio restarted after stall")
         }
         systemRestartInFlight = false

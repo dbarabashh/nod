@@ -140,6 +140,22 @@ final class WhisperTranscriber: @unchecked Sendable {
 
     private var acceptedSampleCount = 0
     private var audioClockSpans: [AudioClockSpan] = []
+
+    /// What gets prepended: the VAD's own `minSilenceDuration`. That quiet is
+    /// what closed the previous segment, so it is the most that can be attached
+    /// while staying inside silence — more would reach into the previous
+    /// utterance and replay words already transcribed.
+    private static let preRollLeadInSeconds = 0.25
+    /// What stays reachable. A segment is drained only after its speech ends, so
+    /// its onset is an utterance behind by then; this has to cover the longest
+    /// segment we will be asked about, not the lead-in. Sized off the ceiling
+    /// `SpeechSegmentSplit` enforces (25 s) with headroom — ~1.9 MB per source.
+    private static let preRollRetentionSeconds = 30.0
+    private var preRoll = PreRollWindow(
+        retaining: Int(preRollRetentionSeconds * speechFormat.sampleRate),
+        leadIn: Int(preRollLeadInSeconds * speechFormat.sampleRate)
+    )
+
     #if DEBUG
         private var debugDump: DebugAudioDump?
     #endif
@@ -224,6 +240,9 @@ final class WhisperTranscriber: @unchecked Sendable {
             self.vad?.reset()
             self.acceptedSampleCount = 0
             self.audioClockSpans.removeAll(keepingCapacity: false)
+            // Dropped with the sample counter it is indexed against, so the new
+            // meeting's first segment can't be handed the previous one's tail.
+            self.preRoll.reset()
             #if DEBUG
                 self.debugDump = DebugAudioDump.isEnabled ? DebugAudioDump(label: self.source.rawValue) : nil
             #endif
@@ -347,6 +366,10 @@ final class WhisperTranscriber: @unchecked Sendable {
             guard let channel = normalized.floatChannelData?[0] else { return }
             let frameCount = Int(normalized.frameLength)
             guard frameCount > 0 else { return }
+            self.preRoll.append(
+                UnsafeBufferPointer(start: channel, count: frameCount),
+                startingAt: self.acceptedSampleCount
+            )
             self.noteAcceptedAudio(frameCount: frameCount, receivedAt: receivedAt)
             #if DEBUG
                 self.debugDump?.append(channel, count: frameCount)
@@ -431,16 +454,24 @@ final class WhisperTranscriber: @unchecked Sendable {
                     "[\(source.label)] VAD segment ran \(segment.samples.count / 16_000)s past its cue — split into \(pieces.count)"
                 )
             }
-            for piece in pieces {
+            for (index, piece) in pieces.enumerated() {
                 let samples = Array(piece)
-                guard let wav = WhisperTranscriber.encodeWAV(samples) else { continue }
+                // Only the first piece needs it: the rest continue straight on
+                // from their predecessor, so their onsets were never clipped and
+                // prepending would replay audio the previous piece already sent.
+                let audio = index == 0 ? preRoll.leadIn(before: segment.start) + samples : samples
+                guard let wav = WhisperTranscriber.encodeWAV(audio) else { continue }
                 sendToWhisper(
                     wav: wav,
                     reason: reason,
+                    // The speech onset, not the lead-in: the pre-roll is context
+                    // for the decoder, not part of what was said.
                     timestamp: timestamp(forSampleIndex: segment.start + piece.startIndex),
                     prompt: promptTail,
                     promptLanguage: promptLanguage,
                     retrying: false,
+                    // Diarization clusters on voice, so it gets the speech alone —
+                    // a quarter second of room tone would only blur the embedding.
                     segmentID: diarization?.record(samples)
                 )
             }

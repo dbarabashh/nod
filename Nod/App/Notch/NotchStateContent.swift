@@ -245,13 +245,14 @@ private struct StarterAllowanceGate: View {
 /// back (`NotchView` → `toggleOpen`), which is the only way out on a floating
 /// panel, where the gesture zone is not mounted.
 ///
-/// Its own view, observing the session and the capture service directly,
-/// because both the clock and the meter have to redraw continuously — read
-/// through the notch model they would subscribe to the wrong object and sit
-/// frozen at 00:00.
+/// Its own view, observing the session directly, because the clock has to
+/// redraw continuously — read through the notch model it would subscribe to the
+/// wrong object and sit frozen at 00:00. `audioCapture` is a plain reference:
+/// the only thing read off it is `inputLevel`, which `NotchLevelMeter` observes
+/// on its own.
 private struct NotchTucked: View {
     @ObservedObject var session: MeetingSession
-    @ObservedObject var audioCapture: AudioCaptureService
+    let audioCapture: AudioCaptureService
     let geometry: NotchGeometry
 
     /// Straddling the cut-out, the two halves are anchored to the surface's
@@ -264,13 +265,8 @@ private struct NotchTucked: View {
     /// middle exactly where the hardware isn't.
     var body: some View {
         HStack(spacing: geometry.hasCutout ? 0 : 8) {
-            NotchLevelMeter(
-                audioCapture: audioCapture,
-                paused: session.meeting == .paused,
-                barWidth: 2,
-                span: 9
-            )
-            .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .leading)
+            inputIndicator
+                .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .leading)
 
             if geometry.hasCutout {
                 Color.clear.frame(width: geometry.cutoutWidth)
@@ -284,6 +280,27 @@ private struct NotchTucked: View {
                 .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .trailing)
         }
         .padding(.horizontal, geometry.flare + 12)
+    }
+
+    /// Muted replaces the meter rather than tinting it: mute zeroes
+    /// `inputLevel`, so the bars flatten either way and a flat meter is exactly
+    /// what a quiet room looks like. Tucked away, this is the whole of what the
+    /// screen says about the microphone — with only the meter there, "they
+    /// can't hear me" looks identical to "nobody is talking".
+    @ViewBuilder
+    private var inputIndicator: some View {
+        if session.micMuted {
+            Image("nc-mic-slash")
+                .icon(11)
+                .foregroundColor(Theme.Palette.controlMicMuted)
+        } else {
+            NotchLevelMeter(
+                level: audioCapture.inputLevel,
+                paused: session.meeting == .paused,
+                barWidth: 2,
+                span: 9
+            )
+        }
     }
 }
 

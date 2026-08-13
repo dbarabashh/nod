@@ -181,6 +181,7 @@ final class ProductAnalytics: ObservableObject {
                 queue.removeAll()
                 deduplicationKeys.removeAll()
                 persistQueue()
+                optOutHandler?()
                 Log.ui.info("product analytics opted out — queue discarded")
             }
         }
@@ -194,6 +195,7 @@ final class ProductAnalytics: ObservableObject {
     private var queue: [QueuedEvent]
     private var deduplicationKeys: Set<String> = []
     private var isFlushing = false
+    private var optOutHandler: (() -> Void)?
 
     init(supabase: SupabaseClient, auth: AuthService, defaults: UserDefaults = .standard) {
         self.supabase = supabase
@@ -235,6 +237,13 @@ final class ProductAnalytics: ObservableObject {
         queue.append(QueuedEvent(userID: userID, payload: payload))
         persistQueue()
         Task { await flush() }
+    }
+
+    func onOptOut(_ handler: @escaping () -> Void) {
+        optOutHandler = handler
+        if isOptedOut {
+            handler()
+        }
     }
 
     func flush() async {

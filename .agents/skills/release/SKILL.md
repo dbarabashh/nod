@@ -20,8 +20,11 @@ hosting — is in `docs/release.md`. Read it if any precondition below fails.
    the fetch succeeded rather than debugging a link error later.
 3. Sparkle tools are reachable: `SPARKLE_BIN_DIR` points at an unpacked Sparkle
    distribution matching the SPM version pinned in `project.yml`.
-4. Notarization credentials are stored (`xcrun notarytool store-credentials
-   nod-notary`). Without them, only `--skip-notarize` builds work, and those
+4. Notarization credentials are stored under the profile the script actually
+   reads — `Nod_New`, or whatever `NOTARY_PROFILE` overrides it with. Check with
+   `xcrun notarytool history --keychain-profile Nod_New`; create it with
+   `xcrun notarytool store-credentials Nod_New`. Without them, only
+   `--skip-notarize` builds work, and those
    show "developer cannot be verified" to every other user — never publish one.
 5. `gh auth status` is alive if publishing.
 

@@ -32,8 +32,8 @@
 #   --channel NAME    tag the appcast item with <sparkle:channel>NAME</sparkle:channel>.
 #                     Only clients whose account is on that channel can see it —
 #                     everyone else keeps being offered the newest untagged build.
-#                     Skips the app_config nudge, the website's Nod-latest.dmg,
-#                     and marks the GitHub release as a prerelease.
+#                     Skips the website's Nod-latest.dmg, and marks the GitHub
+#                     release as a prerelease.
 #   --feed NAME       publish into public/appcast-NAME.xml instead of the public
 #                     feed, leaving appcast.xml untouched. A new private feed is
 #                     seeded from the public one so the Mac reading it keeps every
@@ -53,7 +53,7 @@
 #                     general release is never written into it — because a prod
 #                     build arriving there would install over the sandbox app and
 #                     bring it up on production data. Cuttable from any branch,
-#                     and it neither tags, pushes, nor moves recommended_build.
+#                     and it neither tags nor pushes.
 #   --skip-notarize   build + sign + DMG, skip Apple notarization
 #                     (use when Apple Developer Program is still pending; the
 #                     resulting DMG will show "developer cannot be verified"
@@ -71,10 +71,9 @@
 # Optional:
 #   SIGN_IDENTITY       default: "Developer ID Application"
 #                       (override to "Nod Dev" + --skip-notarize for local tests)
-#   SUPABASE_SERVICE_ROLE_KEY  bumps app_config.recommended_build to this build
-#                       so the in-app update nudge tracks releases. If unset, the
-#                       bump is skipped (with a warning) — set it from Supabase
-#                       dashboard → Project Settings → API → service_role.
+#   SUPABASE_SERVICE_ROLE_KEY  required by --to (channel enrolment is
+#                       service-role only) — set it from Supabase dashboard →
+#                       Project Settings → API → service_role.
 #   SUPABASE_API_URL    default: https://api.hellonod.app
 
 set -euo pipefail
@@ -749,38 +748,6 @@ echo
 [ "$DMG_OK"     = 1 ] || die "DMG did not appear at ${DMG_URL} within 3 min — check Vercel deploys at https://vercel.com/dashboard"
 echo "    ✓ appcast live at ${APPCAST_URL}"
 echo "    ✓ DMG live at     ${DMG_URL}"
-
-# ───────────────────────── bump update gate ─────────────────────────
-
-# The in-app UpdateGate nudge (the recommended-update banner) reads
-# app_config.recommended_build — NOT the appcast. Bump it to this build so
-# clients below it surface the nudge on next launch. Sparkle's own 24h check is
-# independent and still works without this, but if the row goes stale the banner
-# silently stops firing for everyone above the old threshold. Service-role only
-# (app_config has no UPDATE policy); skipped with a warning if the key is absent
-# so a release never hard-fails on it.
-#
-# A channel build must never move it. The banner has no notion of channels, so
-# raising it to a beta build would nag all 20 default-channel users toward a
-# build Sparkle will correctly refuse to offer them.
-if [ -n "$LIMITED" ]; then
-  say "Leaving app_config.recommended_build alone (channel release)"
-elif [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
-  say "Bump app_config.recommended_build → ${BUILD}"
-  GATE_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
-    -X PATCH "${SUPABASE_API_URL}/rest/v1/app_config?singleton=eq.true" \
-    -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-    -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-    -H "Content-Type: application/json" \
-    -H "Prefer: return=minimal" \
-    -d "{\"recommended_build\": ${BUILD}, \"updated_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}")
-  [ "$GATE_CODE" = "204" ] || die "app_config bump failed (HTTP ${GATE_CODE}) — recommended_build NOT updated"
-  echo "    ✓ recommended_build = ${BUILD}"
-else
-  echo "    ⚠️  SUPABASE_SERVICE_ROLE_KEY not set — skipped app_config.recommended_build bump."
-  echo "        The in-app update nudge won't track this release until you run:"
-  echo "        update app_config set recommended_build = ${BUILD};"
-fi
 
 # ───────────────────────── done ─────────────────────────
 

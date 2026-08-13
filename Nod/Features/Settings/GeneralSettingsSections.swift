@@ -259,6 +259,41 @@ struct CaptureSurfaceSection: View {
     }
 }
 
+/// Which microphone Nod records from, for when no meeting is running —
+/// `NotchMicControl` holds the same choice mid-meeting.
+struct MicrophoneSettingsSection: View {
+    @ObservedObject var audioCapture: AudioCaptureService
+
+    var body: some View {
+        SettingsCard {
+            SettingsRow(icon: "nc-mic", title: "Microphone", subtitle: subtitle) {
+                MicrophoneInputPicker(
+                    devices: audioCapture.availableInputs,
+                    selectedUID: audioCapture.preferredInputUID,
+                    // Switching, not just storing: `switchInput` rebinds a live
+                    // recording's engine, so a change mid-meeting takes effect
+                    // on the next word rather than the next meeting.
+                    onSelect: { uid in Task { await audioCapture.switchInput(to: uid) } }
+                )
+                .labelsHidden()
+                .frame(width: 210)
+            }
+        }
+    }
+
+    private var subtitle: String {
+        let devices = audioCapture.availableInputs
+        guard let uid = audioCapture.preferredInputUID else {
+            return devices.systemDefaultName.map { "Following macOS — currently \($0)." }
+                ?? "Following whichever input macOS is set to."
+        }
+        guard let name = devices.name(forUID: uid) else {
+            return "The microphone you picked isn't connected. Nod records from the system default until it's back."
+        }
+        return "Always records from \(name), whatever macOS switches to."
+    }
+}
+
 /// The General pane, lifted out of `SettingsView`: it is the longest of the
 /// panes and the one that keeps growing, and the window shell's job is choosing
 /// which pane to show, not being one.
@@ -271,6 +306,7 @@ struct GeneralSettingsPane: View {
     let granolaImporter: GranolaImporter?
     let demoPlayback: DemoPlayback?
     let captureSurface: CaptureSurfacePreference?
+    let audioCapture: AudioCaptureService?
     @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting = MeetingLanguagePromptDefaults.defaultValue
     @AppStorage(UISound.defaultsKey) private var soundsEnabled = true
 
@@ -287,6 +323,9 @@ struct GeneralSettingsPane: View {
             }
             if let captureSurface {
                 CaptureSurfaceSection(preference: captureSurface)
+            }
+            if let audioCapture {
+                MicrophoneSettingsSection(audioCapture: audioCapture)
             }
             if let launchBehavior {
                 LaunchBehaviorSection(behavior: launchBehavior)
@@ -414,4 +453,11 @@ struct GeneralSettingsPane: View {
             }
         }
     #endif
+}
+
+#Preview("Microphone") {
+    MicrophoneSettingsSection(audioCapture: AudioCaptureService())
+        .padding()
+        .frame(width: 560)
+        .background(WindowBackdrop())
 }

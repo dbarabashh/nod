@@ -56,20 +56,30 @@ interface STTProvider {
     name: string;
     url: string;
     apiKey: string;
+    // Whether this provider hosts the requested model at all. A provider handed
+    // a model it doesn't serve answers 400/404, and `shouldFailover` correctly
+    // refuses to retry those — so leaving it in the chain fails the whole
+    // request instead of standing aside for one that can serve it. Both entries
+    // here are Whisper-only: neither hosts `gpt-4o-transcribe`.
+    serves: (clientModel: string) => boolean;
     mapModel: (clientModel: string) => string;
 }
 
+const isWhisperModel = (m: string) => m.includes("whisper");
+
 // Multipart provider chain in priority order, filtered to those whose key is
-// configured. Empty until GROQ_API_KEY / OPENAI_API_KEY land — that's the
-// env-gated cutover: with neither set, `callTranscribe` uses OpenRouter alone,
-// so this deploy changes nothing until the secret is added.
-function sttMultipartChain(): STTProvider[] {
+// configured and that can serve `model`. Empty until GROQ_API_KEY /
+// OPENAI_API_KEY land — that's the env-gated cutover: with neither set,
+// `callTranscribe` uses OpenRouter alone, so this deploy changes nothing until
+// the secret is added.
+function sttMultipartChain(model: string): STTProvider[] {
     const chain: STTProvider[] = [];
     if (GROQ_API_KEY) {
         chain.push({
             name: "groq",
             url: GROQ_TRANSCRIBE_URL,
             apiKey: GROQ_API_KEY,
+            serves: isWhisperModel,
             // The client sends OpenRouter-style vendor-prefixed ids
             // ("openai/whisper-large-v3-turbo"); Groq hosts the same weights
             // under the bare id.
@@ -81,13 +91,14 @@ function sttMultipartChain(): STTProvider[] {
             name: "openai",
             url: OPENAI_TRANSCRIBE_URL,
             apiKey: OPENAI_API_KEY,
+            serves: isWhisperModel,
             // OpenAI's transcription API only exposes whisper-1 (large-v2). Used
             // purely as a reliability fallback when Groq rate-limits/stalls — not
             // for output parity with Groq's large-v3.
             mapModel: () => "whisper-1",
         });
     }
-    return chain;
+    return chain.filter((p) => p.serves(model));
 }
 
 // Statuses worth failing over to the next provider. Beyond 429/5xx we also fail
@@ -130,6 +141,9 @@ function callOpenRouterSTT(payload: unknown, userId: string): Promise<CallResult
 export async function callTranscribe(payload: unknown, userId: string): Promise<STTResult> {
     const failover: FailoverAttempt[] = [];
     const mode = sttRoutingMode();
+    const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "";
+
+    let last: STTResult | null = null;
 
     if (mode === "openrouter_primary" || mode === "openrouter_only") {
         if (!OPENROUTER_API_KEY) {
@@ -143,10 +157,12 @@ export async function callTranscribe(payload: unknown, userId: string): Promise<
         console.warn(
             `transcribe provider=openrouter status=${r.status} reason=${r.reason ?? "http"} retry_after=${r.retryAfter ?? "-"} dt=${r.ms ?? "?"}ms — failing over to direct Groq`,
         );
+        // Kept so a model no direct provider serves reports OpenRouter's own
+        // failure rather than a synthetic "nothing configured".
+        last = { ...r, provider: "openrouter", failover };
     }
 
-    let last: STTResult | null = null;
-    for (const p of sttMultipartChain()) {
+    for (const p of sttMultipartChain(model)) {
         const r = await callMultipartSTT(p, payload, userId);
         if (!shouldFailover(r.status)) return { ...r, provider: p.name, failover };
         failover.push(failoverAttempt(p.name, r));

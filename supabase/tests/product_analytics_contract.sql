@@ -94,6 +94,47 @@ exception
 end;
 $$;
 
+do $$
+declare
+    v_result jsonb;
+begin
+    select public.record_onboarding_events(
+        '50000000-0000-4000-8000-000000000002',
+        jsonb_build_array(jsonb_build_object(
+            'id', '60000000-0000-4000-8000-000000000002',
+            'occurred_at', now(),
+            'app_session_id', '70000000-0000-4000-8000-000000000002',
+            'event', 'permission_granted',
+            'platform', 'macos',
+            'app_version', '13.0.0+63',
+            'properties', jsonb_build_object(
+                'stage', 'permissions',
+                'permission', 'screen_recording',
+                'outcome', 'granted'
+            )
+        ))
+    ) into v_result;
+    if v_result ->> 'accepted' <> '1' then
+        raise exception 'expected macOS permission event acceptance: %', v_result;
+    end if;
+end;
+$$;
+
+reset role;
+
+do $$
+begin
+    if not exists (
+        select 1
+        from public.onboarding_events
+        where id = '60000000-0000-4000-8000-000000000002'
+          and detail = 'screen_recording'
+    ) then
+        raise exception 'permission dimension was not preserved';
+    end if;
+end;
+$$;
+
 reset role;
 set local role anon;
 set local request.jwt.claims = '{}';

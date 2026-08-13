@@ -286,12 +286,12 @@ struct NotchRecall: View {
 /// exists, this says it is *working*, which is the question a user glances up to
 /// answer mid-call. Flat and amber while paused, because a meter still dancing
 /// when nothing is being captured is a lie.
-/// Subscribes to the capture service itself rather than taking a level from its
-/// parent: `inputLevel` publishes about ten times a second, and read one level
-/// up it would rebuild the whole surrounding card — clock, transport, capsule
-/// fills and all — at that rate. Here only the five capsules invalidate.
+/// Observes the level on its own rather than taking it from its parent: it
+/// changes about ten times a second, and read one level up it would rebuild the
+/// whole surrounding card — clock, transport, capsule fills and all — at that
+/// rate. Here only the five capsules invalidate.
 struct NotchLevelMeter: View {
-    @ObservedObject var audioCapture: AudioCaptureService
+    @ObservedObject var level: InputLevel
     let paused: Bool
     let barWidth: CGFloat
     let span: CGFloat
@@ -319,7 +319,7 @@ struct NotchLevelMeter: View {
         // Ad-hoc on purpose: a continuous meter tracking a signal isn't a UI
         // state change, so the design system's springs don't apply to it. The
         // paused flip below is one, and uses the token.
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: audioCapture.inputLevel)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: level.value)
         .animation(.standard(reduceMotion: reduceMotion), value: paused)
     }
 
@@ -327,109 +327,124 @@ struct NotchLevelMeter: View {
     /// mapping it straight through leaves the meter looking dead for a whole call.
     private var easedAmplitude: CGFloat {
         guard !paused else { return 0 }
-        return pow(CGFloat(min(1, max(0, audioCapture.inputLevel))), 0.45)
+        return pow(CGFloat(min(1, max(0, level.value))), 0.45)
     }
 }
 
-/// Which microphone Nod is listening on, and the only place to change it — the
-/// picker itself lived nowhere in the app before this, so a device that
-/// silently failed to switch (`AudioCaptureService.applyInputDeviceSelection`
-/// already detects this and sets `lastError`) had nowhere to surface and no
-/// way to retry a different one short of the macOS Sound settings.
+/// The microphone: mute on the glyph, the device list under the chevron beside
+/// it. A pull-down button with a primary action, in the shape AppKit gives one
+/// — the mute is the button, the indicator opens the menu — drawn by hand
+/// because SwiftUI's own `Menu(primaryAction:)` only draws its indicator
+/// through a system button style, and the bezel that comes with it resizes the
+/// glyph to the menu cell's rules instead of this row's 20pt chrome.
 ///
-/// Doubles as the mute toggle — a plain click is `primaryAction` (mute), the
-/// menu itself opens the device list. One control for both rather than two:
-/// they're both "which mic, and is it working," and the meeting bar has no
-/// room to spare for a control each. Not `private`: `NotchMeetingBar.swift`
-/// uses it directly in the always-visible bar's header.
+/// Two hit regions rather than one control with two gestures: the press-and-hold
+/// this replaced announced nothing on screen, so the device list may as well not
+/// have existed. It is also why the chevron is a control of its own to
+/// VoiceOver — a single `Menu` with a primary action exposes one element, and
+/// the half that switches microphone would have no name to read.
 ///
-/// Deliberately **not** `@ObservedObject` on either dependency: both publish
-/// far more than this button reads — `audioCapture.inputLevel` alone ticks
-/// ten times a second — and an `@ObservedObject` re-renders on every publish
-/// regardless of which property changed. `.onReceive` on the three properties
-/// actually used mirrors them into local `@State`, so this only redraws when
-/// one of those three genuinely changes.
+/// `MicrophoneSettingsSection` holds the same choice for when no meeting is
+/// running; both write through `switchInput`, which rebinds a live engine.
 ///
 /// A `Menu`, not `Button` + `.popover`: the notch surface is a non-activating
 /// borderless panel, and `.popover` needs a real key window to anchor
 /// against — inside this one it falls back to a full-surface dimming overlay
-/// instead of a small anchored bubble. `Menu` is backed by `NSMenu`, which
-/// has no such dependency, and `.plainMenuChrome()` strips the bezel that
-/// would otherwise resize this glyph to the cell's own rules.
-struct NotchMicMenuButton: View {
-    let session: MeetingSession
-    let audioCapture: AudioCaptureService
-
-    @State private var lastError: String?
-    @State private var preferredInputUID: String?
-    @State private var micMuted = false
-
-    private var hasProblem: Bool {
-        lastError != nil
-    }
+/// instead of a small anchored bubble. `Menu` is backed by `NSMenu`, which has
+/// no such dependency.
+///
+/// Not `private`: `NotchMeetingBar.swift` uses it directly in the
+/// always-visible bar's header.
+struct NotchMicControl: View {
+    @ObservedObject var session: MeetingSession
+    @ObservedObject var audioCapture: AudioCaptureService
 
     var body: some View {
-        // One control, two gestures: a click mutes, a press-and-hold opens the
-        // device list. The chevron that used to sit beside the glyph cost half
-        // the capsule's width and pushed the mic off-centre, for a menu that is
-        // opened once a month against a mute pressed several times a call.
-        Menu {
-            devicePicker
-        } label: {
-            // Same glyph size and same round chrome as every other control in
-            // this row: a wider capsule and a smaller icon made the mic read as
-            // a different kind of thing sitting next to its own siblings. The
-            // click target stays 32×24 — the outer frame keeps it, so muting is
-            // no harder to hit than it was.
-            Image(iconName)
+        HStack(spacing: 0) {
+            muteButton
+            // The seam a split button has, at the row's own border weight: with
+            // one capsule behind both halves and no rule between them, nothing
+            // says the chevron is a second target rather than decoration on the
+            // first.
+            Rectangle()
+                .fill(Theme.Palette.border)
+                .frame(width: 1, height: 12)
+            deviceMenu
+        }
+        // Sized to the glyph row's 20pt circles rather than to the hit frames,
+        // which are taller: the pair has to read as one control the same height
+        // as its siblings, not as a bar that grew.
+        .background(Capsule().fill(Theme.Palette.surfaceStrong).frame(height: 20))
+        .accessibilityElement(children: .contain)
+    }
+
+    /// The wider half of the two. Mute is pressed several times a call; the
+    /// device list is opened once a meeting at most, and on the rare occasion
+    /// the aim lands on the wrong side, opening a menu is the cheaper mistake.
+    private var muteButton: some View {
+        Button(action: session.toggleMic) {
+            Image(muteIcon)
                 .icon(9)
-                .foregroundColor(iconTint)
-                .notchGlyphChrome()
-        } primaryAction: {
-            session.toggleMic()
+                .foregroundColor(muteTint)
+                .frame(width: 23, height: 20)
         }
-        .plainMenuChrome()
-        .menuIndicator(.hidden)
-        .frame(width: 20, height: 20)
-        .frame(width: 32, height: 24)
+        .buttonStyle(.pressable(scale: 0.90))
+        .linkCursor()
+        .frame(height: 24)
         .contentShape(Rectangle())
-        .compactHoverTooltip(helpText)
-        .onReceive(audioCapture.$lastError) { lastError = $0 }
-        .onReceive(audioCapture.$preferredInputUID) { preferredInputUID = $0 }
-        .onReceive(session.$micMuted) { micMuted = $0 }
+        .glyphTooltip(muteHelp)
     }
 
-    private var devicePicker: some View {
-        // Enumerated once per menu open rather than once for the selection
-        // and again for the list — each call walks CoreAudio's device list
-        // and reads two string properties per device.
-        let devices = AudioDeviceCatalog.inputDevices()
-        let selectedUID = preferredInputUID ?? devices.first(where: \.isDefault)?.uid
-        return Picker("Microphone", selection: Binding(
-            get: { selectedUID },
-            set: { newUID in Task { await audioCapture.switchInput(to: newUID) } }
-        )) {
-            ForEach(devices) { device in
-                Text(device.name).tag(Optional(device.uid))
-            }
+    private var deviceMenu: some View {
+        Menu {
+            MicrophoneInputPicker(
+                devices: audioCapture.availableInputs,
+                selectedUID: audioCapture.preferredInputUID,
+                onSelect: { newUID in Task { await audioCapture.switchInput(to: newUID) } }
+            )
+            .pickerStyle(.inline)
+        } label: {
+            Image("nc-chevron-down")
+                .icon(7)
+                .foregroundColor(Theme.Palette.muted)
+                .frame(width: 15, height: 20)
         }
-        .pickerStyle(.inline)
+        // Pinned rather than left to the label: `menuStyle(.button)` still
+        // sizes the cell to its own rules, and an unpinned chevron half grows
+        // past the capsule the mute half is sharing with it.
+        .plainMenuChrome()
+        .frame(width: 15, height: 24)
+        .contentShape(Rectangle())
+        .glyphTooltip(deviceHelp)
     }
 
-    private var iconName: String {
+    private var hasProblem: Bool {
+        audioCapture.micError != nil
+    }
+
+    private var muteIcon: String {
         if hasProblem { return "nc-triangle-warning" }
-        return micMuted ? "nc-mic-slash" : "nc-mic"
+        return session.micMuted ? "nc-mic-slash" : "nc-mic"
     }
 
-    private var iconTint: Color {
+    private var muteTint: Color {
         if hasProblem { return Theme.Palette.warning }
-        return micMuted ? Theme.Palette.controlMicMuted : Theme.Palette.muted
+        return session.micMuted ? Theme.Palette.controlMicMuted : Theme.Palette.muted
     }
 
-    /// Names the hold gesture too — a click mutes, so nothing on screen says the
-    /// device list is in here.
-    private var helpText: String {
-        lastError ?? (micMuted ? "Unmute · hold to switch" : "Mute · hold to switch")
+    private var muteHelp: String {
+        audioCapture.micError ?? (session.micMuted ? "Unmute" : "Mute")
+    }
+
+    /// Names the device: a chevron says "there is a list here", not which
+    /// microphone is live, so this is the only way to find that out without
+    /// opening the menu.
+    private var deviceHelp: String {
+        let devices = audioCapture.availableInputs
+        if let name = devices.name(forUID: audioCapture.preferredInputUID) {
+            return "Microphone: \(name)"
+        }
+        return devices.systemDefaultName.map { "Microphone: \($0) (system default)" } ?? "Choose microphone"
     }
 }
 
@@ -570,19 +585,14 @@ struct NotchShareVisibilityButton: View {
     @ObservedObject var preference: PanelSharingPreference
 
     var body: some View {
-        Button { preference.visibleWhenSharing.toggle() } label: {
-            Image("nc-stack-perspective")
-                .icon(9)
-                // One glyph, tinted, rather than a pair: there is no honest
-                // second Nucleo icon for "hidden from capture", and swapping to
-                // an unrelated one reads as a different control.
-                .foregroundColor(preference.visibleWhenSharing ? Theme.Palette.brand : Theme.Palette.muted)
-                .notchGlyphChrome()
-        }
-        .buttonStyle(.pressable(scale: 0.90))
-        .linkCursor()
-        .compactHoverTooltip(
-            preference.visibleWhenSharing ? "Shown in screen shares" : "Hidden from screen shares"
+        NotchGlyphButton(
+            icon: "nc-stack-perspective",
+            help: preference.visibleWhenSharing ? "Shown in screen shares" : "Hidden from screen shares",
+            // One glyph, tinted, rather than a pair: there is no honest second
+            // Nucleo icon for "hidden from capture", and swapping to an
+            // unrelated one reads as a different control.
+            tint: preference.visibleWhenSharing ? Theme.Palette.brand : Theme.Palette.muted,
+            action: { preference.visibleWhenSharing.toggle() }
         )
     }
 }
@@ -618,13 +628,16 @@ struct NotchCopyGlyphButton: View {
 struct NotchGlyphButton: View {
     let icon: String
     let help: String
+    /// Carries state on the glyph itself where a control has two readings and
+    /// no honest second icon — muted, or shown-in-screen-shares.
+    var tint: Color = Theme.Palette.muted
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(icon)
                 .icon(9)
-                .foregroundColor(Theme.Palette.muted)
+                .foregroundColor(tint)
                 .notchGlyphChrome()
         }
         .buttonStyle(.pressable(scale: 0.90))
@@ -632,6 +645,6 @@ struct NotchGlyphButton: View {
         // Not `.help`: AppKit's tooltip needs the window to take key focus, and
         // this panel deliberately never does — so the system one never appeared
         // on the notch at all. Compact: one line over a 20pt glyph.
-        .compactHoverTooltip(help)
+        .glyphTooltip(help)
     }
 }

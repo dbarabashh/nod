@@ -13,11 +13,8 @@ import SwiftUI
 struct NotchMeetingBar: View {
     let panel: MeetingBarPanel
     @ObservedObject var session: MeetingSession
-    /// A plain reference, not `@ObservedObject`: nothing here reads
-    /// `audioCapture` directly, only `NotchMicMenuButton` does, and it mirrors
-    /// the two properties it needs into local state on its own rather than
-    /// resubscribing this whole bar to `inputLevel`'s ten-times-a-second
-    /// publishes.
+    /// A plain reference: nothing in this bar reads it, only the mic and
+    /// input-device buttons it hands it to.
     let audioCapture: AudioCaptureService
     /// Read/write, unlike the pre-meeting confirm's binding: the header is the
     /// only place left to fix a wrong language pick once recording has
@@ -62,7 +59,7 @@ struct NotchMeetingBar: View {
     private var utilities: some View {
         HStack(spacing: 4) {
             Spacer(minLength: 0)
-            NotchMicMenuButton(session: session, audioCapture: audioCapture)
+            NotchMicControl(session: session, audioCapture: audioCapture)
             NotchLanguageMenuButton(language: language)
             NotchShareVisibilityButton(preference: panelSharing)
             NotchGlyphButton(icon: "nc-window-pointer", help: "Open Nod window", action: onOpenLibrary)

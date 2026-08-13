@@ -33,8 +33,12 @@ final class OnboardingTelemetry: ObservableObject {
 
     private let supabase: SupabaseClient?
     private let auth: AuthService?
+    private let analytics: ProductAnalytics
+    private let defaults: UserDefaults
     private let installationID: UUID
     private let appSessionID = UUID()
+    private var queue: [QueuedOnboardingEvent]
+    private var isFlushing = false
 
     /// `step_shown` is deduplicated per process, not per step transition —
     /// SwiftUI re-runs `.task(id:)` on window rebuilds. A relaunch (which the
@@ -42,17 +46,31 @@ final class OnboardingTelemetry: ObservableObject {
     /// which is exactly the signal we want to see.
     private var loggedSteps: Set<OnboardingStep> = []
 
-    init(supabase: SupabaseClient? = nil, auth: AuthService? = nil) {
+    init(
+        supabase: SupabaseClient? = nil,
+        auth: AuthService? = nil,
+        analytics: ProductAnalytics,
+        defaults: UserDefaults = .standard
+    ) {
         self.supabase = supabase
         self.auth = auth
-        if let stored = UserDefaults.standard.string(forKey: Self.installationKey),
+        self.analytics = analytics
+        self.defaults = defaults
+        if let data = defaults.data(forKey: Self.queueKey),
+           let stored = try? JSONDecoder().decode([QueuedOnboardingEvent].self, from: data) {
+            queue = stored
+        } else {
+            queue = []
+        }
+        if let stored = defaults.string(forKey: Self.installationKey),
            let id = UUID(uuidString: stored) {
             installationID = id
         } else {
             let id = UUID()
             installationID = id
-            UserDefaults.standard.set(id.uuidString, forKey: Self.installationKey)
+            defaults.set(id.uuidString, forKey: Self.installationKey)
         }
+        analytics.onOptOut { [weak self] in self?.discardQueuedEvents() }
     }
 
     func stepShown(_ step: OnboardingStep) {
@@ -97,8 +115,10 @@ final class OnboardingTelemetry: ObservableObject {
     /// Awaits the write, unlike every other event: the caller terminates the
     /// process immediately afterwards, and a detached task would lose the row.
     func relaunchClicked() async {
-        guard let row = makeRow(.relaunchClicked, step: .permissions) else { return }
-        await write(row)
+        guard let queued = makeQueuedEvent(.relaunchClicked, step: .permissions) else { return }
+        queue.append(queued)
+        persistQueue()
+        await flush()
     }
 
     func relaunchFailed(_ reason: String) {
@@ -110,45 +130,78 @@ final class OnboardingTelemetry: ObservableObject {
     }
 
     private func log(_ event: Event, step: OnboardingStep? = nil, detail: String? = nil) {
-        guard let row = makeRow(event, step: step, detail: detail) else { return }
-        Task.detached(priority: .background) { [weak self] in
-            await self?.write(row)
-        }
+        guard let queued = makeQueuedEvent(event, step: step, detail: detail) else { return }
+        queue.append(queued)
+        persistQueue()
+        Task { await flush() }
     }
 
-    private func makeRow(_ event: Event, step: OnboardingStep? = nil, detail: String? = nil) -> OnboardingEventRow? {
-        guard let userID = auth?.session?.user.id else { return nil }
-        _ = userID
-        return OnboardingEventRow(
-            id: UUID(),
-            occurredAt: ISO8601DateFormatter().string(from: Date()),
-            appSessionID: appSessionID,
-            event: event.rawValue,
-            platform: "macos",
-            appVersion: Self.appVersion(),
-            properties: OnboardingEventProperties(
-                stage: step.map(Self.name(for:)),
-                reasonCode: Self.reasonCode(for: event, detail: detail),
-                outcome: Self.outcome(for: event)
+    private func makeQueuedEvent(
+        _ event: Event,
+        step: OnboardingStep? = nil,
+        detail: String? = nil
+    ) -> QueuedOnboardingEvent? {
+        guard !analytics.isOptedOut, let userID = auth?.session?.user.id else { return nil }
+        return QueuedOnboardingEvent(
+            userID: userID,
+            row: OnboardingEventRow(
+                id: UUID(),
+                occurredAt: ISO8601DateFormatter().string(from: Date()),
+                appSessionID: appSessionID,
+                event: event.rawValue,
+                platform: "macos",
+                appVersion: Self.appVersion(),
+                properties: OnboardingEventProperties(
+                    stage: step.map(Self.name(for:)),
+                    permission: Self.permission(for: event, detail: detail),
+                    reasonCode: Self.reasonCode(for: event),
+                    outcome: Self.outcome(for: event)
+                )
             )
         )
     }
 
-    private func write(_ row: OnboardingEventRow) async {
-        guard let supabase else { return }
+    func flush() async {
+        guard !analytics.isOptedOut,
+              !isFlushing,
+              let supabase,
+              let userID = auth?.session?.user.id
+        else { return }
+        let batch = Array(queue.filter { $0.userID == userID }.prefix(25))
+        guard !batch.isEmpty else { return }
+        isFlushing = true
+        defer { isFlushing = false }
         do {
             try await supabase
                 .rpc(
                     "record_onboarding_events",
                     params: OnboardingEventParams(
                         installationID: installationID,
-                        events: [row]
+                        events: batch.map(\.row)
                     )
                 )
                 .execute()
+            let sent = Set(batch.map(\.row.id))
+            queue.removeAll { sent.contains($0.row.id) }
+            persistQueue()
+            if queue.contains(where: { $0.userID == userID }) {
+                Task { await flush() }
+            }
         } catch {
             Log.ui.error("onboarding telemetry insert failed — \(error.localizedDescription)")
         }
+    }
+
+    private func discardQueuedEvents() {
+        queue.removeAll()
+        loggedSteps.removeAll()
+        persistQueue()
+        Log.ui.info("onboarding analytics opted out — queue discarded")
+    }
+
+    private func persistQueue() {
+        guard let data = try? JSONEncoder().encode(queue) else { return }
+        defaults.set(data, forKey: Self.queueKey)
     }
 
     private static func name(for step: OnboardingStep) -> String {
@@ -180,9 +233,17 @@ final class OnboardingTelemetry: ObservableObject {
         }
     }
 
-    private static func reasonCode(for event: Event, detail: String?) -> String? {
-        _ = detail
-        return switch event {
+    private static func permission(for event: Event, detail: String?) -> String? {
+        switch event {
+        case .permissionRequested, .permissionGranted, .permissionDenied, .permissionPendingRelaunch:
+            detail
+        default:
+            nil
+        }
+    }
+
+    private static func reasonCode(for event: Event) -> String? {
+        switch event {
         case .permissionDenied: "permission_denied"
         case .relaunchFailed: "unknown"
         default: nil
@@ -190,9 +251,15 @@ final class OnboardingTelemetry: ObservableObject {
     }
 
     private static let installationKey = "analytics.installation-id.v1"
+    private static let queueKey = "analytics.onboarding-events.queue.v1"
 }
 
-private struct OnboardingEventRow: Encodable {
+private struct QueuedOnboardingEvent: Codable {
+    let userID: UUID
+    let row: OnboardingEventRow
+}
+
+private struct OnboardingEventRow: Codable {
     let id: UUID
     let occurredAt: String
     let appSessionID: UUID
@@ -212,13 +279,15 @@ private struct OnboardingEventRow: Encodable {
     }
 }
 
-private struct OnboardingEventProperties: Encodable {
+private struct OnboardingEventProperties: Codable {
     let stage: String?
+    let permission: String?
     let reasonCode: String?
     let outcome: String?
 
     enum CodingKeys: String, CodingKey {
         case stage
+        case permission
         case reasonCode = "reason_code"
         case outcome
     }

@@ -63,7 +63,7 @@ final class AuthSessionStorage: AuthLocalStorage {
             case errSecMissingEntitlement:
                 fallBackToLegacy()
             case let status:
-                throw StorageError.keychain(status)
+                throw keychainFailure(status, key: key, operation: "read")
             }
         }
 
@@ -74,8 +74,18 @@ final class AuthSessionStorage: AuthLocalStorage {
         case errSecItemNotFound:
             return nil
         case let status:
-            throw StorageError.keychain(status)
+            throw keychainFailure(status, key: key, operation: "read legacy")
         }
+    }
+
+    /// The SDK catches whatever `retrieve` throws and reports "no session"
+    /// (`SessionStorage.live`), so an unreadable keychain is indistinguishable
+    /// from a signed-out user — the app lands on the login screen with nothing
+    /// anywhere saying why. This is the only place that still knows.
+    private func keychainFailure(_ status: OSStatus, key: String, operation: String) -> StorageError {
+        let message = SecCopyErrorMessageString(status, nil) as String? ?? "unknown"
+        Log.auth.error("session storage: \(operation) failed for \(key) — OSStatus=\(status) (\(message))")
+        return StorageError.keychain(status)
     }
 
     /// Carries a session written by an earlier build over to the
@@ -104,13 +114,13 @@ final class AuthSessionStorage: AuthLocalStorage {
             case errSecMissingEntitlement:
                 fallBackToLegacy()
             case let status:
-                throw StorageError.keychain(status)
+                throw keychainFailure(status, key: key, operation: "write")
             }
         }
 
         let status = upsert(data, for: key, dataProtection: false)
         guard status == errSecSuccess else {
-            throw StorageError.keychain(status)
+            throw keychainFailure(status, key: key, operation: "write legacy")
         }
     }
 

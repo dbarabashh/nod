@@ -167,8 +167,6 @@ inside its check, so a live read would be too late).
 
 Compared with a normal release, a channel run also:
 
-- skips the `app_config.recommended_build` bump — the banner has no notion of
-  channels and would nag everyone toward a build they cannot download;
 - leaves `Nod-latest.dmg` alone, so the website keeps serving the last build
   everyone is allowed to have;
 - marks the GitHub release `--prerelease`, which keeps it out of
@@ -237,8 +235,8 @@ with a prod-built binary installing over the sandbox app, which would then come
 back up on production data without anyone touching a setting.
 
 It also differs from a normal run in what it does *not* do: no git tag, no push,
-no GitHub Release, no `recommended_build` bump, and the version stamp is put back
-afterwards, because a sandbox build is not a release of anything the team owns.
+no GitHub Release, and the version stamp is put back afterwards, because a
+sandbox build is not a release of anything the team owns.
 For the same reason it is the one mode cuttable from a branch — handing someone
 work before it merges is the point.
 

@@ -127,6 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await services.entitlements.refresh()
                 await services.emailPreferences.refresh()
                 await services.productAnalytics.flush()
+                await services.onboardingTelemetry.flush()
                 // A task filed in Linear is finished in Linear, and coming back
                 // to Nod is exactly when that has just happened. Without this
                 // the checkbox here only ever reflects work closed in Nod.
