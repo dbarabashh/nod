@@ -10,6 +10,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  analytics-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test analytics edge functions
+        run: deno test supabase/functions/sync-google-measurement/payload_test.ts
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.111.0
+      - name: Start local Supabase
+        run: supabase start
+      - name: Test analytics database contracts
+        run: |
+          for contract in supabase/tests/*.sql; do
+            psql postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+              -v ON_ERROR_STOP=1 -f "$contract"
+          done
+
   build-test:
     runs-on: macos-15
     steps:
