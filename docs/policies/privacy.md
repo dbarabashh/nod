@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-13_
+_Last updated: 2026-08-14_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -30,11 +30,9 @@ If you have questions about this policy or your data, contact
 
 ## 1. Who we are (data controller)
 
-Nod is operated by **Dima Barabash**. There is no incorporated company
-behind Nod — that's an honest disclosure, not a gap we're hiding.
-
-For the purposes of the EU/UK GDPR, the data controller is Dima Barabash
-personally. The contact point is **dmytro@hellonod.app**.
+For the purposes of the EU/UK GDPR, **Nod** is the data controller for the
+data described in this policy. The contact point is
+**dmytro@hellonod.app**.
 
 Paid subscriptions are sold through **Paddle.com Market Limited**, which
 acts as our Merchant of Record. Paddle is an independent controller of the
@@ -658,10 +656,8 @@ you have the following rights. To exercise any of them, email
   it at any time (does not affect prior processing).
 - **Lodge a complaint** with your local data protection authority. EU
   residents may complain to the supervisory authority in their country
-  of residence. Nod is currently operated by an individual rather than a
-  registered company, so there is no designated lead
-  supervisory authority — your home-country authority is the right
-  contact.
+  of residence. Nod has no designated lead supervisory authority — your
+  home-country authority is the right contact.
 
 We do **not** make automated decisions with legal or similarly significant
 effects about you.

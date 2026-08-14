@@ -1,15 +1,15 @@
 # Nod policies
 
-Working drafts of every policy and trust document Nod ships during beta.
-Pages target `hellonod.app/policies` — markdown here, mirrored to the
-marketing site.
+Every policy and trust document Nod ships. Pages target
+`hellonod.app/policies` — markdown here, mirrored to the marketing site.
 
-> **Status:** Nod is in **private beta**, operated by an individual
-> developer (Dima Barabash). No company is incorporated yet — that's
-> disclosed honestly on every public-facing page. The privacy and
-> security commitments are real and tied to code in this repo; the
-> legal-entity-dependent parts (governing law, registered address, lead
-> supervisory authority) are deferred to incorporation.
+> **Status:** every page names **Nod** as the counterparty and data
+> controller. No page names a person, describes the operator's legal
+> form, or explains anything by reference to its absence — keep all three
+> out. The privacy and security commitments are tied to code in this
+> repo; the entity-dependent parts (governing law, registered address,
+> lead supervisory authority) stay unstated until there is an entity to
+> state.
 
 All drafts reflect Nod **as it actually works in this repo** at the date
 shown on each document. Claims about data handling, retention, and
@@ -56,7 +56,7 @@ state.
 
 | Item | Notes |
 |---|---|
-| Incorporate a company | replaces "Dima Barabash, individual developer" everywhere; legal entity, registered address, governing-law jurisdiction, lead supervisory authority all become real |
+| Incorporate a company | substitutes the entity name for "Nod" as counterparty and controller; registered address, governing-law jurisdiction and lead supervisory authority all become real and get stated |
 | Lawyer review | Privacy + Terms, especially refunds, governing law, EU/US transfer mechanisms |
 | Paddle integration + refund flow | section 7 of `terms.md` describes the target |
 | Update all policies, notify existing users | at least 30 days' notice; bump "Last updated" |

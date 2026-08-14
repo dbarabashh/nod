@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-08-11_
+_Last updated: 2026-08-14_
 
 _[Calendar access](#calendar-access) and the email-delivery section under
 [How data flows](#how-data-flows) are **advance notice**: neither is in the
@@ -8,10 +8,9 @@ released app, and the calendar one stays off until you switch it on. Where this
 page describes Nod as sitting in the notch, the released version still runs as a
 floating panel on the left of your screen._
 
-> **Nod is built and operated by an individual** (Dima Barabash), not a
-> registered company. We've made the security and privacy decisions
-> documented below to be defensible for a production product — but we want
-> you to know exactly where we stand.
+> The security and privacy decisions documented below are made to be
+> defensible for a production product, and every claim on this page is
+> tied to code you can hold us to.
 
 Nod records your meetings on your Mac and turns them into notes. Capture and
 voice detection run on-device; transcription and summarization run on hosted

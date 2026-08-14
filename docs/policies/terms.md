@@ -1,19 +1,17 @@
 # Terms of Service
 
-_Last updated: 2026-08-11_
+_Last updated: 2026-08-14_
 
 _The Starter top-up and referral/advocacy provisions below are advance notice.
 They take effect only when those offers are switched on for new purchases; the
 prices and plans described on the pricing page remain the ones in force._
 
-> **Nod is operated by Dima Barabash**, an individual, not an incorporated
-> company. Paid subscriptions are sold through **Paddle**, which acts as
-> our Merchant of Record. These Terms describe how Nod works today; we'll
+> Paid subscriptions are sold through **Paddle**, which acts as our
+> Merchant of Record. These Terms describe how Nod works today; we'll
 > re-notify you of any material change.
 
 Welcome to Nod. These Terms of Service ("Terms") are the agreement between
-you ("you", "your") and **Dima Barabash**, the individual
-operating Nod ("Nod", "we", "us") that governs your
+you ("you", "your") and **Nod** ("Nod", "we", "us") that governs your
 use of the Nod macOS app, the related services hosted at `hellonod.app`, and
 anything else we offer (the "Service").
 
@@ -122,8 +120,8 @@ Nod offers paid subscriptions (Starter and Pro) alongside a 14-day free
 trial. Pricing, the billing cycle, and the features included are shown in
 the app and at `hellonod.app/pricing` before you subscribe.
 
-- Your subscription is sold by **Dima Barabash** (the individual operating
-  Nod) through **Paddle.com Market Limited**, which acts as our **Merchant
+- Your subscription is sold by **Nod** through **Paddle.com Market
+  Limited**, which acts as our **Merchant
   of Record**. Paddle is the seller on record for the transaction and
   handles payment processing, VAT/sales tax, invoicing, and refunds.
 - Subscriptions auto-renew at the end of each billing period. You can
@@ -250,10 +248,8 @@ the statutory rights of consumers.
 
 ## 11. Governing law
 
-Because Nod is operated by an individual rather than a registered
-company, these Terms do not designate an exclusive governing
-law. Mandatory consumer-protection law in your country of residence
-applies in full.
+These Terms do not designate an exclusive governing law. Mandatory
+consumer-protection law in your country of residence applies in full.
 
 Payments are handled by Paddle as Merchant of Record under Paddle's own
 buyer terms, which apply to the payment transaction in addition to these

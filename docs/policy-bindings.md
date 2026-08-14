@@ -10,9 +10,9 @@ of code listed below, proactively flag that the matching policy needs updating �
 even if the user didn't ask for the doc update. Bump the `_Last updated:_` line
 whenever you edit a policy.
 
-Current status (declared in every policy header): Nod is operated by **Dima
-Barabash as an individual** — no company is incorporated yet, no SOC 2 process
-started, no per-jurisdiction governing-law set. All contact emails resolve to
+Every policy names **Nod** as the counterparty and data controller, and names
+no person. No SOC 2 process has started and no per-jurisdiction governing law
+is set, so neither is claimed anywhere. All contact emails resolve to
 `dmytro@hellonod.app`.
 
 | What changed in code/infra | Update in `docs/policies/` |
@@ -53,7 +53,7 @@ started, no per-jurisdiction governing-law set. All contact emails resolve to
 | The in-app ambient controls change (`AmbientContextMenu`, `ScreenContextService.pause`/`resume`/`deleteObservations`): a pause that no longer suppresses the write, a deletion window that doesn't match its label, or the off switch moving back out of reach | `privacy.md` § 3.10(b) table — the Turning it off / Pausing / Deletion rows each describe a control that exists in that menu. The load-bearing claims are that a pause **stops capture immediately and never outlives its deadline**, and that deletion is **immediate, permanent, and reachable in one click** |
 | `screen_observations` schema changes, or its `pg_cron` purge is removed | `privacy.md` § 3.10(b) + § 7, `security.md` "What we do store". Retention is a stated promise enforced server-side, not a client convention |
 | Sharing surface changes (`create_meeting_share` RPC, `share-ask` edge function) | `privacy.md` § 3 + the share viewer's privacy invariants in `../share-nod-ui-service` |
-| Nod incorporates as a company | **every file** — replace "Dima Barabash, individual developer" with entity name + address, fill governing-law and supervisory-authority sections, bump "Last updated", give existing users 30-day notice |
+| Nod incorporates as a company | **every file** — replace the bare "Nod" as counterparty/controller with the entity name + registered address, fill governing-law and supervisory-authority sections, bump "Last updated", give existing users 30-day notice |
 | Paid tier launches (Paddle wired up) | `terms.md` § 7, `subprocessors.md` Paddle row moves out of "planned" |
 | `plans.hours_are_unlimited` flips for any plan, or `plans.limits.hours_per_month` changes on a plan that claims unlimited | `terms.md` § 7 "Fair use on unlimited plans", and the pricing table in `../nod-landing` (12 locales). Pro is advertised as unlimited hours, so `hours_per_month` on Pro is the **fair-use threshold, never an allowance** — the published claims are that we don't meter, never bill overage, never cut off mid-meeting, and **email before acting**. Adding a hard stop, a throttle, or a charge at that ceiling makes all four false. Anything that renders the number to a Pro user (`PaywallView.statusSubline`, `features(for:)`) contradicts the page |
 | Ambient context moves between plans (`Feature.ambientContext`, `plans.features`, the `screen_observations` insert/update policies) | `privacy.md` § 3.10(b) — the table describes a switch the user owns, and the plan can now suppress capture while that switch still reads "on". `terms.md` § 7 if it changes which plan includes it |
