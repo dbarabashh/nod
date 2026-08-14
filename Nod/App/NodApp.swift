@@ -11,6 +11,30 @@ struct NodApp: App {
         Settings {
             EmptyView()
         }
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button {
+                    NotificationCenter.default.post(name: .nodCheckForUpdates, object: nil)
+                } label: {
+                    IconLabel(title: "Check for Updates…", icon: "nc-refresh-2")
+                }
+            }
+
+            CommandGroup(replacing: .appSettings) {
+                Button {
+                    NotificationCenter.default.post(name: .nodOpenSettings, object: nil)
+                } label: {
+                    IconLabel(title: "Settings…", icon: "nc-gear-2")
+                }
+                .keyboardShortcut(",", modifiers: .command)
+
+                Button {
+                    NotificationCenter.default.post(name: .nodOpenRewards, object: nil)
+                } label: {
+                    IconLabel(title: "Referral Program…", icon: "nc-gift")
+                }
+            }
+        }
     }
 }
 

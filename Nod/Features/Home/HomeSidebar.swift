@@ -238,6 +238,7 @@ struct HomeSidebar: View {
                 Text(title)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.9)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.72))
@@ -449,6 +450,12 @@ struct HomeSidebar: View {
             // ambient context runs — invalidated the whole sidebar body to
             // redraw one 30pt row.
             AmbientContextSidebarRow()
+            navRow(
+                "Give 50%, get a free month",
+                icon: "nc-gift",
+                isSelected: false,
+                action: { NotificationCenter.default.post(name: .nodOpenRewards, object: nil) }
+            )
             navRow(
                 "Settings",
                 icon: "nc-gear-2",
