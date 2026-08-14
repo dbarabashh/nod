@@ -17,23 +17,28 @@ struct SegmentedControl<Value: Hashable>: View {
         HStack(spacing: 0) {
             ForEach(options, id: \.self) { option in
                 let isSelected = option == selection
-                Text(title(option))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.muted)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
-                    .background {
-                        if isSelected {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(Theme.Palette.surfaceStrong)
-                                .matchedGeometryEffect(id: "pill", in: pill)
+                // A `Button`, not a tap gesture: a gesture is invisible to
+                // VoiceOver and to Full Keyboard Access, so the segments were
+                // reachable by mouse alone.
+                Button {
+                    select(option)
+                } label: {
+                    Text(title(option))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.muted)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                        .background {
+                            if isSelected {
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Theme.Palette.surfaceStrong)
+                                    .matchedGeometryEffect(id: "pill", in: pill)
+                            }
                         }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard selection != option else { return }
-                        withAnimation(reduceMotion ? nil : animation) { selection = option }
-                    }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             }
         }
         .padding(2)
@@ -45,6 +50,11 @@ struct SegmentedControl<Value: Hashable>: View {
                         .stroke(Theme.Palette.border, lineWidth: 0.5)
                 )
         )
+    }
+
+    private func select(_ option: Value) {
+        guard selection != option else { return }
+        withAnimation(reduceMotion ? nil : animation) { selection = option }
     }
 }
 
