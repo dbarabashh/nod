@@ -11,6 +11,9 @@ final class LabelStore: ObservableObject {
     @Published private(set) var labels: [SessionLabel] = []
     /// meetingID → the labels attached to it.
     @Published private(set) var assignments: [UUID: Set<UUID>] = [:]
+    /// Which folders are shared, and with whom. Keyed by folder so a row can ask
+    /// without scanning.
+    @Published private(set) var shares: [UUID: [FolderShare]] = [:]
 
     private let supabase: SupabaseClient
     private let auth: AuthService
@@ -60,6 +63,7 @@ final class LabelStore: ObservableObject {
         } catch {
             Log.ui.error("LabelStore.refresh failed: \(error.localizedDescription)")
         }
+        await refreshShares()
     }
 
     /// Labels attached to one session, in display order.
@@ -208,7 +212,60 @@ final class LabelStore: ObservableObject {
         assignments[meetingID] = desired.isEmpty ? nil : desired
     }
 
+    // ── Sharing ─────────────────────────────────────────────────────────────
+
+    func refreshShares() async {
+        do {
+            let rows: [FolderShare] = try await supabase
+                .from("folder_shares")
+                .select("id, label_id, team_id, org_id")
+                .execute()
+                .value
+            shares = Dictionary(grouping: rows, by: \.labelID)
+        } catch {
+            Log.ui.error("LabelStore.refreshShares failed: \(error.localizedDescription)")
+        }
+    }
+
+    func isShared(_ labelID: UUID) -> Bool {
+        !(shares[labelID]?.isEmpty ?? true)
+    }
+
+    /// Hands a folder to a team, or to the whole organization. The server checks
+    /// that the folder is yours and that you belong to the audience — sharing
+    /// into a team you are not in would be publishing to strangers.
+    func share(_ labelID: UUID, withTeam teamID: UUID?, org orgID: UUID?) async {
+        do {
+            struct Params: Encodable {
+                let p_label: UUID
+                let p_team: UUID?
+                let p_org: UUID?
+            }
+            _ = try await supabase
+                .rpc("share_folder", params: Params(p_label: labelID, p_team: teamID, p_org: orgID))
+                .execute()
+            await refreshShares()
+            Log.ui.info("folder shared")
+        } catch {
+            Log.ui.error("LabelStore.share failed: \(error.localizedDescription)")
+        }
+    }
+
+    func unshare(_ share: FolderShare) async {
+        do {
+            struct Params: Encodable {
+                let p_share: UUID
+            }
+            _ = try await supabase.rpc("unshare_folder", params: Params(p_share: share.id)).execute()
+            await refreshShares()
+            Log.ui.info("folder unshared")
+        } catch {
+            Log.ui.error("LabelStore.unshare failed: \(error.localizedDescription)")
+        }
+    }
+
     func clear() {
+        shares = [:]
         labels = []
         assignments = [:]
     }

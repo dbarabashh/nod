@@ -131,6 +131,16 @@ final class MeetingStore: ObservableObject {
 
     private let supabase: SupabaseClient
     private static let tableName = "meetings"
+
+    /// Whether a session reached this list through a folder somebody shared,
+    /// rather than by being recorded here. Row-level security started returning
+    /// other people's sessions the moment sharing existed, and a list that mixes
+    /// them in silently is a list that misleads about who was in the room.
+    func isSharedWithMe(_ meeting: Meeting) -> Bool {
+        guard let me = supabase.auth.currentUser?.id else { return false }
+        return meeting.userID != me
+    }
+
     private static let transcriptsTableName = "meeting_transcripts"
 
     /// In-flight guard for `refresh()`. Set unconditionally at entry so

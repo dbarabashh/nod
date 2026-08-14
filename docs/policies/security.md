@@ -370,18 +370,47 @@ Two things the organization decides, and they are separate on purpose:
   transcripts, action items and per-meeting chats belonging to their
   organization.
 
-What administrators cannot read in either case: ambient screen text, the search
-index built from your transcripts, and your cross-session "Ask Nod" threads. No
-administrative read path exists for those — not one that is switched off, one
-that is not written. Ambient capture in particular is something you switch on for
-yourself, exclude apps from, and set the lifetime of ([Screen
-access](#screen-access)); an administrator browsing it would not be a wider
-version of that promise but a different one, and it would arrive as its own
-decision with its own line on this page.
+**Ambient screen text never leaves the person who captured it.** Not by an
+administrator, not by a teammate, not through any sharing we add later. It is
+something you switch on for yourself, exclude apps from, and set the lifetime of
+([Screen access](#screen-access)); letting anyone else read it would not be a
+wider version of that promise, it would be a different one.
 
-Being in the same organization gives members nothing. A colleague reads your
-recordings only through the administrator switch above or a share link you made
-yourself — never simply by being on the roster.
+That is enforced in the database rather than left true by omission. The rule on
+that table is a *restrictive* one, which the database combines with every other
+rule by AND — so a future feature that grants access broadly still cannot reach
+it, and nobody can widen it by adding something. We tested it that way: with a
+rule that grants every signed-in person access to everything, ambient text still
+returned nothing to anyone but its owner.
+
+Two more things stay unread by administrators today: the search index built from
+your transcripts, and your cross-session "Ask Nod" threads. Those have no
+administrative read path written — a weaker guarantee than the one above, and
+stated separately because the difference is real. The index in particular is
+derived from transcripts, so if a session is ever shared deliberately its index
+has to follow, or searching shared work would silently find nothing.
+
+Being in the same organization gives members nothing, and neither does being in
+the same team. Membership decides who pays, who administers, and which
+integration the assistant reaches for — never what a colleague can read.
+
+There are exactly three ways somebody else reads a session of yours, and you
+perform two of them:
+
+1. **You share a folder.** Sessions you file into a folder become readable by a
+   team, or by the whole organization, when you share that folder with them.
+   Sharing is its own act on its own object — nothing becomes readable because
+   somebody joined a team, and unsharing takes it back.
+2. **You create a share link** for one session (see [Access
+   control](#access-control)) — summary only, never the transcript.
+3. **The organization switched on administrator access**, described above, and
+   the person is an owner or administrator.
+
+A shared folder carries the sessions in it, their transcripts, their action
+items, and the search index that makes them findable. It does not carry what you
+asked those sessions privately — a per-session chat is your margin note, not the
+meeting — and it never carries ambient screen text, which the database refuses
+regardless of what is shared.
 
 An organization keeps an audit record of administrative actions taken inside it.
 

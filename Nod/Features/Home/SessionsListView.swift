@@ -493,7 +493,8 @@ struct SessionsListView: View {
                 meeting: meeting,
                 mode: .all,
                 isUnsynced: meetingStore.unsyncedMeetingIDs.contains(meeting.id),
-                isRecording: isRecording
+                isRecording: isRecording,
+                isSharedWithMe: meetingStore.isSharedWithMe(meeting)
             )
             .onTapGesture { onOpen(meeting) }
             .accessibilityAddTraits(.isButton)
@@ -561,6 +562,10 @@ private struct MeetingRow: View {
     let mode: Mode
     var isUnsynced: Bool = false
     var isRecording: Bool = false
+    /// Reached this list through a folder somebody shared. Said plainly, because
+    /// a session you did not record sitting unmarked among the ones you did is
+    /// the kind of quiet wrongness people only notice after acting on it.
+    var isSharedWithMe: Bool = false
     var onRestore: (() -> Void)?
 
     @State private var isHovering = false
@@ -578,6 +583,16 @@ private struct MeetingRow: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Theme.Palette.ink)
                         .lineLimit(1)
+                    if isSharedWithMe {
+                        Text("Shared")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.Palette.muted)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule().fill(Theme.Palette.surfaceStrong)
+                            )
+                    }
                     Spacer(minLength: 0)
                     trailingMeta
                         .opacity(showRestore ? 0 : 1)

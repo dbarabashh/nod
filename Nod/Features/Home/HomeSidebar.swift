@@ -16,6 +16,7 @@ struct HomeSidebar: View {
     let panelShortcut: String
 
     @EnvironmentObject private var labelStore: LabelStore
+    @EnvironmentObject private var organizations: OrganizationService
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var threads: KnowledgeThreadStore
     @EnvironmentObject private var chat: KnowledgeChatStore
@@ -302,6 +303,12 @@ struct HomeSidebar: View {
                     }
                 }
                 Spacer(minLength: 0)
+                if labelStore.isShared(label.id) {
+                    Image("nc-users")
+                        .icon(10)
+                        .foregroundStyle(Theme.Palette.muted)
+                        .accessibilityLabel("Shared")
+                }
             }
             .foregroundStyle(Theme.Palette.ink.opacity(0.72))
             .padding(.horizontal, 9)
@@ -311,6 +318,7 @@ struct HomeSidebar: View {
         .buttonStyle(.plain)
         .contextMenu {
             Button("Edit project…") { editingLabel = label }
+            shareMenu(for: label)
         }
         .popover(isPresented: Binding(
             get: { editingLabel?.id == label.id },
@@ -318,6 +326,38 @@ struct HomeSidebar: View {
         ), arrowEdge: .trailing) {
             LabelEditor(label: label) { editingLabel = nil }
                 .frame(width: 240)
+        }
+    }
+
+    /// Sharing lives on the folder because that is the object being shared.
+    /// Absent for someone in no organization: there is nobody to share with, and
+    /// a menu item that opens onto an empty list is a question with no answer.
+    @ViewBuilder
+    private func shareMenu(for label: SessionLabel) -> some View {
+        if let orgID = organizations.activeOrgID, let membership = organizations.activeMembership {
+            let teams = organizations.teams(in: orgID)
+            let existing = labelStore.shares[label.id] ?? []
+            Divider()
+            ForEach(teams) { team in
+                if let share = existing.first(where: { $0.teamID == team.id }) {
+                    Button("Stop sharing with \(team.name)") {
+                        Task { await labelStore.unshare(share) }
+                    }
+                } else {
+                    Button("Share with \(team.name)") {
+                        Task { await labelStore.share(label.id, withTeam: team.id, org: nil) }
+                    }
+                }
+            }
+            if let share = existing.first(where: { $0.orgID != nil }) {
+                Button("Stop sharing with \(membership.organization.name)") {
+                    Task { await labelStore.unshare(share) }
+                }
+            } else {
+                Button("Share with all of \(membership.organization.name)") {
+                    Task { await labelStore.share(label.id, withTeam: nil, org: orgID) }
+                }
+            }
         }
     }
 
