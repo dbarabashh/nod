@@ -34,7 +34,10 @@ struct OrganizationSection: View {
             }
         }
         .task {
-            await service.refreshIfNeeded()
+            // `refresh`, not `refreshIfNeeded`: opening this pane is the one
+            // moment somebody is asking who is in the organization, and the
+            // answer may have changed on a colleague's Mac since it was cached.
+            await service.refresh()
             if let active = service.activeMembership, active.role.administers {
                 await service.loadMembers(in: active.id)
             }

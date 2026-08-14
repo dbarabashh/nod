@@ -133,6 +133,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // to Nod is exactly when that has just happened. Without this
                 // the checkbox here only ever reflects work closed in Nod.
                 await services.actionItemStore.refresh()
+                // Membership and folder shares change on someone else's Mac —
+                // an invite accepted, a team joined, a project shared with you.
+                // Nothing in this app can be told about that, so coming back to
+                // it is the moment to ask, exactly as the entitlement above does.
+                await services.organizations.refresh()
+                await services.labelStore.refresh()
                 let states = await services.integrations.remoteCompletions(
                     among: services.actionItemStore.items
                 )
