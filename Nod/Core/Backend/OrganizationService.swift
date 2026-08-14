@@ -376,6 +376,39 @@ final class OrganizationService: ObservableObject {
         }
     }
 
+    /// Leaving is the member's own act. Joining takes a second and used to be
+    /// undoable only by asking an administrator — an obligation that runs both
+    /// ways should be endable by the person carrying it.
+    func leaveOrganization(_ orgID: UUID) async {
+        guard let supabase else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            struct Params: Encodable {
+                let p_org: UUID
+            }
+            _ = try await supabase.rpc("leave_organization", params: Params(p_org: orgID)).execute()
+            members = []
+            pendingInvites = []
+            teamMembers = [:]
+            hasLoaded = false
+            await refresh()
+            lastError = nil
+            Log.ui.info("left organization")
+        } catch {
+            lastError = Self.rpcMessage(error) ?? "Couldn't leave that organization."
+            Log.ui.error("OrganizationService.leaveOrganization failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// True when leaving would strand the organization. The server refuses it
+    /// anyway, with a message that says what to do instead — this only keeps the
+    /// interface from offering the one exit that cannot work.
+    func isSoleOwner(of orgID: UUID) -> Bool {
+        guard memberships.first(where: { $0.id == orgID })?.role == .owner else { return false }
+        return members.filter { $0.isActive && $0.role == .owner }.count <= 1
+    }
+
     func revokeInvite(_ invite: OrgInvite, in orgID: UUID) async {
         guard let supabase else { return }
         do {

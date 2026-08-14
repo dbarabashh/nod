@@ -22,9 +22,20 @@ struct OrganizationSection: View {
             if service.memberships.isEmpty {
                 createCard
             }
-            if let membership = service.activeMembership, membership.role == .owner {
-                DeleteOrganizationCard(organization: membership.organization) {
-                    Task { await service.deleteOrganization(membership.id) }
+            if let membership = service.activeMembership {
+                if service.isSoleOwner(of: membership.id) {
+                    DeleteOrganizationCard(organization: membership.organization) {
+                        Task { await service.deleteOrganization(membership.id) }
+                    }
+                } else {
+                    LeaveOrganizationCard(organization: membership.organization) {
+                        Task { await service.leaveOrganization(membership.id) }
+                    }
+                    if membership.role == .owner {
+                        DeleteOrganizationCard(organization: membership.organization) {
+                            Task { await service.deleteOrganization(membership.id) }
+                        }
+                    }
                 }
             }
             if let error = service.lastError {
@@ -127,7 +138,10 @@ struct OrganizationSection: View {
                     rename: { name in Task { await service.renameTeam(team, to: name) } },
                     delete: { Task { await service.deleteTeam(team) } },
                     add: { member in Task { await service.addTeamMember(member, to: team) } },
-                    remove: { member in Task { await service.removeTeamMember(member, from: team) } }
+                    remove: { member in Task { await service.removeTeamMember(member, from: team) } },
+                    leave: service.teamMembers[team.id]?.contains { $0.userID == service.currentUserID } == true
+                        ? { Task { await service.leaveTeam(team) } }
+                        : nil
                 )
             }
         }

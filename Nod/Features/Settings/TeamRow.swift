@@ -15,6 +15,8 @@ struct TeamRow: View {
     let delete: () -> Void
     let add: (OrgMember) -> Void
     let remove: (TeamMember) -> Void
+    /// Non-nil when the viewer is in this team and may walk out of it.
+    var leave: (() -> Void)?
 
     @State private var isExpanded = false
     @State private var isRenaming = false
@@ -81,6 +83,9 @@ struct TeamRow: View {
             if canAdminister {
                 Menu {
                     Button("Rename…") { startRename() }
+                    if let leave {
+                        Button("Leave team", action: leave)
+                    }
                     Button("Delete team…", role: .destructive) { isConfirmingDelete = true }
                 } label: {
                     Text("Manage")

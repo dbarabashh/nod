@@ -119,4 +119,20 @@ extension OrganizationService {
             .execute()
             .value) ?? teams
     }
+
+    func leaveTeam(_ team: Team) async {
+        guard let supabase else { return }
+        do {
+            struct Params: Encodable {
+                let p_team: UUID
+            }
+            _ = try await supabase.rpc("leave_team", params: Params(p_team: team.id)).execute()
+            teamMembers[team.id] = nil
+            lastError = nil
+            Log.ui.info("left team")
+        } catch {
+            lastError = Self.rpcMessage(error) ?? "Couldn't leave that team."
+            Log.ui.error("OrganizationService.leaveTeam failed: \(error.localizedDescription)")
+        }
+    }
 }
