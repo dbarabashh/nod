@@ -119,12 +119,38 @@ The script:
 - stamps `CFBundleShortVersionString` / `CFBundleVersion`,
 - archives + exports a Developer ID-signed `Nod.app`,
 - packages it into `Nod-${VERSION}.dmg` (with an `Applications` symlink for
-  drag-to-install UX),
+  drag-to-install UX and a branded mounted-volume icon),
 - signs the DMG, submits to Apple's notary service, waits, staples the
   ticket,
 - copies the DMG to `Nod-latest.dmg` (stable filename for the website),
 - runs `generate_appcast` to produce `dist/appcast.xml` (EdDSA-signed
   against the Keychain key).
+
+### Regenerating the DMG volume icons
+
+The Finder icon shown after mounting the DMG is separate from the app icon and
+from the DMG window background. Regenerate the production and sandbox variants
+after changing the Nod glyph or installer artwork:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcrun swift scripts/dmg/make-volume-icons.swift
+
+./scripts/make-dmg.sh /Applications/Nod.app /tmp/Nod-volume-icon-test.dmg
+open /tmp/Nod-volume-icon-test.dmg
+```
+
+The generator writes 1024px PNG previews and multi-resolution `.icns` files in
+`scripts/dmg/`. `make-dmg.sh` selects the variant from the built app's
+`CFBundleIconFile`, then mounts the final compressed DMG read-only and verifies
+both `.VolumeIcon.icns` and Finder's custom-icon flag. A missing, mismatched or
+unflagged icon stops the release. The downloaded `.dmg` file may still use
+Finder's standard disk-image icon before it is mounted.
+
+When the test image opens, verify that the small volume icon beside `Nod` in
+the Finder title bar is crisp and that the app and `Applications` icons still
+appear in the drag-to-install window. Repeat with `/Applications/Nod Sandbox.app`
+to verify the orange-badged variant.
 
 ## Releasing to a few accounts first
 
