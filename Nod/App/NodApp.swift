@@ -92,6 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Posted by upsell buttons and the post-checkout deep link.
         observeSettingsPane(.nodOpenSubscription, .subscription)
         observeSettingsPane(.nodOpenOrganization, .organization)
+        // Access granted or taken on another Mac only reaches this one by asking.
+        services.sharedAccessWatch.start()
 
         NotificationCenter.default.addObserver(forName: .nodOpenLibrary, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in

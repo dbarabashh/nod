@@ -91,6 +91,7 @@
 		45488BECC5918B78653F2CBD /* WindowBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1EFEC847FBE3EA10AC2575F /* WindowBackdrop.swift */; };
 		46D6010871F17C3E18F273D1 /* HallucinationFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B876E78544D08B58FB9C93D /* HallucinationFilter.swift */; };
 		476A166CE3338935B4BDFD92 /* TextTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4333C214FF7C3286501651 /* TextTokens.swift */; };
+		487D5196AB18C94BCCB2E42B /* SharedAccessWatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8E2C556013FD4BB9218803 /* SharedAccessWatch.swift */; };
 		4B1E37BFE3154EBD0DBCB8C7 /* SpeakerDiarizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEC07C7C17BE93EF84534B44 /* SpeakerDiarizer.swift */; };
 		4D28BC37188FFB69B6691CD2 /* KnowledgeThreadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D976F928680016234925545 /* KnowledgeThreadStore.swift */; };
 		4D748B69654415EB99DB7D33 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E78FD6F93B40A3B13049CAE3 /* IOKit.framework */; };
@@ -554,6 +555,7 @@
 		BE3596D7885F829F87F8A5FE /* MemberActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberActions.swift; sourceTree = "<group>"; };
 		BE8793E7619CC266460259A4 /* EventBroadcaster.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventBroadcaster.swift; sourceTree = "<group>"; };
 		BF4914E784B549D06AA02CE8 /* SettingsFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsFocus.swift; sourceTree = "<group>"; };
+		BF8E2C556013FD4BB9218803 /* SharedAccessWatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedAccessWatch.swift; sourceTree = "<group>"; };
 		BFDE275CC07D0138C7185682 /* DebugAudioDump.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugAudioDump.swift; sourceTree = "<group>"; };
 		BFEE1A4629797AB96AE7534E /* NotchController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchController.swift; sourceTree = "<group>"; };
 		C08A423248A024C52F928D5E /* SummaryTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateTests.swift; sourceTree = "<group>"; };
@@ -1144,6 +1146,7 @@
 				4224E493A0CDB42491739E16 /* OrganizationService.swift */,
 				0ADB8F956FA9E0705444AF2B /* OrganizationService+Teams.swift */,
 				527164101A7FDFA378B60467 /* ReferralService.swift */,
+				BF8E2C556013FD4BB9218803 /* SharedAccessWatch.swift */,
 				23DBB5F15412AEE92C6BD019 /* SupabaseConfig.swift */,
 			);
 			path = Backend;
@@ -1756,6 +1759,7 @@
 				77A5E4E521DA06C7F37A6741 /* SettingsComponents.swift in Sources */,
 				702922A73A379975CC911D82 /* SettingsFocus.swift in Sources */,
 				820142D0EED8AF1AF4D42CE0 /* SettingsView.swift in Sources */,
+				487D5196AB18C94BCCB2E42B /* SharedAccessWatch.swift in Sources */,
 				CFA2B96601FD4DA01A194F01 /* SherpaVAD.swift in Sources */,
 				42E5EF53F1F6A8E9A4C85672 /* SignInView.swift in Sources */,
 				F46A457B34071124B2A0447C /* SpeakerChip.swift in Sources */,
