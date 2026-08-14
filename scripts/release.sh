@@ -54,6 +54,17 @@
 #                     build arriving there would install over the sandbox app and
 #                     bring it up on production data. Cuttable from any branch,
 #                     and it neither tags nor pushes.
+#   --min-build V     after the release is verified live, raise
+#                     app_config.minimum_build to V — 'shipped' for the build
+#                     just cut, or an explicit older build number. Below that
+#                     floor the app refuses to start a capture and shows the
+#                     update notice, so this is the hard force-update lever;
+#                     Sparkle alone is the soft one. Runs last, never on
+#                     --sandbox / --channel / --feed / --no-publish (each would
+#                     gate people on a build they are not offered), and can only
+#                     ever raise the floor, never lower it. Needs
+#                     SUPABASE_SERVICE_ROLE_KEY.
+#                     Prefer letting a release soak a day or two before using it.
 #   --skip-notarize   build + sign + DMG, skip Apple notarization
 #                     (use when Apple Developer Program is still pending; the
 #                     resulting DMG will show "developer cannot be verified"
@@ -96,6 +107,7 @@ VERSION_ARG=""
 CHANNEL=""
 FEED_NAME=""
 TO_EMAILS=""
+MIN_BUILD=""
 
 # The feed the sandbox app polls. Named here because two separate guards need to
 # recognise it: the fan-out that writes a general release into every private feed
@@ -116,6 +128,12 @@ while [ $# -gt 0 ]; do
     --feed)          shift; FEED_NAME="${1:-}" ;;
     --sandbox)       SANDBOX=1 ;;
     --to)            shift; TO_EMAILS="${1:-}" ;;
+    # Unlike the other value flags, a missing value here has to be loud: an
+    # empty MIN_BUILD reads as "no floor raise", so the caller would be told the
+    # release succeeded while the thing they ran it for silently did not happen.
+    --min-build)     shift; MIN_BUILD="${1:-}"
+                     [ -n "$MIN_BUILD" ] \
+                       || { echo "ERROR: --min-build needs a value ('shipped' or a build number)" >&2; usage; } ;;
     -h|--help)       usage ;;
     *)               VERSION_ARG="$1" ;;
   esac
@@ -148,6 +166,26 @@ fi
 # claiming /releases/latest — is the same either way.
 LIMITED=""
 if [ -n "$CHANNEL" ] || [ -n "$FEED_NAME" ]; then LIMITED="yes"; fi
+
+# Raising the update floor locks every older build out of capture, so it is only
+# safe when the build being raised to is one the locked-out users can actually
+# install. Each rejection below is a way that stops being true — and the failure
+# mode is the whole install base stuck on a blocked app with nowhere to go, so
+# these are refused up front rather than discovered after the build.
+if [ -n "$MIN_BUILD" ]; then
+  case "$MIN_BUILD" in
+    shipped)      ;;
+    ''|*[!0-9]*)  echo "ERROR: --min-build takes 'shipped' or a build number, got '${MIN_BUILD}'" >&2; usage ;;
+  esac
+  [ "$SANDBOX" = 0 ] \
+    || { echo "ERROR: --min-build with --sandbox would gate prod on a build only the sandbox app can install" >&2; usage; }
+  [ -z "$LIMITED" ] \
+    || { echo "ERROR: --min-build with --channel/--feed would gate everyone on a build only that audience is offered" >&2; usage; }
+  [ "$NO_PUBLISH" = 0 ] \
+    || { echo "ERROR: --min-build with --no-publish would gate on a build that never shipped" >&2; usage; }
+  [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] \
+    || { echo "ERROR: --min-build needs SUPABASE_SERVICE_ROLE_KEY — app_config writes are service-role only" >&2; usage; }
+fi
 
 # ───────────────────────── helpers ─────────────────────────
 
@@ -749,6 +787,31 @@ echo
 echo "    ✓ appcast live at ${APPCAST_URL}"
 echo "    ✓ DMG live at     ${DMG_URL}"
 
+# ───────────────────────── raise the update floor ─────────────────────────
+
+# Deliberately after the poll above: every client this locks out needs somewhere
+# to go, and only now is that somewhere proven to exist. Raising the floor
+# earlier — or on a release that failed to publish — blocks the app people
+# already have and offers them nothing.
+if [ -n "$MIN_BUILD" ]; then
+  TARGET_BUILD="$MIN_BUILD"
+  [ "$MIN_BUILD" != "shipped" ] || TARGET_BUILD="$BUILD"
+  say "Raise app_config.minimum_build (macos) to ${TARGET_BUILD}"
+  if [ "$DRY_RUN" = 1 ]; then
+    echo "[dry-run] raise_minimum_build → ${TARGET_BUILD}"
+  else
+    MIN_BUILD_RESULT="$(supabase_rpc raise_minimum_build \
+      "{\"p_platform\": \"macos\", \"p_build\": ${TARGET_BUILD}}")"
+    case "$MIN_BUILD_RESULT" in
+      "$TARGET_BUILD") echo "    ✓ minimum_build = ${MIN_BUILD_RESULT}" ;;
+      ''|*[!0-9]*)     die "raise_minimum_build failed: ${MIN_BUILD_RESULT}" ;;
+      *)               echo "    ✓ minimum_build = ${MIN_BUILD_RESULT} (already above ${TARGET_BUILD}, left alone)" ;;
+    esac
+    # The floor that is actually in force, which is what the summary must quote.
+    TARGET_BUILD="$MIN_BUILD_RESULT"
+  fi
+fi
+
 # ───────────────────────── done ─────────────────────────
 
 echo
@@ -800,3 +863,9 @@ elif [ -n "$FEED_NAME" ]; then
 fi
 echo "Installed clients will see the update on their next scheduled check (≤ 24h),"
 echo "or immediately via status-bar menu → Check for Updates…"
+if [ -n "$MIN_BUILD" ]; then
+  echo
+  echo "Builds below ${TARGET_BUILD} can no longer start a capture — they show the update"
+  echo "notice until Sparkle brings them up. Undo with:"
+  echo "  update app_config set minimum_build = <lower> where platform = 'macos';"
+fi
