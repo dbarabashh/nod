@@ -56,6 +56,19 @@ interface ProxyRequest {
     payload: unknown;
 }
 
+// The set `app_config.platform` is constrained to (migration
+// `mobile_platform_support`). Every client shipped before `x-app-platform`
+// existed is a Mac, so that is the fallback — and an unrecognised value has to
+// fall back too, because `.single()` on a platform with no `app_config` row
+// errors, which fails every gate open.
+type Platform = "macos" | "ios";
+const SUPPORTED_PLATFORMS: readonly Platform[] = ["macos", "ios"];
+
+function clientPlatform(req: Request): Platform {
+    const raw = req.headers.get("x-app-platform")?.trim().toLowerCase();
+    return SUPPORTED_PLATFORMS.find((p) => p === raw) ?? "macos";
+}
+
 // `app_config` build thresholds, cached per warm instance so neither gate adds a
 // DB round-trip to every proxy call — a meeting hour is hundreds of calls.
 // 0 (fail-open) for the version gate when the row can't be read; the lease
@@ -68,21 +81,22 @@ interface BuildGates {
 
 const BUILD_GATES_TTL_MS = 60_000;
 const UNREACHABLE_BUILD = 2_147_483_647;
-let cachedBuildGates: { value: BuildGates; at: number } | null = null;
+const cachedBuildGates = new Map<Platform, { value: BuildGates; at: number }>();
 
-async function buildGates(admin: ReturnType<typeof adminClient>): Promise<BuildGates> {
+async function buildGates(admin: ReturnType<typeof adminClient>, platform: Platform): Promise<BuildGates> {
     const now = Date.now();
-    if (cachedBuildGates && now - cachedBuildGates.at < BUILD_GATES_TTL_MS) return cachedBuildGates.value;
+    const cached = cachedBuildGates.get(platform);
+    if (cached && now - cached.at < BUILD_GATES_TTL_MS) return cached.value;
     const { data, error } = await admin
         .from("app_config")
         .select("minimum_build, meeting_lease_required_build")
-        .eq("platform", "macos")
+        .eq("platform", platform)
         .single();
     // Silence is how the `singleton` column drop (2026-08-06) kept the version
     // gate switched off for days while the config said it was enforcing, so a
     // read failure is loud.
     if (error) {
-        console.error(`app_config build gates unreadable, failing open: ${error.message}`);
+        console.error(`app_config build gates unreadable for ${platform}, failing open: ${error.message}`);
     }
     const value: BuildGates = {
         minimumBuild: (!error && data && typeof data.minimum_build === "number") ? data.minimum_build : 0,
@@ -90,7 +104,7 @@ async function buildGates(admin: ReturnType<typeof adminClient>): Promise<BuildG
             ? data.meeting_lease_required_build
             : UNREACHABLE_BUILD,
     };
-    cachedBuildGates = { value, at: now };
+    cachedBuildGates.set(platform, { value, at: now });
     return value;
 }
 
@@ -191,8 +205,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // support visibility. Both fail open — a config/stamp error never blocks
     // a legitimate call.
     const admin = adminClient();
+    const platform = clientPlatform(req);
     const appBuild = parseInt(req.headers.get("x-app-build") ?? "", 10) || 0;
-    const gates = await buildGates(admin);
+    const gates = await buildGates(admin, platform);
     if (appBuild < gates.minimumBuild) {
         return json({ error: "update_required", minimum_build: gates.minimumBuild }, 426);
     }
@@ -243,7 +258,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
                 p_user_id: user.id,
                 p_device_id: deviceId,
                 p_device_name: deviceName,
-                p_platform: "macos",
+                p_platform: platform,
                 p_ttl_seconds: DEVICE_ACTIVE_TTL_SECONDS,
             });
             if (error) {
