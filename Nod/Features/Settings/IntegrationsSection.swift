@@ -2,6 +2,9 @@ import SwiftUI
 
 struct IntegrationsSection: View {
     @ObservedObject var service: IntegrationService
+    /// Optional: teams only exist for someone in an organization, and the picker
+    /// stays out of the way entirely for everyone else.
+    var organizations: OrganizationService?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -57,13 +60,16 @@ struct IntegrationsSection: View {
     @ViewBuilder
     private func trailing(_ provider: IntegrationProvider, isLinked: Bool, isPending: Bool) -> some View {
         if isLinked {
-            HStack(spacing: 5) {
-                Image("nc-check")
-                    .icon(10)
-                Text("Connected")
-                    .font(.system(size: 11.5, weight: .semibold))
+            HStack(spacing: 12) {
+                teamPicker(provider)
+                HStack(spacing: 5) {
+                    Image("nc-check")
+                        .icon(10)
+                    Text("Connected")
+                        .font(.system(size: 11.5, weight: .semibold))
+                }
+                .foregroundStyle(Theme.Palette.success)
             }
-            .foregroundStyle(Theme.Palette.success)
         } else if isPending {
             Button("Cancel") { service.cancelPending() }
                 .font(.system(size: 12.5, weight: .semibold))
@@ -81,6 +87,36 @@ struct IntegrationsSection: View {
                     .glassButtonSurface(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    /// Which team this connection serves. Absent unless the person is actually in
+    /// one — a picker with nothing to pick is a question with no answer.
+    @ViewBuilder
+    private func teamPicker(_ provider: IntegrationProvider) -> some View {
+        if let organizations, let orgID = organizations.activeOrgID {
+            let teams = organizations.teams(in: orgID)
+            if !teams.isEmpty {
+                let current = organizations.teams.first { $0.id == service.teamByProvider[provider] }
+                Menu {
+                    Button("No team") {
+                        Task { await service.setTeam(nil, for: provider) }
+                    }
+                    Divider()
+                    ForEach(teams) { team in
+                        Button(team.name) {
+                            Task { await service.setTeam(team.id, for: provider) }
+                        }
+                    }
+                } label: {
+                    Text(current?.name ?? "No team")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.Palette.muted)
+                }
+                .plainMenuChrome()
+                .fixedSize()
+                .accessibilityLabel("Team for \(provider.displayName)")
+            }
         }
     }
 

@@ -17,6 +17,8 @@ final class IntegrationService: ObservableObject {
     /// take one. Stored rather than computed: it is read from a view body once
     /// per action-item row, and changes only when `linked` does.
     @Published private(set) var taskTargets: [IntegrationProvider] = []
+    /// Which team each linked provider is pointed at, when the person has said.
+    @Published private(set) var teamByProvider: [IntegrationProvider: UUID] = [:]
     @Published private(set) var pending: IntegrationProvider?
     @Published private(set) var isLoading = false
     @Published var lastError: String?
@@ -47,11 +49,15 @@ final class IntegrationService: ObservableObject {
         do {
             let rows: [IntegrationConnection] = try await supabase
                 .from("integration_connections")
-                .select("provider")
+                .select("provider, team_id")
                 .is("revoked_at", value: nil)
                 .execute()
                 .value
             linked = Set(rows.compactMap { IntegrationProvider(rawValue: $0.provider) })
+            teamByProvider = rows.reduce(into: [:]) { table, row in
+                guard let provider = IntegrationProvider(rawValue: row.provider), let teamID = row.teamID else { return }
+                table[provider] = teamID
+            }
             taskTargets = linked
                 .filter { $0.taskActions != nil }
                 .sorted { $0.rawValue < $1.rawValue }
@@ -61,6 +67,32 @@ final class IntegrationService: ObservableObject {
         } catch {
             lastError = "Couldn't load your integrations."
             Log.ui.error("IntegrationService.refresh failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Points a connection at one of the caller's teams, or at none.
+    ///
+    /// The server checks membership: you cannot scope a connection to a team you
+    /// are not in, and you cannot scope somebody else's connection at all.
+    func setTeam(_ teamID: UUID?, for provider: IntegrationProvider) async {
+        do {
+            struct Params: Encodable {
+                let p_provider: String
+                let p_team: UUID?
+            }
+            _ = try await supabase
+                .rpc("set_integration_team", params: Params(p_provider: provider.rawValue, p_team: teamID))
+                .execute()
+            if let teamID {
+                teamByProvider[provider] = teamID
+            } else {
+                teamByProvider[provider] = nil
+            }
+            lastError = nil
+            Log.ui.info("integration scoped to team provider=\(provider.rawValue)")
+        } catch {
+            lastError = "Couldn't point that integration at a team."
+            Log.ui.error("IntegrationService.setTeam failed: \(error.localizedDescription)")
         }
     }
 

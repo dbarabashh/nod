@@ -117,4 +117,14 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
 /// ever stored here to begin with.
 struct IntegrationConnection: Decodable {
     let provider: String
+    /// Which team's work this connection is for. Never a sharing mechanism —
+    /// the credential stays Nango's and stays the connecting person's; this only
+    /// tells the chat which workspace to reach for when they are working in that
+    /// team's context.
+    let teamID: UUID?
+
+    enum CodingKeys: String, CodingKey {
+        case provider
+        case teamID = "team_id"
+    }
 }
