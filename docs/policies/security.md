@@ -2,11 +2,12 @@
 
 _Last updated: 2026-08-14_
 
-_[Calendar access](#calendar-access) and the email-delivery section under
-[How data flows](#how-data-flows) are **advance notice**: neither is in the
-released app, and the calendar one stays off until you switch it on. Where this
-page describes Nod as sitting in the notch, the released version still runs as a
-floating panel on the left of your screen._
+_[Calendar access](#calendar-access), [Organizations](#organizations), and the
+email-delivery section under [How data flows](#how-data-flows) are **advance
+notice**: none of the three is in the released app, and the calendar one stays
+off until you switch it on. Where this page describes Nod as sitting in the
+notch, the released version still runs as a floating panel on the left of your
+screen._
 
 > The security and privacy decisions documented below are made to be
 > defensible for a production product, and every claim on this page is
@@ -48,9 +49,12 @@ the EU. This page documents exactly how that works.
   it about what you were working on. It ships **off**, you switch it on, you
   choose how long it is kept, and you can exclude any app, category, or site.
   Personal messengers are excluded before you configure anything.
-- **Private by default.** No team workspaces and no shared notes. Your
-  meetings are visible only to you, unless you create a share link yourself
-  (see [Access control](#access-control)).
+- **Private by default.** Your meetings are visible only to you, unless you
+  create a share link yourself (see [Access control](#access-control)). In an
+  organization the default holds: an administrator cannot read what members
+  record unless the organization switches that on, and ambient screen text, your
+  search index and your cross-session threads stay unreadable either way (see
+  [Organizations](#organizations)).
 - **Connectors are read-only and resource-bound.** Official ChatGPT and Claude
   access uses OAuth 2.1 with PKCE, rotating refresh tokens, exact audience
   validation, and only `meetings:read`. Connector tokens cannot query database
@@ -308,9 +312,10 @@ user's data.
 
 ### Access control
 
-- Your notes are **private by default**. There are no team workspaces and no
-  shared notes, and nothing is readable by anyone else until you explicitly
-  create a share link for one specific meeting.
+- Your notes are **private by default**. Nothing is readable by anyone else
+  until you explicitly create a share link for one specific meeting. A personal
+  account shares nothing with anyone; what changes inside an organization is set
+  out under [Organizations](#organizations).
 - **Share links are opt-in, summary-only, and revocable.** Creating one mints
   an opaque random token; whoever holds the link can read *that meeting's
   summary* and nothing else, never the transcript and never your other
@@ -336,6 +341,53 @@ user's data.
 - You can export any single meeting yourself as a local **Markdown** file
   (YAML frontmatter + summary + transcript) from the app — your notes are
   yours to take out, in a plain-text format any editor (e.g. Obsidian) reads.
+
+### Organizations
+
+An organization is for people whose employer holds the account rather than they
+do. It has members with roles (owner, administrator, member) and can be divided
+into teams. Nobody joins one by their own action: membership is written only by
+the server, after an existing administrator invites the address — an app that
+could add itself to an organization could add itself to any organization whose
+identifier it learned, and identifiers are not secrets.
+
+A recording belongs either to you or to an organization, and the database decides
+which. The app states a context; the server checks it against live membership and
+rejects a claim to an organization you are not in. Once a recording belongs to an
+organization it cannot be moved to a different one, by anyone, including that
+organization's owner.
+
+Two things the organization decides, and they are separate on purpose:
+
+- **Whether a private context exists inside it.** An organization may require
+  that everything its members record while working there belongs to it. When it
+  does, there is no client-side way to mark a session personal — the boundary
+  stops being yours to draw, and you should know that before you record.
+- **Whether administrators may read what members recorded.** This is **off by
+  default** and is its own switch rather than something being an administrator
+  implies. With it off, an administrator sees that a meeting exists in their
+  organization's account and cannot read it. With it on, they can read meetings,
+  transcripts, action items and per-meeting chats belonging to their
+  organization.
+
+What administrators cannot read in either case: ambient screen text, the search
+index built from your transcripts, and your cross-session "Ask Nod" threads. No
+administrative read path exists for those — not one that is switched off, one
+that is not written. Ambient capture in particular is something you switch on for
+yourself, exclude apps from, and set the lifetime of ([Screen
+access](#screen-access)); an administrator browsing it would not be a wider
+version of that promise but a different one, and it would arrive as its own
+decision with its own line on this page.
+
+Being in the same organization gives members nothing. A colleague reads your
+recordings only through the administrator switch above or a share link you made
+yourself — never simply by being on the roster.
+
+An organization keeps an audit record of administrative actions taken inside it.
+
+None of this reaches a personal account. Every rule here applies only to a
+recording that carries an organization, and a personal recording carries none —
+the machinery is inert for you, not merely unused.
 
 ### Official AI connectors
 
