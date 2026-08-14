@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-08-11_
+_Last updated: 2026-08-14_
 
 _Resend is listed under advance notice. The optional product-update, lifecycle,
 and founder-research workflow is not sending today and will not begin earlier
@@ -44,10 +44,13 @@ entirely by Paddle as Merchant of Record.
 
 | Subprocessor | Planned purpose | Data shared | Location | Training on your data | DPA / basis |
 |---|---|---|---|---|---|
-| **Resend, Inc.** | Delivery of the three optional email topics you can switch on, plus narrow operational referral-status notices | Email address, language, selected topic and consent state, template identifier, and delivery / bounce / complaint / suppression / unsubscribe status. No meeting content. | EU sending region; global delivery | No | Resend DPA and Standard Contractual Clauses |
+| **Resend, Inc.** | Delivery of the three optional email topics you can switch on, plus narrow operational referral-status notices | Email address, language, selected topic and consent state, template identifier, delivery / bounce / complaint / suppression / unsubscribe status, and whether a link in a message was followed. No meeting content. | EU sending region; global delivery | No | Resend DPA and Standard Contractual Clauses |
 
-Open tracking and click-tracking links are disabled on our sending domain, so we
-receive no signal that an email was opened or a link inside it was followed.
+Open tracking is disabled on our sending domain, so we receive no signal that an
+email was opened. Click tracking is **enabled**: links are rewritten by Resend,
+and following one tells us that the link in that message was followed. That
+signal stays with the message — it is not joined to your meeting content and does
+not follow you past the link.
 
 ## What we do **not** use
 
@@ -116,6 +119,7 @@ forwarded once and never written to durable storage anywhere in this chain.
 | 2026-08-06 | Documented official ChatGPT and Claude connectors as user-authorized recipients, with read-only OAuth access rather than subprocessors acting for Nod. |
 | 2026-08-07 | Added consent-gated Google Analytics and Google Ads measurement, plus first-party campaign-to-account attribution in Supabase. |
 | 2026-08-08 | Documented bounded first-party macOS/iOS product interaction events stored in Supabase; no app analytics SDK or Google app telemetry was added. |
+| 2026-08-14 | Corrected the email-tracking description: click tracking is enabled on our sending domain, not disabled as previously stated. Open tracking remains off. |
 | 2026-08-11 | Gave advance notice of Resend for the three separately consented optional email topics and for operational referral-status notices. Nothing is sending under this workflow yet. |
 
 ---

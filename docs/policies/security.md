@@ -493,8 +493,10 @@ a preference changed while a message was queued wins. Complaints and hard bounce
 suppress the address at once and cancel anything still queued for it.
 
 Preference links carry an opaque token in the URL fragment only; loading the page
-performs a read, and a change requires an explicit confirmation. Open tracking and
-click-tracking links are disabled.
+performs a read, and a change requires an explicit confirmation. Open tracking is
+disabled, so we cannot tell an email was opened. Click tracking is enabled: links
+are rewritten by the delivery provider, and following one records that the link
+in that message was followed, and nothing about where you went next.
 
 ## Subprocessors
 
