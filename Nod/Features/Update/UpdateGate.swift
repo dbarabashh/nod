@@ -25,7 +25,6 @@ final class UpdateGate: ObservableObject {
 
     private let supabase: SupabaseClient?
     private static let tableName = "app_config"
-    private static let platform = "macos"
 
     init(supabase: SupabaseClient?) {
         self.supabase = supabase
@@ -55,7 +54,7 @@ final class UpdateGate: ObservableObject {
             let rows: [AppConfig] = try await supabase
                 .from(Self.tableName)
                 .select()
-                .eq("platform", value: Self.platform)
+                .eq("platform", value: AppVersion.platform)
                 .limit(1)
                 .execute()
                 .value

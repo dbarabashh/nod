@@ -1106,6 +1106,7 @@ final class LLMProxyClient: ObservableObject {
         request.setValue(String(AppVersion.build), forHTTPHeaderField: "x-app-build")
         request.setValue(AppVersion.version, forHTTPHeaderField: "x-app-version")
         request.setValue(AppVersion.osVersion, forHTTPHeaderField: "x-os-version")
+        request.setValue(AppVersion.platform, forHTTPHeaderField: "x-app-platform")
         // Single-device lock: the proxy binds the account to this hardware id
         // and 409s any other device. Name is percent-encoded — machine names
         // aren't ASCII-safe, which an HTTP header value must be.
