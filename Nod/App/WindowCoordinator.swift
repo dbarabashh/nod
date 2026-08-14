@@ -388,6 +388,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 .environmentObject(services.llmClient)
                 .environmentObject(services.languagePreference)
                 .environmentObject(services.labelStore)
+                .environmentObject(services.organizations)
                 .environmentObject(services.entitlements)
                 .environmentObject(services.hotkeys)
                 .environmentObject(services.settingsFocus)

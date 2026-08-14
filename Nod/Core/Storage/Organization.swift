@@ -130,19 +130,69 @@ struct OrgMember: Decodable, Identifiable, Equatable {
     }
 }
 
-/// An invite that has been sent and not yet used. The token is deliberately
-/// absent: it reaches its recipient by email, and nothing in the app needs to
-/// read one back.
+/// An invite that has been sent and not yet used.
+///
+/// Carries its token so an administrator can hand the link over themselves when
+/// the email did not arrive — a bounce or a spam folder otherwise strands an
+/// invite that is perfectly valid, with no way to reach it.
+///
+/// The token is not a bearer credential. `accept_org_invite` also requires the
+/// signed-in address to be the invited one, so a token in the hands of anybody
+/// else opens nothing; the administrator holding it is the person who issued it.
 struct OrgInvite: Decodable, Identifiable, Equatable {
     let id: UUID
     let email: String
     let role: OrgRole
+    let token: UUID
     let expiresAt: Date?
+
+    var url: String {
+        "https://hellonod.app/invite/\(token.uuidString.lowercased())"
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
         case email
         case role
+        case token
         case expiresAt = "expires_at"
+    }
+}
+
+enum TeamRole: String, Codable, Equatable, CaseIterable, Identifiable {
+    case lead
+    case member
+
+    var id: String {
+        rawValue
+    }
+
+    var displayName: String {
+        switch self {
+        case .lead: "Lead"
+        case .member: "Member"
+        }
+    }
+}
+
+/// Somebody in a team, with the address only an administrator sees. Separate
+/// from `OrgMember` because team membership carries its own role and says
+/// nothing about standing in the organization — a team lead is not an
+/// administrator, and an administrator need not be in the team at all.
+struct TeamMember: Decodable, Identifiable, Equatable {
+    let userID: UUID
+    let email: String
+    let displayName: String?
+    let role: TeamRole
+
+    var id: UUID {
+        userID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case userID = "user_id"
+        case email
+        case displayName = "display_name"
+        case role
     }
 }

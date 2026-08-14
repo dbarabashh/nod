@@ -14,7 +14,10 @@ import Supabase
 @MainActor
 final class OrganizationService: ObservableObject {
     @Published private(set) var memberships: [OrgMembership] = []
-    @Published private(set) var teams: [Team] = []
+    @Published var teams: [Team] = []
+    /// Rosters keyed by team, loaded on demand — a pane showing five teams should
+    /// not fetch five rosters nobody expanded.
+    @Published var teamMembers: [UUID: [TeamMember]] = [:]
     /// `nil` is the personal context, which is where every account starts and
     /// where an account that never joins anything stays.
     @Published private(set) var activeOrgID: UUID?
@@ -25,11 +28,13 @@ final class OrganizationService: ObservableObject {
     @Published private(set) var pendingInvites: [OrgInvite] = []
     @Published private(set) var isLoading = false
     @Published var lastError: String?
-    /// The link for the invite just created, so an administrator can pass it on
-    /// when the email could not be sent — or simply prefers to.
-    @Published var lastInviteURL: String?
 
-    private let supabase: SupabaseClient?
+    // `internal` rather than `private` for the three members below: the team
+    // surface lives in `OrganizationService+Teams.swift`, and a cross-file
+    // extension of our own type cannot reach `private`. Module-wide is the
+    // default access level in a single-module app; nothing outside this type
+    // has a reason to touch them.
+    let supabase: SupabaseClient?
     private var hasLoaded = false
 
     init(supabase: SupabaseClient?) {
@@ -224,7 +229,6 @@ final class OrganizationService: ObservableObject {
                 "org-invite",
                 options: FunctionInvokeOptions(body: Body(orgId: orgID.uuidString, email: trimmed, role: role.rawValue))
             )
-            lastInviteURL = result.inviteUrl
             lastError = result.emailed ? nil : "Invite created, but the email couldn't be sent — copy the link instead."
             await loadMembers(in: orgID)
             Log.ui.info("organization invite created emailed=\(result.emailed)")
@@ -244,7 +248,7 @@ final class OrganizationService: ObservableObject {
     /// The database writes its refusals for the person reading them — "an
     /// organization must keep at least one owner" — so they are shown rather than
     /// flattened into a generic failure.
-    private static func rpcMessage(_ error: Error) -> String? {
+    static func rpcMessage(_ error: Error) -> String? {
         guard let postgrest = error as? PostgrestError else { return nil }
         let message = postgrest.message
         guard !message.isEmpty else { return nil }
@@ -274,7 +278,7 @@ final class OrganizationService: ObservableObject {
                 .value
             pendingInvites = try await supabase
                 .from("org_invites")
-                .select("id, email, role, expires_at")
+                .select("id, email, role, token, expires_at")
                 .eq("org_id", value: orgID.uuidString)
                 .is("accepted_at", value: nil)
                 .is("revoked_at", value: nil)
@@ -347,7 +351,6 @@ final class OrganizationService: ObservableObject {
             _ = try await supabase.rpc("delete_organization", params: Params(p_org: orgID)).execute()
             members = []
             pendingInvites = []
-            lastInviteURL = nil
             hasLoaded = false
             await refresh()
             lastError = nil
@@ -377,7 +380,7 @@ final class OrganizationService: ObservableObject {
         teams = []
         members = []
         pendingInvites = []
-        lastInviteURL = nil
+        teamMembers = [:]
         currentUserID = nil
         activeOrgID = nil
         hasLoaded = false

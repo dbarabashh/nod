@@ -390,7 +390,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var integrationsPane: some View {
         if let integrations {
-            IntegrationsSection(service: integrations)
+            IntegrationsSection(service: integrations, organizations: organizations)
         } else {
             Text("Sign in to connect Nod to your tools.")
                 .font(.system(size: 12.5))
