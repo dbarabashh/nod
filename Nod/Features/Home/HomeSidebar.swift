@@ -303,11 +303,11 @@ struct HomeSidebar: View {
                     }
                 }
                 Spacer(minLength: 0)
-                if labelStore.isShared(label.id) {
+                if labelStore.isShared(label.id) || !labelStore.isOwn(label) {
                     Image("nc-users")
                         .icon(10)
                         .foregroundStyle(Theme.Palette.muted)
-                        .accessibilityLabel("Shared")
+                        .accessibilityLabel(labelStore.isOwn(label) ? "Shared by you" : "Shared with you")
                 }
             }
             .foregroundStyle(Theme.Palette.ink.opacity(0.72))
@@ -317,8 +317,10 @@ struct HomeSidebar: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("Edit project…") { editingLabel = label }
-            shareMenu(for: label)
+            if labelStore.isOwn(label) {
+                Button("Edit project…") { editingLabel = label }
+                shareMenu(for: label)
+            }
         }
         .popover(isPresented: Binding(
             get: { editingLabel?.id == label.id },

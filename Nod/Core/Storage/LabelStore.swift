@@ -36,12 +36,15 @@ final class LabelStore: ObservableObject {
                 return
             }
         #endif
-        guard let userID = auth.currentSupabaseSession?.user.id else { return }
+        guard auth.currentSupabaseSession != nil else { return }
         do {
+            // No `user_id` filter: row-level security already returns your folders
+            // plus the ones shared with a team you are in, and filtering here
+            // would throw the shared ones away before they were ever seen. Which
+            // are yours is answered by `isOwn`, not by the query.
             let labels: [SessionLabel] = try await supabase
                 .from(Self.labelsTable)
                 .select()
-                .eq("user_id", value: userID.uuidString)
                 .order("name", ascending: true)
                 .execute()
                 .value
@@ -50,7 +53,6 @@ final class LabelStore: ObservableObject {
             let links: [Link] = try await supabase
                 .from(Self.linksTable)
                 .select("meeting_id, label_id")
-                .eq("user_id", value: userID.uuidString)
                 .execute()
                 .value
 
@@ -225,6 +227,13 @@ final class LabelStore: ObservableObject {
         } catch {
             Log.ui.error("LabelStore.refreshShares failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Whether this folder is yours. Someone else's folder can be read once they
+    /// share it, and read is all — renaming, deleting or re-sharing it belongs to
+    /// the person who made it, and the server refuses the rest anyway.
+    func isOwn(_ label: SessionLabel) -> Bool {
+        label.userID == auth.currentSupabaseSession?.user.id
     }
 
     func isShared(_ labelID: UUID) -> Bool {
