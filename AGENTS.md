@@ -117,9 +117,19 @@ that was never committed. Don't cite it; read the issues instead.
 
 ## MCP servers
 
-`.mcp.json` ships two project-scoped servers: **sosumi** (Apple Developer
-Documentation — use it instead of recalling API signatures) and **supabase**
-(pointed at the prod project ref).
+`.mcp.json` ships three servers:
+
+- **sosumi** — Apple Developer Documentation; use it instead of recalling API
+  signatures.
+- **supabase-sandbox** — the `develop` branch (`zdpvmwqauczsfwlgflas`),
+  read-write. Development goes here.
+- **supabase-prod** — production (`lptqvnizjwglilgeukwx`), **`read_only=true`**.
+  It answers questions about live schema and data; it cannot change them.
+
+Both Supabase servers are named for their environment on purpose — there is no
+bare `supabase`, so no call reaches an environment by default. Writing to
+production is a deliberate act performed outside this config (Supabase CLI with
+the `sbp_` PAT), never a tool call that looked routine.
 
 
 ## Paddle integration
