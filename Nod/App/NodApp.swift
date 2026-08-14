@@ -91,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeSettingsPane(.nodOpenRewards, .rewards)
         // Posted by upsell buttons and the post-checkout deep link.
         observeSettingsPane(.nodOpenSubscription, .subscription)
+        observeSettingsPane(.nodOpenOrganization, .organization)
 
         NotificationCenter.default.addObserver(forName: .nodOpenLibrary, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in
@@ -305,6 +306,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Opens Settings on the Subscription tab via the observer above.
                 NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
                 Task { @MainActor in await self.services?.entitlements.refresh() }
+            case "invite":
+                // `nod://invite?token=…` from the landing page's /invite/<token>.
+                // Held rather than acted on when signed out — accepting needs an
+                // identity, and the address it was sent to is the one that works.
+                let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "token" })?.value
+                if let token, let uuid = UUID(uuidString: token) {
+                    Log.ui.info("received organization invite deep link")
+                    OrganizationService.storePendingInvite(uuid)
+                    NotificationCenter.default.post(name: .nodOpenOrganization, object: nil)
+                    Task { @MainActor in await self.services?.organizations.redeemPendingInvite() }
+                }
             case "referral":
                 // Attribution B (NOD-22): a `nod://referral?code=ABC123` link
                 // pre-fills the paywall's referral field. Best-effort — the code
@@ -356,6 +369,9 @@ extension Notification.Name {
     static let nodOpenMeetingDetail = Notification.Name("nod.history.openMeetingDetail")
 
     static let nodOpenSettings = Notification.Name("nod.app.openSettings")
+    /// Posted by the `nod://invite` deep link so Settings lands where the invite
+    /// is redeemed rather than wherever it was last left.
+    static let nodOpenOrganization = Notification.Name("nod.app.openOrganization")
     static let nodOpenLibrary = Notification.Name("nod.app.openLibrary")
     /// Switch the Meetings window to the saved cross-session chats — posted
     /// when the launcher hands its thread over.

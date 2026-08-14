@@ -320,6 +320,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 accountExport: services.accountExport,
                 connections: services.connections,
                 integrations: services.integrations,
+                organizations: services.organizations,
                 modeStore: services.modeStore,
                 referral: services.referral,
                 emailPreferences: services.emailPreferences,

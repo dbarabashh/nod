@@ -45,6 +45,7 @@ struct AppServices {
     let accountExport: AccountExportService
     let connections: ConnectionService
     let integrations: IntegrationService
+    let organizations: OrganizationService
     let taskDrafts: TaskDraftComposer
     let panelSharing: PanelSharingPreference
     /// How eagerly the live meeting analyst interrupts — see
@@ -215,6 +216,7 @@ struct AppServices {
             accountExport: AccountExportService(supabase: supabase),
             connections: ConnectionService(supabase: supabase),
             integrations: integrations,
+            organizations: OrganizationService(supabase: supabase),
             taskDrafts: TaskDraftComposer(
                 llm: llmClient,
                 meetings: meetingStore,

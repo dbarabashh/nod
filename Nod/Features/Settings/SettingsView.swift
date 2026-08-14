@@ -17,6 +17,7 @@ struct SettingsView: View {
     private let accountExport: AccountExportService?
     private let connections: ConnectionService?
     private let integrations: IntegrationService?
+    private let organizations: OrganizationService?
     private let modeStore: ModeStore?
     private let referral: ReferralService?
     private let emailPreferences: EmailPreferenceService?
@@ -42,6 +43,7 @@ struct SettingsView: View {
         accountExport: AccountExportService? = nil,
         connections: ConnectionService? = nil,
         integrations: IntegrationService? = nil,
+        organizations: OrganizationService? = nil,
         modeStore: ModeStore? = nil,
         referral: ReferralService? = nil,
         emailPreferences: EmailPreferenceService? = nil,
@@ -68,6 +70,7 @@ struct SettingsView: View {
         self.accountExport = accountExport
         self.connections = connections
         self.integrations = integrations
+        self.organizations = organizations
         self.modeStore = modeStore
         self.referral = referral
         self.emailPreferences = emailPreferences
@@ -87,7 +90,7 @@ struct SettingsView: View {
     /// people come looking for rather than browse. `allCases` drives the rail,
     /// so this declaration order is the on-screen order.
     private enum Tab: String, CaseIterable, Identifiable {
-        case general, modes, shortcuts, connections, integrations, profile, subscription, rewards, privacy
+        case general, modes, shortcuts, connections, integrations, organization, profile, subscription, rewards, privacy
         var id: String {
             rawValue
         }
@@ -101,6 +104,7 @@ struct SettingsView: View {
             case .shortcuts: ("Shortcuts", "nc-keyboard")
             case .connections: ("Connections", "nc-puzzle-piece")
             case .integrations: ("Integrations", "nc-link")
+            case .organization: ("Organization", "nc-users")
             case .profile: ("Profile", "nc-user")
             case .subscription: ("Subscription", "nc-credit-card")
             case .rewards: ("Rewards", "nc-gift")
@@ -150,6 +154,7 @@ struct SettingsView: View {
         case .modes: tab = .modes
         case .privacy: tab = .privacy
         case .profile: tab = .profile
+        case .organization: tab = .organization
         case nil: break
         }
     }
@@ -164,7 +169,7 @@ struct SettingsView: View {
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)
 
-            ForEach(Tab.allCases) { item in
+            ForEach(visibleTabs) { item in
                 if item.startsAccountGroup {
                     Divider()
                         .overlay(Theme.Palette.border)
@@ -253,6 +258,7 @@ struct SettingsView: View {
                 case .modes: modesPane
                 case .connections: connectionsPane
                 case .integrations: integrationsPane
+                case .organization: organizationPane
                 case .shortcuts: shortcutsPane
                 case .privacy: privacyPane
                 }
@@ -350,6 +356,32 @@ struct SettingsView: View {
             ConnectionsSection(service: connections)
         } else {
             Text("Sign in to connect Nod to your AI.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.muted)
+        }
+    }
+
+    /// The organization pane stays out of the rail until it has something to
+    /// show. A personal account has no organization, and a tab that opens onto
+    /// "you aren't in one" is a tab that shouldn't be there — except in a
+    /// sandbox build, where somebody has to be able to make the first one.
+    private var visibleTabs: [Tab] {
+        Tab.allCases.filter { tab in
+            guard tab == .organization else { return true }
+            #if DEBUG || NOD_SANDBOX
+                return organizations != nil
+            #else
+                return organizations?.belongsToAnyOrganization == true
+            #endif
+        }
+    }
+
+    @ViewBuilder
+    private var organizationPane: some View {
+        if let organizations {
+            OrganizationSection(service: organizations)
+        } else {
+            Text("Sign in to work with an organization.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.Palette.muted)
         }

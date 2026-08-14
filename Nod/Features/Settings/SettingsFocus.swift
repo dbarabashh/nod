@@ -17,6 +17,7 @@ final class SettingsFocus: ObservableObject {
         case rewards
         case modes
         case privacy
+        case organization
     }
 
     /// Carries an id so asking twice for the same pane is still two requests.
