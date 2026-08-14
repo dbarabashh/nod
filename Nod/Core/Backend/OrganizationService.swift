@@ -36,6 +36,10 @@ final class OrganizationService: ObservableObject {
     // has a reason to touch them.
     let supabase: SupabaseClient?
     private var hasLoaded = false
+    /// `refresh` redeems a held invite, and redeeming refreshes. The cycle ends
+    /// on its own because the token is consumed first, but a guard that depends
+    /// on the order of two side effects is a guard waiting to be reordered.
+    private var isRedeeming = false
 
     init(supabase: SupabaseClient?) {
         self.supabase = supabase
@@ -90,6 +94,9 @@ final class OrganizationService: ObservableObject {
             activeOrgID = try await loadActiveOrgID()
             hasLoaded = true
             lastError = nil
+            // A token held from a signed-out click redeems on the first refresh
+            // after signing in, which is the moment it became possible.
+            await redeemPendingInvite()
             Log.ui.info("organizations memberships=\(memberships.count) teams=\(teams.count)")
         } catch {
             lastError = "Couldn't load your organizations."
@@ -166,12 +173,20 @@ final class OrganizationService: ObservableObject {
         UserDefaults.standard.set(token.uuidString, forKey: pendingInviteKey)
     }
 
-    /// Single-use: a token that failed to redeem is not worth retrying silently
-    /// on every launch, and the person still has the link.
+    /// Kept when there is nobody to redeem it as, cleared once there was.
+    ///
+    /// Clicking an invite before signing in is the ordinary case, not an error —
+    /// the link is what brought the person to the app. Dropping the token on
+    /// that first failed attempt stranded an invite that was perfectly valid,
+    /// with no way back to it from inside the app.
     func redeemPendingInvite() async {
         guard let raw = UserDefaults.standard.string(forKey: Self.pendingInviteKey),
               let token = UUID(uuidString: raw)
         else { return }
+        guard supabase?.auth.currentUser != nil, !isRedeeming else { return }
+
+        isRedeeming = true
+        defer { isRedeeming = false }
         UserDefaults.standard.removeObject(forKey: Self.pendingInviteKey)
         await acceptInvite(token: token)
     }

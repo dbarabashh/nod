@@ -29,6 +29,13 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const RESEND_API_BASE = Deno.env.get("RESEND_API_BASE") ?? "https://api.resend.com";
 const INVITE_BASE_URL = Deno.env.get("INVITE_BASE_URL") ?? "https://hellonod.app";
+// Which app the link should open. The token only exists in this instance's
+// database, so a sandbox invite is acceptable only by the sandbox build — and
+// that build registers its own URL scheme (`nod-sandbox://`). The landing page
+// cannot tell which build a visitor has installed, so the link has to say.
+// Declared rather than derived: guessing from the project ref would put a
+// hardcoded identifier in the one file that should not care.
+const INVITE_ENV = Deno.env.get("INVITE_ENV") ?? "production";
 
 // An invite is sent on the organization's behalf, not by whoever happens to be
 // on support that week, so it comes from the team address rather than a person's.
@@ -83,7 +90,8 @@ Deno.serve(async (req) => {
     role: string;
     email: string;
   };
-  const inviteUrl = `${INVITE_BASE_URL.replace(/\/+$/, "")}/invite/${invite.token}`;
+  const suffix = INVITE_ENV === "production" ? "" : `?env=${encodeURIComponent(INVITE_ENV)}`;
+  const inviteUrl = `${INVITE_BASE_URL.replace(/\/+$/, "")}/invite/${invite.token}${suffix}`;
 
   const emailed = await deliver(invite, inviteUrl);
   console.info(`org-invite created emailed=${emailed}`);
