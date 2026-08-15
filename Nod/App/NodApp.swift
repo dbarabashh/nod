@@ -139,6 +139,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // it is the moment to ask, exactly as the entitlement above does.
                 await services.organizations.refresh()
                 await services.labelStore.refresh()
+                // Both, together. Access to a shared folder and access to the
+                // sessions inside it are revoked by the same act, so refreshing
+                // one without the other leaves the two disagreeing — a project
+                // in the sidebar whose contents have already gone.
+                await services.meetingStore.refresh(force: true)
                 let states = await services.integrations.remoteCompletions(
                     among: services.actionItemStore.items
                 )

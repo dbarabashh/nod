@@ -84,11 +84,23 @@ struct SessionsListView: View {
                 .id(contentKey)
                 .transition(.opacity)
         }
+        .onChange(of: labelStore.labels) { _ in clearFilterIfProjectVanished() }
+        .onAppear(perform: clearFilterIfProjectVanished)
     }
 
     private var activeProject: SessionLabel? {
         guard let filterLabelID else { return nil }
         return labelStore.labels.first { $0.id == filterLabelID }
+    }
+
+    /// A filter can outlive the folder it points at — somebody stops sharing a
+    /// project while you are standing inside it. The list then matches nothing,
+    /// the header falls back to "Sessions", and "Clear filter" disappears along
+    /// with the project it belonged to, leaving no way out of an empty screen.
+    /// Dropping the filter puts the person back where they can see their work.
+    private func clearFilterIfProjectVanished() {
+        guard let filterLabelID, !labelStore.labels.contains(where: { $0.id == filterLabelID }) else { return }
+        self.filterLabelID = nil
     }
 
     /// A project is a scope over memory, not a folder of files — so opening one
@@ -444,11 +456,15 @@ struct SessionsListView: View {
     }
 
     private var noMatchesState: some View {
-        VStack(spacing: 12) {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VStack(spacing: 12) {
             Image("nc-magnifier")
                 .icon(28)
                 .foregroundStyle(Theme.Palette.muted)
-            Text("No matches for \u{201C}\(searchQuery.trimmingCharacters(in: .whitespacesAndNewlines))\u{201D}")
+            // An empty project is not a search that found nothing. Saying "no
+            // matches for" with nothing after it reads as a bug, and it is the
+            // sentence somebody sees the moment a folder stops being shared.
+            Text(query.isEmpty ? "Nothing in this project" : "No matches for \u{201C}\(query)\u{201D}")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
                 .multilineTextAlignment(.center)
