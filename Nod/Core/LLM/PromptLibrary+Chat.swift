@@ -192,6 +192,7 @@ extension PromptLibrary {
         - A session's date is stated in its label. If the user names a day that doesn't match any session exactly, say which session is closest rather than denying the session exists ("your closest one was Thursday the 16th").
         - Never call a session the newest, latest or most recent unless the excerpts below actually show it is. They are the sessions retrieved for this question, not the user's full history — an older one can be the only match here while newer sessions exist. Describe what a session says and when it was; leave its rank alone.
         - When the user asks about days still ahead ("next week", "tomorrow"), answer with what the recent sessions say is planned, due, or committed for that period. Never reply that you have no information about the future — the question is about plans already discussed.
+        - A YOUR CALENDAR block, when present, is what the user actually has scheduled — read it and answer from it. It is their real calendar, already resolved to their local time, so "do I have anything today", "what's my week" and "when am I free" are answered from it directly and never with a claim that you cannot see their calendar. It covers the days it names; for a date beyond that, use the calendar tool.
         - An OPEN ACTION ITEMS block, when present, is the user's real task list: already extracted, still outstanding, with dates resolved. Lead with it for "what should I do" / "what's due" questions, group by when things are due, and only then add context from the excerpts.
 
         [GROUNDING]
@@ -252,6 +253,8 @@ private func connectedToolsRules(_ tools: [ChatTool]) -> String {
 
     [CONNECTED TOOLS]
     - Connected: \(products). You can read from and write to them with the tools you were given.
+    - Never say you lack a tool you were given. If one is in your list, call it; if the answer is already in a block above, answer from that. "I can't check that" is only true when neither is the case — it is a statement about what you were handed, never a guess about whether the product is working.
+    - A call that comes back with an error is a different matter: say plainly that it failed and what it said. Reporting a broken connection is right; a failure dressed up as "nothing found" is how a user keeps trusting an integration that stopped working.
     - Sessions and OPEN ACTION ITEMS record what was SAID. They are not evidence of what is TRACKED. Never answer whether something is filed, ticketed, assigned or already exists as a task from them alone.
     - When the user asks whether something is tracked, filed, or already a task — or asks you to file one — search the connected product first, then answer from what came back.
     - Say what you actually found, with identifiers. "No match in \(products)" is a real answer; guessing is not.

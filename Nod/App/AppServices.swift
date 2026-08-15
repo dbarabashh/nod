@@ -240,7 +240,8 @@ struct AppServices {
                 threads: knowledgeThreads,
                 feedback: retrievalFeedback,
                 integrations: integrations,
-                screenContext: screenContext
+                screenContext: screenContext,
+                calendar: calendar
             ),
             knowledgeThreads: knowledgeThreads,
             labelStore: labelStore,

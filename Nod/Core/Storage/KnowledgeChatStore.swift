@@ -110,6 +110,7 @@ final class KnowledgeChatStore: ObservableObject {
     /// every existing construction site (and every preview) keeps working, and
     /// so a nil here degrades to transcript-only grounding rather than failing.
     private let screenContext: ScreenContextService?
+    private let calendar: CalendarService?
     private let meetings: MeetingStore
     private let labels: LabelStore
     private let profile: ProfileStore
@@ -191,7 +192,8 @@ final class KnowledgeChatStore: ObservableObject {
         threads: KnowledgeThreadStore,
         feedback: RetrievalFeedbackStore,
         integrations: IntegrationService? = nil,
-        screenContext: ScreenContextService? = nil
+        screenContext: ScreenContextService? = nil,
+        calendar: CalendarService? = nil
     ) {
         self.integrations = integrations
         self.llm = llm
@@ -205,6 +207,7 @@ final class KnowledgeChatStore: ObservableObject {
         self.threads = threads
         self.feedback = feedback
         self.screenContext = screenContext
+        self.calendar = calendar
     }
 
     /// The user opened a session from an answer's sources. Attributed to the
@@ -377,7 +380,7 @@ extension KnowledgeChatStore {
             Log.ui.info("chat: acting without retrieval")
             thinkingScript = ChatThinking.acting
             let system = PromptLibrary.buildKnowledgeSystem(
-                excerpts: [],
+                excerpts: calendarBlock(for: prepared.standalone).map { [$0] } ?? [],
                 language: replyLanguage,
                 personalContext: profile.promptContext,
                 connectedTools: availableTools()
@@ -403,8 +406,12 @@ extension KnowledgeChatStore {
             apps: sources.filter(\.isApp).count
         )]
         let taskBlock = await tasks
+        // Ahead of the excerpts and the tasks alike: a question about the day
+        // ahead is answered by the calendar, and a retrieval budget that trimmed
+        // it would leave the model guessing from last week's transcripts.
+        let ahead = [calendarBlock(for: prepared.standalone), taskBlock].compactMap { $0 }
         let system = PromptLibrary.buildKnowledgeSystem(
-            excerpts: Self.withinBudget(taskBlock.map { [$0] + grounding.excerpts } ?? grounding.excerpts),
+            excerpts: Self.withinBudget(ahead + grounding.excerpts),
             language: replyLanguage,
             personalContext: profile.promptContext,
             observations: Self.sharingScreenBudget(
@@ -759,6 +766,84 @@ extension KnowledgeChatStore {
     /// Enough to answer "what's on my plate" without turning the prompt into a
     /// task dump.
     private static let taskLimit = 25
+
+    /// The user's own calendar as this Mac already holds it — EventKit plus
+    /// whatever the connected accounts synced.
+    ///
+    /// In the prompt rather than behind the read tool, for the days it covers: a
+    /// round trip to Google to answer "anything today" is a slower answer to a
+    /// question already sitting in memory, and one that can disagree with what
+    /// the notch is showing at the same moment. The tool takes over past this
+    /// horizon, which the block states so the model knows where its view ends.
+    ///
+    /// Returns nil only when no calendar is connected at all — an empty window
+    /// still emits a block, because a missing block reads to the model as "no
+    /// calendar", which is how it came to tell a user with a connected account
+    /// that it could not see one.
+    private func calendarBlock(for question: String) -> String? {
+        guard QuestionIntent.asksAboutSchedule(question), hasCalendarSource, let calendar else { return nil }
+        let now = Date()
+        let horizon = now.addingTimeInterval(Self.calendarHorizon)
+        let span = DateInterval(start: Foundation.Calendar.current.startOfDay(for: now), end: horizon)
+        let upcoming = calendar.meetings(overlapping: span).prefix(Self.calendarLimit)
+        // Only promise the tool when one was actually handed over. A user whose
+        // calendar comes from macOS alone has no read tool, and pointing the
+        // model at one is how it ends up hedging about a calendar it can see.
+        let beyond = hasCalendarReadTool
+            ? " Beyond that, use the calendar tool."
+            : " That is as far ahead as Nod can see."
+        let header = "[YOUR CALENDAR — the user's own events, today through \(Self.calendarDayFormatter.string(from: horizon)).\(beyond)]"
+        guard !upcoming.isEmpty else {
+            // Not "the user is free": a connected account whose first sync has
+            // not landed yet looks exactly like an empty week from here, and
+            // telling someone they have nothing on is worse than one round trip.
+            let check = hasCalendarReadTool
+                ? " Before telling the user they have nothing scheduled, confirm with the calendar tool."
+                : ""
+            return header + "\n(No events on this device for that window.\(check))"
+        }
+        return header + "\n" + upcoming.map(Self.calendarLine).joined(separator: "\n")
+    }
+
+    /// Whether there is a calendar to report on. Without this an empty block
+    /// would tell someone who never connected one that their week is free.
+    ///
+    /// `isReadable`, not `status`: the grant is only half of it. Someone who
+    /// switched calendar access off in Nod still holds the macOS grant, and
+    /// must not be told about a calendar they asked Nod to stop reading.
+    private var hasCalendarSource: Bool {
+        calendar?.isReadable == true || hasCalendarReadTool
+    }
+
+    private var hasCalendarReadTool: Bool {
+        integrations?.linked.contains(.googleCalendar) == true
+    }
+
+    private static func calendarLine(_ event: CalendarOccurrence) -> String {
+        let others = event.others.map(\.display)
+        let people = others.isEmpty ? "" : " (with \(others.joined(separator: ", ")))"
+        let title = event.title.isEmpty ? "(no title)" : event.title
+        let when = calendarDayFormatter.string(from: event.startsAt)
+        let times = "\(calendarTimeFormatter.string(from: event.startsAt))–\(calendarTimeFormatter.string(from: event.endsAt))"
+        return "- \(when) \(times) — \(title)\(people)"
+    }
+
+    /// One week, matching what `calendar-sync` actually pulls down — promising
+    /// more than the sync holds would make the block quietly wrong at the edge.
+    private static let calendarHorizon: TimeInterval = 7 * 24 * 60 * 60
+    private static let calendarLimit = 25
+
+    private static let calendarDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE d MMM"
+        return formatter
+    }()
+
+    private static let calendarTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
 
     private var chatHistory: [LLMProxyClient.ChatTurn] {
         messages.map {

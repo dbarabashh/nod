@@ -24,11 +24,13 @@ final class ChatToolActionTests: XCTestCase {
         }
     }
 
-    func testCalendarOffersOneWriteAndNoReads() {
+    func testCalendarReadsWithoutApprovalAndWritesWithIt() {
         let tools = ChatTools.definitions(for: [.googleCalendar])
-        XCTAssertEqual(tools.map(\.action), ["create_event"])
-        // Reading stays with the scheduled sync. A read tool here would be a
-        // second, slower answer to a question the app already holds.
-        XCTAssertTrue(tools.allSatisfy(\.mutating))
+        XCTAssertEqual(Set(tools.map(\.action)), ["list_events", "create_event"])
+        // Reading back the user's own calendar needs no confirmation. Creating an
+        // event does: `sendUpdates=all` puts mail in other people's inboxes and
+        // an entry in their calendars, and neither can be recalled.
+        XCTAssertEqual(tools.first { $0.action == "list_events" }?.mutating, false)
+        XCTAssertEqual(tools.first { $0.action == "create_event" }?.mutating, true)
     }
 }

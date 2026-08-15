@@ -5,16 +5,36 @@
 // say after a meeting, and making them leave for a browser to act on it is where
 // the follow-up dies.
 //
-// Deliberately one action, not a calendar API. No updating, no deleting, no
-// reading — the sync already reads, on a schedule, with the service role. A tool
-// that could delete would be a model one misunderstanding away from removing
-// somebody's week.
+// Reading is here as well as in the scheduled sync, because the two answer
+// different questions: the sync keeps a rolling week on the device so the notch
+// and the chat context are instant, while this reaches past that window when
+// somebody asks about a date the device has never seen.
+//
+// Still no updating and no deleting. A tool that could delete would be a model
+// one misunderstanding away from removing somebody's week.
 
 import { ActionError, type Connection, proxy } from "./nango.ts";
 import type { ActionHandlers } from "./registry.ts";
 
 const EVENTS_PATH = "calendar/v3/calendars/primary/events";
 const MAX_ATTENDEES = 20;
+
+/// The slice of Google's event resource anything in Nod reads. One declaration
+/// for the two callers — the scheduled sync and the chat's read tool — because
+/// a field added for one of them is a field the other silently keeps missing.
+export interface GoogleEvent {
+    id?: string;
+    iCalUID?: string;
+    summary?: string;
+    status?: string;
+    location?: string;
+    hangoutLink?: string;
+    start?: { dateTime?: string; date?: string };
+    end?: { dateTime?: string; date?: string };
+    organizer?: { email?: string };
+    attendees?: Array<{ email?: string; displayName?: string; responseStatus?: string; resource?: boolean }>;
+    conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
+}
 
 function requireString(params: Record<string, unknown>, key: string): string {
     const value = params[key];
@@ -54,7 +74,49 @@ function attendeesOf(params: Record<string, unknown>): Array<{ email: string }> 
     return list.map((email) => ({ email }));
 }
 
+const MAX_RESULTS = 25;
+
 export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
+    /// Lists events in a window, expanded so a recurring meeting comes back as
+    /// the occurrence that falls inside it rather than as its rule.
+    list_events: async (connection, params) => {
+        const start = requireInstant(params, "starts_at");
+        const end = requireInstant(params, "ends_at");
+        if (Date.parse(end) <= Date.parse(start)) {
+            throw new ActionError("invalid_params", "`ends_at` must be after `starts_at`.");
+        }
+
+        const listed = await proxy(connection, EVENTS_PATH, null, {
+            method: "GET",
+            query: {
+                timeMin: start,
+                timeMax: end,
+                singleEvents: "true",
+                orderBy: "startTime",
+                maxResults: String(MAX_RESULTS),
+            },
+        }) as { items?: GoogleEvent[] } | null;
+
+        // Cancelled occurrences of a recurring event come back in the list and
+        // are not meetings — the user declined or the organizer called it off.
+        const events = (listed?.items ?? []).filter((event) => event.status !== "cancelled");
+        return {
+            events: events.map((event) => ({
+                title: event.summary ?? "(no title)",
+                starts_at: event.start?.dateTime ?? event.start?.date ?? null,
+                ends_at: event.end?.dateTime ?? event.end?.date ?? null,
+                // An all-day entry carries a date rather than an instant, and
+                // reading it as a time would put a birthday at midnight.
+                all_day: event.start?.date !== undefined,
+                location: event.location ?? null,
+                conference_url: event.hangoutLink ?? null,
+                attendees: (event.attendees ?? [])
+                    .filter((attendee) => !attendee.resource && attendee.email)
+                    .map((attendee) => attendee.displayName?.trim() || attendee.email),
+            })),
+        };
+    },
+
     /// Creates one event and invites the addresses given.
     ///
     /// `sendUpdates=all` is why the desktop side shows the draft first and waits

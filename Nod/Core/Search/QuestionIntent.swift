@@ -39,4 +39,21 @@ enum QuestionIntent {
         let lowered = text.lowercased()
         return SessionTimeRange.mentionsFuture(in: text) || taskPhrases.contains { lowered.contains($0) }
     }
+
+    /// Phrases that make the user's calendar a better answer than any passage.
+    private static let schedulePhrases = [
+        "calendar", "meeting", "meetings", "call", "calls", "schedule", "scheduled", "booked",
+        "free", "busy", "appointment", "agenda", "invite", "event",
+        "календар", "зустріч", "мітинг", "дзвінок", "розклад", "вільн", "зайнят", "запланован", "івент",
+        "календарь", "встреч", "звонок", "расписание", "свободен", "занят"
+    ]
+
+    /// True when the question is about what the user has scheduled. Gates the
+    /// calendar block, which otherwise costs a synchronous EventKit read and a
+    /// few hundred tokens on every unrelated question.
+    static func asksAboutSchedule(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        return schedulePhrases.contains { lowered.contains($0) }
+            || SessionTimeRange.mentionsFuture(in: text)
+    }
 }

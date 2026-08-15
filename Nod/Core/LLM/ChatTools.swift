@@ -166,16 +166,29 @@ enum ChatTools {
         )
     ]
 
-    /// One tool, and it writes. Reading stays with the sync — it runs on a
-    /// schedule whether or not anyone is chatting, and a model asking "what is
-    /// on my calendar" would be a second, slower answer to a question the app
-    /// already holds.
+    /// Read and write. The read exists alongside the scheduled sync rather than
+    /// instead of it: the sync keeps a rolling week on the device, which is what
+    /// answers "anything today" with no round trip, and this reaches past that
+    /// window for a date the device has never held.
     ///
-    /// `mutating` is doing real work here: this call puts an invitation in other
-    /// people's inboxes, so it goes through `ToolApprovalCard` like every other
-    /// write, and the person sees the date and the guest list before anything is
-    /// sent.
+    /// `mutating` marks the write so its confirmation reads as one — the person
+    /// sees the date and the guest list before an invitation reaches anyone's
+    /// inbox. Both still stop at `ToolApprovalCard`; nothing leaves Nod
+    /// unapproved, and the flag only decides how the card is worded.
     private static let calendarTools: [ChatTool] = [
+        ChatTool(
+            provider: .googleCalendar,
+            name: "google-calendar_list_events",
+            description: "Read the user's calendar over a date range. Use it for any question about what they have scheduled beyond the coming week; nearer days are already in the prompt.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "starts_at": .init(description: "RFC3339 start of the window, e.g. 2026-09-01T00:00:00+01:00."),
+                    "ends_at": .init(description: "RFC3339 end of the window.")
+                ],
+                required: ["starts_at", "ends_at"]
+            ),
+            mutating: false
+        ),
         ChatTool(
             provider: .googleCalendar,
             // Hyphen, not underscore: `action` is this string minus
