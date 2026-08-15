@@ -46,9 +46,6 @@ struct AppServices {
     let connections: ConnectionService
     let integrations: IntegrationService
     let organizations: OrganizationService
-    /// Started by the composition root; keeps shared access from going stale
-    /// while somebody is looking at it.
-    let sharedAccessWatch: SharedAccessWatch
     let taskDrafts: TaskDraftComposer
     let panelSharing: PanelSharingPreference
     /// How eagerly the live meeting analyst interrupts — see
@@ -221,7 +218,6 @@ struct AppServices {
             connections: ConnectionService(supabase: supabase),
             integrations: integrations,
             organizations: organizations,
-            sharedAccessWatch: SharedAccessWatch(organizations: organizations, labels: labelStore),
             taskDrafts: TaskDraftComposer(
                 llm: llmClient,
                 meetings: meetingStore,
