@@ -16,7 +16,7 @@
 import { json } from "../_shared/http.ts";
 import { authenticate } from "../_shared/supabase.ts";
 import { ActionError, resolveConnection } from "../_shared/integrations/nango.ts";
-import { handlerFor, isKnownProvider } from "../_shared/integrations/registry.ts";
+import { handlerFor, hasActions } from "../_shared/integrations/registry.ts";
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
   const action = body?.action;
   const params = (body?.params ?? {}) as Record<string, unknown>;
 
-  if (typeof provider !== "string" || !isKnownProvider(provider)) {
+  if (typeof provider !== "string" || !hasActions(provider)) {
     return json({ error: { code: "unknown_provider", message: "Unknown provider." } }, 400);
   }
   if (typeof action !== "string") {

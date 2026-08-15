@@ -132,6 +132,10 @@ enum ChatTools {
     private static func tools(for provider: IntegrationProvider) -> [ChatTool] {
         switch provider {
         case .linear: linearTools
+        // A calendar is read on a schedule, not called. Offering it as a tool
+        // would put a vocabulary in every cached prompt prefix for something the
+        // model can never invoke.
+        case .googleCalendar: []
         }
     }
 

@@ -357,6 +357,9 @@ verify_jwt = false
 [functions.resend-worker]
 verify_jwt = false
 
+[functions.calendar-sync]
+verify_jwt = false
+
 # Resend signs deliveries with Svix (HMAC over the raw body), verified in the
 # function itself.
 [functions.resend-webhook]

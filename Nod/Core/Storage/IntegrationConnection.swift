@@ -29,13 +29,28 @@ struct TaskMatch: Equatable {
     let closed: Bool
 }
 
-/// A third-party product Nod can *act in* — create a Linear issue from an action
-/// item, and later write a Notion page or post to Slack.
+/// Which way the arrow points once a product is connected.
+///
+/// Kept apart because the two are not the same request to the person granting
+/// them, however similar the plumbing is underneath. "File my action items as
+/// Linear issues" is a thing Nod does when asked, item by item; "read my
+/// calendar" is standing access to where someone is all day. Listing them
+/// together under one heading would describe the second in the language of the
+/// first.
+enum IntegrationRole {
+    case actsIn
+    case readsFrom
+}
+
+/// A third-party product Nod connects to through Nango — creating a Linear issue
+/// from an action item, or reading the calendar that says which meeting is
+/// starting.
 ///
 /// The opposite arrow to `Connection`, which is a token letting the user's own
 /// AI client *read* Nod. Two directions, two tables, deliberately two names.
 enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     case linear
+    case googleCalendar = "google-calendar"
 
     var id: String {
         rawValue
@@ -44,7 +59,19 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     var displayName: String {
         switch self {
         case .linear: "Linear"
+        case .googleCalendar: "Google Calendar"
         }
+    }
+
+    var role: IntegrationRole {
+        switch self {
+        case .linear: .actsIn
+        case .googleCalendar: .readsFrom
+        }
+    }
+
+    static func all(_ role: IntegrationRole) -> [IntegrationProvider] {
+        allCases.filter { $0.role == role }
     }
 
     var taskActions: TaskActions? {
@@ -55,6 +82,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
                 search: "search_issues",
                 update: "update_issue"
             )
+        case .googleCalendar: nil
         }
     }
 
@@ -64,6 +92,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     var summary: String {
         switch self {
         case .linear: "Turn action items into Linear issues."
+        case .googleCalendar: "Know which meeting is starting, so notes land on the right one."
         }
     }
 
@@ -74,12 +103,16 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     var brandAssetName: String {
         switch self {
         case .linear: "ConnLinear"
+        // Not `ConnGoogleCalendar`: the same mark already ships for the notch
+        // demo, and a second copy of one logo is a second thing to replace.
+        case .googleCalendar: "Brandgooglecalendar"
         }
     }
 
     var fallbackIconName: String {
         switch self {
         case .linear: "nc-tasks-2"
+        case .googleCalendar: "nc-calendar"
         }
     }
 
@@ -100,6 +133,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     var linkHost: String {
         switch self {
         case .linear: "linear.app"
+        case .googleCalendar: "calendar.google.com"
         }
     }
 

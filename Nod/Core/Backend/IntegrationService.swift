@@ -23,11 +23,18 @@ final class IntegrationService: ObservableObject {
     @Published private(set) var isLoading = false
     @Published var lastError: String?
 
-    private let supabase: SupabaseClient
+    /// Optional so a preview can hold a service with state and no network,
+    /// exactly as `OrganizationService` already does. Every call below is a
+    /// no-op without it rather than a crash.
+    private let supabase: SupabaseClient?
     private var watch: Task<Void, Never>?
     private var hasLoaded = false
 
-    init(supabase: SupabaseClient) {
+    private enum Unavailable: Error {
+        case noClient
+    }
+
+    init(supabase: SupabaseClient?) {
         self.supabase = supabase
     }
 
@@ -44,6 +51,7 @@ final class IntegrationService: ObservableObject {
     }
 
     func refresh() async {
+        guard let supabase else { return }
         isLoading = true
         defer { isLoading = false }
         do {
@@ -75,6 +83,7 @@ final class IntegrationService: ObservableObject {
     /// The server checks membership: you cannot scope a connection to a team you
     /// are not in, and you cannot scope somebody else's connection at all.
     func setTeam(_ teamID: UUID?, for provider: IntegrationProvider) async {
+        guard let supabase else { return }
         do {
             struct Params: Encodable {
                 let p_provider: String
@@ -100,6 +109,7 @@ final class IntegrationService: ObservableObject {
     /// to land. Safe to call again while one is pending — the previous watch is
     /// replaced rather than stacked.
     func connect(_ provider: IntegrationProvider) async {
+        guard let supabase else { return }
         pending = provider
         lastError = nil
         struct Request: Encodable { let provider: String }
@@ -117,6 +127,35 @@ final class IntegrationService: ObservableObject {
             pending = nil
             lastError = "Couldn't start authorization. Please try again."
             Log.ui.error("IntegrationService.connect failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Ends a connection, at the provider and here.
+    ///
+    /// Optimistic about nothing: the row is only forgotten locally once the
+    /// server says the authorization is gone. A button that clears the checkmark
+    /// while the grant survives is the worst possible outcome for this action.
+    func disconnect(_ provider: IntegrationProvider) async -> Bool {
+        guard let supabase else { return false }
+        struct Request: Encodable { let provider: String }
+        do {
+            _ = try await supabase.functions.invoke(
+                "integration-disconnect",
+                options: FunctionInvokeOptions(body: Request(provider: provider.rawValue)),
+                decode: { data, _ in data }
+            )
+            linked.remove(provider)
+            teamByProvider[provider] = nil
+            taskTargets = linked
+                .filter { $0.taskActions != nil }
+                .sorted { $0.rawValue < $1.rawValue }
+            lastError = nil
+            Log.ui.info("integration disconnected \(provider.rawValue)")
+            return true
+        } catch {
+            lastError = "Couldn't disconnect \(provider.displayName). Please try again."
+            Log.ui.error("IntegrationService.disconnect failed: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -437,6 +476,7 @@ final class IntegrationService: ObservableObject {
         action: String,
         params: [String: String]
     ) async throws -> Data {
+        guard let supabase else { throw Unavailable.noClient }
         struct Request: Encodable {
             let provider: String
             let action: String
@@ -475,3 +515,15 @@ final class IntegrationService: ObservableObject {
     private static let watchAttempts = 60
     private static let watchInterval: UInt64 = 2_000_000_000
 }
+
+#if DEBUG
+    extension IntegrationService {
+        static func preview(linked: Set<IntegrationProvider> = []) -> IntegrationService {
+            let service = IntegrationService(supabase: nil)
+            service.linked = linked
+            service.taskTargets = linked.filter { $0.taskActions != nil }.sorted { $0.rawValue < $1.rawValue }
+            service.hasLoaded = true
+            return service
+        }
+    }
+#endif

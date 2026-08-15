@@ -6,24 +6,24 @@ struct IntegrationsSection: View {
     /// stays out of the way entirely for everyone else.
     var organizations: OrganizationService?
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SettingsCard {
-                SettingsRow(
-                    icon: "nc-link",
-                    title: "Let Nod act in your tools",
-                    subtitle: "Connecting opens the provider's own authorization page. Nod never sees your password, and you can revoke access from the provider at any time."
-                ) {
-                    EmptyView()
-                }
-            }
+    /// Which provider the user has asked to disconnect, while they confirm it.
+    @State private var disconnecting: IntegrationProvider?
 
-            SettingsCard {
-                ForEach(Array(IntegrationProvider.allCases.enumerated()), id: \.element.id) { index, provider in
-                    if index > 0 { SettingsRowDivider() }
-                    row(provider)
-                }
-            }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            group(
+                .actsIn,
+                icon: "nc-link",
+                title: "Let Nod act in your tools",
+                subtitle: "Connecting opens the provider's own authorization page. Nod never sees your password, and you can revoke access from the provider at any time."
+            )
+
+            group(
+                .readsFrom,
+                icon: "nc-calendar",
+                title: "Let Nod read from your tools",
+                subtitle: "Read-only, and only what the provider's own consent screen lists. Nod never writes to these."
+            )
 
             if let error = service.lastError {
                 Text(error)
@@ -33,6 +33,60 @@ struct IntegrationsSection: View {
         }
         .task { await service.refresh() }
         .onDisappear { service.cancelPending() }
+        .confirmationDialog(
+            "Disconnect \(disconnecting?.displayName ?? "")?",
+            isPresented: isConfirmingDisconnect,
+            titleVisibility: .visible
+        ) {
+            Button("Disconnect", role: .destructive) {
+                guard let provider = disconnecting else { return }
+                Task { _ = await service.disconnect(provider) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(disconnecting.map(Self.consequence) ?? "")
+        }
+    }
+
+    /// Drives the dialog without a `Binding(get:set:)` in `body`: the identity of
+    /// what is being disconnected and whether the sheet is up are one fact, and
+    /// this keeps them from drifting apart.
+    private var isConfirmingDisconnect: Binding<Bool> {
+        Binding(
+            get: { disconnecting != nil },
+            set: { if !$0 { disconnecting = nil } }
+        )
+    }
+
+    /// What actually happens, in the terms of the provider being dropped.
+    private static func consequence(_ provider: IntegrationProvider) -> String {
+        switch provider {
+        case .linear:
+            "Nod stops filing action items in Linear. Issues already filed stay where they are."
+        case .googleCalendar:
+            "Nod stops reading your calendar, and everything it has already read is deleted. Nothing in your calendar changes."
+        }
+    }
+
+    private func group(
+        _ role: IntegrationRole,
+        icon: String,
+        title: String,
+        subtitle: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsCard {
+                SettingsRow(icon: icon, title: title, subtitle: subtitle) {
+                    EmptyView()
+                }
+            }
+            SettingsCard {
+                ForEach(Array(IntegrationProvider.all(role).enumerated()), id: \.element.id) { index, provider in
+                    if index > 0 { SettingsRowDivider() }
+                    row(provider)
+                }
+            }
+        }
     }
 
     private func row(_ provider: IntegrationProvider) -> some View {
@@ -69,6 +123,21 @@ struct IntegrationsSection: View {
                         .font(.system(size: 11.5, weight: .semibold))
                 }
                 .foregroundStyle(Theme.Palette.success)
+                .accessibilityLabel("\(provider.displayName) connected")
+
+                Button { disconnecting = provider } label: {
+                    Text("Disconnect")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.danger)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Theme.Palette.surfaceStrong)
+                        )
+                }
+                .buttonStyle(.plain)
+                .linkCursor()
             }
         } else if isPending {
             Button("Cancel") { service.cancelPending() }
@@ -91,10 +160,12 @@ struct IntegrationsSection: View {
     }
 
     /// Which team this connection serves. Absent unless the person is actually in
-    /// one — a picker with nothing to pick is a question with no answer.
+    /// one — a picker with nothing to pick is a question with no answer — and
+    /// absent for anything read-only: a calendar is one person's, so asking which
+    /// team it belongs to would imply a sharing that does not happen.
     @ViewBuilder
     private func teamPicker(_ provider: IntegrationProvider) -> some View {
-        if let organizations, let orgID = organizations.activeOrgID {
+        if provider.role == .actsIn, let organizations, let orgID = organizations.activeOrgID {
             let teams = organizations.teams(in: orgID)
             if !teams.isEmpty {
                 let current = organizations.teams.first { $0.id == service.teamByProvider[provider] }

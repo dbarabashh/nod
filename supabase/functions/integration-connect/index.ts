@@ -10,7 +10,7 @@
 // Response: { "connectLink": "https://…", "expiresAt": "2026-…" }
 import { json } from "../_shared/http.ts";
 import { authenticate } from "../_shared/supabase.ts";
-import { isKnownProvider } from "../_shared/integrations/registry.ts";
+import { isConnectableProvider } from "../_shared/integrations/registry.ts";
 
 const NANGO_SECRET_KEY = Deno.env.get("NANGO_SECRET_KEY") ?? "";
 const NANGO_SESSIONS_URL = "https://api.nango.dev/connect/sessions";
@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
 
   const body = await req.json().catch(() => null);
   const provider = body?.provider;
-  if (typeof provider !== "string" || !isKnownProvider(provider)) {
+  if (typeof provider !== "string" || !isConnectableProvider(provider)) {
     return json({ error: "Unsupported provider" }, 400);
   }
 

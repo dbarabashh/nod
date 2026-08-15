@@ -47,26 +47,43 @@ export async function resolveConnection(userId: string, provider: string): Promi
     return { id: data.nango_connection_id as string, provider };
 }
 
+export interface ProxyOptions {
+    /// Defaults to POST, which is what a GraphQL provider wants. A REST one that
+    /// reads — a calendar — is a GET with no body at all.
+    method?: "GET" | "POST" | "PATCH" | "DELETE";
+    query?: Record<string, string | undefined>;
+}
+
 /// One proxied call to the provider's own API. Nango injects the access token
 /// and refreshes it when it has expired, which is why no token appears here.
 export async function proxy(
     connection: Connection,
     path: string,
     body: unknown,
+    options: ProxyOptions = {},
 ): Promise<unknown> {
     if (!NANGO_SECRET_KEY) {
         throw new ActionError("unconfigured", "Integrations are not configured.", 503);
     }
 
-    const response = await fetch(`${NANGO_PROXY_URL}/${path}`, {
-        method: "POST",
+    const method = options.method ?? "POST";
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(options.query ?? {})) {
+        if (value !== undefined) search.set(key, value);
+    }
+    const url = search.size > 0
+        ? `${NANGO_PROXY_URL}/${path}?${search}`
+        : `${NANGO_PROXY_URL}/${path}`;
+
+    const response = await fetch(url, {
+        method,
         headers: {
             "Authorization": `Bearer ${NANGO_SECRET_KEY}`,
             "Connection-Id": connection.id,
             "Provider-Config-Key": connection.provider,
             "Content-Type": "application/json",
         },
-        body: JSON.stringify(body),
+        body: method === "GET" ? undefined : JSON.stringify(body),
     });
 
     const payload = await response.json().catch(() => null);
