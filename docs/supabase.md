@@ -131,6 +131,47 @@ SUPABASE_ACCESS_TOKEN=sbp_… supabase branches update develop --git-branch deve
 
 `db push` against a branch takes `--db-url` rather than `--project-ref`.
 
+## Realtime — broadcast from the database
+
+Access changes (a folder shared or unshared, a membership granted or removed)
+reach other Macs as a **Broadcast** message sent from a trigger, not as a
+Postgres Changes subscription. Topics are `user:<uuid>`, `org:<uuid>` and
+`team:<uuid>`; the policy on `realtime.messages` in
+`20260815100636_broadcast_access_changes.sql` decides who may listen to which.
+`user:` is the one that matters most — you pass its policy whether or not you
+are still in the organization, so the message telling you that you were removed
+is one you are still entitled to receive.
+
+Two things about this cost an hour to find, and neither is in Supabase's docs.
+
+**`realtime.messages` is partitioned by date, and the partitions are created by
+the Realtime service itself — not by a migration and not by `pg_cron`.** A
+project where nobody has ever opened a Realtime connection has *zero*
+partitions, so every send fails with `no partition of relation "messages" found
+for row`. The service creates several days' worth the first time a client
+connects. You cannot create them by hand: `realtime` is a managed schema and
+even `postgres` gets `permission denied for schema realtime`.
+
+**That failure is silent.** `realtime.send` wraps its insert in `EXCEPTION WHEN
+OTHERS THEN RAISE WARNING`, so a failed send returns normally and logs nothing
+you will see. If broadcast appears to do nothing, check for partitions first:
+
+```sql
+select c.relname
+  from pg_class c
+  join pg_inherits i on i.inhrelid = c.oid
+  join pg_class p on p.oid = i.inhparent
+  join pg_namespace n on n.oid = p.relnamespace
+ where n.nspname = 'realtime' and p.relname = 'messages';
+```
+
+Empty means nothing has ever connected. Open the app once and look again.
+
+**Production has the same empty state** until the first client connects there,
+which will be the first Release build carrying the subscription. Check the query
+above right after that ships — until it returns rows, every access change is
+being dropped, and the swallowed error means nobody will notice.
+
 ## NOD-76 rollout — pricing, referrals, communications
 
 Everything from NOD-76 lands **dark**. Nothing below changes what a customer sees
