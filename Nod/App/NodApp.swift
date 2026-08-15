@@ -139,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // it is the moment to ask, exactly as the entitlement above does.
                 await services.organizations.refresh()
                 await services.labelStore.refresh()
+                await services.meetingGrants.refresh()
                 // Both, together. Access to a shared folder and access to the
                 // sessions inside it are revoked by the same act, so refreshing
                 // one without the other leaves the two disagreeing — a project
@@ -205,6 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     services.chatStore.clear()
                     services.actionItemStore.clear()
                     services.labelStore.clear()
+                    services.meetingGrants.clear()
                     services.entitlements.clear()
                     services.emailPreferences.clear()
                     services.organizations.clear()
@@ -267,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // the first meeting ends. `load` no-ops once cached.
                     Task { await services.profileStore.load() }
                     Task { await services.labelStore.refresh() }
+                    Task { await services.meetingGrants.refresh() }
                     Task { await services.entitlements.refresh() }
                     Task { await services.billing.loadPrices() }
                 }

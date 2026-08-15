@@ -206,6 +206,20 @@ final class CalendarService: ObservableObject {
         return meetings(overlapping: DateInterval(start: now, duration: 0), app: app)
     }
 
+    /// The meeting happening now, but only if it can identify itself.
+    ///
+    /// Three callers used to spell this — stamping a lease with its identity,
+    /// looking for a colleague's live room, and joining one — and each also
+    /// repeated the "has an invitation id or a join link" guard. They must agree:
+    /// if lease-stamping and discovery pick different occurrences, the feature
+    /// silently stops matching and looks exactly like nobody else recording.
+    func currentRoomIdentity() -> RoomIdentity? {
+        guard let occurrence = meetings(overlapping: DateInterval(start: Date(), duration: 0)).first,
+              occurrence.externalID != nil || occurrence.conferenceURL != nil
+        else { return nil }
+        return RoomIdentity(icalUID: occurrence.externalID, conferenceURL: occurrence.conferenceURL)
+    }
+
     /// Entries whose *start* is near enough to now to be announced.
     ///
     /// A window of its own, an order of magnitude narrower than the one a
@@ -268,15 +282,41 @@ final class CalendarService: ObservableObject {
               !invited.contains(where: { $0.isCurrentUser && $0.participantStatus == .declined })
         else { return nil }
 
+        let text = [event.url?.absoluteString, event.location, event.notes]
+            .compactMap { $0 }
+            .joined(separator: " ")
+
         return CalendarOccurrence(
             title: title,
             startsAt: startsAt,
             endsAt: endsAt,
-            host: ConferencingHost.named(in: [event.url?.absoluteString, event.location, event.notes]
-                .compactMap { $0 }
-                .joined(separator: " ")),
-            attendees: people(among: invited)
+            host: ConferencingHost.named(in: text),
+            attendees: people(among: invited),
+            externalID: event.calendarItemExternalIdentifier,
+            conferenceURL: joinLink(in: text)
         )
+    }
+
+    /// The first link in an invitation that points at a conferencing product we
+    /// recognise. Anything else — a doc, a ticket, an agenda — is not where the
+    /// meeting happens, and handing it over as one would invent a room key that
+    /// two colleagues could accidentally share.
+    /// Built once. The detector is immutable and loading the data-detection
+    /// engine is not free, and this runs for every event of every calendar read.
+    private static let linkDetector = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue
+    )
+
+    private static func joinLink(in text: String) -> URL? {
+        guard let detector = linkDetector else { return nil }
+        let range = NSRange(text.startIndex ..< text.endIndex, in: text)
+        for match in detector.matches(in: text, range: range) {
+            guard let url = match.url, let host = url.host?.lowercased() else { continue }
+            if ConferencingHost.allCases.contains(where: { $0.markers.contains(where: host.contains) }) {
+                return url
+            }
+        }
+        return nil
     }
 
     /// The people on an invitation.

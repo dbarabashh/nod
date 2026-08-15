@@ -20,6 +20,15 @@ enum NotchPresentation: Equatable {
     /// only state the app raises on its own while the user is mid-conversation,
     /// which is why `LiveMeetingAnalyst` is strict about what reaches it.
     case noticed(LiveFinding)
+    /// A colleague is recording the meeting this account is in, and it can be
+    /// listened to rather than recorded a second time. Ranks below the offer to
+    /// record: joining is an alternative somebody may want, never a substitute
+    /// Nod picks for them.
+    case liveRoom(LiveRoom)
+    /// Listening to a colleague's recording. Its own state rather than a flag on
+    /// `liveRoom`: the offer is a question and this is a place you are in, and
+    /// they size, rank and identify differently.
+    case listening(JoinedRoom)
     /// Capturing, and something the user settled in an earlier session bears on
     /// what is being said now. The only state that speaks about a meeting the
     /// user is not currently in, which is why `LiveMeetingAnalyst+Recall` is
@@ -151,6 +160,8 @@ extension NotchPresentation {
         case .updateRequired: "updateRequired"
         case .dormant: "dormant"
         case let .offer(offer): "offer.\(offer.identity)"
+        case let .liveRoom(room): "liveRoom.\(room.hostName)"
+        case let .listening(room): "listening.\(room.hostMeetingID.uuidString)"
         case let .noticed(finding): "noticed.\(finding.id.uuidString)"
         case let .recalled(recall): "recalled.\(recall.id.uuidString)"
         case .tucked: "tucked"
@@ -180,7 +191,7 @@ extension NotchPresentation {
     var isOpen: Bool {
         switch self {
         case .dormant, .tucked: false
-        case .updateRequired, .offer, .noticed, .recalled, .meetingBar, .recap, .launch, .languageConfirm, .consent, .alert: true
+        case .updateRequired, .offer, .liveRoom, .listening, .noticed, .recalled, .meetingBar, .recap, .launch, .languageConfirm, .consent, .alert: true
         case let .demo(stage): stage.form != .resting
         }
     }
@@ -197,6 +208,7 @@ extension NotchPresentation {
         switch self {
         case .updateRequired: return 400
         case .offer: return 384
+        case .liveRoom, .listening: return 396
         case .noticed, .recalled, .recap: return 360
         case let .meetingBar(panel): return panel.surfaceWidth
         case .launch: return 384
@@ -234,7 +246,7 @@ extension NotchPresentation {
         switch self {
         case .dormant, .tucked:
             geometry.collapsedSize.height
-        case .updateRequired, .offer, .noticed, .recalled, .meetingBar, .recap, .launch,
+        case .updateRequired, .offer, .liveRoom, .listening, .noticed, .recalled, .meetingBar, .recap, .launch,
              .languageConfirm, .consent, .alert:
             nil
         case let .demo(stage):

@@ -44,7 +44,7 @@ struct NotchStateContent: View {
     private var showsGestureZone: Bool {
         switch model.presentation {
         case .tucked, .meetingBar: true
-        case .updateRequired, .dormant, .offer, .noticed, .recalled, .recap, .launch,
+        case .updateRequired, .dormant, .offer, .liveRoom, .listening, .noticed, .recalled, .recap, .launch,
              .languageConfirm, .consent, .alert, .demo: false
         }
     }
@@ -66,6 +66,15 @@ struct NotchStateContent: View {
                 audioCapture: model.audioCapture,
                 geometry: model.geometry
             )
+        case let .liveRoom(room):
+            LiveRoomCard(
+                room: room,
+                isJoining: model.rooms.isJoining,
+                onJoin: model.joinLiveRoom,
+                onDismiss: model.rooms.forgetRoom
+            )
+        case .listening:
+            LiveRoomTranscript(rooms: model.rooms, language: model.language.current)
         case let .noticed(finding):
             NotchNotice(finding: finding, onDismiss: model.rejectNotice)
         case let .recalled(recall):
@@ -86,6 +95,7 @@ struct NotchStateContent: View {
             )
         case let .meetingBar(panel):
             NotchMeetingBar(
+                rooms: model.rooms,
                 panel: panel,
                 session: model.session,
                 audioCapture: model.audioCapture,

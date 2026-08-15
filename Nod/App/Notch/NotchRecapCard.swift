@@ -23,6 +23,9 @@ struct NotchRecapCard: View {
     /// written by `saveExtracted` as the meeting finalises, which is the same
     /// moment this card appears.
     @EnvironmentObject private var actionItemStore: ActionItemStore
+    /// Only to answer whether the meeting has reached the server yet — sharing
+    /// it before then would ask the backend about a row it does not have.
+    @EnvironmentObject private var meetingStore: MeetingStore
 
     private static let maxHeight: CGFloat = 300
 
@@ -127,6 +130,10 @@ struct NotchRecapCard: View {
             // Bottom-right rather than beside the dismiss glyph: closing is
             // what you do to the card, these are what you do with the meeting.
             HStack(spacing: 6) {
+                // Leading, and the only control here carrying words: handing the
+                // call to the team that was on it is a decision about the
+                // meeting, and it is only ever made in the minute after one ends.
+                MeetingShareButton(meetingID: meeting.id, isReady: meetingStore.isPersisted(meeting.id))
                 Spacer(minLength: 0)
                 NotchCopyGlyphButton(
                     text: {

@@ -253,7 +253,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         // The calendar's own offer, raised from the invitation rather than from
         // anything running on the Mac — see `ScheduledMeetingWatcher`. It starts
         // and stops itself from the Settings switch, so nothing starts it here.
-        let schedule = ScheduledMeetingWatcher(calendar: services.calendar, session: meetingSession)
+        let schedule = ScheduledMeetingWatcher(calendar: services.calendar, session: meetingSession, rooms: services.rooms)
         self.schedule = schedule
 
         // One owner of "should we ask?", fed by both sources — see `MeetingOffers`.
@@ -269,6 +269,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 session: meetingSession,
                 offers: offers,
                 audioCapture: services.audioCapture,
+                rooms: services.rooms,
+                calendar: services.calendar,
                 language: services.languagePreference,
                 updateGate: services.updateGate,
                 playback: services.demoPlayback,
@@ -285,10 +287,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 billing: services.billing,
                 meetingStore: services.meetingStore
             ),
-            filing: FilingEnvironment(
+            cards: NotchCardEnvironment(
                 integrations: services.integrations,
                 actionItems: services.actionItemStore,
-                drafts: services.taskDrafts
+                drafts: services.taskDrafts,
+                meetingGrants: services.meetingGrants,
+                organizations: services.organizations,
+                meetings: services.meetingStore
             ),
             sharing: services.panelSharing.sharingType
         )
@@ -394,6 +399,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                     .environmentObject(services.llmClient)
                     .environmentObject(services.languagePreference)
                     .environmentObject(services.labelStore)
+                    .environmentObject(services.meetingGrants)
                     .environmentObject(services.organizations)
                     .environmentObject(services.entitlements)
                     .environmentObject(services.hotkeys)

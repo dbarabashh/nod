@@ -39,12 +39,15 @@ struct AppServices {
     /// Saved cross-session conversations, listed and reopened from the rail.
     let knowledgeThreads: KnowledgeThreadStore
     let labelStore: LabelStore
+    /// Which finished meetings have been handed to a team or the organization.
+    let meetingGrants: MeetingGrantStore
     let entitlements: EntitlementService
     let billing: BillingService
     let referral: ReferralService
     let accountExport: AccountExportService
     let connections: ConnectionService
     let integrations: IntegrationService
+    let rooms: RoomListenerService
     let organizations: OrganizationService
     /// Push side of shared access. Held here so the composition root can start it
     /// once a session exists and tear it down when one stops.
@@ -122,6 +125,7 @@ struct AppServices {
         // device-conflict), while the token is still valid.
         let transcriptStore = TranscriptStore(client: llmClient)
         let integrations = IntegrationService(supabase: supabase)
+        let rooms = RoomListenerService(supabase: supabase, llm: llmClient)
         let consent = ConsentPreference(
             supabase: supabase,
             auth: auth
@@ -169,16 +173,22 @@ struct AppServices {
             screenContext.setEntitled(entitlement?.isActive == true && entitlement?.can(.ambientContext) == true)
         }
         let labelStore = LabelStore(supabase: supabase, auth: auth)
+        let meetingGrants = MeetingGrantStore(supabase: supabase)
         let organizations = OrganizationService(supabase: supabase)
         // The closure re-asks and then re-subscribes: a membership change is
         // both the thing to refresh for and the thing that changes which
         // audiences are worth listening to.
         weak var accessChannelBox: AccessChannel?
-        let accessChannel = AccessChannel(supabase: supabase) { [weak organizations, weak labelStore, weak meetingStore] in
-            await organizations?.refresh()
-            await labelStore?.refresh()
-            await meetingStore?.refresh(force: true)
-            guard let organizations else { return }
+        let refresh = AccessRefresh(
+            organizations: organizations,
+            labels: labelStore,
+            meetings: meetingStore,
+            grants: meetingGrants,
+            rooms: rooms
+        )
+        let accessChannel = AccessChannel(supabase: supabase) {
+            await refresh.run()
+            guard let organizations = refresh.organizations else { return }
             await accessChannelBox?.resubscribe(
                 orgIDs: organizations.memberships.map(\.id),
                 teamIDs: organizations.teams.map(\.id)
@@ -229,12 +239,14 @@ struct AppServices {
             ),
             knowledgeThreads: knowledgeThreads,
             labelStore: labelStore,
+            meetingGrants: meetingGrants,
             entitlements: entitlements,
             billing: BillingService(supabase: supabase),
             referral: ReferralService(supabase: supabase),
             accountExport: AccountExportService(supabase: supabase),
             connections: ConnectionService(supabase: supabase),
             integrations: integrations,
+            rooms: rooms,
             organizations: organizations,
             accessChannel: accessChannel,
             taskDrafts: TaskDraftComposer(
@@ -271,5 +283,34 @@ struct AppServices {
             screenContext: screenContext,
             settingsFocus: SettingsFocus()
         )
+    }
+}
+
+/// What an access change has to go and re-ask, holding none of it strongly.
+///
+/// A value rather than a capture list: the subscription outlives any single
+/// refresh, and a closure capturing five services keeps the whole graph alive
+/// for as long as the channel is subscribed.
+@MainActor
+private struct AccessRefresh {
+    weak var organizations: OrganizationService?
+    weak var labels: LabelStore?
+    weak var meetings: MeetingStore?
+    weak var grants: MeetingGrantStore?
+    weak var rooms: RoomListenerService?
+
+    func run() async {
+        await organizations?.refresh()
+        await labels?.refresh()
+        await grants?.refresh()
+        // Somebody joining or leaving a live room pokes the host's own topic —
+        // this is that poke arriving. Without it the host's "who is listening"
+        // line has no source but a timer.
+        if let hosting = meetings?.recordingMeetingID {
+            await rooms?.refreshListeners(hostMeetingID: hosting)
+        }
+        // Both, together. Access to a shared folder and access to the sessions
+        // inside it are revoked by the same act.
+        await meetings?.refresh(force: true)
     }
 }

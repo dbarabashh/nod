@@ -169,6 +169,21 @@ final class MeetingSession: ObservableObject {
     /// data captured at accept-time, not a live-generated title: nothing
     /// re-reads the transcript for this while the meeting is still running.
     @Published private(set) var liveTitle: String?
+
+    /// A colleague already recording this same meeting, when the server can tell.
+    /// Purely informational — nothing about the recording changes because of it.
+    @Published private(set) var concurrentRecording: ConcurrentRecording?
+
+    /// The one way this is written, so the split-out identity code cannot become
+    /// a second place that decides when it is shown.
+    func setConcurrentRecording(_ value: ConcurrentRecording?) {
+        concurrentRecording = value
+    }
+
+    var concurrentCheck: Task<Void, Never>?
+
+    /// The recording under way, for the surfaces that have to ask the server
+    /// about it. Nil whenever nothing is being recorded.
     /// Staged by `MeetingOffers.accept()` a moment before it clears `current` —
     /// `beginRecording()` claims it into `liveTitle` and empties this back out,
     /// so a manual Start right after a declined offer doesn't inherit its title.
@@ -257,7 +272,7 @@ final class MeetingSession: ObservableObject {
     private let audioCapture: AudioCaptureService
     private let store: TranscriptStore
     private let llm: LLMProxyClient
-    private let meetingStore: MeetingStore
+    let meetingStore: MeetingStore
     private let entityStore: EntityStore
     private let knowledgeStore: KnowledgeStore
     private let actionItemStore: ActionItemStore
@@ -268,7 +283,7 @@ final class MeetingSession: ObservableObject {
     private let outbox: MeetingOutbox
     private let modeStore: ModeStore
     private let screenExclusions: ScreenExclusions
-    private let calendar: CalendarService
+    let calendar: CalendarService
     private let analytics: ProductAnalytics
     private let recapGenerator: RecapGenerator
     private var captureID: UUID?
@@ -556,6 +571,8 @@ final class MeetingSession: ObservableObject {
 
         activeMeetingLeaseID = meetingID
         beginRecording(meetingID: meetingID, userID: userID)
+        offerCalendarIdentity(meetingID)
+        askWhoElseIsRecording(meetingID)
         return .started
     }
 
@@ -1080,6 +1097,9 @@ final class MeetingSession: ObservableObject {
         micMuted = false
         liveTitle = nil
         captureID = nil
+        concurrentCheck?.cancel()
+        concurrentCheck = nil
+        concurrentRecording = nil
         clearAutoEndPrompt()
     }
 

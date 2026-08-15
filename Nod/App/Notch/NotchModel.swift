@@ -41,6 +41,8 @@ final class NotchModel: ObservableObject {
     let session: MeetingSession
     let offers: MeetingOffers
     let audioCapture: AudioCaptureService
+    let rooms: RoomListenerService
+    let calendar: CalendarService
     let language: LanguagePreference
     let updateGate: UpdateGate
     /// Owned by the allowance gate: it sells the top-up in place.
@@ -99,7 +101,7 @@ final class NotchModel: ObservableObject {
     private var secondsTimer: Task<Void, Never>?
 
     /// A step that has to be answered before audio capture may begin.
-    private enum Gate {
+    enum Gate {
         case language
         case consent
         /// The plan is healthy but this period's hours are gone — offer a top-up
@@ -111,6 +113,8 @@ final class NotchModel: ObservableObject {
         session: MeetingSession,
         offers: MeetingOffers,
         audioCapture: AudioCaptureService,
+        rooms: RoomListenerService,
+        calendar: CalendarService,
         language: LanguagePreference,
         updateGate: UpdateGate,
         playback: DemoPlayback,
@@ -127,6 +131,8 @@ final class NotchModel: ObservableObject {
         self.session = session
         self.offers = offers
         self.audioCapture = audioCapture
+        self.rooms = rooms
+        self.calendar = calendar
         self.language = language
         self.updateGate = updateGate
         self.playback = playback
@@ -201,7 +207,9 @@ final class NotchModel: ObservableObject {
         // same shape as those two — it arrived on its own, not because the
         // user opened the surface, so a stray click elsewhere isn't them
         // dismissing it either. Its own close glyph is the only way out.
-        case .updateRequired, .dormant, .tucked, .offer, .noticed, .recalled, .recap,
+        // The room card is the same: it arrived on its own, and it has its own
+        // "Not now".
+        case .updateRequired, .dormant, .tucked, .offer, .liveRoom, .listening, .noticed, .recalled, .recap,
              .languageConfirm, .consent, .alert, .demo: false
         }
     }
@@ -576,70 +584,22 @@ final class NotchModel: ObservableObject {
         session.meeting == .idle ? .dormant : .tucked
     }
 
-    /// Priority order, most urgent first. A gate outranks everything because it
-    /// is the user's own half-finished action; an alert outranks the ambient
-    /// states because ignoring it ends or loses a recording.
+    /// Handed to `NotchStateResolver`, which owns the ordering. This assembles
+    /// the inputs and nothing else.
     private func derived() -> NotchPresentation {
-        // The demo owns the surface outright while it runs — it is a recording
-        // of a scripted story, and a real alert cutting into it would ruin the
-        // take.
-        if let stage = demo.stage {
-            return .demo(stage)
-        }
-
-        if updateGate.status == .required {
-            return .updateRequired
-        }
-
-        switch gate {
-        case .language: return .languageConfirm
-        case .consent: return .consent
-        case .allowance: return .alert(.allowance)
-        case nil: break
-        }
-
-        if let prompt = session.autoEndPrompt {
-            return .alert(.autoEnd(prompt))
-        }
-        if let message = session.saveErrorToast, !session.pendingMeetingSaves.isEmpty {
-            return .alert(.saveFailed(message))
-        }
-        if let offer = offers.current {
-            return .offer(offer)
-        }
-        if session.meeting != .idle {
-            // A notice surfaces even over a swipe-hidden bar — the whole point
-            // of a notice is that it says something the user did not ask for,
-            // and a swipe from ten minutes ago is not them declining to hear
-            // it. Never over an expanded panel, though: Ask/Notes are open
-            // because the user opened them, and taking that away to say
-            // something they did not ask for is the difference between
-            // proactive and rude.
-            if let notice = session.analyst.notice {
-                if meetingBarPanel == .passive {
-                    Log.ui.debug("notch: showing notice kind=\(notice.kind.rawValue) hidden=\(meetingBarHidden)")
-                    return .noticed(notice)
-                }
-                // `.debug`, not `.info`: `derived()` re-runs on every unrelated
-                // publisher tick (meetings sync, entitlement refresh, ...) while
-                // a notice sits blocked, so this would otherwise repeat well
-                // past what `.info` is for.
-                Log.ui.debug("notch: notice pending but panel=\(String(describing: meetingBarPanel)) blocks it")
-            }
-            // Same guard as a notice, and after it: what was just said in this
-            // room outranks what was said in another one.
-            if let recalled = session.analyst.recall, meetingBarPanel == .passive {
-                return .recalled(recalled)
-            }
-            if meetingBarHidden {
-                return .tucked
-            }
-            return .meetingBar(meetingBarPanel)
-        }
-        if let recap = recapState {
-            return .recap(recap)
-        }
-        return isOpened ? .launch : .dormant
+        NotchStateResolver(
+            demoStage: demo.stage,
+            isUpdateRequired: updateGate.status == .required,
+            gate: gate,
+            session: session,
+            offer: offers.current,
+            liveRoom: rooms.available,
+            joinedRoom: rooms.joined,
+            meetingBarPanel: meetingBarPanel,
+            isMeetingBarHidden: meetingBarHidden,
+            recap: recapState,
+            isOpened: isOpened
+        ).resolve()
     }
 
     /// `session.justEndedMeetingID` resolved against `meetingStore`, or nil
@@ -725,6 +685,17 @@ extension NotchModel {
     /// the notch entirely — the same app-wide signal the status-bar menu
     /// reaches for, posted from the model rather than the view so every
     /// meeting-bar action keeps coming from this one place.
+    /// Step into the room a colleague is recording. The identity comes from this
+    /// Mac's own calendar, the same way it does when a recording starts — the
+    /// card never carries a handle to somebody else's meeting.
+    func joinLiveRoom() {
+        Task { [weak self] in
+            guard let self, let identity = calendar.currentRoomIdentity() else { return }
+            await rooms.join(identity)
+            refresh()
+        }
+    }
+
     func openLibrary() {
         NotificationCenter.default.post(name: .nodOpenLibrary, object: nil)
     }

@@ -79,6 +79,10 @@ final class ScheduledMeetingWatcher: ObservableObject {
 
     private let calendar: CalendarService
     private let session: MeetingSession
+    /// Asked on the same tick, because it needs the same thing: what the
+    /// calendar says is happening now. A second timer for one extra question
+    /// would wake the Mac twice to learn the same fact.
+    private let rooms: RoomListenerService
     /// Meetings already put to the user, by fingerprint. Asking twice about the
     /// same meeting is what makes a proactive app feel like a nagging one.
     private var answered: Set<String> = []
@@ -92,9 +96,10 @@ final class ScheduledMeetingWatcher: ObservableObject {
     /// sides already agreed on.
     private static let interval: TimeInterval = 20
 
-    init(calendar: CalendarService, session: MeetingSession) {
+    init(calendar: CalendarService, session: MeetingSession, rooms: RoomListenerService) {
         self.calendar = calendar
         self.session = session
+        self.rooms = rooms
 
         // The switch owns the loop, not just the query inside it. Left running
         // against a `calendar.isReadable` guard the timer would keep waking a
@@ -154,6 +159,8 @@ final class ScheduledMeetingWatcher: ObservableObject {
         guard calendar.isReadable else { return clear() }
         let now = Date()
 
+        askAboutLiveRooms(at: now)
+
         // A recording under way answers every candidate: the user is in a
         // meeting, whichever one it is.
         guard session.meeting == .idle else {
@@ -173,6 +180,19 @@ final class ScheduledMeetingWatcher: ObservableObject {
 
         Log.screen.info("scheduled: \(starting.title) starts now")
         candidate = ScheduledMeeting(starting)
+    }
+
+    /// Whether a colleague is already recording whatever is on the calendar now.
+    ///
+    /// Only while nothing of our own is running, and only for an entry that can
+    /// identify itself — the answer is about a specific meeting, not about being
+    /// in the same company as somebody who is recording.
+    private func askAboutLiveRooms(at now: Date) {
+        guard session.meeting == .idle, rooms.joined == nil else { return }
+        guard let identity = calendar.currentRoomIdentity() else { return rooms.forgetRoom() }
+        Task { [rooms] in
+            await rooms.lookForRoom(identity)
+        }
     }
 
     /// The fingerprint of an entry that has not been turned into a

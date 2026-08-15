@@ -11,6 +11,11 @@ import SwiftUI
 /// Header row first, always; `expansion` grows underneath it for Notes or
 /// Ask — never a second window, never a modal.
 struct NotchMeetingBar: View {
+    @ObservedObject var rooms: RoomListenerService
+    /// The one published answer to "what is being recorded right now" — the
+    /// session mirrors into it, and surfaces that hold no `MeetingSession` read
+    /// it too, so asking here keeps one question with one answer.
+    @EnvironmentObject private var meetingStore: MeetingStore
     let panel: MeetingBarPanel
     @ObservedObject var session: MeetingSession
     /// A plain reference: nothing in this bar reads it, only the mic and
@@ -48,8 +53,53 @@ struct NotchMeetingBar: View {
             // open state (offer, recap, consent…) keeps its own breathing
             // room untouched.
             .padding(.top, -4)
+            alsoRecording
             expansion
         }
+        // Asked once. Every later change arrives on the host's own realtime
+        // topic — `join_live_room` and `leave_live_room` both poke it — so a
+        // timer here would only be a slower copy of a signal we already get,
+        // and one that dies whenever this bar is tucked away.
+        .task(id: meetingStore.recordingMeetingID) {
+            guard let id = meetingStore.recordingMeetingID else { return rooms.clearListeners() }
+            await rooms.refreshListeners(hostMeetingID: id)
+        }
+    }
+
+    /// A colleague recording the same meeting. A line, not a prompt: there is
+    /// nothing to decide here, and interrupting somebody who has just started
+    /// recording to tell them their notes are redundant would be worse than not
+    /// telling them at all.
+    @ViewBuilder
+    private var alsoRecording: some View {
+        if let other = session.concurrentRecording {
+            roomLine("nc-users", "\(other.ownerName) is recording this too", tint: Theme.Palette.muted)
+        }
+        if let names = listeningNames {
+            roomLine("nc-volume-up", names, tint: Theme.Palette.cyan)
+        }
+    }
+
+    private func roomLine(_ icon: String, _ text: String, tint: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(icon)
+                .icon(11)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(.system(size: 11))
+                .lineLimit(1)
+        }
+        .foregroundStyle(tint)
+    }
+
+    /// Who is following this recording, named. Being listened to without being
+    /// told is the one outcome the room feature must never produce, so this is
+    /// not a count and not a badge.
+    private var listeningNames: String? {
+        let names = rooms.listeners
+        let shown = names.count > 2 ? [names[0], "\(names.count - 1) others"] : names
+        guard let joined = TextList.prose(shown) else { return nil }
+        return "\(joined) \(names.count == 1 ? "is" : "are") listening"
     }
 
     /// Secondary, not-about-this-meeting controls — mic device, output

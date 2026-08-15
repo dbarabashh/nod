@@ -444,10 +444,10 @@ struct MeetingDetailView: View {
             HStack(spacing: 12) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        subToolbarItem(icon: "nc-language", label: meeting.language.uppercased())
-                        subToolbarDivider
+                        SubToolbarItem(icon: "nc-language", label: meeting.language.uppercased())
+                        SubToolbarDivider()
                         Button(action: { isEditingSummary.toggle() }) {
-                            subToolbarLabel(
+                            SubToolbarLabel(
                                 icon: isEditingSummary ? "nc-check" : "nc-pen-writing",
                                 text: isEditingSummary ? "Done" : "Edit"
                             )
@@ -456,11 +456,11 @@ struct MeetingDetailView: View {
                         .disabled(isFinalizing)
                         .opacity(isFinalizing ? 0.4 : 1)
                         .linkCursor()
-                        subToolbarDivider
+                        SubToolbarDivider()
                         copyButton("Copy", isActive: !isGenerating, action: copyAll)
-                        subToolbarDivider
+                        SubToolbarDivider()
                         Button(action: shareLink) {
-                            subToolbarLabel(
+                            SubToolbarLabel(
                                 icon: shareIcon,
                                 text: shareLabel
                             )
@@ -469,7 +469,9 @@ struct MeetingDetailView: View {
                         .disabled(isFinalizing || shareState == .sharing)
                         .opacity(isFinalizing ? 0.4 : 1)
                         .linkCursor()
-                        subToolbarDivider
+                        SubToolbarDivider()
+                        MeetingShareButton(meetingID: meeting.id, isReady: meetingStore.isPersisted(meeting.id))
+                        SubToolbarDivider()
                         exportButton
                     }
                 }
@@ -483,10 +485,10 @@ struct MeetingDetailView: View {
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    subToolbarItem(icon: "nc-language", label: meeting.language.uppercased())
-                    subToolbarDivider
+                    SubToolbarItem(icon: "nc-language", label: meeting.language.uppercased())
+                    SubToolbarDivider()
                     copyButton("Copy", isActive: transcriptIsCopyable, action: copyTranscript)
-                    subToolbarDivider
+                    SubToolbarDivider()
                     exportButton
                 }
             }
@@ -496,7 +498,7 @@ struct MeetingDetailView: View {
 
     private var exportButton: some View {
         Button(action: exportMarkdown) {
-            subToolbarLabel(icon: exportIcon, text: exportLabel)
+            SubToolbarLabel(icon: exportIcon, text: exportLabel)
         }
         .buttonStyle(.plain)
         .disabled(isFinalizing || isGenerating || exportState == .exporting)
@@ -537,37 +539,12 @@ struct MeetingDetailView: View {
         }
     }
 
-    private func subToolbarItem(icon: String, label: String) -> some View {
-        HStack(spacing: 5) {
-            Image(icon)
-                .icon(11)
-                .foregroundStyle(Theme.Palette.muted)
-            Text(label)
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Theme.Palette.ink.opacity(0.92))
-                .lineLimit(1)
-        }
-        .fixedSize()
-    }
-
-    private func subToolbarLabel(icon: String, text: String) -> some View {
-        HStack(spacing: 5) {
-            Image(icon)
-                .icon(11)
-            Text(text)
-                .font(.system(size: 12, weight: .regular))
-                .lineLimit(1)
-        }
-        .foregroundStyle(Theme.Palette.ink.opacity(0.92))
-        .fixedSize()
-    }
-
     /// Shared copy button for the summary and transcript sub-toolbars. Both
     /// flash the same `copyFlash` confirmation (the tabs are never visible at
     /// once), differing only in label and what gates them.
     private func copyButton(_ text: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            subToolbarLabel(
+            SubToolbarLabel(
                 icon: copyFlash ? "nc-check" : "nc-files-2",
                 text: copyFlash ? "Copied" : text
             )
@@ -576,12 +553,6 @@ struct MeetingDetailView: View {
         .disabled(!isActive)
         .opacity(isActive ? 1 : 0.4)
         .linkCursor()
-    }
-
-    private var subToolbarDivider: some View {
-        Rectangle()
-            .fill(Theme.Palette.border)
-            .frame(width: 0.5, height: 14)
     }
 
     // MARK: - Content router
@@ -670,7 +641,7 @@ struct MeetingDetailView: View {
                 .foregroundStyle(Theme.Palette.ink.opacity(0.92))
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: regenerateSummary) {
-                subToolbarLabel(icon: "nc-refresh-2", text: "Generate summary")
+                SubToolbarLabel(icon: "nc-refresh-2", text: "Generate summary")
             }
             .buttonStyle(.plain)
             // A meeting still queued in the outbox would have the regenerated
@@ -1002,7 +973,7 @@ struct MeetingDetailView: View {
 
     private var shareLabel: String {
         switch shareState {
-        case .idle: "Share"
+        case .idle: "Copy link"
         case .sharing: "Creating…"
         case .copied: "Copied"
         case .failed: "Try again"
@@ -1107,4 +1078,51 @@ func renderRecapMarkdown(_ source: String) -> AttributedString {
     )
     return (try? AttributedString(markdown: source, options: options))
         ?? AttributedString(source)
+}
+
+/// The chrome of the sub-toolbar above a meeting's body: a read-only fact, a
+/// tappable label, and the hairline between them. Their own types rather than
+/// methods on the view — they read no state, and holding them inside the view
+/// only made a body that SwiftLint had already stopped growing.
+private struct SubToolbarItem: View {
+    let icon: String
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(icon)
+                .icon(11)
+                .foregroundStyle(Theme.Palette.muted)
+            Text(label)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(Theme.Palette.ink.opacity(0.92))
+                .lineLimit(1)
+        }
+        .fixedSize()
+    }
+}
+
+private struct SubToolbarLabel: View {
+    let icon: String
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(icon)
+                .icon(11)
+            Text(text)
+                .font(.system(size: 12, weight: .regular))
+                .lineLimit(1)
+        }
+        .foregroundStyle(Theme.Palette.ink.opacity(0.92))
+        .fixedSize()
+    }
+}
+
+private struct SubToolbarDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Theme.Palette.border)
+            .frame(width: 0.5, height: 14)
+    }
 }

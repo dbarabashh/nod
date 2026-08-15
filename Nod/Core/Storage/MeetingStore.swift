@@ -112,6 +112,13 @@ final class MeetingStore: ObservableObject {
     ///      detached main-window retry toast.
     @Published private(set) var unsyncedMeetingIDs: Set<UUID> = []
 
+    /// Whether the server has this meeting yet. Anything that asks the backend
+    /// about a meeting — sharing it with a team, say — has to wait for the row
+    /// to exist, and the two sets below are what "not yet" looks like.
+    func isPersisted(_ meetingID: UUID) -> Bool {
+        !finalizingMeetingIDs.contains(meetingID) && !unsyncedMeetingIDs.contains(meetingID)
+    }
+
     /// The meeting currently being recorded, if any — `nil` once it ends.
     /// Mirrored from `MeetingSession.recordingDraft` so surfaces that only
     /// have `MeetingStore` in their environment (Sessions list) can tell a
@@ -874,6 +881,72 @@ final class MeetingStore: ObservableObject {
                 loadState = .failed(error.localizedDescription)
                 lastRefreshFailed = true
             }
+        }
+    }
+}
+
+/// A colleague recording the meeting you just started recording.
+///
+/// Reported, never enforced. Two people wanting their own notes from one
+/// conversation is a legitimate thing to want, and the only thing Nod is in a
+/// position to add is that they know about each other.
+struct ConcurrentRecording: Equatable, Decodable {
+    let ownerName: String
+    let startedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case ownerName = "owner_name"
+        case startedAt = "started_at"
+    }
+}
+
+extension MeetingStore {
+    /// Whether somebody in the same organization is already recording this
+    /// meeting, as the server sees it.
+    ///
+    /// Answers nil for everyone the question cannot apply to — no organization,
+    /// no calendar connected, nothing identifying the meeting — which is most
+    /// recordings, so this stays quiet rather than explaining itself.
+    func concurrentRecording(for meetingID: UUID) async -> ConcurrentRecording? {
+        struct Params: Encodable {
+            let p_meeting: UUID
+        }
+        do {
+            let rows: [ConcurrentRecording] = try await supabase
+                .rpc("concurrent_recording", params: Params(p_meeting: meetingID))
+                .execute()
+                .value
+            return rows.first
+        } catch {
+            // A question nobody asked for. Failing it is not worth a toast.
+            Log.ui.error("MeetingStore.concurrentRecording failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Offers the on-device calendar's view of which meeting this is.
+    ///
+    /// Sends the invitation's own identifier and its join link as written; the
+    /// server derives the room key, so the two calendar sources cannot reduce
+    /// one Zoom link to two different rooms. Ignored when the server already
+    /// identified the meeting from a connected calendar.
+    func offerLeaseIdentity(meetingID: UUID, externalID: String?, conferenceURL: URL?) async {
+        guard externalID != nil || conferenceURL != nil else { return }
+        struct Params: Encodable {
+            let p_meeting: UUID
+            let p_ical_uid: String?
+            let p_conference_url: String?
+        }
+        do {
+            _ = try await supabase
+                .rpc("set_lease_identity", params: Params(
+                    p_meeting: meetingID,
+                    p_ical_uid: externalID,
+                    p_conference_url: conferenceURL?.absoluteString
+                ))
+                .execute()
+        } catch {
+            Log.ui.error("MeetingStore.offerLeaseIdentity failed: \(error.localizedDescription)")
         }
     }
 }
