@@ -1,8 +1,8 @@
 # Subprocessors
 
-_Last updated: 2026-08-14_
+_Last updated: 2026-08-15_
 
-_Resend is listed under advance notice. The optional product-update, lifecycle,
+_Resend and Nango are listed under advance notice. The optional product-update, lifecycle,
 and founder-research workflow is not sending today and will not begin earlier
 than 30 days after this list is published._
 
@@ -45,6 +45,13 @@ entirely by Paddle as Merchant of Record.
 | Subprocessor | Planned purpose | Data shared | Location | Training on your data | DPA / basis |
 |---|---|---|---|---|---|
 | **Resend, Inc.** | Delivery of the three optional email topics you can switch on, plus narrow operational referral-status notices | Email address, language, selected topic and consent state, template identifier, delivery / bounce / complaint / suppression / unsubscribe status, and whether a link in a message was followed. No meeting content. | EU sending region; global delivery | No | Resend DPA and Standard Contractual Clauses |
+| **Nango (Frontier Technologies, Inc.)** | Holding the authorization for tools you connect yourself, and passing our requests to them. Nothing is connected until you connect it, and each connection covers one product. | The access and refresh tokens for the account you authorized — we never receive or store them — plus the content of each request we make on your behalf. For a task filed in Linear that is the title and description we generated from an action item; for a calendar it is the events we read back: titles, times, conferencing links and attendee email addresses. | `api.nango.dev` | No | Nango DPA |
+
+Connecting a tool is the only thing that puts Nango between us and it. An account
+that connects nothing never reaches them, and disconnecting in the provider's own
+settings ends the authorization at the source rather than asking us to forget it.
+The point of routing through them is that the token stays theirs to hold: a copy
+of your Linear or calendar credential never lands in our database.
 
 Open tracking is disabled on our sending domain, so we receive no signal that an
 email was opened. Click tracking is **enabled**: links are rewritten by Resend,
@@ -119,6 +126,7 @@ forwarded once and never written to durable storage anywhere in this chain.
 | 2026-08-06 | Documented official ChatGPT and Claude connectors as user-authorized recipients, with read-only OAuth access rather than subprocessors acting for Nod. |
 | 2026-08-07 | Added consent-gated Google Analytics and Google Ads measurement, plus first-party campaign-to-account attribution in Supabase. |
 | 2026-08-08 | Documented bounded first-party macOS/iOS product interaction events stored in Supabase; no app analytics SDK or Google app telemetry was added. |
+| 2026-08-15 | Gave advance notice of Nango for tool connections you make yourself — outbound actions (Linear) and, when it ships, reading your calendar. Nothing is connected until you connect it. |
 | 2026-08-14 | Corrected the email-tracking description: click tracking is enabled on our sending domain, not disabled as previously stated. Open tracking remains off. |
 | 2026-08-11 | Gave advance notice of Resend for the three separately consented optional email topics and for operational referral-status notices. Nothing is sending under this workflow yet. |
 
