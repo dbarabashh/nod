@@ -14,6 +14,10 @@ final class LabelStore: ObservableObject {
     /// Which folders are shared, and with whom. Keyed by folder so a row can ask
     /// without scanning.
     @Published private(set) var shares: [UUID: [FolderShare]] = [:]
+    /// The last refusal, in the words the database used. Sharing happens from a
+    /// context menu with nowhere to put a spinner or a result, so a failure that
+    /// only reached the log looked exactly like a click that did nothing.
+    @Published var lastError: String?
 
     private let supabase: SupabaseClient
     private let auth: AuthService
@@ -254,8 +258,10 @@ final class LabelStore: ObservableObject {
                 .rpc("share_folder", params: Params(p_label: labelID, p_team: teamID, p_org: orgID))
                 .execute()
             await refreshShares()
+            lastError = nil
             Log.ui.info("folder shared")
         } catch {
+            lastError = Self.serverMessage(error) ?? "Couldn't share that project."
             Log.ui.error("LabelStore.share failed: \(error.localizedDescription)")
         }
     }
@@ -267,13 +273,21 @@ final class LabelStore: ObservableObject {
             }
             _ = try await supabase.rpc("unshare_folder", params: Params(p_share: share.id)).execute()
             await refreshShares()
+            lastError = nil
             Log.ui.info("folder unshared")
         } catch {
+            lastError = Self.serverMessage(error) ?? "Couldn't stop sharing that project."
             Log.ui.error("LabelStore.unshare failed: \(error.localizedDescription)")
         }
     }
 
+    private static func serverMessage(_ error: Error) -> String? {
+        guard let postgrest = error as? PostgrestError, !postgrest.message.isEmpty else { return nil }
+        return postgrest.message.prefix(1).uppercased() + postgrest.message.dropFirst() + "."
+    }
+
     func clear() {
+        lastError = nil
         shares = [:]
         labels = []
         assignments = [:]

@@ -279,6 +279,14 @@ struct HomeSidebar: View {
             ForEach(labelStore.labels.filter(labelStore.isOwn)) { label in
                 projectRow(label)
             }
+            if let error = labelStore.lastError {
+                Text(error)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.Palette.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+            }
             addProjectRow
         }
     }
