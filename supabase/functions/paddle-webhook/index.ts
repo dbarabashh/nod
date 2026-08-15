@@ -108,6 +108,8 @@ async function handleCompletedTransaction(
     const subscriptionId = nullableStr(data.subscription_id);
     const customerId = nullableStr(data.customer_id);
     const userId = await resolveUserId(admin, data, subscriptionId ?? "", customerId);
+    const customData = isObject(data.custom_data) ? data.custom_data : {};
+    const offerClaimId = nullableStr(customData.offer_claim_id);
 
     const paidTransaction = paidSubscriptionTransaction(data);
     if (paidTransaction && eventOccurredAt) {
@@ -183,6 +185,15 @@ async function handleCompletedTransaction(
     }
 
     if (userId) await payoutDueRewards(admin, userId);
+    if (userId && offerClaimId) {
+        const { data: redeemed, error } = await admin.rpc("redeem_email_offer_transaction", {
+            p_claim_id: offerClaimId,
+            p_user_id: userId,
+            p_transaction_id: transactionId,
+        });
+        if (error) throw new Error(`redeem_email_offer_transaction: ${error.message}`);
+        console.log(`winback offer transaction=${transactionId} redeemed=${redeemed === true}`);
+    }
 }
 
 // A top-up is fulfilled only against the intent that created its checkout. The

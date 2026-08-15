@@ -1,10 +1,10 @@
 # Subprocessors
 
-_Last updated: 2026-08-11_
+_Last updated: 2026-08-15_
 
 _Resend is listed under advance notice. The optional product-update, lifecycle,
 and founder-research workflow is not sending today and will not begin earlier
-than 30 days after this list is published._
+than 30 days after this updated list is published._
 
 A subprocessor is a third party that processes personal data on our behalf
 when you use Nod. We use the minimum number of subprocessors required to
@@ -117,6 +117,7 @@ forwarded once and never written to durable storage anywhere in this chain.
 | 2026-08-07 | Added consent-gated Google Analytics and Google Ads measurement, plus first-party campaign-to-account attribution in Supabase. |
 | 2026-08-08 | Documented bounded first-party macOS/iOS product interaction events stored in Supabase; no app analytics SDK or Google app telemetry was added. |
 | 2026-08-11 | Gave advance notice of Resend for the three separately consented optional email topics and for operational referral-status notices. Nothing is sending under this workflow yet. |
+| 2026-08-15 | Clarified the separate trial-learning consent and cadence, preserved earlier choices for their original purposes, and restarted the 30-day notice period before any Resend contact sync or send. |
 
 ---
 
