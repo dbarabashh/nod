@@ -38,6 +38,7 @@
 		1A91FE6A292B9C251D195677 /* ToolApprovalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F980960C44BDCB96C9880031 /* ToolApprovalCard.swift */; };
 		1B6FE387C537962CEDEC1DD3 /* OrganizationSlugTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 349F56465A11457F5CED1E39 /* OrganizationSlugTests.swift */; };
 		1BA38CCEBB03547D4BEB3989 /* TranscriptRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55317D97A7031E9542B5E531 /* TranscriptRecord.swift */; };
+		1C7BD37766FA6C5793C92FA7 /* AccessChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D676704489FC4412827B199 /* AccessChannel.swift */; };
 		1CDD698E65F33BFF1289D19F /* DeviceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C3A4C994928DF1D6A7079B /* DeviceIdentity.swift */; };
 		1CE4BAA3BB410093AFDA9151 /* LiveMeetingAnalyst+Assist.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C694FACAE16B13621CE62C /* LiveMeetingAnalyst+Assist.swift */; };
 		1E3D72CB5610AB5F53E39D7D /* HoverReveal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DA886D2817AD3AB74DCB17E /* HoverReveal.swift */; };
@@ -380,6 +381,7 @@
 		23DBB5F15412AEE92C6BD019 /* SupabaseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseConfig.swift; sourceTree = "<group>"; };
 		23E03CADCF79FA17C6D05E59 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		2917098F221A8A8743FE1BF8 /* MeetingOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingOutbox.swift; sourceTree = "<group>"; };
+		2D676704489FC4412827B199 /* AccessChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessChannel.swift; sourceTree = "<group>"; };
 		2E53EA694ABAEA48678031E9 /* SummaryRegeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryRegeneration.swift; sourceTree = "<group>"; };
 		2F6977F26E80D48858FF9640 /* WhisperTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperTranscriber.swift; sourceTree = "<group>"; };
 		2FCACAA7C7EF18D808DBBB25 /* TooltipPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TooltipPlacementTests.swift; sourceTree = "<group>"; };
@@ -1132,6 +1134,7 @@
 		AE7A64513B1E469B1353E85F /* Backend */ = {
 			isa = PBXGroup;
 			children = (
+				2D676704489FC4412827B199 /* AccessChannel.swift */,
 				C330DD6CB3A6C8BE0237DA52 /* AccountExportService.swift */,
 				F86B4483C9EC81A85798ECAD /* AuthSessionStorage.swift */,
 				F186092CBCFE2453631F2736 /* BillingService.swift */,
@@ -1538,6 +1541,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1C7BD37766FA6C5793C92FA7 /* AccessChannel.swift in Sources */,
 				767F99911F7F24AD4B043B2A /* AccessibilityAccess.swift in Sources */,
 				96DCBA0FC088495D23F03371 /* AccessibilityReader.swift in Sources */,
 				A367B0ED6D570C649D8F9934 /* AccountDataSection.swift in Sources */,

@@ -46,6 +46,9 @@ struct AppServices {
     let connections: ConnectionService
     let integrations: IntegrationService
     let organizations: OrganizationService
+    /// Push side of shared access. Held here so the composition root can start it
+    /// once a session exists and tear it down when one stops.
+    let accessChannel: AccessChannel
     let taskDrafts: TaskDraftComposer
     let panelSharing: PanelSharingPreference
     /// How eagerly the live meeting analyst interrupts — see
@@ -167,6 +170,21 @@ struct AppServices {
         }
         let labelStore = LabelStore(supabase: supabase, auth: auth)
         let organizations = OrganizationService(supabase: supabase)
+        // The closure re-asks and then re-subscribes: a membership change is
+        // both the thing to refresh for and the thing that changes which
+        // audiences are worth listening to.
+        var accessChannelBox: AccessChannel?
+        let accessChannel = AccessChannel(supabase: supabase) { [weak organizations, weak labelStore, weak meetingStore] in
+            await organizations?.refresh()
+            await labelStore?.refresh()
+            await meetingStore?.refresh(force: true)
+            guard let organizations else { return }
+            await accessChannelBox?.resubscribe(
+                orgIDs: organizations.memberships.map(\.id),
+                teamIDs: organizations.teams.map(\.id)
+            )
+        }
+        accessChannelBox = accessChannel
         let entityStore = EntityStore(supabase: supabase)
         let actionItemStore = ActionItemStore(supabase: supabase) { reference, done in
             await integrations.setTaskClosed(done, reference: reference)
@@ -218,6 +236,7 @@ struct AppServices {
             connections: ConnectionService(supabase: supabase),
             integrations: integrations,
             organizations: organizations,
+            accessChannel: accessChannel,
             taskDrafts: TaskDraftComposer(
                 llm: llmClient,
                 meetings: meetingStore,

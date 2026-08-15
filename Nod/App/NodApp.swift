@@ -207,10 +207,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     services.labelStore.clear()
                     services.entitlements.clear()
                     services.emailPreferences.clear()
+                    services.organizations.clear()
+                    // The channel carries this account's topics; leaving it open
+                    // across a sign-out would have the next person listening on
+                    // the last one's.
+                    await services.accessChannel.teardown()
                     windows.closeMainWindow()
                 }
                 if isSignedIn {
                     if !wasSignedIn {
+                        Task { @MainActor in
+                            await services.organizations.refresh()
+                            await services.accessChannel.resubscribe(
+                                orgIDs: services.organizations.memberships.map(\.id),
+                                teamIDs: services.organizations.teams.map(\.id)
+                            )
+                        }
                         services.productAnalytics.record(
                             .appOpened,
                             properties: .init(entryPoint: .appLaunch),
