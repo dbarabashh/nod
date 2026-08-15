@@ -189,6 +189,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         .environmentObject(services.onboardingTelemetry)
         .environmentObject(services.modeStore)
         .environmentObject(services.emailPreferences)
+        .environmentObject(services.integrations)
 
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)
@@ -373,29 +374,35 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         // window level instead (`contentMinSize`, set after the controller is
         // attached), so the content always fills the window and the rail stays
         // pinned at the leading edge.
-        let root = EmailConsentPromptHost(preferences: services.emailPreferences) {
-            MainWindowView(initialFocusMeetingID: meetingID, settings: settingsPane)
-                .environmentObject(services.meetingStore)
-                .environmentObject(services.chatStore)
-                .environmentObject(services.profileStore)
-                .environmentObject(services.entityStore)
-                .environmentObject(services.knowledgeStore)
-                .environmentObject(services.knowledgeChat)
-                .environmentObject(services.knowledgeThreads)
-                .environmentObject(services.actionItemStore)
-                .environmentObject(services.integrations)
-                .environmentObject(services.taskDrafts)
-                .environmentObject(services.llmClient)
-                .environmentObject(services.languagePreference)
-                .environmentObject(services.labelStore)
-                .environmentObject(services.organizations)
-                .environmentObject(services.entitlements)
-                .environmentObject(services.hotkeys)
-                .environmentObject(services.settingsFocus)
-                .environmentObject(services.screenContext)
-                .environmentObject(services.summaryRegeneration)
-                .environmentObject(services.productAnalytics)
-                .environmentObject(services.demoPlayback)
+        let root = CalendarPromptHost(
+            onboarding: services.onboarding,
+            integrations: services.integrations,
+            email: services.emailPreferences
+        ) {
+            EmailConsentPromptHost(preferences: services.emailPreferences) {
+                MainWindowView(initialFocusMeetingID: meetingID, settings: settingsPane)
+                    .environmentObject(services.meetingStore)
+                    .environmentObject(services.chatStore)
+                    .environmentObject(services.profileStore)
+                    .environmentObject(services.entityStore)
+                    .environmentObject(services.knowledgeStore)
+                    .environmentObject(services.knowledgeChat)
+                    .environmentObject(services.knowledgeThreads)
+                    .environmentObject(services.actionItemStore)
+                    .environmentObject(services.integrations)
+                    .environmentObject(services.taskDrafts)
+                    .environmentObject(services.llmClient)
+                    .environmentObject(services.languagePreference)
+                    .environmentObject(services.labelStore)
+                    .environmentObject(services.organizations)
+                    .environmentObject(services.entitlements)
+                    .environmentObject(services.hotkeys)
+                    .environmentObject(services.settingsFocus)
+                    .environmentObject(services.screenContext)
+                    .environmentObject(services.summaryRegeneration)
+                    .environmentObject(services.productAnalytics)
+                    .environmentObject(services.demoPlayback)
+            }
         }
 
         let hosting = NSHostingController(rootView: root)

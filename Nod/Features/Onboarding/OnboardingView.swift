@@ -11,6 +11,7 @@ struct OnboardingView: View {
     @EnvironmentObject private var telemetry: OnboardingTelemetry
     @EnvironmentObject private var modeStore: ModeStore
     @EnvironmentObject private var emailPreferences: EmailPreferenceService
+    @EnvironmentObject private var integrations: IntegrationService
 
     /// Pad past the traffic-light strip so step titles never collide with the
     /// close button. macOS chrome occupies ~28pt of the window's top.
@@ -134,6 +135,8 @@ struct OnboardingView: View {
             TutorialStep(strings: strings, onFinish: {
                 state.goNext()
             })
+        case .calendar:
+            CalendarStep(integrations: integrations, onFinish: { state.goNext() })
         case .emailPreferences:
             EmailConsentStep(preferences: emailPreferences, onFinish: {
                 telemetry.completed()

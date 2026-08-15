@@ -243,6 +243,7 @@
 		C4BF79F21CDDA1A2699E0BD6 /* ChatHomeSuggestionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8832BAD2DAAE05BEC82F0569 /* ChatHomeSuggestionsTests.swift */; };
 		C54C0BADFBFD399D4A0AFB90 /* PlainMenuChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A71DC95A96E3C9B9C590B5 /* PlainMenuChrome.swift */; };
 		C72B91984D0F9667C0529D8B /* ScreenTextRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FBB18135692FA8770E5E8E8 /* ScreenTextRecognizer.swift */; };
+		C73312B2CC2D42B16C9486C8 /* CalendarStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E591A68316F8A38F089FAF /* CalendarStep.swift */; };
 		C76ADF94BD3A5A0FDAAC7F16 /* LauncherModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6288975DA0812900F645FB6B /* LauncherModel.swift */; };
 		C78361EB42C87B9332A74E6E /* AnswerBlocksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C257E9A520EDFD67C5B29338 /* AnswerBlocksTests.swift */; };
 		C7B524DC6679D9B4A217462F /* NodApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 649AEFDC67FDD49A98A082B0 /* NodApp.swift */; };
@@ -594,6 +595,7 @@
 		D3DDE26A0DA66D8BD7049EE2 /* ChatThinkingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatThinkingTests.swift; sourceTree = "<group>"; };
 		D451590C6B2056FD38F117E1 /* MeetingRecap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRecap.swift; sourceTree = "<group>"; };
 		D4AB9CDDBB49F28721BD4D15 /* ContextRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextRow.swift; sourceTree = "<group>"; };
+		D4E591A68316F8A38F089FAF /* CalendarStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarStep.swift; sourceTree = "<group>"; };
 		D5A71DC95A96E3C9B9C590B5 /* PlainMenuChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlainMenuChrome.swift; sourceTree = "<group>"; };
 		D5F2C834CFAF929E08B65E2D /* RewardsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewardsSection.swift; sourceTree = "<group>"; };
 		D71C40B9BBB159754BB4B48D /* DiarizationBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiarizationBuffer.swift; sourceTree = "<group>"; };
@@ -968,6 +970,7 @@
 		8CC0FB7852E5EDF2C9E9A3AD /* Onboarding */ = {
 			isa = PBXGroup;
 			children = (
+				D4E591A68316F8A38F089FAF /* CalendarStep.swift */,
 				D9B84BBD8032813B394A9D7B /* EmailConsentStep.swift */,
 				736C5AC42FF7736D5C14B5C5 /* OnboardingState.swift */,
 				73358F5121D4B8DF22D81BF2 /* OnboardingStrings.swift */,
@@ -1571,6 +1574,7 @@
 				4232FFC82141270A4EC6D285 /* CalendarAttendee.swift in Sources */,
 				2EB58C2621E5FE49C5E538C5 /* CalendarOccurrence.swift in Sources */,
 				2668AFF515FB196534CF97F3 /* CalendarService.swift in Sources */,
+				C73312B2CC2D42B16C9486C8 /* CalendarStep.swift in Sources */,
 				7847C763F84BB1AFFDEE34B9 /* CallBrief.swift in Sources */,
 				D47DB95FE9CC229FC767D2F9 /* CaptureSurfacePreference.swift in Sources */,
 				317AA8A27E1227F2F1F0EB2F /* ChatComponents.swift in Sources */,
