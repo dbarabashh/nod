@@ -65,7 +65,16 @@ final class RemoteCalendar: ObservableObject {
 
         struct Attendee: Decodable {
             let email: String
+            /// The name the invitation carried, when it carried one.
+            let display: String?
             let response: String
+
+            /// Google's own name first. `CalendarAttendee.display(from:)` is a
+            /// last resort that reads a name out of an address, and it cannot
+            /// know that `riwwom@gmail.com` is a person called something else.
+            var name: String {
+                display.map { $0.isEmpty ? email : $0 } ?? CalendarAttendee.display(from: email)
+            }
         }
 
         func occurrence(selfEmail: String?) -> CalendarOccurrence {
@@ -80,7 +89,7 @@ final class RemoteCalendar: ObservableObject {
                 // which keeps the record honest about who was asked.
                 attendees: (attendees ?? [])
                     .filter { $0.response != "declined" }
-                    .map { CalendarAttendee(display: $0.email, isSelf: $0.email.lowercased() == mine) },
+                    .map { CalendarAttendee(display: $0.name, isSelf: $0.email.lowercased() == mine) },
                 externalID: ical_uid,
                 conferenceURL: url
             )

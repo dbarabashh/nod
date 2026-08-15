@@ -19,6 +19,7 @@ import { json } from "../_shared/http.ts";
 import { adminClient } from "../_shared/supabase.ts";
 import { proxy } from "../_shared/integrations/nango.ts";
 import type { Connection } from "../_shared/integrations/nango.ts";
+import type { GoogleEvent } from "../_shared/integrations/googleCalendar.ts";
 
 const INTERNAL_JOB_SECRET = Deno.env.get("INTERNAL_JOB_SECRET");
 
@@ -40,18 +41,6 @@ const CONCURRENCY = 8;
 // is swept with nothing recorded.
 const MAX_ACCOUNTS_PER_RUN = 200;
 
-interface GoogleEvent {
-    id?: string;
-    iCalUID?: string;
-    summary?: string;
-    hangoutLink?: string;
-    start?: { dateTime?: string; date?: string };
-    end?: { dateTime?: string; date?: string };
-    organizer?: { email?: string };
-    attendees?: Array<{ email?: string; responseStatus?: string; resource?: boolean }>;
-    conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
-}
-
 interface EventRow {
     user_id: string;
     provider: string;
@@ -63,7 +52,7 @@ interface EventRow {
     starts_at: string;
     ends_at: string | null;
     organizer_email: string | null;
-    attendees: Array<{ email: string; response: string }>;
+    attendees: Array<{ email: string; display?: string; response: string }>;
     updated_at: string;
 }
 
@@ -250,11 +239,14 @@ function conferenceURL(event: GoogleEvent): string | null {
 /// to us. Everything past the address and the answer is left behind rather than
 /// stored: a display name adds nothing the address does not, and this table is
 /// already the most personal thing the sync writes.
-function attendeesOf(event: GoogleEvent): Array<{ email: string; response: string }> {
+function attendeesOf(event: GoogleEvent): Array<{ email: string; display?: string; response: string }> {
     return (event.attendees ?? [])
         .filter((attendee) => attendee.email && !attendee.resource)
         .map((attendee) => ({
             email: attendee.email as string,
+            // The name on the invitation. Without it the app has only an address
+            // to make a name from, and "riwwom@gmail.com" becomes "Riwwom".
+            display: attendee.displayName?.trim() || undefined,
             response: attendee.responseStatus ?? "needsAction",
         }));
 }
