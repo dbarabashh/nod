@@ -25,24 +25,37 @@ final class AccessChannel {
 
     private var channels: [RealtimeChannelV2] = []
     private var listeners: [Task<Void, Never>] = []
+    private var topics: [String] = []
 
     init(supabase: SupabaseClient, onChange: @escaping @MainActor () async -> Void) {
         self.supabase = supabase
         self.onChange = onChange
     }
 
-    /// Rebuilt rather than amended when membership changes: the set of audiences
-    /// is small, and a channel left subscribed to a team somebody just left is
-    /// the kind of leak that survives review because nothing looks wrong.
+    /// Rebuilt only when the set of audiences actually changed.
+    ///
+    /// This is called after every refresh, and most refreshes change nothing
+    /// about which topics matter — a folder being shared does not move anybody
+    /// between teams. Rebuilding regardless tore down the very listener that was
+    /// running the refresh, so the first message arrived and the second never
+    /// did: the subscription had cancelled itself while handling the first.
+    ///
+    /// Rebuilt rather than amended when it genuinely differs, because a channel
+    /// left subscribed to a team somebody just left is the kind of leak that
+    /// survives review — nothing about it looks wrong.
     func resubscribe(orgIDs: [UUID], teamIDs: [UUID]) async {
-        await teardown()
         guard let userID = supabase.auth.currentUser?.id else { return }
 
-        var topics = ["user:\(userID.uuidString.lowercased())"]
-        topics += orgIDs.map { "org:\($0.uuidString.lowercased())" }
-        topics += teamIDs.map { "team:\($0.uuidString.lowercased())" }
+        var wanted = ["user:\(userID.uuidString.lowercased())"]
+        wanted += orgIDs.map { "org:\($0.uuidString.lowercased())" }
+        wanted += teamIDs.map { "team:\($0.uuidString.lowercased())" }
+        wanted.sort()
 
-        for topic in topics {
+        guard wanted != topics else { return }
+        await teardown()
+        topics = wanted
+
+        for topic in wanted {
             let channel = supabase.channel(topic) { $0.isPrivate = true }
             let stream = channel.broadcastStream(event: "access")
             listeners.append(Task { [weak self] in
@@ -55,10 +68,11 @@ final class AccessChannel {
             await channel.subscribe()
             channels.append(channel)
         }
-        Log.ui.info("access channel listening topics=\(topics.count)")
+        Log.ui.info("access channel listening topics=\(wanted.count)")
     }
 
     func teardown() async {
+        topics = []
         listeners.forEach { $0.cancel() }
         listeners = []
         for channel in channels {

@@ -173,7 +173,7 @@ struct AppServices {
         // The closure re-asks and then re-subscribes: a membership change is
         // both the thing to refresh for and the thing that changes which
         // audiences are worth listening to.
-        var accessChannelBox: AccessChannel?
+        weak var accessChannelBox: AccessChannel?
         let accessChannel = AccessChannel(supabase: supabase) { [weak organizations, weak labelStore, weak meetingStore] in
             await organizations?.refresh()
             await labelStore?.refresh()
