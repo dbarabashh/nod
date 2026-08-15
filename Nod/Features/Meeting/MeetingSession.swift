@@ -189,38 +189,6 @@ final class MeetingSession: ObservableObject {
     /// so a manual Start right after a declined offer doesn't inherit its title.
     var pendingRecordingTitle: String?
 
-    /// Inactivity-watchdog state. Silence is measured from the latest of
-    /// `store.lastSpeechAt`, `inactivityResetAt` (a resume or a "keep recording"
-    /// tap), and `recordingStartedAt`; `silenceBackoffMultiplier` grows on each
-    /// "keep recording" so we nag less. While the prompt is up, `promptDeadline`
-    /// is its wall-clock auto-end time and `speechAtPromptRaise` is the speech
-    /// marker captured when it was raised — any change to it dismisses the prompt.
-    private var inactivityResetAt: Date?
-    private var promptDeadline: Date?
-    private var speechAtPromptRaise: Date?
-    /// Backoff factor on the silence threshold; doubles on each "keep recording"
-    /// so repeat prompts get progressively rarer.
-    private var silenceBackoffMultiplier: Double = 1
-    /// Set when the user keeps a recording the *call* was said to have ended.
-    /// Detection can flap — a conferencing window that reappears and goes again
-    /// would otherwise re-raise the countdown every couple of minutes for the
-    /// rest of the meeting. Cleared with the recording.
-    private var autoFinishDeclined = false
-    /// Silence needed to prompt when the user seems present (base) vs when
-    /// they're idle at the keyboard/mouse — a strong "walked away" hint. A
-    /// locked screen also stops delivering HID events, so idle subsumes lock;
-    /// system sleep suspends the timer, so that silence accrues for free on wake.
-    private static let autoEndBaseSilenceSeconds: TimeInterval = 600
-    private static let autoEndAwaySilenceSeconds: TimeInterval = 180
-    private static let autoEndMaxSilenceSeconds: TimeInterval = 2400
-    private static let hidIdleAwaySeconds: TimeInterval = 300
-    private static let maxSilenceBackoff: Double = 8
-    private static let autoEndCountdownSeconds = 120
-    /// Shorter than the silence countdown because the evidence is better: the
-    /// call is demonstrably over, and the two minutes a silent stretch earns
-    /// would just be two minutes of an empty room in the transcript.
-    private static let callEndedCountdownSeconds = 30
-
     /// Wall-clock start of the current recording. Captured in beginRecording
     /// so we can stamp `started_at` accurately when we persist on summary.
     private var recordingStartedAt: Date?
@@ -273,20 +241,23 @@ final class MeetingSession: ObservableObject {
     private let store: TranscriptStore
     private let llm: LLMProxyClient
     let meetingStore: MeetingStore
-    private let entityStore: EntityStore
     private let knowledgeStore: KnowledgeStore
-    private let actionItemStore: ActionItemStore
     private let language: LanguagePreference
     private let proactivity: ProactivityPreference
     private let auth: AuthService
     private let profileStore: ProfileStore
     private let outbox: MeetingOutbox
     private let modeStore: ModeStore
-    private let screenExclusions: ScreenExclusions
     let calendar: CalendarService
     private let analytics: ProductAnalytics
     private let recapGenerator: RecapGenerator
     private var captureID: UUID?
+
+    /// The forgot-to-stop watchdog's timing state. It decides; this class acts.
+    private var autoEnd = AutoEndWatchdog()
+    private let rosterSampler: MeetingRosterSampler
+    /// Everything a finished meeting gets once its recap exists.
+    private let enrichment: MeetingEnrichment
 
     /// What Nod hears while the meeting is still running. Built here rather than
     /// injected because its life is exactly this session's — like
@@ -315,19 +286,24 @@ final class MeetingSession: ObservableObject {
         self.store = store
         self.llm = llm
         self.meetingStore = meetingStore
-        self.entityStore = entityStore
         self.knowledgeStore = knowledgeStore
-        self.actionItemStore = actionItemStore
         self.language = language
         self.proactivity = proactivity
         self.auth = auth
         self.profileStore = profileStore
         self.outbox = outbox
         self.modeStore = modeStore
-        self.screenExclusions = screenExclusions
         self.calendar = calendar
         self.analytics = analytics
         recapGenerator = RecapGenerator(llm: llm)
+        rosterSampler = MeetingRosterSampler(exclusions: screenExclusions)
+        enrichment = MeetingEnrichment(
+            llm: llm,
+            meetingStore: meetingStore,
+            entityStore: entityStore,
+            knowledgeStore: knowledgeStore,
+            actionItemStore: actionItemStore
+        )
         analyst = LiveMeetingAnalyst(llm: llm, store: store, proactivity: proactivity)
     }
 
@@ -335,25 +311,7 @@ final class MeetingSession: ObservableObject {
         // A sign-out drops the session mid-recording; stop the streaming loop so
         // it doesn't outlive the panel. The WAL on disk keeps whatever streamed.
         streamTask?.cancel()
-        rosterTask?.cancel()
     }
-
-    /// Everyone a conferencing app has named on this call so far, used to tell
-    /// diarization how many voices to expect. Accumulated across samples — see
-    /// `MeetingRoster.merging`.
-    private var roster: MeetingRoster?
-
-    private var rosterTask: Task<Void, Never>?
-
-    /// How often the participant list is re-read while recording.
-    ///
-    /// Sampling once at the start read the roster at the worst possible moment:
-    /// recording begins as people are still joining and before anyone has opened
-    /// the participant panel, so a five-person call routinely produced no count
-    /// at all and clustering fell back to its length-sensitive threshold. Loose
-    /// on purpose — a participant list changes a handful of times per call, and
-    /// each sample is an accessibility walk of the app's windows.
-    private static let rosterSampleInterval: TimeInterval = 15
 
     /// `media` stays opt-in until music-heavy audio is validated — soundtracks
     /// cluster into speakers that don't exist.
@@ -386,53 +344,41 @@ final class MeetingSession: ObservableObject {
             if autoEndPrompt != nil { clearAutoEndPrompt() }
             return
         }
-        let now = Date()
-
-        if autoEndPrompt != nil {
-            // Any new confirmed speech since the prompt was raised means the
-            // meeting is still live — dismiss, whichever reason raised it.
-            // Comparing the whole timestamp (not onset-vs-raise) catches a chunk
-            // that finalizes during the countdown even though its speech started
-            // just before the prompt, so a continuous talker can't be auto-ended
-            // mid-sentence. That looseness also lets a chunk from *during* the
-            // call cancel a `.callEnded` countdown, which is the trade taken
-            // deliberately: it costs a recording that runs to the silence
-            // watchdog instead, where an onset-vs-raise comparison would cost a
-            // meeting cut off in the middle of a sentence.
-            if store.lastSpeechAt != speechAtPromptRaise {
-                clearAutoEndPrompt()
-                return
-            }
-            // Wall-clock deadline, not a tick count, so main-thread jitter can't
-            // stretch "2:00" past two real minutes.
-            let remaining = (promptDeadline ?? now).timeIntervalSince(now)
-            if remaining <= 0 {
-                clearAutoEndPrompt()
-                Log.ui.info("auto-ending meeting after inactivity")
-                endMeeting()
-            } else {
-                let secs = Int(remaining.rounded(.up))
-                if autoEndPrompt?.secondsRemaining != secs {
-                    autoEndPrompt?.secondsRemaining = secs
-                }
-            }
-            return
-        }
-
-        let lastActivity = [store.lastSpeechAt, inactivityResetAt, recordingStartedAt]
-            .compactMap { $0 }
-            .max() ?? now
-        let silence = now.timeIntervalSince(lastActivity)
-        let away = hidIdleSeconds() >= Self.hidIdleAwaySeconds
-        let base = away ? Self.autoEndAwaySilenceSeconds : Self.autoEndBaseSilenceSeconds
-        let threshold = min(base * silenceBackoffMultiplier, Self.autoEndMaxSilenceSeconds)
-        if silence >= threshold {
-            promptDeadline = now.addingTimeInterval(TimeInterval(Self.autoEndCountdownSeconds))
-            speechAtPromptRaise = store.lastSpeechAt
-            autoEndPrompt = AutoEndPrompt(secondsRemaining: Self.autoEndCountdownSeconds)
+        switch autoEnd.tick(
+            now: Date(),
+            prompt: autoEndPrompt,
+            lastSpeechAt: store.lastSpeechAt,
+            recordingStartedAt: recordingStartedAt,
+            hidIdleSeconds: hidIdleSeconds()
+        ) {
+        case .idle:
+            break
+        case .dismiss:
+            autoEndPrompt = nil
+        case let .countdown(seconds):
+            autoEndPrompt?.secondsRemaining = seconds
+        case let .raise(prompt, silence, away):
+            autoEndPrompt = prompt
             raisePanelForPrompt()
-            Log.ui.info("inactivity prompt raised (silence \(Int(silence))s, away=\(away))")
+            Log.ui.info("inactivity prompt raised (silence \(silence)s, away=\(away))")
+        case .end:
+            autoEndPrompt = nil
+            Log.ui.info("auto-ending meeting after inactivity")
+            endMeeting()
         }
+    }
+
+    /// The call this recording was following has ended, per `MeetingDetector`.
+    /// Only for `meeting` — a voice note that happened to be running while a
+    /// call ended has nothing to do with that call.
+    func callEnded(app: String) {
+        guard meeting == .recording, selectedKind == .meeting else { return }
+        if case .callEnded = autoEndPrompt?.reason { return }
+        guard let prompt = autoEnd.callEnded(app: app, now: Date(), lastSpeechAt: store.lastSpeechAt)
+        else { return }
+        autoEndPrompt = prompt
+        raisePanelForPrompt()
+        Log.ui.info("\(app) call ended — finishing shortly")
     }
 
     /// The countdown card lives inside the panel, and a hidden panel keeps its
@@ -446,32 +392,7 @@ final class MeetingSession: ObservableObject {
 
     private func clearAutoEndPrompt() {
         autoEndPrompt = nil
-        promptDeadline = nil
-        speechAtPromptRaise = nil
-    }
-
-    /// The call this recording was following has ended, per `MeetingDetector`.
-    ///
-    /// Raises the same countdown the silence watchdog uses rather than ending
-    /// outright, and the countdown dies the moment anyone speaks: a call whose
-    /// process is gone is still only evidence that the *call* ended, not that
-    /// the conversation did. Thirty seconds with a keep button is the difference
-    /// between "Nod wrapped up after the call" and "Nod cut me off".
-    ///
-    /// Only for `meeting` — a voice note that happened to be running while a
-    /// call ended has nothing to do with that call.
-    func callEnded(app: String) {
-        guard meeting == .recording, selectedKind == .meeting, !autoFinishDeclined else { return }
-        if case .callEnded = autoEndPrompt?.reason { return }
-        let now = Date()
-        promptDeadline = now.addingTimeInterval(TimeInterval(Self.callEndedCountdownSeconds))
-        speechAtPromptRaise = store.lastSpeechAt
-        autoEndPrompt = AutoEndPrompt(
-            secondsRemaining: Self.callEndedCountdownSeconds,
-            reason: .callEnded(app: app)
-        )
-        raisePanelForPrompt()
-        Log.ui.info("\(app) call ended — finishing in \(Self.callEndedCountdownSeconds)s")
+        autoEnd.clearPrompt()
     }
 
     /// Seconds since the last keyboard/mouse event. A locked screen or a user
@@ -601,10 +522,8 @@ final class MeetingSession: ObservableObject {
         knowledgeStore.isCapturing = true
         elapsed = 0
         clearAutoEndPrompt()
+        autoEnd.reset()
         wantsAutoStart = false
-        autoFinishDeclined = false
-        inactivityResetAt = nil
-        silenceBackoffMultiplier = 1
         // Stamp the wall-clock so the persisted row carries an accurate
         // `started_at` instead of using the summary-ready instant.
         let startedAt = Date()
@@ -637,7 +556,7 @@ final class MeetingSession: ObservableObject {
         startStreamLoop(draft: draft, generation: sessionGeneration)
 
         if shouldDiarize {
-            startRosterSampling()
+            rosterSampler.start()
         }
         Task {
             await store.start(meetingID: meetingID, diarizing: shouldDiarize)
@@ -739,25 +658,10 @@ final class MeetingSession: ObservableObject {
         }
         guard settledCount > streamedCount else { return }
         let slice = Array(entries[streamedCount ..< settledCount])
-        let records = transcriptRecords(from: slice, meeting: draft, baseIdx: streamedCount)
+        let records = TranscriptSnapshot.records(from: slice, meeting: draft, baseIdx: streamedCount)
         streamedCount = settledCount
         await outbox.record(records, for: draft.id)
         await outbox.flush(using: meetingStore, userID: draft.userID)
-    }
-
-    /// Tail kept after the last detected speech when trimming trailing silence —
-    /// covers Whisper latency plus the final in-flight VAD segment.
-    private static let trailingSilenceTailSeconds: TimeInterval = 30
-
-    /// End time clamped so a forgot-to-stop tail of dead air can't inflate the
-    /// meeting's duration: `lastSpeech + tail`, bounded to `[startedAt, now]`.
-    /// Falls back to `now` when there was no speech; a normal stop right after
-    /// talking also lands on `now` because `lastSpeech + tail` exceeds it.
-    private static func trimmedEndDate(startedAt: Date, lastSpeechAt: Date?) -> Date {
-        let now = Date()
-        guard let lastSpeechAt else { return now }
-        let trimmed = lastSpeechAt.addingTimeInterval(trailingSilenceTailSeconds)
-        return max(startedAt, min(now, trimmed))
     }
 
     func endMeeting() {
@@ -790,7 +694,7 @@ final class MeetingSession: ObservableObject {
         // Before the finalize below reads the count: the call is over, so no
         // later sample can add anything, and one landing mid-finalize would
         // race the read.
-        stopRosterSampling()
+        rosterSampler.stop()
 
         let recordingDraftID = recordingDraft?.id
         recordingDraft = nil
@@ -827,7 +731,10 @@ final class MeetingSession: ObservableObject {
         // and the kind/language shouldn't shift if the user reconfigures while
         // the summary generates.
         let startedAt = recordingStartedAt ?? Date()
-        let endedAt = Self.trimmedEndDate(startedAt: startedAt, lastSpeechAt: store.lastSpeechAt)
+        let endedAt = AutoEndWatchdog.trimmedEndDate(
+            startedAt: startedAt,
+            lastSpeechAt: store.lastSpeechAt
+        )
         let lang = language.current
         let langCode = lang.rawValue
         let kind = selectedKind
@@ -870,7 +777,6 @@ final class MeetingSession: ObservableObject {
         justEndedMeetingID = draft.id
         resetPanelForIdle()
 
-        let draftID = draft.id
         // Pin this meeting's transcript on the main thread, before any await: the
         // store + transcribers are shared and reused by the next recording, so a
         // meeting started while this one summarises (the recap stream takes many
@@ -881,7 +787,7 @@ final class MeetingSession: ObservableObject {
         // Task it would be whatever *that* meeting had accumulated by then —
         // an inflated speaker count here, and its participants' names in this
         // meeting's recap prompt.
-        let pinnedRoster = consumeRoster()
+        let pinnedRoster = rosterSampler.consume()
         // And pinned for the third time for the same reason. `beginRecording`
         // resets the analyst, so a meeting started while this one summarises
         // would empty these — and worse, by the time `enrich` runs they would be
@@ -900,191 +806,264 @@ final class MeetingSession: ObservableObject {
         Log.stt.info("participants: \(people.names.count) name(s), \(people.expectedOtherVoices) other voice(s) — \(people.source)")
         if shouldDiarize { meetingStore.beginResolvingSpeakers(id: draft.id) }
         Task {
-            // Every exit of this Task clears the "labels still resolving" flag —
-            // unless clustering overran and `applyLateSpeakers` took ownership,
-            // because that pass is what rewrites the labels next.
-            var lateRelabelOwnsFlag = false
-            defer {
-                if !lateRelabelOwnsFlag { meetingStore.finishResolvingSpeakers(id: draftID) }
-            }
-            // Ensure a WAL entry exists even on the fallback path — idempotent,
-            // so a streamed meeting keeps its progress.
-            await outbox.begin(draft)
-
-            await store.flushPending()
-            isFinishingTranscription = false
-            // Only now: every chunk has either landed or been given up on, so
-            // closing the lease cannot refuse audio that is still in flight.
-            if let meetingLeaseID {
-                await llm.endMeetingLease(meetingID: meetingLeaseID)
-            }
-
-            // Clustering a long call costs minutes, and the recap prompt wants
-            // the labels, so the finalize does wait here — but only for
-            // `speakerJoinTimeout`. Past that the summary is generated from an
-            // unlabelled transcript rather than making the user watch
-            // "Generating…" for minutes, and a result that lands late relabels
-            // the persisted rows in `applyLateSpeakers`.
-            let expectedSpeakers = people.expectedOtherVoices
-            let participants = people.names
-            let speakerTask = Task { await store.resolveSpeakers(expectedSpeakerCount: expectedSpeakers) }
-            let speakers = await Self.value(of: speakerTask, within: Self.speakerJoinTimeout) ?? [:]
-
-            // Prefer the post-flush transcript (it includes the last in-flight
-            // chunk) while this is still the active session; if a newer recording
-            // took over the store during flush, fall back to the pinned snapshot
-            // so this meeting is still persisted instead of silently dropped.
-            let entriesSnapshot = sessionGeneration == generation ? store.entries : pinnedEntries
-            let clustered = Self.transcriptContext(from: entriesSnapshot, speakers: speakers)
-            guard !clustered.isEmpty else {
-                if sessionGeneration == generation { store.clear() }
-                await outbox.discard(draftID)
-                meetingStore.markGenerationFailed(id: draftID, errorMessage: "⚠️ No transcript captured")
-                return
-            }
-
-            // Names before the recap, not after it: the recap is the artefact
-            // the user keeps and shares, and it can only write a name it was
-            // handed one for. Resolved afterwards, the summary froze around
-            // "Speaker 2" while the transcript chips underneath were relabelled
-            // — one meeting, two views, permanently disagreeing.
-            let speakerNames = speakers.isEmpty
-                ? [:]
-                : await nameSpeakers(
-                    in: clustered,
+            await finalize(
+                Finalize(
+                    draft: draft,
+                    leaseID: meetingLeaseID,
+                    entries: pinnedEntries,
                     people: people,
-                    clusters: Array(Set(speakers.values))
+                    findings: pinnedFindings,
+                    language: lang,
+                    framing: framing,
+                    profileContext: profile,
+                    generation: generation
                 )
-            let context = speakerNames.isEmpty
-                ? clustered
-                : Self.transcriptContext(from: entriesSnapshot, speakers: speakers, names: speakerNames)
-            // Carried on the draft rather than patched in afterwards, so the
-            // names land in the same INSERT as the meeting instead of needing
-            // the row to exist first.
-            var named = draft
-            named.speakerNames = speakerNames.isEmpty ? nil : speakerNames
-
-            let (system, user) = PromptLibrary.build(
-                transcript: context,
-                language: lang,
-                personalContext: profile,
-                sessionKind: draft.kind,
-                summaryTemplate: framing.summary,
-                modeFocus: framing.focus,
-                meetingDate: PromptLibrary.sessionDateString(startedAt),
-                participants: participants,
-                liveNotes: LiveFinding.notes(from: pinnedFindings)
             )
+        }
+    }
 
-            do {
-                let recap = try await recapGenerator.streamedRecap(
-                    system: system,
-                    user: user,
-                    transcript: context,
-                    language: lang
-                ) { [meetingStore] markdown in
-                    meetingStore.updateStreamingSummary(id: draftID, markdown: markdown)
-                }
-                let text = recap.toMarkdown()
-                // Title is best-effort — failure here doesn't block
-                // persistence; Meeting.displayTitle falls back to a
-                // date label.
-                let title = await recapGenerator.title(from: text, language: lang)
-                let updated = named.updating(title: title, summary: text, recap: recap)
-                meetingStore.applyGenerated(updated)
+    /// What the finalize must read from the instant the user pressed End. The
+    /// transcript store, the roster and the analyst are all shared with the next
+    /// recording, so anything read inside the task would be that meeting's.
+    private struct Finalize {
+        let draft: Meeting
+        let leaseID: UUID?
+        let entries: [TranscriptEntry]
+        let people: MeetingParticipants
+        let findings: [LiveFinding]
+        let language: AppLanguage
+        let framing: MeetingFraming
+        let profileContext: String
+        /// Which recording this belonged to — see `sessionGeneration`.
+        let generation: Int
+    }
 
-                // Only clear the live store if it still belongs to THIS meeting —
-                // a recording started during summary generation now owns it. The
-                // transcript is already pinned in `entriesSnapshot`, so persist
-                // either way: bailing here used to leave the meeting applied
-                // locally but never written to the WAL/server, so it vanished on
-                // the next launch.
-                if sessionGeneration == generation { store.clear() }
+    /// Summarise, persist, enrich. Runs once the panel is already back at rest,
+    /// against the snapshot above, so a recording started while this one
+    /// summarises can neither be written into it nor wiped by it.
+    private func finalize(_ pinned: Finalize) async {
+        // Only what the body reads more than once — the rest is read off
+        // `pinned` where it is used.
+        let draft = pinned.draft
+        let draftID = draft.id
+        let pinnedEntries = pinned.entries
+        let pinnedFindings = pinned.findings
+        let people = pinned.people
+        let generation = pinned.generation
+        let lang = pinned.language
 
-                // Stamp the finished meeting + full transcript into the durable
-                // WAL, THEN push. The recap is on disk before the network write,
-                // so a quit / crash / app update can't lose it — launch replay
-                // resends whatever didn't drain here.
-                let records = transcriptRecords(from: entriesSnapshot, meeting: updated, speakers: speakers)
-                await outbox.complete(updated, transcripts: records, for: updated.id)
-                await drainOutbox()
-                meetingStore.finishFinalizing(id: updated.id)
-                // The recap can land a minute after the user stopped and walked
-                // off. Only on the path where one was actually written — the
-                // fallback below saves the transcript under a "summary failed"
-                // note, which is not something to chime about.
-                UISound.summaryReady.play(recording: meeting != .idle)
+        // Every exit of this Task clears the "labels still resolving" flag —
+        // unless clustering overran and `applyLateSpeakers` took ownership,
+        // because that pass is what rewrites the labels next.
+        var lateRelabelOwnsFlag = false
+        defer {
+            if !lateRelabelOwnsFlag { meetingStore.finishResolvingSpeakers(id: draftID) }
+        }
+        // Ensure a WAL entry exists even on the fallback path — idempotent,
+        // so a streamed meeting keeps its progress.
+        await outbox.begin(draft)
 
-                // Detached on purpose: the relabel is best-effort, and awaiting
-                // it here would hold entity extraction and embedding indexing —
-                // what makes the meeting findable — behind the whole clustering
-                // pass on exactly the long calls that overran the join timeout.
-                if speakers.isEmpty {
-                    lateRelabelOwnsFlag = true
-                    Task {
-                        await self.applyLateSpeakers(
-                            from: speakerTask,
-                            entries: entriesSnapshot,
-                            meeting: updated,
-                            people: people
-                        )
-                    }
-                }
+        await store.flushPending()
+        isFinishingTranscription = false
+        // Only now: every chunk has either landed or been given up on, so
+        // closing the lease cannot refuse audio that is still in flight.
+        if let leaseID = pinned.leaseID {
+            await llm.endMeetingLease(meetingID: leaseID)
+        }
 
-                // Enrichment (entities for "Related" + embeddings for
-                // cross-session search) only runs once the meeting actually
-                // landed on the server. If the save is still queued for retry,
-                // the parent row doesn't exist yet, so these would FK-fail,
-                // waste an LLM + embedding call, and never re-run.
-                //
-                // Run indexing AFTER entities, not concurrently: indexing runs
-                // gte-small embeddings *inside* the edge worker and is CPU-heavy
-                // enough to trip WORKER_RESOURCE_LIMIT (HTTP 546). Serializing
-                // keeps it from sharing a worker instance with the entity call —
-                // the contention that pushed it over the CPU budget. It's all
-                // background, so the extra latency is invisible to the user.
-                let landed = await outbox.isPending(updated.id) == false
-                if landed {
-                    await enrich(
-                        updated,
-                        userID: userID,
-                        transcript: context,
-                        recap: recap,
-                        participants: participants,
-                        live: pinnedFindings
+        // Clustering a long call costs minutes, and the recap prompt wants
+        // the labels, so the finalize does wait here — but only for
+        // `speakerJoinTimeout`. Past that the summary is generated from an
+        // unlabelled transcript rather than making the user watch
+        // "Generating…" for minutes, and a result that lands late relabels
+        // the persisted rows in `applyLateSpeakers`.
+        let expectedSpeakers = people.expectedOtherVoices
+        let participants = people.names
+        let speakerTask = Task { await store.resolveSpeakers(expectedSpeakerCount: expectedSpeakers) }
+        let speakers = await Self.value(of: speakerTask, within: Self.speakerJoinTimeout) ?? [:]
+
+        // Prefer the post-flush transcript (it includes the last in-flight
+        // chunk) while this is still the active session; if a newer recording
+        // took over the store during flush, fall back to the pinned snapshot
+        // so this meeting is still persisted instead of silently dropped.
+        let entriesSnapshot = sessionGeneration == generation ? store.entries : pinnedEntries
+        let clustered = TranscriptSnapshot.context(from: entriesSnapshot, speakers: speakers)
+        guard !clustered.isEmpty else {
+            if sessionGeneration == generation { store.clear() }
+            await outbox.discard(draftID)
+            meetingStore.markGenerationFailed(id: draftID, errorMessage: "⚠️ No transcript captured")
+            return
+        }
+
+        // Names before the recap, not after it: the recap is the artefact
+        // the user keeps and shares, and it can only write a name it was
+        // handed one for. Resolved afterwards, the summary froze around
+        // "Speaker 2" while the transcript chips underneath were relabelled
+        // — one meeting, two views, permanently disagreeing.
+        let speakerNames = speakers.isEmpty
+            ? [:]
+            : await enrichment.nameSpeakers(
+                in: clustered,
+                people: people,
+                clusters: Array(Set(speakers.values))
+            )
+        let context = speakerNames.isEmpty
+            ? clustered
+            : TranscriptSnapshot.context(
+                from: entriesSnapshot,
+                speakers: speakers,
+                names: speakerNames
+            )
+        // Carried on the draft rather than patched in afterwards, so the
+        // names land in the same INSERT as the meeting instead of needing
+        // the row to exist first.
+        var named = draft
+        named.speakerNames = speakerNames.isEmpty ? nil : speakerNames
+
+        let (system, user) = PromptLibrary.build(
+            transcript: context,
+            language: lang,
+            personalContext: pinned.profileContext,
+            sessionKind: draft.kind,
+            summaryTemplate: pinned.framing.summary,
+            modeFocus: pinned.framing.focus,
+            meetingDate: PromptLibrary.sessionDateString(draft.startedAt),
+            participants: participants,
+            liveNotes: LiveFinding.notes(from: pinnedFindings)
+        )
+
+        do {
+            let recap = try await recapGenerator.streamedRecap(
+                system: system,
+                user: user,
+                transcript: context,
+                language: lang
+            ) { [meetingStore] markdown in
+                meetingStore.updateStreamingSummary(id: draftID, markdown: markdown)
+            }
+            let text = recap.toMarkdown()
+            // Title is best-effort — failure here doesn't block
+            // persistence; Meeting.displayTitle falls back to a
+            // date label.
+            let title = await recapGenerator.title(from: text, language: lang)
+            let updated = named.updating(title: title, summary: text, recap: recap)
+            meetingStore.applyGenerated(updated)
+
+            // Only clear the live store if it still belongs to THIS meeting —
+            // a recording started during summary generation now owns it. The
+            // transcript is already pinned in `entriesSnapshot`, so persist
+            // either way: bailing here used to leave the meeting applied
+            // locally but never written to the WAL/server, so it vanished on
+            // the next launch.
+            if sessionGeneration == generation { store.clear() }
+
+            // Stamp the finished meeting + full transcript into the durable
+            // WAL, THEN push. The recap is on disk before the network write,
+            // so a quit / crash / app update can't lose it — launch replay
+            // resends whatever didn't drain here.
+            let records = TranscriptSnapshot.records(
+                from: entriesSnapshot,
+                meeting: updated,
+                speakers: speakers
+            )
+            await outbox.complete(updated, transcripts: records, for: updated.id)
+            await drainOutbox()
+            meetingStore.finishFinalizing(id: updated.id)
+            // The recap can land a minute after the user stopped and walked
+            // off. Only on the path where one was actually written — the
+            // fallback below saves the transcript under a "summary failed"
+            // note, which is not something to chime about.
+            UISound.summaryReady.play(recording: meeting != .idle)
+
+            // Detached on purpose: the relabel is best-effort, and awaiting
+            // it here would hold entity extraction and embedding indexing —
+            // what makes the meeting findable — behind the whole clustering
+            // pass on exactly the long calls that overran the join timeout.
+            if speakers.isEmpty {
+                lateRelabelOwnsFlag = true
+                Task {
+                    await self.enrichment.applyLateSpeakers(
+                        from: speakerTask,
+                        entries: entriesSnapshot,
+                        meeting: updated,
+                        people: people
                     )
                 }
-            } catch {
-                // Summary failed, but the transcript is real work. Complete the
-                // WAL entry with a fallback recap so it's a TERMINAL, drainable
-                // `.completed` row (preserving the transcript) — not a phantom
-                // `.recording` entry that would re-push forever and never reach a
-                // terminal state. Persist even if a newer recording started: the
-                // transcript is pinned in `entriesSnapshot`, and only the live
-                // store clear is gated so the new recording isn't wiped.
-                let fallback = draft.updating(title: nil, summary: Meeting.summaryUnavailableNote)
-                // Whatever the join timeout already produced, never
-                // `speakerTask.value`: waiting out a multi-minute clustering
-                // pass here would hold the WAL write hostage on precisely the
-                // path where the summary already failed.
-                let records = transcriptRecords(
-                    from: entriesSnapshot,
-                    meeting: fallback,
-                    speakers: speakers
-                )
-                await outbox.complete(fallback, transcripts: records, for: draftID)
-                await drainOutbox()
-                if sessionGeneration == generation { store.clear() }
-                Log.ui.error("Meeting summary generation failed: \(error.localizedDescription)")
-                // The same note the WAL and the server row carry, not the raw
-                // error: the detail view keys the "Generate summary" retry off
-                // it, and a cache that reads differently from the persisted row
-                // would hide that retry until the next refresh.
-                meetingStore.markGenerationFailed(
-                    id: draftID,
-                    errorMessage: Meeting.summaryUnavailableNote
+            }
+
+            // Enrichment (entities for "Related" + embeddings for
+            // cross-session search) only runs once the meeting actually
+            // landed on the server. If the save is still queued for retry,
+            // the parent row doesn't exist yet, so these would FK-fail,
+            // waste an LLM + embedding call, and never re-run.
+            //
+            // Run indexing AFTER entities, not concurrently: indexing runs
+            // gte-small embeddings *inside* the edge worker and is CPU-heavy
+            // enough to trip WORKER_RESOURCE_LIMIT (HTTP 546). Serializing
+            // keeps it from sharing a worker instance with the entity call —
+            // the contention that pushed it over the CPU budget. It's all
+            // background, so the extra latency is invisible to the user.
+            let landed = await outbox.isPending(updated.id) == false
+            if landed {
+                await enrichment.run(
+                    for: updated,
+                    transcript: context,
+                    recap: recap,
+                    participants: participants,
+                    live: pinnedFindings
                 )
             }
+        } catch {
+            // Summary failed, but the transcript is real work. Complete the
+            // WAL entry with a fallback recap so it's a TERMINAL, drainable
+            // `.completed` row (preserving the transcript) — not a phantom
+            // `.recording` entry that would re-push forever and never reach a
+            // terminal state. Persist even if a newer recording started: the
+            // transcript is pinned in `entriesSnapshot`, and only the live
+            // store clear is gated so the new recording isn't wiped.
+            let fallback = draft.updating(title: nil, summary: Meeting.summaryUnavailableNote)
+            // Whatever the join timeout already produced, never
+            // `speakerTask.value`: waiting out a multi-minute clustering
+            // pass here would hold the WAL write hostage on precisely the
+            // path where the summary already failed.
+            let records = TranscriptSnapshot.records(
+                from: entriesSnapshot,
+                meeting: fallback,
+                speakers: speakers
+            )
+            await outbox.complete(fallback, transcripts: records, for: draftID)
+            await drainOutbox()
+            if sessionGeneration == generation { store.clear() }
+            Log.ui.error("Meeting summary generation failed: \(error.localizedDescription)")
+            // The same note the WAL and the server row carry, not the raw
+            // error: the detail view keys the "Generate summary" retry off
+            // it, and a cache that reads differently from the persisted row
+            // would hide that retry until the next refresh.
+            meetingStore.markGenerationFailed(
+                id: draftID,
+                errorMessage: Meeting.summaryUnavailableNote
+            )
+        }
+    }
+
+    /// How long the finalize waits for clustering before persisting without
+    /// speakers. A short call lands well inside this; an hour-long one does not,
+    /// and its rows are relabelled by `applyLateSpeakers` instead of making the
+    /// user watch "Generating…" for minutes.
+    private static let speakerJoinTimeout: TimeInterval = 30
+
+    /// `task.value`, or nil if it hasn't finished within `timeout`. The task
+    /// keeps running — the caller decides what to do with a late result.
+    private static func value<T: Sendable>(of task: Task<T, Never>, within timeout: TimeInterval) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask { await task.value }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return nil
+            }
+            let first = await group.next()
+            group.cancelAll()
+            return first.flatMap { $0 }
         }
     }
 
@@ -1172,13 +1151,13 @@ final class MeetingSession: ObservableObject {
         endMeetingLeaseNow(detachActiveMeetingLease())
         streamTask?.cancel()
         streamTask = nil
-        stopRosterSampling()
+        rosterSampler.stop()
         recordingDraft = nil
         wantsAutoStart = false
-        autoFinishDeclined = false
+        autoEnd.reset()
         // Participant names are session-scoped by policy (privacy.md § 3.10):
         // they exist to size the clustering pass and must not outlive it.
-        roster = nil
+        rosterSampler.clear()
         resetPanelForIdle()
         store.clear()
         // The findings themselves outlive this — `enrich` has not necessarily
@@ -1202,7 +1181,7 @@ final class MeetingSession: ObservableObject {
             if selectedKind.extractsActionItems { analyst.start() }
             // Measure post-resume silence from now, not from the last pre-pause
             // speech, so resuming doesn't instantly trip the inactivity prompt.
-            inactivityResetAt = Date()
+            autoEnd.noteActivity(at: Date())
             Task { await audioCapture.resume() }
         }
     }
@@ -1211,15 +1190,9 @@ final class MeetingSession: ObservableObject {
     /// the silence threshold (doubling, capped) so we don't nag on the next
     /// quiet stretch.
     func keepRecording() {
-        if case .callEnded = autoEndPrompt?.reason {
-            // They've told us the conversation outlived the call; rejoining and
-            // leaving again must not raise this a second time for this recording.
-            autoFinishDeclined = true
-        }
-        clearAutoEndPrompt()
-        inactivityResetAt = Date()
-        silenceBackoffMultiplier = min(silenceBackoffMultiplier * 2, Self.maxSilenceBackoff)
-        Log.ui.info("user kept recording — silence backoff ×\(Int(silenceBackoffMultiplier))")
+        let backoff = autoEnd.kept(reason: autoEndPrompt?.reason, now: Date())
+        autoEndPrompt = nil
+        Log.ui.info("user kept recording — silence backoff ×\(Int(backoff))")
     }
 
     func toggleMic() {
@@ -1244,266 +1217,6 @@ final class MeetingSession: ObservableObject {
         // "Not synced" indicator until the push lands.
         meetingStore.setUnsyncedMeetings(stuck)
         saveErrorToast = stuck.isEmpty ? nil : "Couldn't sync meeting — tap to retry."
-    }
-
-    /// Array-based counterpart to `TranscriptStore.fullContext` so finalize can
-    /// read a pinned snapshot, not the shared live store the next recording resets.
-    /// `names` maps a cluster number to the person behind it, so a transcript
-    /// handed to the recap reads `[Them · Andy]` rather than `[Them · Speaker 3]`
-    /// — the recap can only write a name it was given one for.
-    private static func transcriptContext(
-        from entries: [TranscriptEntry],
-        speakers: [UUID: Int] = [:],
-        names: [String: String] = [:]
-    ) -> String {
-        entries.map { entry in
-            // The `[Them]` prefix is load-bearing — every playbook rule in
-            // `PromptLibrary` keys on it — so a resolved speaker narrows the
-            // label rather than replacing it.
-            let speaker = entry.segmentID.flatMap { speakers[$0] }
-            let label = speaker.map { cluster in
-                "\(entry.source.label) · \(names["\(cluster)"] ?? "Speaker \(cluster)")"
-            } ?? entry.source.label
-            return "[\(label)]: \(entry.text)"
-        }
-        .joined(separator: "\n")
-    }
-
-    /// `baseIdx` offsets the row `idx` so a streamed tail (entries
-    /// `baseIdx..<n`) keeps the same global positions as the final full snapshot
-    /// (`baseIdx: 0`), letting the two paths upsert the same rows by id.
-    private func transcriptRecords(
-        from entries: [TranscriptEntry],
-        meeting: Meeting,
-        baseIdx: Int = 0,
-        speakers: [UUID: Int] = [:]
-    ) -> [TranscriptRecord] {
-        entries.enumerated().map { offset, entry in
-            TranscriptRecord(
-                id: entry.id,
-                meetingID: meeting.id,
-                userID: meeting.userID,
-                createdAt: nil,
-                source: entry.source.rawValue,
-                text: entry.text,
-                ts: entry.timestamp,
-                idx: baseIdx + offset,
-                speaker: entry.segmentID.flatMap { speakers[$0] }
-            )
-        }
-    }
-
-    /// How long the finalize waits for clustering before persisting without
-    /// speakers. A short call lands well inside this; an hour-long one does not,
-    /// and its rows are relabelled by `applyLateSpeakers` instead of making the
-    /// user watch "Generating…" for minutes.
-    private static let speakerJoinTimeout: TimeInterval = 30
-
-    /// `task.value`, or nil if it hasn't finished within `timeout`. The task
-    /// keeps running — the caller decides what to do with a late result.
-    private static func value<T: Sendable>(of task: Task<T, Never>, within timeout: TimeInterval) async -> T? {
-        await withTaskGroup(of: T?.self) { group in
-            group.addTask { await task.value }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                return nil
-            }
-            let first = await group.next()
-            group.cancelAll()
-            return first.flatMap { $0 }
-        }
-    }
-
-    /// Rewrites the already-persisted transcript rows once a slow clustering
-    /// pass finishes. Rows are upserted by the same ids, so this updates them in
-    /// place rather than duplicating the transcript.
-    private func applyLateSpeakers(
-        from task: Task<[UUID: Int], Never>,
-        entries: [TranscriptEntry],
-        meeting: Meeting,
-        people: MeetingParticipants
-    ) async {
-        defer { meetingStore.finishResolvingSpeakers(id: meeting.id) }
-        let speakers = await task.value
-        guard !speakers.isEmpty else { return }
-
-        let records = transcriptRecords(from: entries, meeting: meeting, speakers: speakers)
-        do {
-            try await meetingStore.upsertTranscript(records)
-            Log.stt.info("diarization: relabelled \(records.count) transcript row(s) after the join timeout")
-        } catch {
-            // The transcript is already saved and readable; only the speaker
-            // labels are missing, so a failure here is not worth surfacing.
-            Log.stt.error("diarization: late relabel failed — \(error.localizedDescription)")
-        }
-
-        // The recap for this meeting was already written from an unclustered
-        // transcript, so it names nobody — but the chips can still carry names,
-        // and this is the only pass that can put them there. Patched rather than
-        // written with the row, which landed long before clustering finished.
-        let context = Self.transcriptContext(from: entries, speakers: speakers)
-        let names = await nameSpeakers(
-            in: context,
-            people: people,
-            clusters: Array(Set(speakers.values))
-        )
-        guard !names.isEmpty else { return }
-        do {
-            try await meetingStore.updateSpeakerNames(names, for: meeting.id)
-        } catch {
-            Log.ui.error("speaker naming failed (non-fatal): \(error.localizedDescription)")
-        }
-    }
-
-    /// Re-reads the conferencing app's participant list off the main actor for
-    /// as long as the recording runs, accumulating what it finds. Purely
-    /// additive: no roster at all simply means diarization falls back to its
-    /// distance threshold.
-    private func startRosterSampling() {
-        rosterTask?.cancel()
-        rosterTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                let rules = screenExclusions.rules
-                let sampled = await Task.detached(priority: .utility) {
-                    MeetingRosterReader(exclusions: rules).sample()
-                }.value
-                // A walk in flight when the meeting ended must not resurrect a
-                // roster the finalize has already consumed.
-                guard !Task.isCancelled else { return }
-                if let sampled {
-                    let before = roster?.speakerCount ?? 0
-                    let merged = roster?.merging(sampled) ?? sampled
-                    roster = merged
-                    if merged.speakerCount != before {
-                        Log.screen.info("roster: \(merged.app.displayName) — \(merged.speakerCount) participant(s) so far")
-                    }
-                }
-                try? await Task.sleep(nanoseconds: UInt64(Self.rosterSampleInterval * 1_000_000_000))
-            }
-        }
-    }
-
-    private func stopRosterSampling() {
-        rosterTask?.cancel()
-        rosterTask = nil
-    }
-
-    /// Hands this session's roster to its finalize and clears the field.
-    ///
-    /// Taken once and dropped: the names are session-scoped by policy
-    /// (privacy.md § 3.10), and the next recording must start from nothing
-    /// rather than merge into what this one left behind.
-    private func consumeRoster() -> MeetingRoster? {
-        defer { roster = nil }
-        return roster
-    }
-
-    /// Best-effort entity extraction — links the saved session to the
-    /// people / projects / topics it mentions so "Related sessions" can find
-    /// it. Runs after persistence; a failure here never affects the meeting.
-    /// Everything a meeting gets once it has durably landed: to-dos, entities,
-    /// speaker names, and the embeddings that make it searchable. All
-    /// best-effort — the meeting is already saved, and none of this can change
-    /// what the user sees in the recap.
-    private func enrich(
-        _ meeting: Meeting,
-        userID: UUID,
-        transcript: String,
-        recap: MeetingRecap,
-        participants: [String],
-        live: [LiveFinding]
-    ) async {
-        // Only kinds that carry personal to-dos (meeting / voice note) —
-        // passive media has none.
-        if meeting.kind.extractsActionItems {
-            await actionItemStore.saveExtracted(
-                recap.actionItems,
-                live: live,
-                meetingID: meeting.id,
-                userID: userID
-            )
-        }
-        await extractEntities(
-            meetingID: meeting.id,
-            userID: userID,
-            transcript: transcript,
-            summary: meeting.summary,
-            participants: participants
-        )
-        // Detached, and only after entities: indexing runs gte-small embeddings
-        // inside the edge worker and is CPU-heavy enough to trip
-        // WORKER_RESOURCE_LIMIT (HTTP 546) when it shares a worker instance with
-        // the entity call. Nothing waits on it — least of all the transcript's
-        // speaker chips, which are final by now.
-        Task { await knowledgeStore.index(meetingID: meeting.id, transcript: transcript) }
-    }
-
-    private func extractEntities(
-        meetingID: UUID,
-        userID: UUID,
-        transcript: String,
-        summary: String,
-        participants: [String]
-    ) async {
-        guard !transcript.isEmpty else { return }
-        let (system, user) = PromptLibrary.buildEntityExtraction(
-            transcript: transcript,
-            summary: summary,
-            participants: participants
-        )
-        do {
-            let extracted = try await llm.completeJSON(system: system, user: user, as: ExtractedEntities.self)
-            guard !extracted.isEmpty else { return }
-            try await entityStore.saveExtraction(extracted, meetingID: meetingID, userID: userID)
-        } catch {
-            Log.ui.error("entity extraction failed (non-fatal): \(error.localizedDescription)")
-        }
-    }
-
-    /// Which diarized cluster is which person, from the transcript's own
-    /// evidence plus whatever the conferencing app's roster named.
-    ///
-    /// Best-effort by design, and an empty map is the expected answer for most
-    /// meetings: unnamed clusters make the recap authorless, which is honest,
-    /// while a guessed name ships a lie into something the user shares.
-    private func nameSpeakers(
-        in transcript: String,
-        people: MeetingParticipants,
-        clusters: [Int]
-    ) async -> [String: String] {
-        guard !transcript.isEmpty else { return [:] }
-        let (system, user) = PromptLibrary.buildSpeakerNaming(
-            transcript: transcript,
-            participants: people.names
-        )
-        var named: [String: String] = [:]
-        do {
-            let response = try await llm.completeJSON(system: system, user: user, as: NamedSpeakers.self)
-            named = Self.namedSpeakers(in: response.speakers)
-        } catch {
-            // Not a return: the arithmetic below can still name a 1:1 outright,
-            // and it is the case this pass fails on most often anyway.
-            Log.ui.error("speaker naming failed (non-fatal): \(error.localizedDescription)")
-        }
-        let closed = MeetingParticipants.closingTheGap(named, clusters: clusters, people: people)
-        if closed.count > named.count {
-            Log.stt.info("diarization: closed the last cluster by elimination")
-        }
-        Log.stt.info("diarization: named \(closed.count) cluster(s) from \(people.names.count) roster name(s)")
-        return closed
-    }
-
-    /// Cluster→name pairs worth persisting: a positive cluster number and a
-    /// non-empty name. Models occasionally answer with `{"1": ""}` or key the
-    /// map by a person's name instead of the number, and neither can render.
-    private static func namedSpeakers(in speakers: [String: String]?) -> [String: String] {
-        guard let speakers else { return [:] }
-        return speakers.reduce(into: [String: String]()) { result, pair in
-            let name = pair.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let cluster = Int(pair.key), cluster > 0, !name.isEmpty else { return }
-            result["\(cluster)"] = name
-        }
     }
 
     func retryPendingSaves() {
