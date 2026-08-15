@@ -74,6 +74,7 @@ struct HomeSidebar: View {
                         action: { onSelect(.actionItems) }
                     )
                     projectsSection
+                    sharedProjectsSection
                     threadsSection
                 }
                 .padding(.horizontal, 10)
@@ -275,11 +276,50 @@ struct HomeSidebar: View {
     private var projectsSection: some View {
         VStack(alignment: .leading, spacing: 2) {
             sectionHeader("Projects")
-            ForEach(labelStore.labels) { label in
+            ForEach(labelStore.labels.filter(labelStore.isOwn)) { label in
                 projectRow(label)
             }
             addProjectRow
         }
+    }
+
+    /// Folders a colleague shared, kept apart from your own.
+    ///
+    /// They used to sit in the same list behind a small icon, which said almost
+    /// nothing: the one thing a person needs to know about somebody else's
+    /// project is that it *is* somebody else's, and a badge at the end of a row
+    /// is not where that lands. A section says it once, in the place people read
+    /// first.
+    @ViewBuilder
+    private var sharedProjectsSection: some View {
+        let shared = labelStore.labels.filter { !labelStore.isOwn($0) }
+        if !shared.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                sectionHeader("Shared with you")
+                ForEach(shared) { label in
+                    projectRow(label)
+                }
+            }
+        }
+    }
+
+    /// Who a folder of yours is shared with, in the words of the menu that
+    /// shared it. Absent when nobody — most projects are nobody's but yours, and
+    /// a subtitle saying so on every row would be noise.
+    private func shareAudience(for label: SessionLabel) -> String? {
+        let shares = labelStore.shares[label.id] ?? []
+        guard !shares.isEmpty else { return nil }
+        let names = shares.compactMap { share -> String? in
+            if let teamID = share.teamID {
+                return organizations.teams.first { $0.id == teamID }?.name
+            }
+            if let orgID = share.orgID {
+                return organizations.memberships.first { $0.id == orgID }?.organization.name
+            }
+            return nil
+        }
+        guard !names.isEmpty else { return nil }
+        return "Shared with " + names.sorted().joined(separator: ", ")
     }
 
     private func projectRow(_ label: SessionLabel) -> some View {
@@ -295,7 +335,7 @@ struct HomeSidebar: View {
                         .lineLimit(1)
                     // A project is a live context, not a folder — say how much
                     // is in it and when it last moved.
-                    if let subtitle = projectSubtitles[label.id] {
+                    if let subtitle = shareAudience(for: label) ?? projectSubtitles[label.id] {
                         Text(subtitle)
                             .font(.system(size: 10.5))
                             .foregroundStyle(Theme.Palette.muted)
@@ -303,11 +343,11 @@ struct HomeSidebar: View {
                     }
                 }
                 Spacer(minLength: 0)
-                if labelStore.isShared(label.id) || !labelStore.isOwn(label) {
+                if labelStore.isShared(label.id), labelStore.isOwn(label) {
                     Image("nc-users")
                         .icon(10)
                         .foregroundStyle(Theme.Palette.muted)
-                        .accessibilityLabel(labelStore.isOwn(label) ? "Shared by you" : "Shared with you")
+                        .accessibilityHidden(true)
                 }
             }
             .foregroundStyle(Theme.Palette.ink.opacity(0.72))
