@@ -303,20 +303,22 @@ struct CalendarPromptHost<Content: View>: View {
     }
 }
 
-#Preview("Existing-user calendar prompt") {
-    CalendarPromptView(integrations: .preview(), onFinish: {})
-        .padding()
-        .background(WindowBackdrop())
-}
+#if DEBUG
+    #Preview("Existing-user calendar prompt") {
+        CalendarPromptView(integrations: .preview(), onFinish: {})
+            .padding()
+            .background(WindowBackdrop())
+    }
 
-#Preview("Not connected") {
-    CalendarStep(integrations: .preview(), onFinish: {})
-        .frame(width: 580, height: 560)
-        .background(WindowBackdrop())
-}
+    #Preview("Not connected") {
+        CalendarStep(integrations: .preview(), onFinish: {})
+            .frame(width: 580, height: 560)
+            .background(WindowBackdrop())
+    }
 
-#Preview("Connected") {
-    CalendarStep(integrations: .preview(linked: [.googleCalendar]), onFinish: {})
-        .frame(width: 580, height: 560)
-        .background(WindowBackdrop())
-}
+    #Preview("Connected") {
+        CalendarStep(integrations: .preview(linked: [.googleCalendar]), onFinish: {})
+            .frame(width: 580, height: 560)
+            .background(WindowBackdrop())
+    }
+#endif

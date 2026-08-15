@@ -168,37 +168,39 @@ struct LiveRoomTranscript: View {
     }
 }
 
-#Preview("Offer") {
-    LiveRoomCard(
-        room: LiveRoom(hostName: "Alina", startedAt: Date().addingTimeInterval(-900)),
-        onJoin: {},
-        onDismiss: {}
-    )
-    .frame(width: 460)
-    .padding()
-    .background(WindowBackdrop())
-}
-
-#Preview("Joining") {
-    LiveRoomCard(
-        room: LiveRoom(hostName: "Alina", startedAt: Date().addingTimeInterval(-900)),
-        isJoining: true,
-        onJoin: {},
-        onDismiss: {}
-    )
-    .frame(width: 460)
-    .padding()
-    .background(WindowBackdrop())
-}
-
-#Preview("Listening") {
-    LiveRoomTranscript(rooms: .preview(joined: JoinedRoom(
-        listenerID: UUID(),
-        hostName: "Alina",
-        hostMeetingID: UUID(),
-        startedAt: Date().addingTimeInterval(-900)
-    )), language: .english)
-        .frame(width: 460, height: 220)
+#if DEBUG
+    #Preview("Offer") {
+        LiveRoomCard(
+            room: LiveRoom(hostName: "Alina", startedAt: Date().addingTimeInterval(-900)),
+            onJoin: {},
+            onDismiss: {}
+        )
+        .frame(width: 460)
         .padding()
         .background(WindowBackdrop())
-}
+    }
+
+    #Preview("Joining") {
+        LiveRoomCard(
+            room: LiveRoom(hostName: "Alina", startedAt: Date().addingTimeInterval(-900)),
+            isJoining: true,
+            onJoin: {},
+            onDismiss: {}
+        )
+        .frame(width: 460)
+        .padding()
+        .background(WindowBackdrop())
+    }
+
+    #Preview("Listening") {
+        LiveRoomTranscript(rooms: .preview(joined: JoinedRoom(
+            listenerID: UUID(),
+            hostName: "Alina",
+            hostMeetingID: UUID(),
+            startedAt: Date().addingTimeInterval(-900)
+        )), language: .english)
+            .frame(width: 460, height: 220)
+            .padding()
+            .background(WindowBackdrop())
+    }
+#endif
