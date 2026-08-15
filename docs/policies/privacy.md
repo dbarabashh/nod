@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-14_
+_Last updated: 2026-08-15_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -388,12 +388,11 @@ speakers is the feature you are using Nod for. Participants' names are read
 locally, used transiently, and travel no further than the summarising model
 already handling the transcript of the same conversation.
 
-### 3.11 Your calendar — only if you switch it on
+### 3.11 Your calendar — only if you connect or switch it on
 
 **Advance notice — not in the released app.** The released app does not read
-your calendar and does not ask macOS for the permission. Everything below
-describes how it will work in the version that introduces it, and it stays off
-until you switch it on.
+your calendar. Everything below describes how it will work in the version that
+introduces it, and none of it happens until you ask for it.
 
 A window title is a poor way to tell *which* meeting is starting: Microsoft
 Teams names it, Zoom usually says only "Zoom Meeting", and Google Meet often
@@ -401,21 +400,57 @@ shows nothing but a room code. Your calendar names it every time. With this on,
 the offer to record can tell you that you have had the same meeting before and
 how much of it is still open, instead of just that a call is happening.
 
+There are **two separate ways** to give Nod a calendar, and they differ in where
+the data goes. Neither is on by default and neither implies the other.
+
+#### (a) Connecting a calendar account
+
+| | |
+|---|---|
+| **Default** | **Off.** You connect it yourself, in onboarding or in Settings → Integrations. It is never connected by an app update. |
+| **What it is** | **A connected account.** Google's own authorization page opens in your browser and you grant read-only access to your calendar. Your Google password never reaches Nod. The access and refresh tokens are held by **Nango**, our integration provider (see the Subprocessors list) — Nod never receives or stores them. |
+| **When it reads** | On a schedule on our servers, about every ten minutes, for as long as the connection exists — including while your Mac is asleep. |
+| **What it reads** | Your **primary** calendar only, and only a moving window around now: from two hours ago to seven days ahead. Within that window: the title, start and end times, the video-call link, the organizer's address, and **who is invited** — each attendee's email address and whether they accepted. Meeting rooms and equipment are skipped, and all-day entries are ignored entirely. Nothing else about an event is read, and no other calendar is read. |
+| **What it stores** | This one **does** keep a record, which is the difference from (b). The fields listed above are stored on our servers so the app can answer "what is starting next" without your Mac being awake. An event leaves our database when it leaves the window, and in any case within **seven days** of the meeting ending. |
+| **Writing** | Never. The access we ask Google for is read-only, so Nod cannot create, change, or delete anything in your calendar even in error. |
+| **Turning it off** | **Disconnect** in Settings → Integrations. That ends the authorization — the stored credential is deleted at our integration provider, so nothing can read your calendar afterwards — and every event we had already read is deleted at the same moment. You can also revoke Nod from your Google account directly: that stops the reading just as completely, though events already stored then age out on the schedule above rather than going immediately. |
+
+#### (b) The macOS Calendars permission
+
 | | |
 |---|---|
 | **Default** | **Off.** You switch it on yourself in Settings → General, and macOS then asks you separately. It is never switched on by an app update. |
-| **What it is not** | **Not a connected account.** There is no Google or Microsoft sign-in, no OAuth, no token, and no calendar API. Nod reads the calendar database already on your Mac — the same one the Calendar app shows you — through the macOS **Calendars** permission, exactly like the microphone permission you already granted. |
-| **When it reads** | On a timer while the switch is on — about every 20 seconds — so Nod can tell you a meeting is starting before you have opened anything. It also reads when a call is detected, and once more when a recording finishes: an invitation is often written minutes *after* the call started, so that last read is what finds it. The timer stops the moment you switch the feature off. |
-| **What it reads** | Events around the moment it asks — the title, the start and end times, whether you declined it, whether the entry contains a video-call link, and **who was invited**: each person's name (or, where the invitation carries no name, their address), and which of them is you. Rooms and equipment are skipped, as is anyone who declined. Nothing else about the event is looked at. |
-| **What it stores** | The **names of the people invited** go into the recording's own summary, the same way the participant list read from a conferencing app already does (§ 3.10(a)) — so a summary can say "Alina" instead of "Speaker 2". Nothing else is kept: the title is compared against your existing sessions on your Mac and dropped, and no separate record of the event or its invitees is ever written. |
-| **Why the names** | To count how many people other than you should be heard in the recording, which is what makes speaker separation accurate, to put a name to a voice, and to tell you who a meeting that is starting is with. This replaces reading the conferencing app's window for the same thing — the calendar is both more accurate and far less intrusive, since it needs no access to what is on your screen. |
-| **What it does with a meeting that is starting** | Shows you a card, with a sound. That is all it does: the card has a button, and recording begins only when you press it — the same rule as a detected call (§ 3.10(c)). Nod never starts a recording because a calendar said so. |
+| **What it is not** | **Not a connected account.** There is no sign-in, no OAuth, no token, and no calendar API. Nod reads the calendar database already on your Mac — the same one the Calendar app shows you — through the macOS **Calendars** permission, exactly like the microphone permission you already granted. This reaches whatever accounts you have added to your Mac, including iCloud calendars that no integration can see. |
+| **When it reads** | On a timer while the switch is on — about every 20 seconds — plus when a call is detected and once more when a recording finishes: an invitation is often written minutes *after* the call started, so that last read is what finds it. The timer stops the moment you switch the feature off. |
+| **What it reads** | Events around the moment it asks — the title, the start and end times, whether you declined it, whether the entry contains a video-call link, and **who was invited**: each person's name (or, where the invitation carries no name, their address), and which of them is you. Rooms and equipment are skipped, as is anyone who declined. |
+| **What it stores** | Nothing of its own. The **names of the people invited** go into the recording's own summary, the same way the participant list read from a conferencing app already does (§ 3.10(a)) — so a summary can say "Alina" instead of "Speaker 2". The title is compared against your existing sessions on your Mac and dropped, and no separate record of the event or its invitees is ever written. |
 | **Writing** | Never. Nod does not create, change, or delete anything in your calendar. |
 | **Turning it off** | The same switch in Settings → General. Nod stops reading immediately, whether or not macOS still shows the permission as granted — and you can revoke the permission itself in System Settings → Privacy & Security → Calendars. |
 
-Legal basis: Consent (Art. 6(1)(a)) — this one is opt-in, and you withdraw it by
-switching it off, which stops the reading immediately. Nothing was retained to
-delete.
+#### What a meeting that is starting does
+
+Shows you a card, with a sound. That is all it does: the card has a button, and
+recording begins only when you press it — the same rule as a detected call
+(§ 3.10(c)). Nod never starts a recording because a calendar said so. This is
+true of both sources.
+
+#### Recognising the same meeting inside an organisation
+
+If you are in an organisation, a recording can carry two identifiers
+derived from the meeting it belongs to: the invitation's own id, and the
+conferencing room from the join link. They exist so Nod can notice that a
+colleague in **your organisation** recorded the same meeting, and offer to treat
+the two recordings as one rather than leaving duplicates.
+
+What a colleague can learn this way is deliberately narrow: that you recorded a
+meeting they were also in, its title, your name and its start time. Never its
+transcript, its summary, or anything that sharing a folder with them would have
+had to grant. The comparison is scoped to your organisation before any identifier is
+compared, so two strangers in one public conferencing room never learn of each
+other. Outside an organisation nothing is compared at all.
+
+Legal basis: Consent (Art. 6(1)(a)) — both are opt-in, and you withdraw by
+disconnecting or switching off, which stops the reading immediately.
 
 ### 3.12 Official ChatGPT and Claude connectors
 
