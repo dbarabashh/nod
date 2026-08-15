@@ -304,15 +304,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls where url.scheme?.lowercased() == AuthService.callbackURL.scheme {
-            switch url.host {
-            case AuthService.callbackURL.host:
+            guard let deepLink = AppDeepLink(url: url, callbackHost: AuthService.callbackURL.host) else { continue }
+            switch deepLink {
+            case .authCallback:
                 Log.auth.info("received auth callback url")
                 if let auth = services?.auth {
                     Task { @MainActor in await auth.handleCallback(url) }
                 } else {
                     pendingCallbackURLs.append(url)
                 }
-            case "checkout-complete":
+            case .checkoutComplete:
                 // Paddle's hosted checkout (success URL → /checkout/done) deep-links
                 // back here once payment lands. Bring the app forward, open Settings
                 // on the Subscription tab, and re-resolve the entitlement so the new
@@ -321,19 +322,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Opens Settings on the Subscription tab via the observer above.
                 NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
                 Task { @MainActor in await self.services?.entitlements.refresh() }
-            case "referral":
+            case let .referral(code):
                 // Attribution B (NOD-22): a `nod://referral?code=ABC123` link
                 // pre-fills the paywall's referral field. Best-effort — the code
                 // is also always enterable by hand (attribution A).
-                let code = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                    .queryItems?.first(where: { $0.name == "code" })?.value
-                if let code, !code.isEmpty {
-                    Log.ui.info("received referral deep link")
-                    ReferralService.storePendingCode(code)
-                    NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
-                }
-            default:
-                break
+                Log.ui.info("received referral deep link")
+                ReferralService.storePendingCode(code)
+                NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+            case .record:
+                NotificationCenter.default.post(name: .nodShowPanel, object: nil)
+            case .history:
+                NotificationCenter.default.post(name: .nodOpenLibrary, object: nil)
+            case .ask:
+                NotificationCenter.default.post(name: .nodOpenKnowledgeChats, object: nil)
+            case .actionItems:
+                NotificationCenter.default.post(name: .nodOpenActionItems, object: nil)
+            case let .subscription(offer):
+                if offer == "winback" { BillingService.storePendingWinbackOffer() }
+                NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
             }
         }
     }
@@ -390,6 +396,7 @@ extension Notification.Name {
     static let nodOpenSubscription = Notification.Name("nod.app.openSubscription")
     /// Posted by the menu-bar item to open Settings on the Rewards tab.
     static let nodOpenRewards = Notification.Name("nod.app.openRewards")
+    static let nodOpenActionItems = Notification.Name("nod.app.openActionItems")
 }
 
 extension Notification {

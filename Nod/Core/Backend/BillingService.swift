@@ -136,14 +136,14 @@ final class BillingService: ObservableObject {
     /// `referralCode` is attribution only — the server applies the friend's −50%
     /// (monthly prices only) and stamps it for the webhook to credit the referrer.
     /// An empty/blank code is sent as nil so the server doesn't carry noise.
-    func startCheckout(priceID: String, referralCode: String? = nil) async -> CheckoutOutcome {
+    func startCheckout(priceID: String, referralCode: String? = nil, offer: String? = nil) async -> CheckoutOutcome {
         guard !isStartingCheckout else { return .failed }
         isStartingCheckout = true
         lastError = nil
         defer { isStartingCheckout = false }
 
         let ref = referralCode?.trimmingCharacters(in: .whitespacesAndNewlines)
-        struct Request: Encodable { let price_id: String; let ref: String? }
+        struct Request: Encodable { let price_id: String; let ref: String?; let offer: String? }
         // create-checkout returns either { url } (new subscription → open it) or
         // { updated: true } (existing subscription changed in place).
         struct Response: Decodable { let url: URL?; let updated: Bool? }
@@ -152,10 +152,11 @@ final class BillingService: ObservableObject {
             let response: Response = try await supabase.functions.invoke(
                 "create-checkout",
                 options: FunctionInvokeOptions(
-                    body: Request(price_id: priceID, ref: (ref?.isEmpty == false) ? ref : nil)
+                    body: Request(price_id: priceID, ref: (ref?.isEmpty == false) ? ref : nil, offer: offer)
                 )
             )
             if let url = response.url {
+                if offer == "winback" { Self.clearPendingWinbackOffer() }
                 Log.ui.info("BillingService.startCheckout opening \(url.absoluteString)")
                 NSWorkspace.shared.open(url)
                 return .opened
@@ -213,12 +214,26 @@ final class BillingService: ObservableObject {
         case "already_redeemed":
             return "A referral offer has already been used on this account."
         case "offer_not_eligible":
-            return "This offer is only available on Pro with monthly billing."
-        case "pricing_unconfigured", "referral_unavailable":
+            return "This offer is available on monthly Starter or Pro while the email offer is valid."
+        case "pricing_unconfigured", "referral_unavailable", "offer_unavailable":
             return "This offer isn't available right now. Please try again later."
         default:
             return fallback
         }
+    }
+
+    private static let pendingWinbackOfferKey = "billing.pendingWinbackOffer"
+
+    static var hasPendingWinbackOffer: Bool {
+        UserDefaults.standard.bool(forKey: pendingWinbackOfferKey)
+    }
+
+    static func storePendingWinbackOffer() {
+        UserDefaults.standard.set(true, forKey: pendingWinbackOfferKey)
+    }
+
+    static func clearPendingWinbackOffer() {
+        UserDefaults.standard.removeObject(forKey: pendingWinbackOfferKey)
     }
 
     private static func topUpErrorMessage(_ error: Error) -> String {

@@ -144,7 +144,8 @@ approval).
 |---|---|---|
 | `plan_prices.available_for_new_checkout = false` on the replacement rows | **thrown on prod 2026-08-12** | The new catalog and the top-up. `create-checkout` also refuses any `pri_REPLACE_*` id outright. Sandbox is still dark. |
 | `app_config.meeting_lease_required_build = 2147483647` | dark | Chunk-level lease enforcement. Start-time allowance still applies to any build that speaks the protocol. |
-| `email_program_config.program_not_before is null` | dark | **All** Resend traffic — optional email, transactional referral notices, and contact sync alike. |
+| `email_program_config.program_not_before is null` | dark | **All** Resend traffic — optional email, transactional referral notices, and contact sync alike. The communications-v2 migration resets this gate. |
+| `email_campaigns.rollout_mode = 'off'` | dark | Each optional lifecycle, activation, win-back, or research campaign independently. |
 
 `select public.email_rollout_readiness();` answers "can this branch send yet" and
 reports gate state, vault secrets, schedules, queue depth, and whether any
@@ -255,6 +256,21 @@ Still to do at deploy time, deliberately not done ahead:
 sets `program_not_before` to publication + 30 days — the CHECK constraint will not
 accept anything shorter. The clock starts when the policies are **published on
 hellonod.app**, so publishing them is the long-lead item, not the code.
+
+The gate is necessary but not sufficient. Every optional campaign also starts
+with `rollout_mode = 'off'` and moves independently through `seed`, `limited`,
+then `live`. Seed sends only to explicit `email_rollout_members`; limited sends
+at most two customer emails per rolling 24 hours. The worker rechecks consent,
+qualification, suppression, deduplication, the policy gate, and rollout mode at
+send time. Resend open and click tracking must both remain disabled.
+
+`communications-v1` consent remains valid only for the purpose and cadence the
+person originally accepted: product offers, ordinary lifecycle nudges no more
+than once per 14 days, or founder research no more than once per 30 days. Trial
+learning on days 1, 4, and 10 requires a new `communications-v2` lifecycle
+opt-in. Existing v1 lifecycle subscribers receive one non-blocking, unchecked
+upgrade prompt; dismissing it does not change their v1 choice. Country is never
+used as a substitute for consent.
 
 Before opening it: the preference page at `hellonod.app/email-preferences` has to
 exist (every optional email links to it), and the legacy Resend topic

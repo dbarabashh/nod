@@ -26,10 +26,14 @@ enum EmailTopic: String, CaseIterable, Identifiable, Hashable {
         case .productUpdates:
             "Occasional product news, offers, and referral announcements."
         case .lifecycleGuidance:
-            "A nudge when something in Nod would help with what you're already doing."
+            "During a trial: learning emails on days 1, 4, and 10. After that: an occasional useful nudge."
         case .founderResearch:
             "Notes from Vlad about how Nod is working for you, sometimes with an optional call."
         }
+    }
+
+    var policyVersion: String {
+        self == .lifecycleGuidance ? "communications-v2" : "communications-v1"
     }
 
     var icon: String {
@@ -51,7 +55,9 @@ enum EmailPreferenceSource: String {
 /// version of the consent prompt has been seen.
 struct EmailPreferenceSnapshot: Equatable {
     var subscribed: Set<EmailTopic> = []
+    var policyVersions: [EmailTopic: String] = [:]
     var promptSeen = false
+    var hasSeenV1Prompt = false
     var promptVersion: String?
 
     func isSubscribed(to topic: EmailTopic) -> Bool {
@@ -77,15 +83,23 @@ struct SupabaseEmailPreferenceRepository: EmailPreferenceRepository {
         struct Row: Decodable {
             let topic: String
             let status: String
+            let policyVersion: String?
+
+            enum CodingKeys: String, CodingKey {
+                case topic, status
+                case policyVersion = "policy_version"
+            }
         }
 
         let preferences: [Row]?
         let promptSeen: Bool
+        let hasSeenV1Prompt: Bool?
         let promptVersion: String?
 
         enum CodingKeys: String, CodingKey {
             case preferences
             case promptSeen = "prompt_seen"
+            case hasSeenV1Prompt = "has_seen_v1_prompt"
             case promptVersion = "prompt_version"
         }
     }
@@ -97,10 +111,12 @@ struct SupabaseEmailPreferenceRepository: EmailPreferenceRepository {
             .value
         var snapshot = EmailPreferenceSnapshot()
         for row in response.preferences ?? [] {
-            guard let topic = EmailTopic(rawValue: row.topic), row.status == "subscribed" else { continue }
-            snapshot.subscribed.insert(topic)
+            guard let topic = EmailTopic(rawValue: row.topic) else { continue }
+            snapshot.policyVersions[topic] = row.policyVersion
+            if row.status == "subscribed" { snapshot.subscribed.insert(topic) }
         }
         snapshot.promptSeen = response.promptSeen
+        snapshot.hasSeenV1Prompt = response.hasSeenV1Prompt ?? false
         snapshot.promptVersion = response.promptVersion
         return snapshot
     }
@@ -124,7 +140,7 @@ struct SupabaseEmailPreferenceRepository: EmailPreferenceRepository {
             .rpc("set_email_preference", params: Params(
                 pTopic: topic.rawValue,
                 pStatus: subscribed ? "subscribed" : "unsubscribed",
-                pPolicyVersion: EmailPreferenceService.policyVersion,
+                pPolicyVersion: topic.policyVersion,
                 pSource: source.rawValue
             ))
             .execute()
@@ -155,8 +171,7 @@ final class EmailPreferenceService: ObservableObject {
     /// Consent is recorded against the policy it was given under. The server
     /// rejects a write carrying a stale version, so bumping this here without
     /// publishing the policy fails loudly instead of silently mislabelling.
-    static let policyVersion = "communications-v1"
-    static let promptVersion = "communications-v1"
+    static let promptVersion = "communications-v2"
 
     @Published private(set) var snapshot = EmailPreferenceSnapshot()
     @Published private(set) var hasLoaded = false
@@ -188,6 +203,14 @@ final class EmailPreferenceService: ObservableObject {
     /// prompt. Never true before loading, so nobody sees it twice.
     var shouldPresentPrompt: Bool {
         hasLoaded && !snapshot.hasSeenPrompt(version: Self.promptVersion)
+    }
+
+    var shouldPresentFullPrompt: Bool {
+        shouldPresentPrompt && !snapshot.hasSeenV1Prompt
+    }
+
+    var shouldPresentUpgradePrompt: Bool {
+        shouldPresentPrompt && snapshot.hasSeenV1Prompt
     }
 
     var isBusy: Bool {
@@ -303,6 +326,39 @@ final class EmailPreferenceService: ObservableObject {
             guard current == revision else { return false }
             Log.ui.error("email consent prompt save failed: \(error.localizedDescription)")
             lastError = "Couldn't save your email choices. Please try again."
+            return false
+        }
+    }
+
+    @discardableResult
+    func saveLifecycleUpgrade(subscribed: Bool) async -> Bool {
+        guard let repository, hasSession() else {
+            lastError = "Sign in to save your email choices."
+            return false
+        }
+        guard !isSavingPrompt else { return false }
+        let current = revision
+        isSavingPrompt = true
+        lastError = nil
+        defer { if current == revision { isSavingPrompt = false } }
+        do {
+            if subscribed {
+                try await repository.setPreference(
+                    topic: .lifecycleGuidance,
+                    subscribed: true,
+                    source: .existingUserPrompt
+                )
+                apply(true, to: .lifecycleGuidance)
+            }
+            try await repository.markPromptSeen(source: .existingUserPrompt)
+            guard current == revision, hasSession() else { return false }
+            snapshot.promptSeen = true
+            snapshot.promptVersion = Self.promptVersion
+            return true
+        } catch {
+            guard current == revision else { return false }
+            Log.ui.error("lifecycle consent upgrade failed: \(error.localizedDescription)")
+            lastError = "Couldn't save your email choice. Please try again."
             return false
         }
     }

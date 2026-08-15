@@ -69,19 +69,73 @@ struct EmailConsentPromptHost<Content: View>: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topTrailing) {
             content
 
-            if preferences.shouldPresentPrompt, !isDismissedForSession {
+            if preferences.shouldPresentFullPrompt, !isDismissedForSession {
                 Color.black.opacity(0.28)
                     .ignoresSafeArea()
                 EmailConsentPromptView(
                     preferences: preferences,
                     onFinish: { isDismissedForSession = true }
                 )
+            } else if preferences.shouldPresentUpgradePrompt, !isDismissedForSession {
+                LifecycleConsentUpgradeCard(
+                    preferences: preferences,
+                    onFinish: { isDismissedForSession = true }
+                )
+                .padding(18)
             }
         }
         .task { await preferences.refresh() }
+    }
+}
+
+struct LifecycleConsentUpgradeCard: View {
+    @ObservedObject var preferences: EmailPreferenceService
+    let onFinish: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Want a little help during your trial?")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.Palette.ink)
+            Text(
+                "Turn this on for three short learning emails on trial days 1, 4, and 10. Your existing email choices stay exactly as they are if you dismiss this."
+            )
+            .font(.system(size: 11.5))
+            .foregroundStyle(Theme.Palette.muted)
+            .fixedSize(horizontal: false, vertical: true)
+            if let error = preferences.lastError {
+                Text(error)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.Palette.danger)
+            }
+            HStack(spacing: 12) {
+                Button("Not now") { save(subscribed: false) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.Palette.muted)
+                Spacer(minLength: 8)
+                Button("Turn on trial learning") { save(subscribed: true) }
+                    .buttonStyle(.borderedProminent)
+            }
+            .font(.system(size: 11.5, weight: .medium))
+        }
+        .padding(16)
+        .frame(width: 370)
+        .background(WindowBackdrop())
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
+                .stroke(Theme.Palette.borderStrong, lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.2), radius: 16, y: 6)
+    }
+
+    private func save(subscribed: Bool) {
+        Task {
+            if await preferences.saveLifecycleUpgrade(subscribed: subscribed) { onFinish() }
+        }
     }
 }
 
