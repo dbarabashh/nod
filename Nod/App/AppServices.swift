@@ -41,6 +41,8 @@ struct AppServices {
     let labelStore: LabelStore
     /// Which finished meetings have been handed to a team or the organization.
     let meetingGrants: MeetingGrantStore
+    /// Calendars connected through Integrations, which EventKit cannot see.
+    let remoteCalendar: RemoteCalendar
     let entitlements: EntitlementService
     let billing: BillingService
     let referral: ReferralService
@@ -174,6 +176,9 @@ struct AppServices {
         }
         let labelStore = LabelStore(supabase: supabase, auth: auth)
         let meetingGrants = MeetingGrantStore(supabase: supabase)
+        let remoteCalendar = RemoteCalendar(supabase: supabase)
+        let calendar = CalendarService()
+        calendar.remote = remoteCalendar
         let organizations = OrganizationService(supabase: supabase)
         // The closure re-asks and then re-subscribes: a membership change is
         // both the thing to refresh for and the thing that changes which
@@ -240,6 +245,7 @@ struct AppServices {
             knowledgeThreads: knowledgeThreads,
             labelStore: labelStore,
             meetingGrants: meetingGrants,
+            remoteCalendar: remoteCalendar,
             entitlements: entitlements,
             billing: BillingService(supabase: supabase),
             referral: ReferralService(supabase: supabase),
@@ -258,7 +264,7 @@ struct AppServices {
             proactivityPreference: ProactivityPreference(),
             launchBehavior: LaunchBehavior(),
             meetingDetection: MeetingDetectionPreference(),
-            calendar: CalendarService(),
+            calendar: calendar,
             demoPlayback: DemoPlayback(),
             captureSurface: CaptureSurfacePreference(),
             updateGate: UpdateGate(supabase: supabase),

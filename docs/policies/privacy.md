@@ -408,11 +408,11 @@ the data goes. Neither is on by default and neither implies the other.
 | | |
 |---|---|
 | **Default** | **Off.** You connect it yourself, in onboarding or in Settings → Integrations. It is never connected by an app update. |
-| **What it is** | **A connected account.** Google's own authorization page opens in your browser and you grant read-only access to your calendar. Your Google password never reaches Nod. The access and refresh tokens are held by **Nango**, our integration provider (see the Subprocessors list) — Nod never receives or stores them. |
+| **What it is** | **A connected account.** Google's own authorization page opens in your browser and you grant Nod access to your calendar. Google's screen describes that access as managing your calendars — see **Writing** below for what Nod actually does with it, and why the permission is wider than today's behaviour. Your Google password never reaches Nod. The access and refresh tokens are held by **Nango**, our integration provider (see the Subprocessors list) — Nod never receives or stores them. |
 | **When it reads** | On a schedule on our servers, about every ten minutes, for as long as the connection exists — including while your Mac is asleep. |
 | **What it reads** | Your **primary** calendar only, and only a moving window around now: from two hours ago to seven days ahead. Within that window: the title, start and end times, the video-call link, the organizer's address, and **who is invited** — each attendee's email address and whether they accepted. Meeting rooms and equipment are skipped, and all-day entries are ignored entirely. Nothing else about an event is read, and no other calendar is read. |
 | **What it stores** | This one **does** keep a record, which is the difference from (b). The fields listed above are stored on our servers so the app can answer "what is starting next" without your Mac being awake. An event leaves our database when it leaves the window, and in any case within **seven days** of the meeting ending. |
-| **Writing** | Never. The access we ask Google for is read-only, so Nod cannot create, change, or delete anything in your calendar even in error. |
+| **Writing** | **One thing, and only when you confirm it.** Nod can create a calendar event and invite the people you name, when you ask it to in chat. It shows you the draft first — title, time, and every guest — and nothing is sent until you press the button on that card. Google then emails those guests an invitation, which is why the confirmation exists: an invitation cannot be recalled. Nod never updates or deletes an existing event, and never creates one on its own initiative. |
 | **Turning it off** | **Disconnect** in Settings → Integrations. That ends the authorization — the stored credential is deleted at our integration provider, so nothing can read your calendar afterwards — and every event we had already read is deleted at the same moment. You can also revoke Nod from your Google account directly: that stops the reading just as completely, though events already stored then age out on the schedule above rather than going immediately. |
 
 #### (b) The macOS Calendars permission
@@ -551,6 +551,42 @@ processing needed to deliver a message you asked for, honour an unsubscribe, and
 suppress a complaint or a bouncing address.
 
 ---
+
+### 3.15 Working in an organization
+
+Nod can be used alone or inside an organization your employer creates. Joining
+one changes who can see your recordings, so it is described here rather than left
+to the product.
+
+**Nothing becomes visible because you joined.** Membership by itself shares
+nothing. Your meetings stay yours, exactly as they are for an account in no
+organization. What changes is that three deliberate acts become possible, each
+of them yours to take.
+
+| **Sharing a project** | You can hand a folder of meetings to a team, or to the whole organization. Everyone in that audience can then read the meetings filed there — summary, transcript, and action items. Filing a meeting into a shared folder is what shares it; removing the share ends the access immediately. |
+| **Sharing one meeting** | You can hand a single finished meeting to a team or to the organization, without filing it anywhere. Same contents, same immediate revocation. This is the one offered right after a recording ends. |
+| **Listening to a live room** | When a colleague in your organization is recording a meeting you are also in — proven by your own calendar holding the same invitation, not by anyone typing an id — you can join as a listener and follow their transcript as it is written. You are not recording; nothing is stored for you. **Access ends the moment their recording stops**, without a delay or a clean-up job: the permission is written against their live recording, so when it ends there is nothing left to read. The host is told by name the moment you join, and again if you leave. |
+
+**What an organization's administrators cannot do.** They cannot read your
+meetings. There is no administrative view of another member's recordings, no
+export of them, and no setting that turns one on. An administrator can add and
+remove members, create teams, and see an audit log of membership and sharing
+actions — never meeting content.
+
+**What we store for this.** Which organization and teams you belong to, your role
+in them, and a row for each share you make: what was shared, with which audience,
+by whom, and when. Membership and sharing actions are written to an audit log so
+an organization can answer "who gave whom access to what". None of it contains
+meeting content.
+
+**Legal basis.** Legitimate interests (Art. 6(1)(f)) — an employer needs to know
+who is in its workspace and what has been shared inside it. Sharing itself is
+always your own act.
+
+**When you leave.** Losing active membership ends every access that came through
+the organization, in both directions, at once: colleagues stop seeing what you
+shared with them, and you stop seeing what they shared with you. Your own
+meetings remain yours.
 
 ## 4. Model training
 

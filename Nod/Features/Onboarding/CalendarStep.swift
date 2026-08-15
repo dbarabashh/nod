@@ -13,7 +13,10 @@ enum CalendarCopy {
         + "one is starting before you have opened anything."
 
     static let promises: [(icon: String, text: String)] = [
-        ("nc-shield-check", "Read-only. Nod never creates, changes, or deletes anything in your calendar."),
+        (
+            "nc-shield-check",
+            "Nod reads your calendar and never changes it on its own. Google asks for wider access so you can later create events from Nod yourself."
+        ),
         ("nc-lock", "Your Google password never reaches Nod, and you can revoke access from Google at any time."),
         ("nc-calendar", "Your primary calendar only, and only meetings from two hours ago to a week ahead.")
     ]

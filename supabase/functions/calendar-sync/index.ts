@@ -188,7 +188,14 @@ async function fetchWindow(connection: Connection, from: Date, to: Date): Promis
                 maxResults: PAGE_SIZE,
                 pageToken,
             },
-        }) as { items?: GoogleEvent[]; nextPageToken?: string } | null;
+        }) as { items?: GoogleEvent[]; nextPageToken?: string; summary?: string } | null;
+
+        // Which mailbox actually answered. An empty window is ambiguous — no
+        // meetings, or the wrong Google account authorized — and the answer is
+        // in Google's own reply rather than anywhere we could infer it.
+        if (page === 0) {
+            console.log(`calendar-sync calendar=${payload?.summary ?? "unknown"} items=${payload?.items?.length ?? 0}`);
+        }
 
         events.push(...(payload?.items ?? []));
         pageToken = payload?.nextPageToken;

@@ -132,10 +132,7 @@ enum ChatTools {
     private static func tools(for provider: IntegrationProvider) -> [ChatTool] {
         switch provider {
         case .linear: linearTools
-        // A calendar is read on a schedule, not called. Offering it as a tool
-        // would put a vocabulary in every cached prompt prefix for something the
-        // model can never invoke.
-        case .googleCalendar: []
+        case .googleCalendar: calendarTools
         }
     }
 
@@ -164,6 +161,36 @@ enum ChatTools {
                     "teamId": .init(description: "Only when the workspace has several teams.")
                 ],
                 required: ["title"]
+            ),
+            mutating: true
+        )
+    ]
+
+    /// One tool, and it writes. Reading stays with the sync — it runs on a
+    /// schedule whether or not anyone is chatting, and a model asking "what is
+    /// on my calendar" would be a second, slower answer to a question the app
+    /// already holds.
+    ///
+    /// `mutating` is doing real work here: this call puts an invitation in other
+    /// people's inboxes, so it goes through `ToolApprovalCard` like every other
+    /// write, and the person sees the date and the guest list before anything is
+    /// sent.
+    private static let calendarTools: [ChatTool] = [
+        ChatTool(
+            provider: .googleCalendar,
+            // Hyphen, not underscore: `action` is this string minus
+            // `provider.rawValue`, and the raw value is `google-calendar`.
+            name: "google-calendar_create_event",
+            description: "Create a calendar event and invite people. Times must be absolute, in the user's timezone. Ask for a missing date or guest rather than guessing one.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "title": .init(description: "What the meeting is called."),
+                    "starts_at": .init(description: "RFC3339 start, e.g. 2026-08-18T15:00:00+01:00."),
+                    "ends_at": .init(description: "RFC3339 end. Default to one hour after the start."),
+                    "attendees": .init(description: "Comma-separated email addresses to invite. Omit for a private hold."),
+                    "description": .init(description: "Optional agenda or context.")
+                ],
+                required: ["title", "starts_at", "ends_at"]
             ),
             mutating: true
         )

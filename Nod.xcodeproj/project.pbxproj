@@ -42,6 +42,7 @@
 		1C7BD37766FA6C5793C92FA7 /* AccessChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D676704489FC4412827B199 /* AccessChannel.swift */; };
 		1CDD698E65F33BFF1289D19F /* DeviceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C3A4C994928DF1D6A7079B /* DeviceIdentity.swift */; };
 		1CE4BAA3BB410093AFDA9151 /* LiveMeetingAnalyst+Assist.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C694FACAE16B13621CE62C /* LiveMeetingAnalyst+Assist.swift */; };
+		1D837C274CC4EF52D7AD1411 /* ChatToolActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DACA5EE9FD266F37FA835C5D /* ChatToolActionTests.swift */; };
 		1E3D72CB5610AB5F53E39D7D /* HoverReveal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DA886D2817AD3AB74DCB17E /* HoverReveal.swift */; };
 		1EAAE0F60B358AB3492767FB /* FolderShare.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EBA4171FDC28A904890645 /* FolderShare.swift */; };
 		1F45BA70770FE697298E92FD /* TodayDigest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 531422E6C157CC203D4130DB /* TodayDigest.swift */; };
@@ -228,6 +229,7 @@
 		B17DB85245CAD65B3B7D7473 /* ConnectedToolsPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4437D30BD7C858B82BE704B7 /* ConnectedToolsPromptTests.swift */; };
 		B2AFF8A33F714DFC15742514 /* DemoDailyModeContent+Product.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40898691CBCED3CE8FC10AD2 /* DemoDailyModeContent+Product.swift */; };
 		B467EAEF162E68CECEAC950C /* ProductAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04DC287F423678157E65A44D /* ProductAnalytics.swift */; };
+		B47253D013A818928655DDD0 /* RemoteCalendar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C097573DC1B1AD9FB14D63D8 /* RemoteCalendar.swift */; };
 		B64041492BAD823897655F5A /* RetrievalGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19047DB7902A7A952264DC1 /* RetrievalGateTests.swift */; };
 		B64A9EF519A1A8E5ECE5C5BE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D37A065AD7206583757F3498 /* Assets.xcassets */; };
 		B8A3A2419130D665224CA5E3 /* NotchMeetingBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 769F76353480E3C051AE8711 /* NotchMeetingBar.swift */; };
@@ -570,6 +572,7 @@
 		BFDE275CC07D0138C7185682 /* DebugAudioDump.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugAudioDump.swift; sourceTree = "<group>"; };
 		BFEE1A4629797AB96AE7534E /* NotchController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchController.swift; sourceTree = "<group>"; };
 		C08A423248A024C52F928D5E /* SummaryTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateTests.swift; sourceTree = "<group>"; };
+		C097573DC1B1AD9FB14D63D8 /* RemoteCalendar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCalendar.swift; sourceTree = "<group>"; };
 		C0E039B88FF651AC638BD9D8 /* LauncherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LauncherView.swift; sourceTree = "<group>"; };
 		C174A68C0E17BF3949A8019F /* ScreenContextService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenContextService.swift; sourceTree = "<group>"; };
 		C19047DB7902A7A952264DC1 /* RetrievalGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetrievalGateTests.swift; sourceTree = "<group>"; };
@@ -617,6 +620,7 @@
 		D9FE6C39000CB62B598C2C13 /* LiveRoomCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveRoomCard.swift; sourceTree = "<group>"; };
 		DA6667FF07EBCEE7BA10E51C /* CalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarService.swift; sourceTree = "<group>"; };
 		DAB61071DEF3962836503A8A /* OnboardingTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingTelemetry.swift; sourceTree = "<group>"; };
+		DACA5EE9FD266F37FA835C5D /* ChatToolActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatToolActionTests.swift; sourceTree = "<group>"; };
 		DB57FD35637E9224FA7C9DE1 /* AccountDataSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDataSection.swift; sourceTree = "<group>"; };
 		DB60FAB25F7CA4C2B34CE38D /* SpeakerEliminationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerEliminationTests.swift; sourceTree = "<group>"; };
 		DC58FA0EB4DF64C449857718 /* TranscriptOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptOrderingTests.swift; sourceTree = "<group>"; };
@@ -950,6 +954,7 @@
 				FA2860332A7C9B65989BEE8D /* CalendarAttendee.swift */,
 				7C88CFA99B1176872FDC7567 /* CalendarOccurrence.swift */,
 				DA6667FF07EBCEE7BA10E51C /* CalendarService.swift */,
+				C097573DC1B1AD9FB14D63D8 /* RemoteCalendar.swift */,
 			);
 			path = Calendar;
 			sourceTree = "<group>";
@@ -1014,6 +1019,7 @@
 				AE6259890903B3961C06F4FE /* CallBriefTests.swift */,
 				8832BAD2DAAE05BEC82F0569 /* ChatHomeSuggestionsTests.swift */,
 				D3DDE26A0DA66D8BD7049EE2 /* ChatThinkingTests.swift */,
+				DACA5EE9FD266F37FA835C5D /* ChatToolActionTests.swift */,
 				4437D30BD7C858B82BE704B7 /* ConnectedToolsPromptTests.swift */,
 				E534C9790B566651C2DE985F /* DiarizationBenchmarkTests.swift */,
 				10DF54ECE09256160EB708EF /* DiarizationScore.swift */,
@@ -1509,6 +1515,7 @@
 				0DBF613971F1DA9950F1BFD0 /* CallBriefTests.swift in Sources */,
 				C4BF79F21CDDA1A2699E0BD6 /* ChatHomeSuggestionsTests.swift in Sources */,
 				05A3BCF0B576473F821B6E35 /* ChatThinkingTests.swift in Sources */,
+				1D837C274CC4EF52D7AD1411 /* ChatToolActionTests.swift in Sources */,
 				B17DB85245CAD65B3B7D7473 /* ConnectedToolsPromptTests.swift in Sources */,
 				F8330655C3816A314EF35541 /* DiarizationBenchmarkTests.swift in Sources */,
 				FD8DD4296E60C631F106DE30 /* DiarizationScore.swift in Sources */,
@@ -1767,6 +1774,7 @@
 				76C5B9AAAD207777B6E4B6CF /* ReferralService.swift in Sources */,
 				F09818235C96441C84276517 /* RelatedSessionsView.swift in Sources */,
 				969014FF621F143F2A198F5B /* ReleaseChannel.swift in Sources */,
+				B47253D013A818928655DDD0 /* RemoteCalendar.swift in Sources */,
 				64A75235CDD8D85F27AA2677 /* RetrievalFeedbackStore.swift in Sources */,
 				FABA6ED76251A90C399FBA1E /* RewardsSection.swift in Sources */,
 				BA1299B6B70FC264341E7F8F /* RoomListenerService.swift in Sources */,

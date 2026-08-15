@@ -53,6 +53,10 @@ final class CalendarService: ObservableObject {
     private let defaults: UserDefaults
     private var activationObserver: NSObjectProtocol?
 
+    /// The server's copy of a calendar this Mac cannot see for itself. Optional
+    /// because previews and tests build a service with no backend.
+    var remote: RemoteCalendar?
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         isEnabled = defaults.bool(forKey: Self.defaultsKey)
@@ -194,9 +198,27 @@ final class CalendarService: ObservableObject {
     /// conferencing app is what started this; a recording begun by hand, for a
     /// meeting held across a table, passes none and is answered on time alone.
     func meetings(overlapping span: DateInterval, app: ConferencingApp? = nil) -> [CalendarOccurrence] {
-        guard isReadable, let store else { return [] }
-        let occurrences = store.events(matching: predicate(around: span, in: store)).compactMap(Self.occurrence)
+        var occurrences: [CalendarOccurrence] = []
+        if isReadable, let store {
+            occurrences = store.events(matching: predicate(around: span, in: store)).compactMap(Self.occurrence)
+        }
+        occurrences = merged(occurrences, with: remote?.occurrences(overlapping: span) ?? [])
         return CalendarOccurrence.ranked(occurrences, overlapping: span, app: app)
+    }
+
+    /// EventKit first, the server behind it. An account added to Calendar.app
+    /// *and* connected through Integrations shows up in both, and the local copy
+    /// wins: it knows which attendee is the user, which the server can only
+    /// guess from an address.
+    private func merged(
+        _ local: [CalendarOccurrence],
+        with synced: [CalendarOccurrence]
+    ) -> [CalendarOccurrence] {
+        guard !synced.isEmpty else { return local }
+        let known = Set(local.compactMap(\.externalID))
+        return local + synced.filter { occurrence in
+            occurrence.externalID.map { !known.contains($0) } ?? true
+        }
     }
 
     /// The moment a call is noticed, as a span of its own: everything before it
@@ -228,13 +250,14 @@ final class CalendarService: ObservableObject {
     /// so every event the wider window returned would be decoded — notes
     /// lowercased, attendees read and name-parsed — and then thrown away.
     func meetingsStarting(at now: Date) -> [CalendarOccurrence] {
-        guard isReadable, let store else { return [] }
-        let predicate = store.predicateForEvents(
-            withStart: now.addingTimeInterval(-ScheduledMeeting.grace),
-            end: now.addingTimeInterval(ScheduledMeeting.lead),
-            calendars: nil
-        )
-        return store.events(matching: predicate).compactMap(Self.occurrence)
+        let from = now.addingTimeInterval(-ScheduledMeeting.grace)
+        let to = now.addingTimeInterval(ScheduledMeeting.lead)
+        var occurrences: [CalendarOccurrence] = []
+        if isReadable, let store {
+            let predicate = store.predicateForEvents(withStart: from, end: to, calendars: nil)
+            occurrences = store.events(matching: predicate).compactMap(Self.occurrence)
+        }
+        return merged(occurrences, with: remote?.occurrences(startingBetween: from, and: to) ?? [])
     }
 
     /// Pays the event store's first-query cost somewhere the user is not
