@@ -17,10 +17,11 @@
 -- feature, nothing writes them, and if that idea returns it should arrive with
 -- its own migration and its own reasoning rather than as a leftover.
 
-drop policy if exists "users read own calendar events" on public.calendar_events;
-drop policy if exists "users delete own calendar events" on public.calendar_events;
-drop policy if exists "users read own calendar connection" on public.google_calendar_connections;
-drop policy if exists "users delete own calendar connection" on public.google_calendar_connections;
+-- The policies are not dropped by name. `drop policy if exists` guards the
+-- policy and not the table, so naming one on a table that never existed raises
+-- 42P01 — which is every instance except the sandbox this drift is on, prod and
+-- a fresh branch instance included. Dropping the table takes its policies with
+-- it, so there is nothing the four statements did that these two do not.
 
 alter table public.action_items
     drop column if exists calendar_event_id,
