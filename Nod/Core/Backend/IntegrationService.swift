@@ -75,7 +75,7 @@ final class IntegrationService: ObservableObject {
                 guard let provider = IntegrationProvider(rawValue: row.provider), let teamID = row.teamID else { return }
                 table[provider] = teamID
             }
-            blockedByOrganization = try await loadBlockedProviders()
+            blockedByOrganization = await loadBlockedProviders()
             taskTargets = providers(serving: .tasks)
             hasLoaded = true
             lastError = nil
@@ -177,7 +177,17 @@ final class IntegrationService: ObservableObject {
     /// What the organization has turned off. Row-level security scopes this to
     /// the caller's own organizations, so no filter is needed and a personal
     /// account reads nothing.
-    private func loadBlockedProviders() async throws -> Set<IntegrationProvider> {
+    ///
+    /// Never throws, and that is the point rather than tidiness. No policy means
+    /// everything is permitted — the same answer as an organization that has
+    /// never opened the setting — so a backend without the table yet has to
+    /// produce "nothing is blocked", not "integrations are unavailable".
+    /// Letting it throw took `taskTargets` and `hasLoaded` down with it, which
+    /// removed the filing marks from every action item and made the client
+    /// re-ask on every call: a feature that has not shipped breaking one that
+    /// has, which is exactly what deploying a client ahead of its migrations is
+    /// supposed to be safe from.
+    private func loadBlockedProviders() async -> Set<IntegrationProvider> {
         guard let supabase else { return [] }
         struct Row: Decodable {
             let provider: String
@@ -188,13 +198,18 @@ final class IntegrationService: ObservableObject {
                 case isAllowed = "is_allowed"
             }
         }
-        let rows: [Row] = try await supabase
-            .from("org_integration_policies")
-            .select("provider, is_allowed")
-            .eq("is_allowed", value: false)
-            .execute()
-            .value
-        return Set(rows.compactMap { IntegrationProvider(rawValue: $0.provider) })
+        do {
+            let rows: [Row] = try await supabase
+                .from("org_integration_policies")
+                .select("provider, is_allowed")
+                .eq("is_allowed", value: false)
+                .execute()
+                .value
+            return Set(rows.compactMap { IntegrationProvider(rawValue: $0.provider) })
+        } catch {
+            Log.ui.error("integration policy unavailable, allowing all: \(error.localizedDescription)")
+            return []
+        }
     }
 
     /// Points a connection at one of the caller's teams, or at none.
