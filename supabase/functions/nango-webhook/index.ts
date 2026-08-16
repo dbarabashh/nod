@@ -12,6 +12,7 @@
 import { json } from "../_shared/http.ts";
 import { adminClient } from "../_shared/supabase.ts";
 import { verifyHmacSha256Hex } from "../_shared/crypto.ts";
+import { directoryTargetOrg, importDirectory, isDirectorySource } from "../_shared/integrations/directory.ts";
 
 const NANGO_WEBHOOK_SECRET = Deno.env.get("NANGO_WEBHOOK_SECRET") ?? "";
 const SIGNATURE_HEADER = "x-nango-hmac-sha256";
@@ -70,5 +71,27 @@ Deno.serve(async (req) => {
   }
 
   console.info(`integration connected: ${provider}`);
+
+  // The moment a company's stack is connected is the moment its roster can be
+  // read, and reading it is what makes the product usable before anybody has
+  // been invited to Nod. Administrators only — a member linking their own
+  // account is not setting the company up, and their workspace's members are
+  // not the company's colleagues.
+  //
+  // After the connection is stored and outside its success path: a directory we
+  // could not read is a slower first run, not a failed connection, and telling
+  // Nango this delivery failed would only make it send the same one again.
+  if (isDirectorySource(provider)) {
+    try {
+      const admin = adminClient();
+      const orgId = await directoryTargetOrg(admin, userId);
+      if (orgId) {
+        await importDirectory(admin, { id: connectionId, provider }, orgId);
+      }
+    } catch (error) {
+      console.warn(`directory import after connecting ${provider} failed: ${error}`);
+    }
+  }
+
   return json({ ok: true }, 200);
 });

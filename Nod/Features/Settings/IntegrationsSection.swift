@@ -65,6 +65,8 @@ struct IntegrationsSection: View {
             "Nod stops filing action items in Linear. Issues already filed stay where they are."
         case .googleCalendar:
             "Nod stops reading your calendar, and everything it has already read is deleted. Nothing in your calendar changes."
+        case .slack:
+            "Nod stops creating channels and adding people. Channels it already created stay, and everyone in them stays in them."
         }
     }
 
@@ -105,16 +107,88 @@ struct IntegrationsSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
+            organizationSwitch(provider)
             trailing(provider, isLinked: isLinked, isPending: isPending)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
     }
 
+    /// Re-reads this workspace's member list into the organization.
+    ///
+    /// Connecting already did it once — that is what makes a company usable
+    /// without inviting everyone to Nod first. This is for afterwards: somebody
+    /// joined the workspace, or the tool was connected before the organization
+    /// existed. Administrators only, because filling a company's directory is an
+    /// administrative act and a member's own workspace is not the company.
+    @ViewBuilder
+    private func directorySync(_ provider: IntegrationProvider) -> some View {
+        if provider.isDirectorySource,
+           let organizations,
+           let membership = organizations.activeMembership,
+           membership.role.administers {
+            Button {
+                Task {
+                    if await service.syncDirectory(provider) != nil {
+                        await organizations.refreshPeople()
+                    }
+                }
+            } label: {
+                // The label carries the text in both states. Swapping the icon
+                // for a bare `ProgressView` left the button nameless to
+                // VoiceOver at exactly the moment it was doing something.
+                Label {
+                    Text("Import \(provider.displayName) members")
+                } icon: {
+                    if service.isSyncingDirectory == provider {
+                        ProgressView().progressViewStyle(.circular).controlSize(.small)
+                    } else {
+                        Image("nc-refresh-2")
+                            .icon(12)
+                            .foregroundStyle(Theme.Palette.muted)
+                    }
+                }
+                .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.plain)
+            .linkCursor()
+            .disabled(service.isSyncingDirectory != nil)
+            .help("Import who is in this workspace, so meetings can assign work to them")
+        }
+    }
+
+    /// Whether the organization permits this tool at all — an administrator's
+    /// answer, sitting beside the individual's.
+    ///
+    /// Two switches on one row because they are two different decisions and
+    /// either one is enough to stop an action: the person chooses whether to
+    /// link their account, the company chooses whether Nod may act in that
+    /// product for anybody. A company standardised on one chat tool turns the
+    /// others off here, and nothing offers them again.
+    @ViewBuilder
+    private func organizationSwitch(_ provider: IntegrationProvider) -> some View {
+        if let organizations, let membership = organizations.activeMembership, membership.role.administers {
+            Toggle(
+                "Allowed in \(membership.organization.name)",
+                isOn: Binding(
+                    get: { !service.blockedByOrganization.contains(provider) },
+                    set: { allowed in
+                        Task { await service.setAllowed(allowed, for: provider, in: membership.id) }
+                    }
+                )
+            )
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .labelsHidden()
+            .help("Allowed in \(membership.organization.name)")
+        }
+    }
+
     @ViewBuilder
     private func trailing(_ provider: IntegrationProvider, isLinked: Bool, isPending: Bool) -> some View {
         if isLinked {
             HStack(spacing: 12) {
+                directorySync(provider)
                 teamPicker(provider)
                 HStack(spacing: 5) {
                     Image("nc-check")

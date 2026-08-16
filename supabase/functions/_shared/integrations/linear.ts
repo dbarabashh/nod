@@ -283,10 +283,34 @@ export const LINEAR_ACTIONS: ActionHandlers = {
         };
     },
 
+    /// The workspace's members, so a person Nod knows can be matched to the
+    /// account Linear knows.
+    ///
+    /// Read-only and email-keyed, because the address is the one field both
+    /// systems agree on — a display name is whatever somebody typed, and Linear
+    /// ids mean nothing outside Linear. Callers that cannot see an address get
+    /// no match, which is the correct outcome rather than a guessed one.
+    list_users: async (connection) => {
+        const data = await graphql(
+            connection,
+            "{ users(first: 250, filter: { active: { eq: true } }) { nodes { id name email } } }",
+            {},
+        );
+        const nodes = (data.users as { nodes?: { id: string; name: string; email?: string }[] } | undefined)
+            ?.nodes ?? [];
+        return { users: nodes.filter((user) => user.email) };
+    },
+
     create_issue: async (connection, params) => {
         const title = requireString(params, "title");
         const description = typeof params.description === "string" ? params.description : undefined;
         const teamId = await resolveTeamID(connection, params.teamId);
+        // Already a Linear user id by the time it reaches here — resolving a
+        // person to their account is the executor's job, and doing it again from
+        // a name would be a second place that could name the wrong colleague.
+        const assigneeId = typeof params.assigneeId === "string" && params.assigneeId.trim()
+            ? params.assigneeId.trim()
+            : undefined;
 
         const data = await graphql(
             connection,
@@ -296,7 +320,7 @@ export const LINEAR_ACTIONS: ActionHandlers = {
                     issue { identifier title url }
                 }
             }`,
-            { input: { title, description, teamId } },
+            { input: { title, description, teamId, assigneeId } },
         );
         const result = data.issueCreate as {
             success?: boolean;

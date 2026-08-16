@@ -34,6 +34,14 @@ struct MeetingTranscriptTab: View {
     /// True while the remote speakers are still being clustered. The user's own
     /// mic is a single known voice, so its chip is final the moment it exists.
     let isResolvingRemoteSpeakers: Bool
+    /// People a voice can be attributed to. Empty on a personal account, which
+    /// does not turn the correction off — it turns it into typing the name,
+    /// which is worth just as much to a transcript.
+    var people: [Person] = []
+    /// Answering "who was that" writes into the recording, so only its owner is
+    /// offered it. A reader of a shared meeting sees the chips unchanged.
+    var canCorrectSpeakers = false
+    var onConfirmSpeaker: (Int, Person?, String?) -> Void = { _, _, _ in }
     let onRetry: () -> Void
 
     var body: some View {
@@ -112,12 +120,7 @@ struct MeetingTranscriptTab: View {
     private func row(_ record: TranscriptRecord) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                SpeakerChip(
-                    label: label(for: record),
-                    tint: speakerTint(record),
-                    isResolving: isResolvingRemoteSpeakers
-                        && TranscriptSource(rawValue: record.source) == .them
-                )
+                chip(for: record)
                 Text(transcriptTimeFormatter.string(from: record.ts))
                     .font(.system(size: 10.5))
                     .foregroundStyle(Theme.Palette.muted)
@@ -128,6 +131,34 @@ struct MeetingTranscriptTab: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The plain chip, or the same chip with the correction menu behind it.
+    ///
+    /// Only a remote voice that was actually clustered can be corrected: the
+    /// microphone line is the person reading, and an unclustered line belongs to
+    /// no speaker to attribute.
+    ///
+    /// Offered with an empty roster on purpose. Somebody outside an organization
+    /// has nobody to pick and can still type a name, which is the whole of what
+    /// a transcript needs.
+    @ViewBuilder
+    private func chip(for record: TranscriptRecord) -> some View {
+        let isRemote = TranscriptSource(rawValue: record.source) == .them
+        let resolving = isResolvingRemoteSpeakers && isRemote
+        if canCorrectSpeakers, isRemote, let cluster = record.speaker, cluster > 0 {
+            SpeakerCorrectionChip(
+                label: label(for: record),
+                tint: speakerTint(record),
+                isResolving: resolving,
+                cluster: cluster,
+                people: people,
+                isNamed: speakerNames?["\(cluster)"]?.isEmpty == false,
+                onConfirm: { onConfirmSpeaker(cluster, $0, $1) }
+            )
+        } else {
+            SpeakerChip(label: label(for: record), tint: speakerTint(record), isResolving: resolving)
         }
     }
 

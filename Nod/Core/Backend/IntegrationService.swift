@@ -19,7 +19,16 @@ final class IntegrationService: ObservableObject {
     @Published private(set) var taskTargets: [IntegrationProvider] = []
     /// Which team each linked provider is pointed at, when the person has said.
     @Published private(set) var teamByProvider: [IntegrationProvider: UUID] = [:]
+    /// Providers the organization has switched off.
+    ///
+    /// Held as the exceptions rather than the permissions, because that is what
+    /// the server stores and why: an organization that has never opened the
+    /// setting permits everything, and an empty set here has to mean exactly
+    /// that rather than "nothing is allowed yet".
+    @Published private(set) var blockedByOrganization: Set<IntegrationProvider> = []
     @Published private(set) var pending: IntegrationProvider?
+    /// Which provider's member list is being read right now.
+    @Published private(set) var isSyncingDirectory: IntegrationProvider?
     @Published private(set) var isLoading = false
     @Published var lastError: String?
 
@@ -66,9 +75,8 @@ final class IntegrationService: ObservableObject {
                 guard let provider = IntegrationProvider(rawValue: row.provider), let teamID = row.teamID else { return }
                 table[provider] = teamID
             }
-            taskTargets = linked
-                .filter { $0.taskActions != nil }
-                .sorted { $0.rawValue < $1.rawValue }
+            blockedByOrganization = try await loadBlockedProviders()
+            taskTargets = providers(serving: .tasks)
             hasLoaded = true
             lastError = nil
             Log.ui.info("integrations linked=\(linked.map(\.rawValue).sorted().joined(separator: ","))")
@@ -76,6 +84,117 @@ final class IntegrationService: ObservableObject {
             lastError = "Couldn't load your integrations."
             Log.ui.error("IntegrationService.refresh failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Whether Nod may act in a product on this account's behalf: the person
+    /// linked it, and the organization has not switched it off.
+    ///
+    /// Both halves, always. The connection is the individual's decision and the
+    /// policy is the company's, and neither substitutes for the other.
+    func isUsable(_ provider: IntegrationProvider) -> Bool {
+        linked.contains(provider) && !blockedByOrganization.contains(provider)
+    }
+
+    /// Every usable product that can serve a capability.
+    ///
+    /// The question the rest of the app asks — "somewhere to file this", "some­
+    /// where to talk about this" — rather than "is Slack connected". A company
+    /// on Teams or Telegram answers the same question with a different product,
+    /// and nothing above this line should have to know which.
+    func providers(serving capability: IntegrationCapability) -> [IntegrationProvider] {
+        IntegrationProvider.all(serving: capability).filter(isUsable)
+    }
+
+    /// Re-reads a connected workspace's member list into the organization.
+    ///
+    /// Connecting already does this once, which is what makes a company usable
+    /// the minute it is set up. This is for afterwards: somebody joined the
+    /// workspace, or the tool was connected before the organization existed.
+    /// Administrators only, enforced by the server.
+    func syncDirectory(_ provider: IntegrationProvider) async -> Int? {
+        guard let supabase else { return nil }
+        isSyncingDirectory = provider
+        defer { isSyncingDirectory = nil }
+
+        struct Request: Encodable { let provider: String }
+        struct Response: Decodable {
+            struct Failure: Decodable {
+                let message: String
+            }
+
+            let linked: Int?
+            let error: Failure?
+        }
+        do {
+            let response: Response = try await supabase.functions.invoke(
+                "directory-sync",
+                options: FunctionInvokeOptions(body: Request(provider: provider.rawValue))
+            )
+            if let failure = response.error {
+                lastError = failure.message
+                return nil
+            }
+            lastError = nil
+            Log.ui.info("directory synced provider=\(provider.rawValue) linked=\(response.linked ?? 0)")
+            return response.linked
+        } catch {
+            lastError = "Couldn't read that tool's member list."
+            Log.ui.error("IntegrationService.syncDirectory failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// The organization's answer for one product, from an administrator's pane.
+    func setAllowed(_ allowed: Bool, for provider: IntegrationProvider, in orgID: UUID) async {
+        guard let supabase else { return }
+        struct Params: Encodable {
+            let p_org: UUID
+            let p_provider: String
+            let p_allowed: Bool
+        }
+        do {
+            _ = try await supabase
+                .rpc("set_org_integration_policy", params: Params(
+                    p_org: orgID,
+                    p_provider: provider.rawValue,
+                    p_allowed: allowed
+                ))
+                .execute()
+            if allowed {
+                blockedByOrganization.remove(provider)
+            } else {
+                blockedByOrganization.insert(provider)
+            }
+            taskTargets = providers(serving: .tasks)
+            lastError = nil
+            Log.ui.info("integration policy provider=\(provider.rawValue) allowed=\(allowed)")
+        } catch {
+            lastError = "Couldn't change that for your organization."
+            Log.ui.error("IntegrationService.setAllowed failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// What the organization has turned off. Row-level security scopes this to
+    /// the caller's own organizations, so no filter is needed and a personal
+    /// account reads nothing.
+    private func loadBlockedProviders() async throws -> Set<IntegrationProvider> {
+        guard let supabase else { return [] }
+        struct Row: Decodable {
+            let provider: String
+            let isAllowed: Bool
+
+            enum CodingKeys: String, CodingKey {
+                case provider
+                case isAllowed = "is_allowed"
+            }
+        }
+        let rows: [Row] = try await supabase
+            .from("org_integration_policies")
+            .select("provider, is_allowed")
+            .eq("is_allowed", value: false)
+            .execute()
+            .value
+        return Set(rows.compactMap { IntegrationProvider(rawValue: $0.provider) })
     }
 
     /// Points a connection at one of the caller's teams, or at none.

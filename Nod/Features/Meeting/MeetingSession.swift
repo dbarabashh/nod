@@ -271,6 +271,8 @@ final class MeetingSession: ObservableObject {
     private let rosterSampler: MeetingRosterSampler
     /// Everything a finished meeting gets once its recap exists.
     private let enrichment: MeetingEnrichment
+    /// What the meeting is offering to do in the tools the user connected.
+    private let proposalRaiser: ProposalRaiser
 
     /// What Nod hears while the meeting is still running. Built here rather than
     /// injected because its life is exactly this session's — like
@@ -293,7 +295,8 @@ final class MeetingSession: ObservableObject {
         modeStore: ModeStore,
         screenExclusions: ScreenExclusions,
         calendar: CalendarService,
-        analytics: ProductAnalytics
+        analytics: ProductAnalytics,
+        proposalRaiser: ProposalRaiser
     ) {
         self.audioCapture = audioCapture
         self.store = store
@@ -308,6 +311,7 @@ final class MeetingSession: ObservableObject {
         self.modeStore = modeStore
         self.calendar = calendar
         self.analytics = analytics
+        self.proposalRaiser = proposalRaiser
         recapGenerator = RecapGenerator(llm: llm)
         rosterSampler = MeetingRosterSampler(exclusions: screenExclusions)
         enrichment = MeetingEnrichment(
@@ -937,13 +941,14 @@ final class MeetingSession: ObservableObject {
         // handed one for. Resolved afterwards, the summary froze around
         // "Speaker 2" while the transcript chips underneath were relabelled
         // — one meeting, two views, permanently disagreeing.
-        let speakerNames = speakers.isEmpty
+        let attributions: [String: SpeakerAttribution] = speakers.isEmpty
             ? [:]
             : await enrichment.nameSpeakers(
                 in: clustered,
                 people: people,
                 clusters: Array(Set(speakers.values))
             )
+        let speakerNames = attributions.names
         let context = speakerNames.isEmpty
             ? clustered
             : TranscriptSnapshot.context(
@@ -1042,13 +1047,18 @@ final class MeetingSession: ObservableObject {
             // background, so the extra latency is invisible to the user.
             let landed = await outbox.isPending(updated.id) == false
             if landed {
-                await enrichment.run(
+                let saved = await enrichment.run(
                     for: updated,
                     transcript: context,
                     recap: recap,
                     participants: participants,
-                    live: pinnedFindings
+                    live: pinnedFindings,
+                    speakers: attributions
                 )
+                // After the to-dos exist and not before: a proposal points at
+                // the row it came from, and offering to file something the user
+                // cannot yet see in their checklist is an offer about nothing.
+                await proposalRaiser.raise(from: saved, recap: recap, for: updated)
             }
         } catch {
             // Summary failed, but the transcript is real work. Complete the

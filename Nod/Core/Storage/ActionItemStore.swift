@@ -133,20 +133,26 @@ final class ActionItemStore: ObservableObject {
     /// and one it talked itself out of are both part of what happened, and
     /// neither costs the user anything, because only `confirmed` actions are
     /// ever counted or shown.
+    ///
+    /// Returns the rows it wrote, so the caller can act on them without reading
+    /// them back. What a meeting produced is decided here; whether any of it is
+    /// worth offering to file somewhere is decided by `ProposalDrafting`, and
+    /// that question needs the ids this insert has just minted.
+    @discardableResult
     func saveExtracted(
         _ actions: [MeetingRecap.Action],
         live: [LiveFinding] = [],
         meetingID: UUID,
         userID: UUID
-    ) async {
+    ) async -> [ActionItem] {
         #if DEBUG
-            if DemoMode.isEnabled { return }
+            if DemoMode.isEnabled { return [] }
         #endif
         let recap = actions.enumerated().compactMap { idx, action -> (position: Int, action: MeetingRecap.Action)? in
             action.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : (idx, action)
         }
-        guard !recap.isEmpty || !live.isEmpty else { return }
-        guard let existing = await existingRows(forMeeting: meetingID) else { return }
+        guard !recap.isEmpty || !live.isEmpty else { return [] }
+        guard let existing = await existingRows(forMeeting: meetingID) else { return [] }
 
         var rows = Self.rows(for: live, meetingID: meetingID, userID: userID)
         // Superseded findings are history and cannot be what the recap means;
@@ -195,7 +201,7 @@ final class ActionItemStore: ObservableObject {
         }
 
         let inserts = Array(rows.values)
-        guard !inserts.isEmpty else { return }
+        guard !inserts.isEmpty else { return [] }
         // The one place the two passes are reconciled, and until now it was
         // silent: a live finding the recap did not restate is retired here, and
         // the only way to see that had been to notice a card during the meeting
@@ -206,8 +212,10 @@ final class ActionItemStore: ObservableObject {
         )
         do {
             try await supabase.from(Self.tableName).insert(inserts).execute()
+            return inserts
         } catch {
             Log.ui.error("ActionItemStore.saveExtracted failed (non-fatal): \(error.localizedDescription)")
+            return []
         }
     }
 

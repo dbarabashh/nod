@@ -223,6 +223,9 @@ struct MeetingDetailView: View {
                 onEdited: scheduleSave,
                 onRegenerate: regenerateSummary
             )
+            // Under the recap, not over it: what the meeting was is the thing
+            // the user came to read, and what to do about it follows from it.
+            ProposalReviewList(meetingID: meeting.id)
         case .transcript:
             MeetingTranscriptTab(
                 state: transcriptLoad,
@@ -230,6 +233,9 @@ struct MeetingDetailView: View {
                 speakerNames: current.speakerNames,
                 hostName: hostName,
                 isResolvingRemoteSpeakers: meetingStore.resolvingSpeakerIDs.contains(meeting.id),
+                people: correctablePeople,
+                canCorrectSpeakers: hostName == nil,
+                onConfirmSpeaker: confirmSpeaker,
                 onRetry: { Task { await loadTranscript() } }
             )
         }
@@ -303,6 +309,30 @@ struct MeetingDetailView: View {
         guard let viewer = organizations.currentUserID, viewer != current.userID else { return nil }
         return organizations.directory.first { $0.userID == current.userID }
             .map { $0.displayName ?? $0.email }
+    }
+
+    /// Who a voice in this recording may be attributed to.
+    ///
+    /// Everybody the organization knows about, including colleagues who have
+    /// never installed Nod — a contractor in the company's tracker speaks in
+    /// meetings too. Empty on a personal account, where the correction becomes
+    /// typing the name.
+    private var correctablePeople: [Person] {
+        organizations.people
+    }
+
+    private func confirmSpeaker(cluster: Int, person: Person?, typedName: String?) {
+        Task {
+            let saved = await meetingStore.confirmSpeaker(
+                cluster: cluster,
+                personID: person?.personID,
+                name: person?.name ?? typedName,
+                for: meeting.id
+            )
+            if !saved {
+                saveState = .failed("Couldn't save who was speaking.")
+            }
+        }
     }
 
     private func mergeInto(_ candidate: SameMeeting) {

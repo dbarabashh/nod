@@ -49,6 +49,7 @@ struct AppServices {
     let accountExport: AccountExportService
     let connections: ConnectionService
     let integrations: IntegrationService
+    let actionProposals: ActionProposalStore
     let rooms: RoomListenerService
     let organizations: OrganizationService
     /// Push side of shared access. Held here so the composition root can start it
@@ -204,6 +205,7 @@ struct AppServices {
         let actionItemStore = ActionItemStore(supabase: supabase) { reference, done in
             await integrations.setTaskClosed(done, reference: reference)
         }
+        let actionProposals = ActionProposalStore(supabase: supabase)
         let knowledgeThreads = KnowledgeThreadStore(supabase: supabase)
         let retrievalFeedback = RetrievalFeedbackStore(supabase: supabase)
         let modeStore = ModeStore()
@@ -254,6 +256,7 @@ struct AppServices {
             accountExport: AccountExportService(supabase: supabase),
             connections: ConnectionService(supabase: supabase),
             integrations: integrations,
+            actionProposals: actionProposals,
             rooms: rooms,
             organizations: organizations,
             accessChannel: accessChannel,

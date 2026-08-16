@@ -1,0 +1,241 @@
+// Slack, over its Web API.
+//
+// The first provider where the identity work is not an optimisation but the
+// whole feature: "create a channel for the migration and add Anna, Alex and
+// John" cannot be carried out from three first names. Every member action here
+// takes Slack member ids, resolved from `people` by the executor, and this file
+// never sees a name it has to guess about.
+//
+// Deliberately three actions and no more. Creating a channel and inviting
+// colleagues are additive and visible — everybody invited can see what happened
+// and leave. Posting messages, archiving channels and removing members are not,
+// and none of them is needed to turn a meeting into work.
+import { ActionError, type Connection, proxy } from "./nango.ts";
+import type { ActionHandlers } from "./registry.ts";
+
+/// Slack answers 200 with `{ ok: false, error: "…" }`, so the transport being
+/// fine says nothing about the call.
+async function call(
+    connection: Connection,
+    method: string,
+    body: Record<string, unknown>,
+    options: { method?: "GET" | "POST"; query?: Record<string, string | undefined> } = {},
+): Promise<Record<string, unknown>> {
+    const payload = await proxy(connection, method, body, options) as
+        | { ok?: boolean; error?: string }
+        | null;
+
+    if (!payload?.ok) {
+        const detail = payload?.error ?? "unknown_error";
+        throw new ActionError(SLACK_ERRORS[detail] ?? "provider_error", messageFor(detail), 502);
+    }
+    return payload as Record<string, unknown>;
+}
+
+/// Slack's error strings, mapped to codes a caller can act on. Anything absent
+/// stays `provider_error`, which the review card renders as a plain failure.
+const SLACK_ERRORS: Record<string, string> = {
+    name_taken: "name_taken",
+    invalid_name_specials: "invalid_params",
+    invalid_name_maxlength: "invalid_params",
+    missing_scope: "reauthorize",
+    not_authed: "reauthorize",
+    invalid_auth: "reauthorize",
+    account_inactive: "reauthorize",
+    restricted_action: "not_permitted",
+};
+
+function messageFor(error: string): string {
+    switch (error) {
+        case "name_taken":
+            return "A Slack channel with that name already exists.";
+        case "missing_scope":
+        case "not_authed":
+        case "invalid_auth":
+        case "account_inactive":
+            return "Nod's Slack access needs to be reconnected in Settings → Integrations.";
+        case "restricted_action":
+            return "This Slack workspace does not allow that.";
+        case "cant_invite_self":
+            return "Nod cannot invite itself to a channel.";
+        default:
+            return `Slack rejected the request: ${error}.`;
+    }
+}
+
+function requireString(params: Record<string, unknown>, key: string): string {
+    const value = params[key];
+    if (typeof value !== "string" || value.trim().length === 0) {
+        throw new ActionError("invalid_params", `\`${key}\` is required.`);
+    }
+    return value.trim();
+}
+
+/// Slack channel names: lowercase, no spaces or dots, 80 characters.
+///
+/// Normalised rather than rejected, because a model asked for a channel name
+/// after a conversation about "Auth Migration" writes `Auth Migration`, and
+/// failing on it would put a formatting rule in front of a person who typed
+/// nothing wrong.
+function channelName(raw: string): string {
+    const name = raw
+        .toLowerCase()
+        .replace(/^#/, "")
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 80);
+    if (!name) {
+        throw new ActionError("invalid_params", `"${raw}" leaves no usable Slack channel name.`);
+    }
+    return name;
+}
+
+const MAX_INVITES = 50;
+
+function memberIDs(params: Record<string, unknown>, key: string): string[] {
+    const raw = params[key];
+    const list = typeof raw === "string"
+        ? raw.split(",").map((entry) => entry.trim()).filter(Boolean)
+        : Array.isArray(raw)
+        ? raw.map((entry) => String(entry).trim()).filter(Boolean)
+        : [];
+    if (list.length > MAX_INVITES) {
+        throw new ActionError("invalid_params", `At most ${MAX_INVITES} people per invitation.`);
+    }
+    // Member ids, never names or addresses. Anything else reaching this point
+    // means the executor failed to resolve somebody and the call must not go
+    // ahead with a string Slack would either reject or, worse, match loosely.
+    for (const id of list) {
+        if (!/^[UW][A-Z0-9]{2,}$/.test(id)) {
+            throw new ActionError("unresolved_person", `"${id}" is not a Slack member id.`);
+        }
+    }
+    return list;
+}
+
+/// Everybody a call is meant to invite, as Slack member ids.
+///
+/// Two ways in, because there are two callers and they know different things. A
+/// proposal raised from a meeting carries `people` rows, already resolved to
+/// member ids by the executor. The chat carries addresses — it has the
+/// organization directory in its prompt and no way to learn a Slack id — exactly
+/// as `google-calendar.create_event` already takes addresses for its guests.
+///
+/// Both end in member ids before anything is invited. An address that matches
+/// nobody in the workspace is an error and not a silent omission: "add Anna,
+/// Alex and John" that quietly adds two of them is worse than one that fails.
+async function invitees(connection: Connection, params: Record<string, unknown>): Promise<string[]> {
+    const ids = memberIDs(params, "invite_member_ids");
+    const emails = list(params, "invite_emails");
+    if (emails.length === 0) return ids;
+    if (ids.length + emails.length > MAX_INVITES) {
+        throw new ActionError("invalid_params", `At most ${MAX_INVITES} people per invitation.`);
+    }
+
+    const resolved: string[] = [];
+    for (const email of emails) {
+        if (!email.includes("@")) {
+            throw new ActionError("invalid_params", `"${email}" is not an email address.`);
+        }
+        const payload = await call(connection, "users.lookupByEmail", {}, {
+            method: "GET",
+            query: { email },
+        }).catch(() => null);
+        const user = payload?.user as { id?: string } | undefined;
+        if (!user?.id) {
+            throw new ActionError("unresolved_person", `Nobody in this Slack workspace uses ${email}.`);
+        }
+        resolved.push(user.id);
+    }
+    return [...new Set([...ids, ...resolved])];
+}
+
+function list(params: Record<string, unknown>, key: string): string[] {
+    const raw = params[key];
+    if (typeof raw === "string") return raw.split(",").map((entry) => entry.trim()).filter(Boolean);
+    if (Array.isArray(raw)) return raw.map((entry) => String(entry).trim()).filter(Boolean);
+    return [];
+}
+
+export const SLACK_ACTIONS: ActionHandlers = {
+    /// The workspace's members, for matching a person to their Slack account by
+    /// address. Same shape `linear.list_users` answers with, so the executor's
+    /// identity import does not branch per provider.
+    list_users: async (connection) => {
+        const payload = await call(connection, "users.list", {}, {
+            method: "GET",
+            query: { limit: "500" },
+        });
+        const members = (payload.members as {
+            id: string;
+            deleted?: boolean;
+            is_bot?: boolean;
+            real_name?: string;
+            profile?: { email?: string; real_name?: string };
+        }[] | undefined) ?? [];
+
+        return {
+            users: members
+                .filter((member) => !member.deleted && !member.is_bot && member.profile?.email)
+                .map((member) => ({
+                    id: member.id,
+                    name: member.profile?.real_name ?? member.real_name,
+                    email: member.profile?.email,
+                })),
+        };
+    },
+
+    /// Creates a channel and returns what a person needs to find it.
+    ///
+    /// Public by default. A private channel is invisible to everybody not
+    /// invited, including the people who were in the meeting and are named a
+    /// week later — the quieter default is the one that loses information.
+    create_channel: async (connection, params) => {
+        const name = channelName(requireString(params, "channel_name"));
+        const isPrivate = params.is_private === true || params.is_private === "true";
+
+        const payload = await call(connection, "conversations.create", {
+            name,
+            is_private: isPrivate,
+        });
+        const channel = payload.channel as { id?: string; name?: string } | undefined;
+        if (!channel?.id) {
+            throw new ActionError("provider_error", "Slack did not create the channel.", 502);
+        }
+
+        // Invitations ride along when the proposal carried them, so "create a
+        // channel and add the three of us" is one approval rather than two.
+        const invites = memberIDs(params, "invite_member_ids");
+        if (invites.length > 0) {
+            await call(connection, "conversations.invite", {
+                channel: channel.id,
+                users: invites.join(","),
+            });
+        }
+
+        const team = typeof params.team_domain === "string" ? params.team_domain : null;
+        return {
+            // `key`, `title`, `url` — the same three words every provider action
+            // answers with, so the executor stores the result without knowing
+            // which product it asked.
+            key: `#${channel.name ?? name}`,
+            title: channel.name ?? name,
+            url: team
+                ? `https://${team}.slack.com/archives/${channel.id}`
+                : `https://slack.com/app_redirect?channel=${channel.id}`,
+            invited: invites.length,
+        };
+    },
+
+    invite_users: async (connection, params) => {
+        const channel = requireString(params, "channel_id");
+        const users = memberIDs(params, "invite_member_ids");
+        if (users.length === 0) {
+            throw new ActionError("invalid_params", "`invite_member_ids` is required.");
+        }
+
+        await call(connection, "conversations.invite", { channel, users: users.join(",") });
+        return { key: channel, invited: users.length };
+    },
+};

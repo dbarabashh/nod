@@ -197,6 +197,45 @@ struct TeamMember: Decodable, Identifiable, Equatable {
     }
 }
 
+/// Somebody the organization knows about, whether or not they use Nod.
+///
+/// Distinct from `Teammate`, which answers "who are my colleagues on Nod" for
+/// the chat's invitation prompt. This answers "who can this work be assigned
+/// to", and the two stopped having the same answer the moment a contractor in
+/// the company's tracker could be named without ever installing anything.
+struct Person: Decodable, Identifiable, Equatable {
+    let personID: UUID
+    let displayName: String?
+    let email: String?
+    /// Whether they have a Nod account. Only ever informational — somebody
+    /// without one is just as assignable, which is the point.
+    let hasAccount: Bool
+    /// Connected products this person can actually be addressed in. Empty means
+    /// naming them is a note to a human rather than an assignment Nod can carry
+    /// out, and the review card says so instead of failing later.
+    let providers: [String]
+
+    var id: UUID {
+        personID
+    }
+
+    var name: String {
+        displayName?.trimmedOrNil ?? email.map { String($0.prefix(while: { $0 != "@" })) } ?? "Unknown"
+    }
+
+    func isReachable(in provider: IntegrationProvider) -> Bool {
+        providers.contains(provider.rawValue)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case personID = "person_id"
+        case displayName = "display_name"
+        case email
+        case hasAccount = "has_account"
+        case providers
+    }
+}
+
 /// A colleague as the assistant may name them: enough to send an invitation and
 /// nothing more. Roles, join dates and invite tokens stay with the
 /// administrator's view.
@@ -204,14 +243,32 @@ struct Teammate: Decodable, Identifiable, Equatable {
     let userID: UUID
     let displayName: String?
     let email: String
+    /// The canonical person behind the account, when the server is new enough
+    /// to answer with one. Optional so a build talking to an instance without
+    /// `20260816200000_canonical_people.sql` still decodes the rest of the row.
+    let personID: UUID?
 
     var id: UUID {
         userID
+    }
+
+    /// What to call them. The address is the fallback the whole product uses
+    /// when somebody has never set a display name.
+    var name: String {
+        displayName?.trimmedOrNil ?? String(email.prefix(while: { $0 != "@" }))
     }
 
     enum CodingKeys: String, CodingKey {
         case userID = "user_id"
         case displayName = "display_name"
         case email
+        case personID = "person_id"
+    }
+}
+
+private extension String {
+    var trimmedOrNil: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

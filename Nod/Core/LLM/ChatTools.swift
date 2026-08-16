@@ -133,6 +133,7 @@ enum ChatTools {
         switch provider {
         case .linear: linearTools
         case .googleCalendar: calendarTools
+        case .slack: slackTools
         }
     }
 
@@ -161,6 +162,33 @@ enum ChatTools {
                     "teamId": .init(description: "Only when the workspace has several teams.")
                 ],
                 required: ["title"]
+            ),
+            mutating: true
+        )
+    ]
+
+    /// Opening a channel, and nothing else.
+    ///
+    /// No posting. A message sent under somebody's own account is indelible and
+    /// reads as them saying it, which is a different kind of act from creating a
+    /// place for a conversation — and it is not one a meeting needs.
+    ///
+    /// Guests are named by address rather than by Slack id, exactly as the
+    /// calendar's invitations are: the model has the organization's directory in
+    /// its prompt and no way to learn a Slack id, and the server turns one into
+    /// the other where it can be checked.
+    private static let slackTools: [ChatTool] = [
+        ChatTool(
+            provider: .slack,
+            name: "slack_create_channel",
+            description: "Create a Slack channel and optionally invite people by email. Use when the user asks for a place to discuss something.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "channel_name": .init(description: "Short kebab-case name, e.g. auth-migration."),
+                    "invite_emails": .init(description: "Comma-separated email addresses to add. Omit to create it empty."),
+                    "is_private": .init(description: "\"true\" for a private channel. Defaults to public.")
+                ],
+                required: ["channel_name"]
             ),
             mutating: true
         )

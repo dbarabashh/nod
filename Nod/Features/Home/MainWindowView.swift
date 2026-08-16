@@ -23,6 +23,7 @@ struct MainWindowView: View {
     @EnvironmentObject private var knowledgeChat: KnowledgeChatStore
     @EnvironmentObject private var knowledgeThreads: KnowledgeThreadStore
     @EnvironmentObject private var integrations: IntegrationService
+    @EnvironmentObject private var actionProposals: ActionProposalStore
     @EnvironmentObject private var hotkeys: HotkeyManager
     @EnvironmentObject private var settingsFocus: SettingsFocus
     @EnvironmentObject private var demoPlayback: DemoPlayback
@@ -115,7 +116,12 @@ struct MainWindowView: View {
             // every surface in this window needs to know what that is — not just
             // the two that happened to load it themselves.
             async let linked: Void = integrations.refreshIfNeeded()
-            _ = await (meetings, labels, threads, linked)
+            // What a meeting is offering to do outlives the session that
+            // proposed it: approving happens minutes or days later, and until
+            // this ran the review cards were only ever visible to the launch
+            // that created them.
+            async let proposals: Void = actionProposals.refresh()
+            _ = await (meetings, labels, threads, linked, proposals)
             contextWidth.prune(keeping: Set(meetingStore.meetings.map(\.id)))
             if let id = initialFocusMeetingID {
                 focus(on: id)

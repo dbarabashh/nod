@@ -230,6 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     services.profileStore.clear()
                     services.chatStore.clear()
                     services.actionItemStore.clear()
+                    services.actionProposals.clear()
                     services.labelStore.clear()
                     services.meetingGrants.clear()
                     services.remoteCalendar.clear()

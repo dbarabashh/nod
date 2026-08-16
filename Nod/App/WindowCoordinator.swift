@@ -236,7 +236,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             modeStore: services.modeStore,
             screenExclusions: services.screenExclusions,
             calendar: services.calendar,
-            analytics: services.productAnalytics
+            analytics: services.productAnalytics,
+            proposalRaiser: ProposalRaiser(
+                proposals: services.actionProposals,
+                integrations: services.integrations,
+                organizations: services.organizations,
+                meetings: services.meetingStore
+            )
         )
 
         // The detector belongs to the session it can act on, and the notch
@@ -395,6 +401,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                     .environmentObject(services.knowledgeThreads)
                     .environmentObject(services.actionItemStore)
                     .environmentObject(services.integrations)
+                    .environmentObject(services.actionProposals)
                     .environmentObject(services.taskDrafts)
                     .environmentObject(services.llmClient)
                     .environmentObject(services.languagePreference)

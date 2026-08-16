@@ -3,6 +3,7 @@
 import type { Connection } from "./nango.ts";
 import { GOOGLE_CALENDAR_ACTIONS } from "./googleCalendar.ts";
 import { LINEAR_ACTIONS } from "./linear.ts";
+import { SLACK_ACTIONS } from "./slack.ts";
 
 export type ActionHandler = (
     connection: Connection,
@@ -21,6 +22,7 @@ export type ActionHandlers = Record<string, ActionHandler>;
 const PROVIDERS: Record<string, ActionHandlers | null> = {
     "linear": LINEAR_ACTIONS,
     "google-calendar": GOOGLE_CALENDAR_ACTIONS,
+    "slack": SLACK_ACTIONS,
 };
 
 export function handlerFor(provider: string, action: string): ActionHandler | undefined {

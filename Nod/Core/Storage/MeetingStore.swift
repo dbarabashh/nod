@@ -138,6 +138,7 @@ final class MeetingStore: ObservableObject {
 
     private let supabase: SupabaseClient
     private static let tableName = "meetings"
+    private static let speakersTableName = "meeting_speakers"
 
     /// Whether a session reached this list through a folder somebody shared,
     /// rather than by being recorded here. Row-level security started returning
@@ -411,6 +412,124 @@ final class MeetingStore: ObservableObject {
 
         if let idx = meetings.firstIndex(where: { $0.id == meetingID }) {
             meetings[idx].speakerNames = names
+        }
+    }
+
+    /// Records which voice was whose, beside the names the transcript draws.
+    ///
+    /// Best-effort and never in anybody's way: the meeting, its transcript and
+    /// its names are already saved by the time this runs, and a failure costs
+    /// the ability to assign work to a speaker later — not anything the user is
+    /// currently looking at. Throwing here would turn a bookkeeping problem into
+    /// a visible one.
+    func recordSpeakers(_ speakers: [MeetingSpeaker], for meetingID: UUID) async {
+        guard !speakers.isEmpty else { return }
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+
+        struct Row: Encodable {
+            let meetingID: UUID
+            let cluster: Int
+            let personID: UUID?
+            let displayName: String?
+            let confidence: Double
+            let decidedBy: String
+
+            enum CodingKeys: String, CodingKey {
+                case meetingID = "meeting_id"
+                case cluster
+                case personID = "person_id"
+                case displayName = "display_name"
+                case confidence
+                case decidedBy = "decided_by"
+            }
+        }
+
+        do {
+            try await supabase
+                .from(Self.speakersTableName)
+                .upsert(
+                    speakers.map {
+                        Row(
+                            meetingID: meetingID,
+                            cluster: $0.cluster,
+                            personID: $0.personID,
+                            displayName: $0.displayName,
+                            confidence: $0.confidence,
+                            decidedBy: $0.decidedBy.rawValue
+                        )
+                    },
+                    onConflict: "meeting_id,cluster"
+                )
+                .execute()
+            Log.stt.info("diarization: recorded \(speakers.count) speaker attribution(s)")
+        } catch {
+            Log.stt.error("diarization: recording speakers failed — \(error.localizedDescription)")
+        }
+    }
+
+    func speakers(forMeeting meetingID: UUID) async -> [MeetingSpeaker] {
+        #if DEBUG
+            if DemoMode.isEnabled { return [] }
+        #endif
+        do {
+            return try await supabase
+                .from(Self.speakersTableName)
+                .select("cluster, person_id, display_name, confidence, decided_by")
+                .eq("meeting_id", value: meetingID.uuidString)
+                .execute()
+                .value
+        } catch {
+            Log.ui.error("MeetingStore.speakers failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    /// The user answering "who was that".
+    ///
+    /// Goes through `confirm_speaker` rather than two writes, because the
+    /// structured row and the `speaker_names` map the transcript reads have to
+    /// move together — the server does both or neither. Passing no person
+    /// clears the naming entirely.
+    func confirmSpeaker(
+        cluster: Int,
+        personID: UUID?,
+        name: String?,
+        for meetingID: UUID
+    ) async -> Bool {
+        #if DEBUG
+            if DemoMode.isEnabled { return false }
+        #endif
+        struct Params: Encodable {
+            let p_meeting: UUID
+            let p_cluster: Int
+            let p_person: UUID?
+            let p_name: String?
+        }
+        do {
+            _ = try await supabase
+                .rpc(
+                    "confirm_speaker",
+                    params: Params(p_meeting: meetingID, p_cluster: cluster, p_person: personID, p_name: name)
+                )
+                .execute()
+            // Mirrors what the function just did to the row, so the transcript
+            // relabels without a refetch.
+            if let idx = meetings.firstIndex(where: { $0.id == meetingID }) {
+                var names = meetings[idx].speakerNames ?? [:]
+                if let name, !name.isEmpty {
+                    names["\(cluster)"] = name
+                } else {
+                    names.removeValue(forKey: "\(cluster)")
+                }
+                meetings[idx].speakerNames = names.isEmpty ? nil : names
+            }
+            Log.ui.info("speaker confirmed cluster=\(cluster) meeting=\(meetingID.uuidString)")
+            return true
+        } catch {
+            Log.ui.error("MeetingStore.confirmSpeaker failed: \(error.localizedDescription)")
+            return false
         }
     }
 

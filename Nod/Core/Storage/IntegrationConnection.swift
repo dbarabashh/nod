@@ -29,6 +29,49 @@ struct TaskMatch: Equatable {
     let closed: Bool
 }
 
+/// What a connected product is *for*, as opposed to which product it is.
+///
+/// Nod does not have a Slack feature or a Linear feature. It has "file this
+/// work somewhere" and "start a conversation about this somewhere", and the
+/// product that ends up serving either is whatever the organization uses —
+/// Linear or Jira, Slack or Teams or Telegram. Naming the capability is what
+/// keeps the rest of the app from hard-coding one company's stack as the
+/// meaning of the verb.
+enum IntegrationCapability: String, CaseIterable, Identifiable {
+    /// Somewhere work is tracked: an issue, a ticket, a card.
+    case tasks
+    /// Somewhere people talk: a channel, a group, a space.
+    case conversations
+    /// A calendar.
+    case calendar
+
+    var id: String {
+        rawValue
+    }
+
+    /// How the capability is described where a person picks between products.
+    var displayName: String {
+        switch self {
+        case .tasks: "Task tracker"
+        case .conversations: "Team chat"
+        case .calendar: "Calendar"
+        }
+    }
+}
+
+/// The two calls a conversation product has to answer for Nod to act in it.
+///
+/// Named actions rather than a bool, for the same reason `TaskActions` is: the
+/// caller needs the names, and guessing them from a prefix is how
+/// `create_channel` in a wiki would have become a place to put a meeting.
+struct ConversationActions {
+    /// A channel in Slack, a group in Telegram, a team channel in Teams.
+    let createSpace: String
+    let invite: String
+    /// The workspace's members, for matching a person to their account there.
+    let listUsers: String
+}
+
 /// Which way the arrow points once a product is connected.
 ///
 /// Kept apart because the two are not the same request to the person granting
@@ -51,6 +94,7 @@ enum IntegrationRole {
 enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     case linear
     case googleCalendar = "google-calendar"
+    case slack
 
     var id: String {
         rawValue
@@ -60,12 +104,31 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .linear: "Linear"
         case .googleCalendar: "Google Calendar"
+        case .slack: "Slack"
         }
+    }
+
+    /// What this product is one of. A provider serves exactly one capability
+    /// today; the type is a set so that the first product serving two — a
+    /// tracker that is also where the team talks — does not need this rewritten.
+    var capabilities: Set<IntegrationCapability> {
+        switch self {
+        case .linear: [.tasks]
+        case .googleCalendar: [.calendar]
+        case .slack: [.conversations]
+        }
+    }
+
+    /// Every product that could serve a capability, whether or not anyone has
+    /// connected one. What is actually reachable is `IntegrationService`'s
+    /// question — it depends on the connection and on the organization's policy.
+    static func all(serving capability: IntegrationCapability) -> [IntegrationProvider] {
+        allCases.filter { $0.capabilities.contains(capability) }.sorted { $0.rawValue < $1.rawValue }
     }
 
     var role: IntegrationRole {
         switch self {
-        case .linear: .actsIn
+        case .linear, .slack: .actsIn
         case .googleCalendar: .readsFrom
         }
     }
@@ -82,8 +145,27 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
                 search: "search_issues",
                 update: "update_issue"
             )
-        case .googleCalendar: nil
+        case .googleCalendar, .slack: nil
         }
+    }
+
+    var conversationActions: ConversationActions? {
+        switch self {
+        case .slack: ConversationActions(
+                createSpace: "create_channel",
+                invite: "invite_users",
+                listUsers: "list_users"
+            )
+        case .linear, .googleCalendar: nil
+        }
+    }
+
+    /// Whether this product can say who is in its workspace, so a company's
+    /// roster can be picked up from it. What makes the answer yes is the
+    /// adapter having a `list_users` handler, which every product serving
+    /// `tasks` or `conversations` needs anyway to resolve an assignee.
+    var isDirectorySource: Bool {
+        taskActions != nil || conversationActions != nil
     }
 
     /// What connecting actually grants, in the user's terms. Kept concrete —
@@ -93,6 +175,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .linear: "Turn action items into Linear issues."
         case .googleCalendar: "Know which meeting is starting, so notes land on the right one."
+        case .slack: "Open a channel for what a meeting decided, and add the people in it."
         }
     }
 
@@ -106,6 +189,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         // Not `ConnGoogleCalendar`: the same mark already ships for the notch
         // demo, and a second copy of one logo is a second thing to replace.
         case .googleCalendar: "Brandgooglecalendar"
+        case .slack: "ConnSlack"
         }
     }
 
@@ -113,6 +197,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .linear: "nc-tasks-2"
         case .googleCalendar: "nc-calendar"
+        case .slack: "nc-msgs"
         }
     }
 
@@ -134,6 +219,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .linear: "linear.app"
         case .googleCalendar: "calendar.google.com"
+        case .slack: "slack.com"
         }
     }
 

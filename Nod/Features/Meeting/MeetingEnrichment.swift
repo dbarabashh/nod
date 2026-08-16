@@ -93,7 +93,7 @@ final class MeetingEnrichment {
         in transcript: String,
         people: MeetingParticipants,
         clusters: [Int]
-    ) async -> [String: String] {
+    ) async -> [String: SpeakerAttribution] {
         guard !transcript.isEmpty else { return [:] }
         let (system, user) = PromptLibrary.buildSpeakerNaming(
             transcript: transcript,
@@ -113,7 +113,15 @@ final class MeetingEnrichment {
             Log.stt.info("diarization: closed the last cluster by elimination")
         }
         Log.stt.info("diarization: named \(closed.count) cluster(s) from \(people.names.count) roster name(s)")
-        return closed
+        // A cluster the model never mentioned can only have arrived by
+        // elimination, and the two are worth different amounts: one read the
+        // conversation, the other counted what was left over.
+        return closed.reduce(into: [String: SpeakerAttribution]()) { result, pair in
+            result[pair.key] = SpeakerAttribution(
+                name: pair.value,
+                decidedBy: named[pair.key] == nil ? .elimination : .llm
+            )
+        }
     }
 
     /// Cluster→name pairs worth persisting: a positive cluster number and a
@@ -155,17 +163,18 @@ final class MeetingEnrichment {
         // transcript, so it names nobody — but the chips can still carry names,
         // and this is the only pass that can put them there. Patched rather than
         // written with the row, which landed long before clustering finished.
-        let names = await nameSpeakers(
+        let attributions = await nameSpeakers(
             in: TranscriptSnapshot.context(from: entries, speakers: speakers),
             people: people,
             clusters: Array(Set(speakers.values))
         )
-        guard !names.isEmpty else { return }
+        guard !attributions.isEmpty else { return }
         do {
-            try await meetingStore.updateSpeakerNames(names, for: meeting.id)
+            try await meetingStore.updateSpeakerNames(attributions.names, for: meeting.id)
         } catch {
             Log.ui.error("speaker naming failed (non-fatal): \(error.localizedDescription)")
         }
+        await meetingStore.recordSpeakers(attributions.rows(), for: meeting.id)
     }
 
     /// To-dos, entities for "Related", and the embeddings that make the meeting
@@ -177,12 +186,18 @@ final class MeetingEnrichment {
         transcript: String,
         recap: MeetingRecap,
         participants: [String],
-        live: [LiveFinding]
-    ) async {
+        live: [LiveFinding],
+        speakers: [String: SpeakerAttribution] = [:]
+    ) async -> [ActionItem] {
+        // Written here rather than with the meeting row: `meeting_speakers`
+        // points at it, and the point of this method is that the row has
+        // durably landed.
+        await meetingStore.recordSpeakers(speakers.rows(), for: meeting.id)
         // Only kinds that carry personal to-dos (meeting / voice note) —
         // passive media has none.
+        var saved: [ActionItem] = []
         if meeting.kind.extractsActionItems {
-            await actionItemStore.saveExtracted(
+            saved = await actionItemStore.saveExtracted(
                 recap.actionItems,
                 live: live,
                 meetingID: meeting.id,
@@ -202,6 +217,7 @@ final class MeetingEnrichment {
         // the entity call. Nothing waits on it — least of all the transcript's
         // speaker chips, which are final by now.
         Task { await knowledgeStore.index(meetingID: meeting.id, transcript: transcript) }
+        return saved
     }
 
     private func extractEntities(

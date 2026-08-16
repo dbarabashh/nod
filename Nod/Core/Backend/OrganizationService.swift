@@ -31,6 +31,11 @@ final class OrganizationService: ObservableObject {
     /// everyone else. This one carries only what an invitation needs.
     @Published private(set) var directory: [Teammate] = []
     private var hasLoadedDirectory = false
+    /// Everybody the organization knows about, including colleagues who have
+    /// never installed Nod — imported from whichever tracker or chat the company
+    /// connected. This is what an assignment picks from; `directory` is the
+    /// narrower "who can I invite to a meeting" list.
+    @Published private(set) var people: [Person] = []
     @Published private(set) var pendingInvites: [OrgInvite] = []
     @Published private(set) var isLoading = false
     @Published var lastError: String?
@@ -79,6 +84,21 @@ final class OrganizationService: ObservableObject {
         }
     }
 
+    /// The assignable roster. Reloaded rather than cached with `directory`
+    /// because importing a workspace changes it without anybody joining
+    /// anything — the whole point of picking a company up from its own tools.
+    func refreshPeople() async {
+        guard let supabase else { return }
+        do {
+            people = try await supabase.rpc("org_people").execute().value
+            Log.ui.info("org people count=\(people.count)")
+        } catch {
+            // An older server has no `org_people`. Everything that reads this
+            // degrades to an empty list, which is what a personal account sees.
+            Log.ui.error("org people failed: \(error.localizedDescription)")
+        }
+    }
+
     func refreshIfNeeded() async {
         guard !hasLoaded else { return }
         await refresh()
@@ -110,6 +130,11 @@ final class OrganizationService: ObservableObject {
                 .value
 
             activeOrgID = try await loadActiveOrgID()
+            // With the organization, not on first chat. Everything that names a
+            // colleague — the speaker correction, an assignment, the review
+            // card — reads this, and none of those wait for somebody to open a
+            // conversation first.
+            await refreshPeople()
             hasLoaded = true
             lastError = nil
             // A token held from a signed-out click redeems on the first refresh
@@ -442,6 +467,7 @@ final class OrganizationService: ObservableObject {
     }
 
     func clear() {
+        people = []
         memberships = []
         teams = []
         members = []
