@@ -384,6 +384,11 @@ final class NotchModel: ObservableObject {
                 gate = .allowance
                 isOpened = true
                 session.recordAllowanceGate(.allowanceGateViewed, outcome: .viewed)
+            case .roomAvailable:
+                // Nothing to say and nothing to clear: `rooms.available` is now
+                // set, and the resolver puts the room card above the offer, so
+                // the surface changes its own mind without being told to.
+                isOpened = true
             case let .blocked(message):
                 recordingStartError = message
                 isOpened = true

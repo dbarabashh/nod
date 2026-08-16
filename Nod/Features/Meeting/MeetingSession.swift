@@ -80,6 +80,12 @@ enum RecordingStartOutcome: Equatable {
     case limitReached
     case blocked(String)
     case failed(Failure)
+    /// A colleague turned out to be recording this meeting already. Not a
+    /// failure and deliberately not an error message: nothing went wrong, and
+    /// the surface has a better answer than a sentence. The room card is what
+    /// the notch resolves to on its own once a room is known, and it keeps
+    /// "record my own" one press away for the person who meant it.
+    case roomAvailable
 
     enum Failure: Equatable {
         case finishing
@@ -497,6 +503,31 @@ final class MeetingSession: ObservableObject {
 
         isStartingRecording = true
         defer { isStartingRecording = false }
+
+        // Somebody may have started recording this same meeting seconds ago.
+        // Both people are asked at once by design — at that moment nobody is
+        // recording, and picking one of them in advance means the meeting goes
+        // unrecorded whenever that one ignores the card. The cost of asking both
+        // is this window: the calendar watcher only looks for a room every 20
+        // seconds, so two people pressing Start inside it produced two
+        // recordings of one conversation, two summaries, and two lots of hours
+        // charged — with nothing but an after-the-fact line to say so.
+        //
+        // Asked here because Start already waits on the server for its
+        // allowance, so this costs nothing anybody can feel, and asked *before*
+        // the lease so a start that turns into a join never takes a slot.
+        //
+        // Skipped when a room is already known, which is the whole guard against
+        // a loop: a room being known means the card offering it was on screen
+        // and this person pressed "record my own" anyway. That is an answer, and
+        // asking again would just put the same card back.
+        if rooms.available == nil, let identity = calendar.currentRoomIdentity() {
+            await rooms.lookForRoom(identity)
+            if rooms.available != nil {
+                Log.ui.info("start: somebody is already recording this — offering the room instead")
+                return .roomAvailable
+            }
+        }
 
         do {
             try await llm.startMeetingLease(meetingID: meetingID)
