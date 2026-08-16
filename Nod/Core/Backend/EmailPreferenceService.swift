@@ -73,7 +73,9 @@ struct EmailPreferenceSnapshot: Equatable {
 protocol EmailPreferenceRepository {
     func preferences() async throws -> EmailPreferenceSnapshot
     func setPreference(topic: EmailTopic, subscribed: Bool, source: EmailPreferenceSource) async throws
-    func markPromptSeen(source: EmailPreferenceSource) async throws
+    /// One prompt's whole outcome — see `save_email_consent`. An empty
+    /// `choices` records only that the prompt was seen.
+    func saveConsent(choices: [EmailTopic: Bool], source: EmailPreferenceSource) async throws
 }
 
 struct SupabaseEmailPreferenceRepository: EmailPreferenceRepository {
@@ -146,19 +148,46 @@ struct SupabaseEmailPreferenceRepository: EmailPreferenceRepository {
             .execute()
     }
 
-    func markPromptSeen(source: EmailPreferenceSource) async throws {
+    /// Every topic plus the prompt itself, written together. The server runs it
+    /// in one transaction, so a rejected topic leaves nothing behind rather than
+    /// recording a choice the person was then told had failed.
+    func saveConsent(choices: [EmailTopic: Bool], source: EmailPreferenceSource) async throws {
+        struct Choice: Encodable {
+            let topic: String
+            let status: String
+            let policyVersion: String
+
+            enum CodingKeys: String, CodingKey {
+                case topic, status
+                case policyVersion = "policy_version"
+            }
+        }
+
         struct Params: Encodable {
+            let pChoices: [Choice]
             let pPromptVersion: String
             let pSource: String
 
             enum CodingKeys: String, CodingKey {
+                case pChoices = "p_choices"
                 case pPromptVersion = "p_prompt_version"
                 case pSource = "p_source"
             }
         }
 
         try await supabase
-            .rpc("mark_email_consent_prompt_seen", params: Params(
+            .rpc("save_email_consent", params: Params(
+                // Ordered, so the request bytes are the same for the same
+                // answer — a dictionary's order is not.
+                pChoices: EmailTopic.allCases.compactMap { topic in
+                    choices[topic].map {
+                        Choice(
+                            topic: topic.rawValue,
+                            status: $0 ? "subscribed" : "unsubscribed",
+                            policyVersion: topic.policyVersion
+                        )
+                    }
+                },
                 pPromptVersion: EmailPreferenceService.promptVersion,
                 pSource: source.rawValue
             ))
@@ -297,17 +326,14 @@ final class EmailPreferenceService: ObservableObject {
         defer { if current == revision { isSavingPrompt = false } }
 
         do {
+            try await repository.saveConsent(
+                choices: Dictionary(uniqueKeysWithValues: EmailTopic.allCases.map { ($0, selected.contains($0)) }),
+                source: source
+            )
+            guard current == revision, hasSession() else { return false }
             for topic in EmailTopic.allCases {
-                try await repository.setPreference(
-                    topic: topic,
-                    subscribed: selected.contains(topic),
-                    source: source
-                )
-                guard current == revision, hasSession() else { return false }
                 apply(selected.contains(topic), to: topic)
             }
-            try await repository.markPromptSeen(source: source)
-            guard current == revision, hasSession() else { return false }
             snapshot.promptSeen = true
             snapshot.promptVersion = Self.promptVersion
             hasLoaded = true
@@ -342,16 +368,15 @@ final class EmailPreferenceService: ObservableObject {
         lastError = nil
         defer { if current == revision { isSavingPrompt = false } }
         do {
-            if subscribed {
-                try await repository.setPreference(
-                    topic: .lifecycleGuidance,
-                    subscribed: true,
-                    source: .existingUserPrompt
-                )
-                apply(true, to: .lifecycleGuidance)
-            }
-            try await repository.markPromptSeen(source: .existingUserPrompt)
+            // Declining writes no preference at all — the other two topics were
+            // not on this card, and rewriting them would stamp them as answered
+            // here. An empty `choices` marks only that the prompt was seen.
+            try await repository.saveConsent(
+                choices: subscribed ? [.lifecycleGuidance: true] : [:],
+                source: .existingUserPrompt
+            )
             guard current == revision, hasSession() else { return false }
+            if subscribed { apply(true, to: .lifecycleGuidance) }
             snapshot.promptSeen = true
             snapshot.promptVersion = Self.promptVersion
             return true
