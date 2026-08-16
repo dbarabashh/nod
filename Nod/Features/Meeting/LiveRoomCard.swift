@@ -88,6 +88,11 @@ struct LiveRoomTranscript: View {
     /// one surface ends up speaking a different language from the rest.
     let language: AppLanguage
 
+    /// The tallest the live transcript may grow inside the notch. Matched to the
+    /// meeting bar's own expansion so a listener's surface and a recorder's
+    /// surface do not disagree about how much of the screen this is worth.
+    private static let transcriptMaxHeight: CGFloat = 180
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
@@ -115,6 +120,15 @@ struct LiveRoomTranscript: View {
                             withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
                         }
                     }
+                    // Bounded, like every other thing the notch expands — the
+                    // meeting bar caps at 180, the recap card at 300. Without a
+                    // ceiling this list grew with the meeting, the hosting view
+                    // asked the panel to grow with it, and the resize triggered
+                    // the layout pass that asked for another resize. AppKit
+                    // eventually refuses and throws NSGenericException
+                    // ("more Update Constraints passes than there are views"),
+                    // which killed the app mid-meeting on 2026-08-16.
+                    .frame(maxHeight: Self.transcriptMaxHeight)
                 }
             }
         }
