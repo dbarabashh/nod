@@ -91,8 +91,28 @@ final class CalendarService: ObservableObject {
     }
 
     /// Whether Nod may actually read anything right now.
+    ///
+    /// EventKit only. A calendar connected through Integrations is read from our
+    /// own table and needs no macOS permission — see `hasAnySource`.
     var isReadable: Bool {
         isEnabled && status == .authorized
+    }
+
+    /// Whether anything at all can answer "which meeting is on right now".
+    ///
+    /// The distinction from `isReadable` is the whole reason `RemoteCalendar`
+    /// exists: somebody who connected their calendar exactly as Integrations
+    /// asked, and never granted the macOS Calendars permission, has a perfectly
+    /// good source. Gating the scheduled watcher on `isReadable` switched both
+    /// the meeting offer and the live-room lookup off for precisely those
+    /// people, while the server held every row needed to serve them.
+    var hasAnySource: Bool {
+        isEnabled && (status == .authorized || remote?.hasOccurrences == true)
+    }
+
+    /// Brings the connected calendar's snapshot forward if it has gone stale.
+    func refreshRemoteIfStale(maxAge: TimeInterval = 60) async {
+        await remote?.refreshIfStale(maxAge: maxAge)
     }
 
     private func refresh() {

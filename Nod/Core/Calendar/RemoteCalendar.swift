@@ -23,9 +23,28 @@ final class RemoteCalendar: ObservableObject {
     var selfEmail: String?
 
     private let supabase: SupabaseClient?
+    private var lastRefresh: Date?
 
     init(supabase: SupabaseClient?) {
         self.supabase = supabase
+    }
+
+    /// Whether the connected calendar is a source worth asking. An account that
+    /// connected nothing loads nothing, and the watcher must not keep working
+    /// for a calendar that is not there.
+    var hasOccurrences: Bool {
+        !occurrences.isEmpty
+    }
+
+    /// Re-reads when the snapshot has aged past `maxAge`.
+    ///
+    /// Activation alone is not enough. A Mac sitting with Nod in the background
+    /// while a colleague schedules something two minutes out holds a snapshot
+    /// from whenever it was last brought forward — and the entry that snapshot
+    /// cannot contain is the entire offer.
+    func refreshIfStale(maxAge: TimeInterval) async {
+        if let lastRefresh, Date().timeIntervalSince(lastRefresh) < maxAge { return }
+        await refresh()
     }
 
     func refresh() async {
@@ -38,6 +57,7 @@ final class RemoteCalendar: ObservableObject {
                 .execute()
                 .value
             occurrences = rows.map { $0.occurrence(selfEmail: selfEmail) }
+            lastRefresh = Date()
         } catch {
             Log.ui.error("RemoteCalendar.refresh failed: \(error.localizedDescription)")
         }

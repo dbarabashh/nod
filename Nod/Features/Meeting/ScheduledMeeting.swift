@@ -127,6 +127,10 @@ final class ScheduledMeetingWatcher: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(Self.interval * 1_000_000_000))
                 guard let self, !Task.isCancelled else { return }
+                // Before the tick, not after: a connected calendar is only as
+                // current as its last read, and the entry this tick is looking
+                // for may have been created since the app last came forward.
+                await calendar.refreshRemoteIfStale()
                 tick()
             }
         }
@@ -156,7 +160,7 @@ final class ScheduledMeetingWatcher: ObservableObject {
     }
 
     private func tick() {
-        guard calendar.isReadable else { return clear() }
+        guard calendar.hasAnySource else { return clear() }
         let now = Date()
 
         askAboutLiveRooms(at: now)
