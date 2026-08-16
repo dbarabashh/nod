@@ -64,6 +64,7 @@ final class RoomListenerService: ObservableObject {
     private let llm: LLMProxyClient?
     private var channel: RealtimeChannelV2?
     private var pump: Task<Void, Never>?
+    private var lastLookNote: String?
 
     init(supabase: SupabaseClient?, llm: LLMProxyClient? = nil) {
         self.supabase = supabase
@@ -115,7 +116,16 @@ final class RoomListenerService: ObservableObject {
                 .execute()
                 .value
             available = rooms.first
+            // The answer, not just the failure. A successful call returning
+            // nothing looked identical to a call never made, which is exactly
+            // the ambiguity that made this take three attempts to diagnose.
+            let answer = rooms.first.map { "found \($0.hostName)" } ?? "nobody is recording it"
+            if answer != lastLookNote {
+                lastLookNote = answer
+                Log.ui.info("live room: \(answer)")
+            }
         } catch {
+            lastLookNote = nil
             Log.ui.error("RoomListenerService.lookForRoom failed: \(error.localizedDescription)")
         }
     }

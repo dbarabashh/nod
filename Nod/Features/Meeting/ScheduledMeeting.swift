@@ -86,6 +86,7 @@ final class ScheduledMeetingWatcher: ObservableObject {
     /// Meetings already put to the user, by fingerprint. Asking twice about the
     /// same meeting is what makes a proactive app feel like a nagging one.
     private var answered: Set<String> = []
+    private var lastRoomNote: String?
     private var timer: Task<Void, Never>?
     private var switchObserver: AnyCancellable?
     private var sleepObservers: [NSObjectProtocol] = []
@@ -160,7 +161,10 @@ final class ScheduledMeetingWatcher: ObservableObject {
     }
 
     private func tick() {
-        guard calendar.hasAnySource else { return clear() }
+        guard calendar.hasAnySource else {
+            note("live room: no calendar source — EventKit unauthorised and nothing synced")
+            return clear()
+        }
         let now = Date()
 
         askAboutLiveRooms(at: now)
@@ -192,11 +196,34 @@ final class ScheduledMeetingWatcher: ObservableObject {
     /// identify itself — the answer is about a specific meeting, not about being
     /// in the same company as somebody who is recording.
     private func askAboutLiveRooms(at now: Date) {
-        guard session.meeting == .idle, rooms.joined == nil else { return }
-        guard let identity = calendar.currentRoomIdentity() else { return rooms.forgetRoom() }
+        // Logged on change, never per tick. Until now this whole path was silent
+        // unless it threw, so a colleague who never saw the join card left no
+        // trace anywhere — and three separate causes were diagnosed by reading
+        // code and shipping a guess. One line per state change is what turns the
+        // next report into evidence.
+        if session.meeting != .idle {
+            return note("live room: not asking — a recording of our own is running")
+        }
+        if rooms.joined != nil {
+            return note("live room: not asking — already listening to one")
+        }
+        guard let identity = calendar.currentRoomIdentity() else {
+            note("live room: nothing on the calendar names this moment")
+            return rooms.forgetRoom()
+        }
+        note("live room: asking about \(identity.icalUID ?? identity.conferenceURL?.absoluteString ?? "?")")
         Task { [rooms] in
             await rooms.lookForRoom(identity)
         }
+    }
+
+    /// One line per *change* of outcome. The tick runs three times a minute for
+    /// the life of the app; logging every pass would bury the transition that
+    /// actually matters.
+    private func note(_ message: String) {
+        guard message != lastRoomNote else { return }
+        lastRoomNote = message
+        Log.screen.info("\(message)")
     }
 
     /// The fingerprint of an entry that has not been turned into a
