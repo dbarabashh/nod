@@ -573,6 +573,16 @@ of them yours to take.
 | **Sharing one meeting** | You can hand a single finished meeting to a team or to the organization, without filing it anywhere. Same contents, same immediate revocation. This is the one offered right after a recording ends. |
 | **Listening to a live room** | When a colleague in your organization is recording a meeting you are also in — proven by your own calendar holding the same invitation, not by anyone typing an id — you can join as a listener and follow their transcript as it is written. You are not recording; nothing is stored for you. **Access ends the moment their recording stops**, without a delay or a clean-up job: the permission is written against their live recording, so when it ends there is nothing left to read. The host is told by name the moment you join, and again if you leave. |
 
+**Your colleagues' names and addresses.** Inside an organization, Nod can see
+who else is in it — each active member's display name and the address they signed
+up with — so that asking it to "set up a call with Dima" invites the right Dima
+instead of making you look the address up yourself. It is your organization only,
+active members only, and the two fields an invitation needs: no roles, no join
+dates, nothing about their meetings. An account that belongs to no organization
+has no such list. This is the one place membership makes something visible that
+was not visible before, and it is limited to what sending someone an invitation
+would tell you anyway.
+
 **What an organization's administrators cannot do.** They cannot read your
 meetings. There is no administrative view of another member's recordings, no
 export of them, and no setting that turns one on. An administrator can add and

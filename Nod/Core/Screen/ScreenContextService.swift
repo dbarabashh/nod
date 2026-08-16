@@ -437,6 +437,19 @@ final class ScreenContextService: ObservableObject {
         return (title, text)
     }
 
+    /// Every Nod on this Mac, not only this one.
+    ///
+    /// The sandbox build carries its own bundle id and installs beside the
+    /// release app, so a guard that only skipped `Bundle.main` left each of them
+    /// reading the other's window: the chat's own sidebar came back later as
+    /// something "seen on your screen", and an address the user had typed into
+    /// Nod was answered as if Nod had found it out.
+    private static let ownBundleIDs: Set<String> = {
+        let base = (Bundle.main.bundleIdentifier ?? "").replacingOccurrences(of: ".sandbox", with: "")
+        guard !base.isEmpty else { return [] }
+        return [base, base + ".sandbox"]
+    }()
+
     private func captureOnce() async {
         guard ScreenContextDefaults.isEnabled else { return stop() }
         guard isCaptureAllowed else { return }
@@ -447,7 +460,7 @@ final class ScreenContextService: ObservableObject {
         let rules = exclusions.rules
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier,
-              bundleID != Bundle.main.bundleIdentifier,
+              !Self.ownBundleIDs.contains(bundleID),
               !rules.excludesApp(bundleID: bundleID)
         else { return }
 

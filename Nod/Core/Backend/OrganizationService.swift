@@ -25,6 +25,12 @@ final class OrganizationService: ObservableObject {
     /// apart — you administer an organization, you do not administer yourself.
     @Published private(set) var currentUserID: UUID?
     @Published private(set) var members: [OrgMember] = []
+    /// Colleagues this account may address by name — see `org_directory`.
+    ///
+    /// Separate from `members`, which is the administrator's view and raises for
+    /// everyone else. This one carries only what an invitation needs.
+    @Published private(set) var directory: [Teammate] = []
+    private var hasLoadedDirectory = false
     @Published private(set) var pendingInvites: [OrgInvite] = []
     @Published private(set) var isLoading = false
     @Published var lastError: String?
@@ -59,6 +65,18 @@ final class OrganizationService: ObservableObject {
 
     func teams(in orgID: UUID) -> [Team] {
         teams.filter { $0.orgID == orgID }
+    }
+
+    /// Loaded once per run: an organization's roster changes when somebody joins
+    /// or leaves, not between two questions in a chat.
+    func refreshDirectoryIfNeeded() async {
+        guard let supabase, !hasLoadedDirectory else { return }
+        do {
+            directory = try await supabase.rpc("org_directory").execute().value
+            hasLoadedDirectory = true
+        } catch {
+            Log.ui.error("org directory failed: \(error.localizedDescription)")
+        }
     }
 
     func refreshIfNeeded() async {

@@ -111,6 +111,7 @@ final class KnowledgeChatStore: ObservableObject {
     /// so a nil here degrades to transcript-only grounding rather than failing.
     private let screenContext: ScreenContextService?
     private let calendar: CalendarService?
+    private let organizations: OrganizationService?
     private let meetings: MeetingStore
     private let labels: LabelStore
     private let profile: ProfileStore
@@ -193,7 +194,8 @@ final class KnowledgeChatStore: ObservableObject {
         feedback: RetrievalFeedbackStore,
         integrations: IntegrationService? = nil,
         screenContext: ScreenContextService? = nil,
-        calendar: CalendarService? = nil
+        calendar: CalendarService? = nil,
+        organizations: OrganizationService? = nil
     ) {
         self.integrations = integrations
         self.llm = llm
@@ -208,6 +210,7 @@ final class KnowledgeChatStore: ObservableObject {
         self.feedback = feedback
         self.screenContext = screenContext
         self.calendar = calendar
+        self.organizations = organizations
     }
 
     /// The user opened a session from an answer's sources. Attributed to the
@@ -340,6 +343,7 @@ extension KnowledgeChatStore {
         // question of a run otherwise paid a Supabase round trip before any work
         // started, including for everyone with nothing connected.
         async let linked: Void = integrations?.refreshIfNeeded() ?? ()
+        async let roster: Void = organizations?.refreshDirectoryIfNeeded() ?? ()
         async let preparing = llm.prepareSearchQuery(
             history: priorHistory,
             query: text,
@@ -348,6 +352,7 @@ extension KnowledgeChatStore {
         )
 
         await linked
+        await roster
         turnTools = integrations.map { ChatTools.definitions(for: $0.linked) } ?? []
 
         let prepared: (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool)
@@ -376,7 +381,7 @@ extension KnowledgeChatStore {
             Log.ui.info("chat: acting without retrieval")
             thinkingScript = ChatThinking.acting
             let system = PromptLibrary.buildKnowledgeSystem(
-                excerpts: calendarBlock(for: prepared.standalone).map { [$0] } ?? [],
+                excerpts: [teammatesBlock(), calendarBlock(for: prepared.standalone)].compactMap { $0 },
                 language: replyLanguage,
                 personalContext: profile.promptContext,
                 connectedTools: availableTools()
@@ -417,7 +422,11 @@ extension KnowledgeChatStore {
         // Ahead of the excerpts and the tasks alike: a question about the day
         // ahead is answered by the calendar, and a retrieval budget that trimmed
         // it would leave the model guessing from last week's transcripts.
-        let ahead = [calendarBlock(for: prepared.standalone), taskBlock].compactMap { $0 }
+        let ahead = [
+            QuestionIntent.asksAboutSchedule(prepared.standalone) ? teammatesBlock() : nil,
+            calendarBlock(for: prepared.standalone),
+            taskBlock
+        ].compactMap { $0 }
         let system = PromptLibrary.buildKnowledgeSystem(
             excerpts: Self.withinBudget(ahead + grounding.excerpts),
             language: replyLanguage,
@@ -812,6 +821,31 @@ extension KnowledgeChatStore {
         }
         return header + "\n" + upcoming.map(Self.calendarLine).joined(separator: "\n")
     }
+
+    /// The colleagues this account can invite, by name.
+    ///
+    /// In the prompt rather than behind a lookup tool, because the matching is
+    /// the hard part and a model does it better than a query: "Діма" has to
+    /// reach "Dmytro Barabash", which no substring or trigram search will do.
+    /// Given the roster, the model resolves the name, and asks which one when a
+    /// name fits more than one person.
+    ///
+    /// Only for the turns that could need it — the acting path, and a scheduling
+    /// question. Every other question is answered without a list of colleagues
+    /// in its prefix.
+    private func teammatesBlock() -> String? {
+        guard let people = organizations?.directory, people.count > 1 else { return nil }
+        let lines = people.prefix(Self.directoryLimit).map { person in
+            "- \(person.displayName ?? person.email) <\(person.email)>"
+        }
+        return "[YOUR ORGANIZATION — colleagues you can invite. Match the name the user used against these; "
+            + "if it fits more than one person, ask which. Never invent an address that is not listed here.]\n"
+            + lines.joined(separator: "\n")
+    }
+
+    /// Enough for a company; past it the roster stops being prompt material and
+    /// the model should be asking who is meant.
+    private static let directoryLimit = 60
 
     /// Whether there is a calendar to report on. Without this an empty block
     /// would tell someone who never connected one that their week is free.

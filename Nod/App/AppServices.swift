@@ -241,7 +241,8 @@ struct AppServices {
                 feedback: retrievalFeedback,
                 integrations: integrations,
                 screenContext: screenContext,
-                calendar: calendar
+                calendar: calendar,
+                organizations: organizations
             ),
             knowledgeThreads: knowledgeThreads,
             labelStore: labelStore,

@@ -196,3 +196,22 @@ struct TeamMember: Decodable, Identifiable, Equatable {
         case role
     }
 }
+
+/// A colleague as the assistant may name them: enough to send an invitation and
+/// nothing more. Roles, join dates and invite tokens stay with the
+/// administrator's view.
+struct Teammate: Decodable, Identifiable, Equatable {
+    let userID: UUID
+    let displayName: String?
+    let email: String
+
+    var id: UUID {
+        userID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case userID = "user_id"
+        case displayName = "display_name"
+        case email
+    }
+}
