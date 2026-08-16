@@ -56,6 +56,27 @@ final class RoomListenerService: ObservableObject {
     @Published private(set) var catchUp: String?
     @Published private(set) var isCatchingUp = false
 
+    /// The host's live findings — the same list their own Notes panel is drawn
+    /// from, mirrored through `meeting_live_findings`. Read rather than derived:
+    /// a second pass over the same transcript would cost a second set of model
+    /// calls to arrive at a slightly different answer, and "slightly different"
+    /// is the failure — two people in one meeting whose notes disagree.
+    @Published private(set) var findings: [LiveFinding] = []
+
+    /// The recap, once the host's machine has written one. Nil while it is still
+    /// being made, which is what `isAwaitingSummary` is for: the two states read
+    /// identically from here otherwise, and telling somebody "nothing" when the
+    /// answer is "not yet" is the whole complaint this exists to fix.
+    @Published private(set) var finalSummary: String?
+    @Published private(set) var isAwaitingSummary = false
+
+    /// How long to keep asking for the summary after the host stops. A recap is
+    /// a single model call over a finished transcript; if it has not landed in
+    /// this long, it failed, and a spinner that never resolves is worse than an
+    /// honest end to the card.
+    private static let summaryWait: TimeInterval = 180
+    private static let summaryPollInterval: TimeInterval = 4
+
     /// The same ceiling `LiveMeetingAnalyst` puts on its own catch-up: past
     /// this the prompt costs more than the extra context is worth.
     private static let catchUpMaxEntries = 500
@@ -64,6 +85,7 @@ final class RoomListenerService: ObservableObject {
     private let llm: LLMProxyClient?
     private var channel: RealtimeChannelV2?
     private var pump: Task<Void, Never>?
+    private var summaryPoll: Task<Void, Never>?
     private var lastLookNote: String?
 
     init(supabase: SupabaseClient?, llm: LLMProxyClient? = nil) {
@@ -75,9 +97,10 @@ final class RoomListenerService: ObservableObject {
     ///
     /// Runs over the transcript already fetched rather than through
     /// `LiveMeetingAnalyst`: that object is built around a recording this
-    /// account is making, with a `TranscriptStore` a listener does not have and
-    /// findings a listener never produced. The prompt is the same one the host's
-    /// own Summarize chip uses, so the two answers are the same kind of thing.
+    /// account is making, with a `TranscriptStore` a listener does not have. The
+    /// prompt is the same one the host's own Summarize chip uses, and it is
+    /// handed the host's findings as memory, so the two answers are not merely
+    /// the same kind of thing — they are built from the same two inputs.
     func catchMeUp(language: AppLanguage) async {
         guard let llm, !entries.isEmpty, !isCatchingUp else { return }
         isCatchingUp = true
@@ -86,7 +109,11 @@ final class RoomListenerService: ObservableObject {
             .suffix(Self.catchUpMaxEntries)
             .map { "[\($0.label)]: \($0.text)" }
             .joined(separator: "\n")
-        let prompt = PromptLibrary.buildCatchUp(transcript: transcript, known: [], language: language)
+        let prompt = PromptLibrary.buildCatchUp(
+            transcript: transcript,
+            known: LiveFinding.notes(from: findings),
+            language: language
+        )
         do {
             let result = try await llm.completeJSON(
                 system: prompt.system,
@@ -100,8 +127,44 @@ final class RoomListenerService: ObservableObject {
         }
     }
 
+    /// The listener's own question, about somebody else's meeting.
+    ///
+    /// Throwing rather than publishing its own state, because the caller already
+    /// has somewhere to put the answer: `NotchModel.runAsk` owns the
+    /// composing → loading → answered walk for the person recording, and a
+    /// second copy of it here would be a second thing to keep in step.
+    ///
+    /// The answer is not written anywhere. A listener's question is theirs, and
+    /// `chat_messages` belongs to the host's meeting — putting it there would
+    /// mean everyone in the room reading each other's questions, which nobody
+    /// asked for and which the host cannot switch off.
+    func ask(_ question: String, language: AppLanguage) async throws -> String {
+        guard let llm else { throw AskUnavailable() }
+        let transcript = entries
+            .suffix(Self.catchUpMaxEntries)
+            .map { "[\($0.label)]: \($0.text)" }
+            .joined(separator: "\n")
+        let prompt = PromptLibrary.buildAsk(
+            question: question,
+            transcript: transcript,
+            known: LiveFinding.notes(from: findings),
+            language: language
+        )
+        let result = try await llm.completeJSON(
+            system: prompt.system,
+            user: prompt.user,
+            as: PromptLibrary.AskResult.self,
+            primaryModel: llm.chatModel
+        )
+        return result.answer.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Only reachable in a build with no proxy configured — a preview, a test.
+    struct AskUnavailable: Error {}
+
     deinit {
         pump?.cancel()
+        summaryPoll?.cancel()
     }
 
     // MARK: - Discovery
@@ -149,8 +212,12 @@ final class RoomListenerService: ObservableObject {
             joined = room
             available = nil
             hasEnded = false
+            findings = []
+            finalSummary = nil
+            isAwaitingSummary = false
             Log.ui.info("joined live room hosted by \(room.hostName)")
             await refreshTranscript()
+            await refreshFindings(room)
             await subscribe(to: room.hostMeetingID)
         } catch {
             Log.ui.error("RoomListenerService.join failed: \(error.localizedDescription)")
@@ -160,10 +227,15 @@ final class RoomListenerService: ObservableObject {
     func leave() async {
         guard let supabase, let room = joined else { return }
         await teardown()
+        summaryPoll?.cancel()
+        summaryPoll = nil
         joined = nil
         entries = []
         catchUp = nil
         hasEnded = false
+        findings = []
+        finalSummary = nil
+        isAwaitingSummary = false
         do {
             struct Params: Encodable { let p_listener: UUID }
             _ = try await supabase
@@ -219,11 +291,85 @@ final class RoomListenerService: ObservableObject {
             if rows.isEmpty, !entries.isEmpty, await hasClosed(room) {
                 hasEnded = true
                 await teardown()
+                awaitSummary(of: room)
                 return
             }
             entries.append(contentsOf: rows)
+            await refreshFindings(room)
         } catch {
             Log.ui.error("RoomListenerService.refreshTranscript failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// The host's Notes, as far as their machine has published them.
+    ///
+    /// Read on the same poke as the transcript rather than on a timer of its
+    /// own: a finding is raised *because* something was said, so the signal that
+    /// there is new transcript is the same signal that there may be a new note.
+    ///
+    /// Silent on failure, and not `throws`: an environment whose schema predates
+    /// `20260816260000` has no such table, and a listener who can follow the
+    /// meeting but sees no notes is a far better outcome than one whose whole
+    /// read falls over. That exact mistake — one optional lookup throwing out of
+    /// a refresh and taking the working half with it — cost an afternoon on
+    /// 2026-08-16.
+    private func refreshFindings(_ room: JoinedRoom) async {
+        guard let supabase else { return }
+        do {
+            let rows: [LiveFindingRow] = try await supabase
+                .from("meeting_live_findings")
+                .select("meeting_id, id, kind, tier, text, deadline, spoken_at, found_at, state, revision_of")
+                .eq("meeting_id", value: room.hostMeetingID)
+                .order("found_at", ascending: true)
+                .execute()
+                .value
+            findings = rows.compactMap(\.finding)
+        } catch {
+            Log.ui.error("RoomListenerService.refreshFindings failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// After the host presses End: wait for their recap and show it.
+    ///
+    /// A poll rather than a subscription, because there is nothing to subscribe
+    /// to — the host's machine writes the summary through an ordinary update
+    /// when its own recap call returns, and adding a broadcast for it would mean
+    /// the host announcing something it has no reason to announce.
+    private func awaitSummary(of room: JoinedRoom) {
+        guard let supabase, finalSummary == nil else { return }
+        isAwaitingSummary = true
+        summaryPoll?.cancel()
+        summaryPoll = Task { [weak self] in
+            let deadline = Date().addingTimeInterval(Self.summaryWait)
+            struct Row: Decodable { let summary: String }
+            while !Task.isCancelled, Date() < deadline {
+                do {
+                    let rows: [Row] = try await supabase
+                        .from("meetings")
+                        .select("summary")
+                        .eq("id", value: room.hostMeetingID)
+                        .limit(1)
+                        .execute()
+                        .value
+                    let summary = rows.first?.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let summary, !summary.isEmpty {
+                        guard let self, !Task.isCancelled else { return }
+                        finalSummary = summary
+                        isAwaitingSummary = false
+                        Log.ui.info("live room: the host's summary arrived")
+                        return
+                    }
+                } catch {
+                    // Expected until the migration lands, and expected forever in
+                    // an environment where the host never finalized. Either way
+                    // the loop's own deadline is what ends it.
+                    Log.ui.error("RoomListenerService.awaitSummary failed: \(error.localizedDescription)")
+                }
+                try? await Task.sleep(nanoseconds: UInt64(Self.summaryPollInterval * 1_000_000_000))
+            }
+            guard let self, !Task.isCancelled else { return }
+            isAwaitingSummary = false
+            Log.ui.info("live room: gave up waiting for the host's summary")
         }
     }
 
@@ -264,6 +410,10 @@ final class RoomListenerService: ObservableObject {
         }
     }
 
+    /// Stops the live read. Deliberately leaves `summaryPoll` alone: it starts
+    /// *because* the read closed, so cancelling it here would end the wait for
+    /// the summary at the exact moment the wait begins. `leave()` is what ends
+    /// it, which is the one place a person has actually said they are done.
     private func teardown() async {
         pump?.cancel()
         pump = nil
@@ -307,11 +457,22 @@ struct LiveTranscriptEntry: Equatable, Decodable, Identifiable {
 
 #if DEBUG
     extension RoomListenerService {
-        static func preview(available: LiveRoom? = nil, joined: JoinedRoom? = nil, listeners: [String] = []) -> RoomListenerService {
+        static func preview(
+            available: LiveRoom? = nil,
+            joined: JoinedRoom? = nil,
+            listeners: [String] = [],
+            ended: Bool = false,
+            summary: String? = nil,
+            findings: [LiveFinding] = []
+        ) -> RoomListenerService {
             let service = RoomListenerService(supabase: nil)
             service.available = available
             service.joined = joined
             service.listeners = listeners
+            service.hasEnded = ended
+            service.finalSummary = summary
+            service.isAwaitingSummary = ended && summary == nil
+            service.findings = findings
             return service
         }
     }

@@ -43,8 +43,10 @@ struct NotchStateContent: View {
 
     private var showsGestureZone: Bool {
         switch model.presentation {
-        case .tucked, .meetingBar: true
-        case .updateRequired, .dormant, .offer, .liveRoom, .listening, .noticed, .recalled, .recap, .launch,
+        // The swipe folds a listening bar away exactly as it folds a recording
+        // one — same gesture, same flag, same resting shape.
+        case .tucked, .meetingBar, .listening, .listeningTucked: true
+        case .updateRequired, .dormant, .offer, .liveRoom, .noticed, .recalled, .recap, .launch,
              .languageConfirm, .consent, .alert, .demo: false
         }
     }
@@ -74,8 +76,22 @@ struct NotchStateContent: View {
                 onDismiss: model.rooms.forgetRoom,
                 onRecordInstead: alsoOffered ? { model.acceptOffer() } : (nil as (() -> Void)?)
             )
-        case .listening:
-            LiveRoomTranscript(rooms: model.rooms, language: model.language.current)
+        case let .listening(room, panel):
+            NotchListeningBar(
+                rooms: model.rooms,
+                room: room,
+                panel: panel,
+                language: model.language,
+                onToggleAsk: model.toggleAsk,
+                onToggleNotes: model.toggleNotes,
+                onSubmitAsk: model.submitAsk,
+                onSummarize: model.askSummarize,
+                onCollapse: model.hideMeetingBar,
+                onOpenLibrary: model.openLibrary,
+                geometry: model.geometry
+            )
+        case let .listeningTucked(room):
+            NotchListeningTucked(room: room, geometry: model.geometry)
         case let .noticed(finding):
             NotchNotice(finding: finding, onDismiss: model.rejectNotice)
         case let .recalled(recall):

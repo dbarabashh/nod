@@ -201,6 +201,9 @@ final class NotchModel: ObservableObject {
         // visible during a meeting and a stray click must not hide it, only
         // fold an expanded Ask/Notes panel back to the passive row.
         case let .meetingBar(panel): panel != .passive
+        // Same rule, same reason: the listening bar is up for the whole meeting
+        // and a stray click must fold an open panel, never the bar itself.
+        case let .listening(_, panel): panel != .passive
         // The demo never closes on a click: a stray cursor must not cut a take.
         // A notice has its own dismiss and goes away on its own; a stray click
         // in another app is not the user answering it. The recap card is the
@@ -209,7 +212,7 @@ final class NotchModel: ObservableObject {
         // dismissing it either. Its own close glyph is the only way out.
         // The room card is the same: it arrived on its own, and it has its own
         // "Not now".
-        case .updateRequired, .dormant, .tucked, .offer, .liveRoom, .listening, .noticed, .recalled, .recap,
+        case .updateRequired, .dormant, .tucked, .listeningTucked, .offer, .liveRoom, .noticed, .recalled, .recap,
              .languageConfirm, .consent, .alert, .demo: false
         }
     }
@@ -233,7 +236,7 @@ final class NotchModel: ObservableObject {
     /// cancels a gate the user walked away from, so it isn't still pending
     /// next time the notch opens.
     func close() {
-        if session.meeting != .idle {
+        if session.meeting != .idle || rooms.joined != nil {
             meetingBarPanel = .passive
         } else {
             cancelPendingRecordingStart()
@@ -581,7 +584,9 @@ final class NotchModel: ObservableObject {
     /// What the surface collapses to mid-swap: whatever it would be showing if
     /// nobody had opened it.
     private var resting: NotchPresentation {
-        session.meeting == .idle ? .dormant : .tucked
+        if session.meeting != .idle { return .tucked }
+        if let room = rooms.joined { return .listeningTucked(room) }
+        return .dormant
     }
 
     /// Handed to `NotchStateResolver`, which owns the ordering. This assembles
@@ -646,8 +651,19 @@ extension NotchModel {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         runAsk(question: trimmed) {
-            try await self.session.analyst.ask(trimmed, language: self.language.current)
+            self.isListening
+                ? try await self.rooms.ask(trimmed, language: self.language.current)
+                : try await self.session.analyst.ask(trimmed, language: self.language.current)
         }
+    }
+
+    /// Whether a question typed into the Ask box is about somebody else's
+    /// meeting. Asked at the moment of asking rather than stored, because the
+    /// two are exclusive by construction — joining a room and recording one are
+    /// different answers to the same calendar entry — and a stored copy would be
+    /// one more thing to keep true.
+    private var isListening: Bool {
+        rooms.joined != nil && session.meeting == .idle
     }
 
     /// The Ask box's "Summarize" chip — routed through the dedicated catch-up
@@ -655,7 +671,11 @@ extension NotchModel {
     /// literal word "Summarize" as the question.
     func askSummarize() {
         runAsk(question: "Summarize") {
-            try await self.session.analyst.catchUp(language: self.language.current)
+            if self.isListening {
+                await self.rooms.catchMeUp(language: self.language.current)
+                return self.rooms.catchUp ?? ""
+            }
+            return try await self.session.analyst.catchUp(language: self.language.current)
         }
     }
 
@@ -724,7 +744,7 @@ extension NotchModel {
     /// pill to shrink to, and a bar you cannot get out of the way is worse on a
     /// surface the user has deliberately parked over their work.
     func hideMeetingBar() {
-        guard session.meeting != .idle else { return }
+        guard session.meeting != .idle || rooms.joined != nil else { return }
         meetingBarHidden = true
         refresh()
     }

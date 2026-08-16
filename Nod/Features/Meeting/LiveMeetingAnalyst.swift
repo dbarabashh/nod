@@ -57,6 +57,15 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// looked up: the analyst has no business holding the meeting list, and a
     /// recall with no readable source is one we refuse to show.
     var recallSourceLabel: ((UUID) -> String?)?
+    /// Where findings go so that somebody listening to this meeting sees the
+    /// same Notes as the person recording it. Injected for the same reason
+    /// `recallSourceLabel` is — the analyst has no business holding the meeting
+    /// store — and left nil wherever there is nobody to tell, which is every
+    /// test and every preview.
+    ///
+    /// Handed all of them rather than what just changed: superseding edits a
+    /// finding raised minutes ago, and a delta would have to describe that.
+    var mirrorFindings: (([LiveFinding]) -> Void)?
     var recallLanguage: AppLanguage = .english
     var recallsUsed = 0
     var lastRecallAt: Date?
@@ -190,6 +199,7 @@ final class LiveMeetingAnalyst: ObservableObject {
            let index = findings.firstIndex(where: { $0.id == notice.id }) {
             findings[index].state = .dismissed
             Log.llm.info("live: soft finding dismissed")
+            mirrorFindings?(findings)
         }
         noticeExpiry?.cancel()
         noticeExpiry = nil
@@ -269,6 +279,9 @@ final class LiveMeetingAnalyst: ObservableObject {
             accepted.append(finding)
             Log.llm.info("live: \(finding.kind.rawValue)\(finding.revisionOf == nil ? "" : " (revision)")")
             Log.llm.sensitive("live: \(finding.text)")
+        }
+        if !accepted.isEmpty {
+            mirrorFindings?(findings)
         }
 
         // One notice per pass, at most. Raising two means the first is replaced

@@ -254,7 +254,7 @@ private struct MeetingActivityDot: View {
 /// window. Respects Reduce Motion: a title that doesn't fit still shows
 /// (leading-aligned, hard clipped) rather than never revealing its tail, but
 /// nothing moves on its own.
-private struct MarqueeText: View {
+struct MarqueeText: View {
     let text: String
     let font: Font
     let color: Color
@@ -326,7 +326,7 @@ private struct MarqueeText: View {
 /// Ask/Notes — small, equal-weight text buttons rather than icon glyphs: both
 /// are asks the user makes of Nod, not transport state, so they read better
 /// named than guessed at from a symbol.
-private struct MeetingBarButton: View {
+struct MeetingBarButton: View {
     let title: String
     let isActive: Bool
     let action: () -> Void
@@ -353,7 +353,7 @@ private struct MeetingBarButton: View {
 /// this bar replaced it. A `Menu`, not a read-only chip: the pre-meeting
 /// confirm is the only other place to set this, so a wrong pick made there
 /// (or never asked about) has to be fixable without ending the meeting.
-private struct NotchLanguageMenuButton: View {
+struct NotchLanguageMenuButton: View {
     @ObservedObject var language: LanguagePreference
 
     var body: some View {
@@ -411,7 +411,7 @@ private struct MeetingBarEndButton: View {
 /// The live findings-so-far, surfaced rather than re-derived: `findings` is
 /// the same standing memory `LiveMeetingAnalyst` already grounds the recap on,
 /// just read here instead of only at the end of the meeting.
-private struct MeetingNotesPanel: View {
+struct MeetingNotesPanel: View {
     let findings: [LiveFinding]
 
     private var standing: [LiveFinding] {
@@ -475,7 +475,7 @@ private struct MeetingNotesPanel: View {
 /// an answer, or a failure. The field itself never goes away once Ask is
 /// open, so answering one question and asking the next reads as one
 /// conversation rather than a result screen you have to back out of.
-private struct MeetingAskPanel: View {
+struct MeetingAskPanel: View {
     let phase: AskPhase
     let onSubmit: (String) -> Void
     let onSummarize: () -> Void

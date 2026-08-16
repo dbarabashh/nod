@@ -497,10 +497,19 @@ struct NotchLaunch: View {
     }
 }
 
+/// `mm:ss`, wherever the notch shows a clock — including the listening bar,
+/// which counts somebody else's meeting and must not read differently from the
+/// bar the person recording it is looking at.
+enum ElapsedClock {
+    static func text(seconds: Int) -> String {
+        String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
 extension MeetingSession {
     /// The elapsed time as `mm:ss`, for the two places the notch shows a clock.
     var elapsedClock: String {
-        String(format: "%02d:%02d", elapsed / 60, elapsed % 60)
+        ElapsedClock.text(seconds: elapsed)
     }
 }
 

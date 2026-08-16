@@ -150,6 +150,7 @@ final class MeetingStore: ObservableObject {
     }
 
     private static let transcriptsTableName = "meeting_transcripts"
+    private static let liveFindingsTableName = "meeting_live_findings"
 
     /// In-flight guard for `refresh()`. Set unconditionally at entry so
     /// concurrent silent refreshes (when `loadState` stays `.loaded`)
@@ -586,6 +587,37 @@ final class MeetingStore: ObservableObject {
                 .from(Self.transcriptsTableName)
                 .upsert(deduped.map { $0.droppingSpeaker() }, onConflict: "meeting_id,idx")
                 .execute()
+        }
+    }
+
+    /// What a listener's Notes read while this meeting is being recorded.
+    ///
+    /// Unconditional rather than gated on somebody actually listening, for the
+    /// same reason `upsertTranscript` is: the transcript already streams up
+    /// during the call whether or not anyone reads it, so a finding is not a new
+    /// category of thing to be holding. Gating would mean this object knowing
+    /// about `RoomListenerService`, and a race the first listener always loses.
+    ///
+    /// Best-effort, and silent on failure by design. A listener's Notes going
+    /// blank is a worse outcome than nothing only for the listener; the person
+    /// recording must not lose so much as a log line's worth of attention over
+    /// it, and an environment without the table — it arrives with
+    /// `20260816260000` — simply has nothing to show.
+    func mirrorLiveFindings(_ findings: [LiveFinding]) async {
+        guard let meetingID = recordingMeetingID, !findings.isEmpty else { return }
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+        do {
+            try await supabase
+                .from(Self.liveFindingsTableName)
+                .upsert(
+                    findings.map { LiveFindingRow($0, meetingID: meetingID) },
+                    onConflict: "meeting_id,id"
+                )
+                .execute()
+        } catch {
+            Log.ui.error("MeetingStore.mirrorLiveFindings failed: \(error.localizedDescription)")
         }
     }
 

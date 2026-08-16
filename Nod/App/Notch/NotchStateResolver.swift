@@ -78,7 +78,10 @@ struct NotchStateResolver {
         // already in — and above the recap, because what is being said now
         // outranks what a finished meeting amounted to.
         if let joinedRoom {
-            return .listening(joinedRoom)
+            // Folds away on the same flag the meeting bar uses, so one swipe
+            // means one thing on this surface no matter which side of the
+            // meeting you are on.
+            return isMeetingBarHidden ? .listeningTucked(joinedRoom) : .listening(joinedRoom, meetingBarPanel)
         }
         if let recap {
             return .recap(recap)

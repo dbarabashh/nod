@@ -554,6 +554,9 @@ final class MeetingSession: ObservableObject {
             guard let meeting = meetingStore?.meetings.first(where: { $0.id == id }) else { return nil }
             return meeting.displayTitle(dateFormatter: Meeting.listDateFormatter)
         }
+        analyst.mirrorFindings = { [weak meetingStore] findings in
+            Task { await meetingStore?.mirrorLiveFindings(findings) }
+        }
         if selectedKind.extractsActionItems { analyst.start() }
         knowledgeStore.isCapturing = true
         elapsed = 0

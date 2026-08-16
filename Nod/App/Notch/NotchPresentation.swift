@@ -31,7 +31,15 @@ enum NotchPresentation: Equatable {
     /// Listening to a colleague's recording. Its own state rather than a flag on
     /// `liveRoom`: the offer is a question and this is a place you are in, and
     /// they size, rank and identify differently.
-    case listening(JoinedRoom)
+    /// Carries the same panel the meeting bar does, because it is the same bar
+    /// with one substitution: the person listening can leave, not end. Ask and
+    /// Notes mean exactly what they mean while recording, so giving the two
+    /// surfaces two panel types would be two copies of one idea.
+    case listening(JoinedRoom, MeetingBarPanel)
+    /// Listening, folded away. `.tucked`'s own view is built around a recording
+    /// — mic level, pause — and none of that is true here, so this is its own
+    /// resting state rather than a flag that view would have to keep checking.
+    case listeningTucked(JoinedRoom)
     /// Capturing, and something the user settled in an earlier session bears on
     /// what is being said now. The only state that speaks about a meeting the
     /// user is not currently in, which is why `LiveMeetingAnalyst+Recall` is
@@ -164,7 +172,8 @@ extension NotchPresentation {
         case .dormant: "dormant"
         case let .offer(offer): "offer.\(offer.identity)"
         case let .liveRoom(room, _): "liveRoom.\(room.hostName)"
-        case let .listening(room): "listening.\(room.hostMeetingID.uuidString)"
+        case let .listening(room, panel): "listening.\(room.hostMeetingID.uuidString).\(panel.contentID)"
+        case .listeningTucked: "listeningTucked"
         case let .noticed(finding): "noticed.\(finding.id.uuidString)"
         case let .recalled(recall): "recalled.\(recall.id.uuidString)"
         case .tucked: "tucked"
@@ -193,7 +202,7 @@ extension NotchPresentation {
     /// comes from the content or from the hardware.
     var isOpen: Bool {
         switch self {
-        case .dormant, .tucked: false
+        case .dormant, .tucked, .listeningTucked: false
         case .updateRequired, .offer, .liveRoom, .listening, .noticed, .recalled, .meetingBar, .recap, .launch, .languageConfirm, .consent, .alert: true
         case let .demo(stage): stage.form != .resting
         }
@@ -211,7 +220,8 @@ extension NotchPresentation {
         switch self {
         case .updateRequired: return 400
         case .offer: return 384
-        case .liveRoom, .listening: return 396
+        case .liveRoom: return 396
+        case let .listening(_, panel): return panel.surfaceWidth
         case .noticed, .recalled, .recap: return 360
         case let .meetingBar(panel): return panel.surfaceWidth
         case .launch: return 384
@@ -220,7 +230,7 @@ extension NotchPresentation {
         case .alert: return 396
         case .dormant:
             return geometry.hasCutout ? geometry.collapsedSize.width + flare : nil
-        case .tucked:
+        case .tucked, .listeningTucked:
             return geometry.hasCutout ? geometry.collapsedSize.width + flare + 124 : nil
         case let .demo(stage):
             guard stage.form == .resting else { return stage.surfaceWidth }
@@ -247,7 +257,7 @@ extension NotchPresentation {
         // would otherwise silently take its content's height instead of the
         // cut-out's, and leave daylight around the hardware notch.
         switch self {
-        case .dormant, .tucked:
+        case .dormant, .tucked, .listeningTucked:
             geometry.collapsedSize.height
         case .updateRequired, .offer, .liveRoom, .listening, .noticed, .recalled, .meetingBar, .recap, .launch,
              .languageConfirm, .consent, .alert:
