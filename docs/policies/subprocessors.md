@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-08-15_
+_Last updated: 2026-08-16_
 
 _Resend and Nango are listed under advance notice. The optional product-update, lifecycle,
 and founder-research workflow is not sending today and will not begin earlier

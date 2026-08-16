@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-15_
+_Last updated: 2026-08-16_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -518,14 +518,8 @@ bounced, or complained.
 Every optional email carries a link to change all three choices. That link's
 token sits in the URL **fragment**, so it is not sent to our server in a request
 line or a referrer, and loading the page only reads your choices — nothing
-changes until you confirm it. **Open pixels are disabled** on our sending domain,
-so we cannot tell that you opened an email. **Links inside our emails are
-click-tracked**: our delivery provider rewrites them, and following one records
-that the link in that message was followed. We use it to tell whether a message
-was any use at all. It is never joined to your meeting content, it does not
-change which emails you are eligible for, and it applies to the link itself —
-not to where you go afterwards. Legal basis: legitimate interest (Art. 6(1)(f))
-in knowing whether the mail we send is worth sending.
+changes until you confirm it. Opening an email is not tracked: **open pixels and
+click-tracking links are disabled** on our sending domain.
 
 The standard cadence is at most one optional email in any 14 days, and at most
 one founder-research email in any 30. The only exception is the separately
