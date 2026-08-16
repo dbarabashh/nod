@@ -359,23 +359,19 @@ extension KnowledgeChatStore {
             prepared = await preparing
             routing = await route(pinned: pinned, scope: scope, standalone: prepared.standalone)
         }
-        let scope: Scope
-        switch routing {
-        case let .answered(reply):
-            thinkingScript = []
-            let answer = Message(role: .assistant, content: reply)
-            messages.append(answer)
-            await persist(answer)
-            return
-        case let .search(routed):
-            scope = routed
-        }
-
-        // A self-contained action — "file this in Linear" — cannot be answered
-        // better by anything in the recordings, so retrieval is skipped whole:
-        // no vector search, no screen record, and a system prompt of a couple of
-        // thousand characters instead of the ~28k a grounded answer carries.
-        // It also stops the reply citing sessions it never used.
+        // A self-contained action — "file this in Linear", "put a meeting in my
+        // calendar at 13:30" — cannot be answered better by anything in the
+        // recordings, so retrieval is skipped whole: no vector search, no screen
+        // record, and a system prompt of a couple of thousand characters instead
+        // of the ~28k a grounded answer carries. It also stops the reply citing
+        // sessions it never used.
+        //
+        // Ahead of the routing below, and that order is the point. The router's
+        // own replies describe what the recordings hold — "nothing from that
+        // period involves them" — which is no answer at all to a request to *do*
+        // something. Asking to book a meeting today with someone the entity
+        // graph knows matches both a name and a date window, so the request was
+        // being answered with an empty search result instead of being carried out.
         if !prepared.needsSessions, !availableTools().isEmpty {
             Log.ui.info("chat: acting without retrieval")
             thinkingScript = ChatThinking.acting
@@ -389,6 +385,18 @@ extension KnowledgeChatStore {
             await saved
             await streamReply(ReplyContext(system: system, history: history, sources: [], evidence: []))
             return
+        }
+
+        let scope: Scope
+        switch routing {
+        case let .answered(reply):
+            thinkingScript = []
+            let answer = Message(role: .assistant, content: reply)
+            messages.append(answer)
+            await persist(answer)
+            return
+        case let .search(routed):
+            scope = routed
         }
 
         // Independent of retrieval — it only needs the resolved question — so
