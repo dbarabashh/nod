@@ -12,6 +12,7 @@ needs. This page is the index.
 
 | Rule | Applies to | Covers |
 |---|---|---|
+| [`backward-compatibility.md`](./.agents/rules/backward-compatibility.md) | always | Expand/migrate/contract, mixed-version tests, measured legacy retirement |
 | [`comments.md`](./.agents/rules/comments.md) | always | Don't write comments; the rare non-obvious WHY exception |
 | [`commits.md`](./.agents/rules/commits.md) | always | Lowercase, 4–5 words, no AI attribution trailer |
 | [`swift-architecture.md`](./.agents/rules/swift-architecture.md) | `*.swift` | Layering, code placement, composition root, no singletons, no premature abstraction |

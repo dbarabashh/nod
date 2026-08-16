@@ -21,6 +21,12 @@ the macOS repository.
 
 ## Cross-repo rules
 
+- **Production contracts evolve in phases.** A backend migration can deploy
+  before macOS, iOS, landing, share viewer, dashboard, workers, or integrations
+  update. Use expand → migrate → contract, keep the oldest supported consumer
+  working, test mixed versions, and remove compatibility only through a linked
+  Linear cleanup issue whose production evidence gate has passed. The accepted
+  rationale is D0014 in `nod-playbook`.
 - **One backend, one schema.** Every schema change goes through migrations in
   **this repo's** `supabase/migrations/`, applied with the Supabase CLI. Never
   create a second Supabase project, never edit schema from the dashboard.

@@ -23,6 +23,7 @@ directories, with symlinks for Claude Code:
 
 - `.agents/rules/` — topic rules (canonical). `.claude/rules` symlinks to it.
   **Read the relevant rule before editing matching files:**
+  - `backward-compatibility.md` (always) — expand/migrate/contract, mixed-version tests, measured legacy retirement
   - `comments.md` (always) — don't write comments; the rare exception is a non-obvious WHY
   - `commits.md` (always) — lowercase, 4–5 words, no AI attribution trailer
   - `swift-architecture.md` (`*.swift`) — where code goes, layering, composition root, no singletons
