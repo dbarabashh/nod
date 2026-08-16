@@ -176,10 +176,6 @@ struct NotchMeetingBar: View {
         }
     }
 
-    /// The cut-out is a place; the floating panel is not. Calling both "tuck
-    /// into the notch" would name a thing that is not on the user's screen.
-    // MARK: Expansion — Ask or Notes, grown below the header
-
     private var expansion: some View {
         MeetingBarExpansion(
             panel: panel,
