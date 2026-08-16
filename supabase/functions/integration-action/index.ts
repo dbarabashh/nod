@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
 
   try {
     const connection = await resolveConnection(user.id, provider);
-    const result = await handler(connection, params);
+    const result = await handler(connection, params, { userId: user.id });
     console.info(`integration action ok: ${provider}.${action}`);
     return json({ result }, 200);
   } catch (error) {

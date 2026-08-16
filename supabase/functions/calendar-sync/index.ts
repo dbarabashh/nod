@@ -19,12 +19,16 @@ import { json } from "../_shared/http.ts";
 import { adminClient } from "../_shared/supabase.ts";
 import { proxy } from "../_shared/integrations/nango.ts";
 import type { Connection } from "../_shared/integrations/nango.ts";
-import type { GoogleEvent } from "../_shared/integrations/googleCalendar.ts";
+import {
+    CALENDAR_ID,
+    type EventRow,
+    type GoogleEvent,
+    PROVIDER,
+    toRow,
+} from "../_shared/integrations/googleCalendar.ts";
 
 const INTERNAL_JOB_SECRET = Deno.env.get("INTERNAL_JOB_SECRET");
 
-const PROVIDER = "google-calendar";
-const CALENDAR_ID = "primary";
 const EVENTS_PATH = `calendar/v3/calendars/${CALENDAR_ID}/events`;
 
 // Behind, so a meeting already running is still matchable; ahead, so "what is
@@ -41,20 +45,6 @@ const CONCURRENCY = 8;
 // is swept with nothing recorded.
 const MAX_ACCOUNTS_PER_RUN = 200;
 
-interface EventRow {
-    user_id: string;
-    provider: string;
-    calendar_id: string;
-    external_event_id: string;
-    ical_uid: string | null;
-    title: string | null;
-    conference_url: string | null;
-    starts_at: string;
-    ends_at: string | null;
-    organizer_email: string | null;
-    attendees: Array<{ email: string; display?: string; response: string }>;
-    updated_at: string;
-}
 
 Deno.serve(async (request: Request): Promise<Response> => {
     if (request.method !== "POST") return json({ error: "Method Not Allowed" }, 405);
@@ -195,61 +185,8 @@ async function fetchWindow(connection: Connection, from: Date, to: Date): Promis
     return events;
 }
 
-/// One Google event as we store it, or null for one we have no use for.
-///
-/// All-day entries are dropped: a birthday or a leave day has no start time to
-/// match a recording against, and keeping them would mean storing more of
-/// somebody's private calendar than the feature can ever read.
-function toRow(userId: string, event: GoogleEvent, stampedAt: string): EventRow | null {
-    const startsAt = event.start?.dateTime;
-    if (!startsAt || !event.id) return null;
 
-    return {
-        user_id: userId,
-        provider: PROVIDER,
-        calendar_id: CALENDAR_ID,
-        external_event_id: event.id,
-        // The identity every copy of one meeting shares. `id` differs between
-        // the organizer's copy and each attendee's, so it can never answer
-        // whether two people are in the same meeting; this can.
-        ical_uid: event.iCalUID ?? null,
-        title: event.summary ?? null,
-        conference_url: conferenceURL(event),
-        starts_at: startsAt,
-        ends_at: event.end?.dateTime ?? null,
-        organizer_email: event.organizer?.email ?? null,
-        attendees: attendeesOf(event),
-        updated_at: stampedAt,
-    };
-}
 
-/// Where the meeting actually happens. `hangoutLink` is Google's own shortcut
-/// and is present for a Meet link; `conferenceData` is the general form and
-/// carries Zoom and Teams when the organizer added one.
-function conferenceURL(event: GoogleEvent): string | null {
-    if (event.hangoutLink) return event.hangoutLink;
-    const video = event.conferenceData?.entryPoints
-        ?.find((entry) => entry.entryPointType === "video" && entry.uri);
-    return video?.uri ?? null;
-}
-
-/// Who is expected, in the two fields that decide anything.
-///
-/// Rooms are excluded — a booked meeting room is an attendee to Google and noise
-/// to us. Everything past the address and the answer is left behind rather than
-/// stored: a display name adds nothing the address does not, and this table is
-/// already the most personal thing the sync writes.
-function attendeesOf(event: GoogleEvent): Array<{ email: string; display?: string; response: string }> {
-    return (event.attendees ?? [])
-        .filter((attendee) => attendee.email && !attendee.resource)
-        .map((attendee) => ({
-            email: attendee.email as string,
-            // The name on the invitation. Without it the app has only an address
-            // to make a name from, and "riwwom@gmail.com" becomes "Riwwom".
-            display: attendee.displayName?.trim() || undefined,
-            response: attendee.responseStatus ?? "needsAction",
-        }));
-}
 
 /// Drops what the provider no longer returns for a window it was asked about.
 ///

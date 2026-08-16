@@ -5,9 +5,20 @@ import { GOOGLE_CALENDAR_ACTIONS } from "./googleCalendar.ts";
 import { LINEAR_ACTIONS } from "./linear.ts";
 import { SLACK_ACTIONS } from "./slack.ts";
 
+/// Who an action is being carried out for.
+///
+/// Optional because most actions never need it: they hand a request to a
+/// provider and hand the answer back. It exists for the ones that also have to
+/// write what they just did into our own tables — an event created here has to
+/// reach `calendar_events`, and that row is keyed by the person.
+export interface ActionContext {
+    userId: string;
+}
+
 export type ActionHandler = (
     connection: Connection,
     params: Record<string, unknown>,
+    context?: ActionContext,
 ) => Promise<unknown>;
 
 export type ActionHandlers = Record<string, ActionHandler>;

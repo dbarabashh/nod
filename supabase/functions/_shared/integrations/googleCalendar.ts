@@ -14,10 +14,91 @@
 // one misunderstanding away from removing somebody's week.
 
 import { ActionError, type Connection, proxy } from "./nango.ts";
-import type { ActionHandlers } from "./registry.ts";
+import { adminClient } from "../supabase.ts";
+import type { ActionContext, ActionHandlers } from "./registry.ts";
 
 const EVENTS_PATH = "calendar/v3/calendars/primary/events";
 const MAX_ATTENDEES = 20;
+
+export const PROVIDER = "google-calendar";
+export const CALENDAR_ID = "primary";
+
+/// One Google event as `calendar_events` stores it.
+export interface EventRow {
+    user_id: string;
+    provider: string;
+    calendar_id: string;
+    external_event_id: string;
+    ical_uid: string | null;
+    title: string | null;
+    conference_url: string | null;
+    starts_at: string;
+    ends_at: string | null;
+    organizer_email: string | null;
+    attendees: Array<{ email: string; display?: string; response: string }>;
+    updated_at: string;
+}
+
+/// One Google event as we store it, or null for one we have no use for.
+///
+/// All-day entries are dropped: a birthday or a leave day has no start time to
+/// match a recording against, and keeping them would mean storing more of
+/// somebody's private calendar than the feature can ever read.
+///
+/// Lives here rather than in `calendar-sync` because there are now two writers —
+/// the ten-minute sweep and the event this adapter has just created — and two
+/// mappings of one provider's shape is how the row a sweep writes and the row a
+/// creation writes start disagreeing about the same meeting.
+export function toRow(userId: string, event: GoogleEvent, stampedAt: string): EventRow | null {
+    const startsAt = event.start?.dateTime;
+    if (!startsAt || !event.id) return null;
+
+    return {
+        user_id: userId,
+        provider: PROVIDER,
+        calendar_id: CALENDAR_ID,
+        external_event_id: event.id,
+        // The identity every copy of one meeting shares. `id` differs between
+        // the organizer's copy and each attendee's, so it can never answer
+        // whether two people are in the same meeting; this can.
+        ical_uid: event.iCalUID ?? null,
+        title: event.summary ?? null,
+        conference_url: conferenceURL(event),
+        starts_at: startsAt,
+        ends_at: event.end?.dateTime ?? null,
+        organizer_email: event.organizer?.email ?? null,
+        attendees: attendeesFrom(event),
+        updated_at: stampedAt,
+    };
+}
+
+/// Where the meeting actually happens. `hangoutLink` is Google's own shortcut
+/// and is present for a Meet link; `conferenceData` is the general form and
+/// carries Zoom and Teams when the organizer added one.
+export function conferenceURL(event: GoogleEvent): string | null {
+    if (event.hangoutLink) return event.hangoutLink;
+    const video = event.conferenceData?.entryPoints
+        ?.find((entry) => entry.entryPointType === "video" && entry.uri);
+    return video?.uri ?? null;
+}
+
+/// Who is expected, in the two fields that decide anything.
+///
+/// Rooms are excluded — a booked meeting room is an attendee to Google and noise
+/// to us. Everything past the address and the answer is left behind rather than
+/// stored: a display name adds nothing the address does not, and this table is
+/// already the most personal thing the sync writes.
+export function attendeesFrom(event: GoogleEvent): Array<{ email: string; display?: string; response: string }> {
+    return (event.attendees ?? [])
+        .filter((attendee) => attendee.email && !attendee.resource)
+        .map((attendee) => ({
+            email: attendee.email as string,
+            // The name on the invitation. Without it the app has only an address
+            // to make a name from, and "riwwom@gmail.com" becomes "Riwwom".
+            display: attendee.displayName?.trim() || undefined,
+            response: attendee.responseStatus ?? "needsAction",
+        }));
+}
 
 /// The slice of Google's event resource anything in Nod reads. One declaration
 /// for the two callers — the scheduled sync and the chat's read tool — because
@@ -122,7 +203,7 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
     /// `sendUpdates=all` is why the desktop side shows the draft first and waits
     /// for a person to press the button: this call puts mail in other people's
     /// inboxes and an entry in their calendars, and neither can be recalled.
-    create_event: async (connection, params) => {
+    create_event: async (connection, params, context) => {
         const summary = requireString(params, "title");
         const start = requireInstant(params, "starts_at");
         const end = requireInstant(params, "ends_at");
@@ -157,16 +238,14 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
                 sendUpdates: "all",
                 conferenceDataVersion: wantsRoom ? "1" : "0",
             },
-        }) as {
-            id?: string;
-            htmlLink?: string;
-            hangoutLink?: string;
-            start?: { dateTime?: string };
-        } | null;
+        }) as GoogleEvent & { htmlLink?: string } | null;
 
         if (!created?.id) {
             throw new ActionError("provider_error", "Google did not return the created event.", 502);
         }
+
+        await cache(created as GoogleEvent, context);
+
         return {
             id: created.id,
             url: created.htmlLink ?? null,
@@ -176,3 +255,116 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
         };
     },
 };
+
+/// Writes an event we just created straight into `calendar_events`.
+///
+/// The scheduled sweep would find it on its own — in up to ten minutes. That is
+/// too late by construction: `ScheduledMeeting` offers to record from sixty
+/// seconds before a meeting until three minutes after it starts, so a four
+/// minute window sits entirely inside one sync interval. Ask Nod for a meeting
+/// "in the next three minutes" and the sweep lands the row at roughly the moment
+/// the window shuts — for the organizer and, worse, for everyone invited, who
+/// had no other way to know. Observed on 2026-08-16: event created 20:24 UTC to
+/// start 20:27, still absent at 20:29:44, next sweep 20:30.
+///
+/// Best-effort on purpose. The meeting exists in Google whatever happens here,
+/// and failing the tool call — after invitations have already gone out — because
+/// our own cache write failed would turn a cosmetic problem into a real one. The
+/// sweep remains the backstop.
+///
+/// Written for the caller and for the colleagues they invited, because the gap
+/// this closes is on both sides. Two people can only be shown as being in one
+/// meeting when both of their rows exist — the host's lease takes its identity
+/// from theirs, and the listener asks with theirs — so caching only the
+/// organizer's copy would leave the invitee exactly as blind as before.
+async function cache(event: GoogleEvent, context?: ActionContext): Promise<void> {
+    if (!context?.userId) return;
+    const stampedAt = new Date().toISOString();
+    const own = toRow(context.userId, event, stampedAt);
+    if (!own) return;
+
+    const admin = adminClient();
+    const rows = [own, ...await invitedColleagueRows(admin, event, context.userId, stampedAt)];
+
+    try {
+        const { error } = await admin
+            .from("calendar_events")
+            .upsert(rows, { onConflict: "user_id,calendar_id,external_event_id" });
+        if (error) {
+            console.warn(`calendar cache write failed: ${error.message}`);
+            return;
+        }
+        console.info(`calendar cache: stored the created event for ${rows.length} calendar(s)`);
+    } catch (error) {
+        console.warn(`calendar cache write threw: ${error}`);
+    }
+}
+
+/// Provisional rows for the colleagues this event invited.
+///
+/// Each carries the *organizer's* `external_event_id`, because that is the only
+/// id this response has — Google gives every attendee a different one. That
+/// costs nothing: no read path uses it. Matching one meeting across two people
+/// is done on `ical_uid`, which every copy shares by construction (RFC 5545),
+/// and the id here is only the upsert key. When the invitee's own sweep runs it
+/// writes their real copy and prunes this one, because the prune drops anything
+/// in the window still carrying an older stamp. So the row is a ten-minute
+/// stand-in that cleans itself up.
+///
+/// Narrow on purpose: colleagues in the organizer's own organization, who have
+/// a Nod account, who already have their calendar connected — which means Nod
+/// was going to write this exact row for them anyway, minutes later. It is the
+/// timing that changes, not what anybody gets to see.
+async function invitedColleagueRows(
+    admin: ReturnType<typeof adminClient>,
+    event: GoogleEvent,
+    organizerId: string,
+    stampedAt: string,
+): Promise<EventRow[]> {
+    const invited = (event.attendees ?? [])
+        .filter((attendee) => attendee.email && !attendee.resource)
+        .map((attendee) => (attendee.email as string).toLowerCase());
+    if (invited.length === 0) return [];
+
+    try {
+        const { data: profile } = await admin
+            .from("profiles")
+            .select("active_org_id")
+            .eq("user_id", organizerId)
+            .maybeSingle<{ active_org_id: string | null }>();
+        const orgId = profile?.active_org_id;
+        if (!orgId) return [];
+
+        const { data: people } = await admin
+            .from("people")
+            .select("user_id, primary_email")
+            .eq("org_id", orgId)
+            .not("user_id", "is", null)
+            .is("deleted_at", null);
+
+        const colleagues = (people ?? [])
+            .filter((person) =>
+                person.primary_email && invited.includes(String(person.primary_email).toLowerCase())
+            )
+            .map((person) => person.user_id as string)
+            .filter((userId) => userId !== organizerId);
+        if (colleagues.length === 0) return [];
+
+        // Only those already syncing a calendar. Writing a row for somebody who
+        // never connected one would put an event in a table nothing of theirs
+        // maintains, and nothing would ever clean it up.
+        const { data: connected } = await admin
+            .from("integration_connections")
+            .select("user_id")
+            .eq("provider", PROVIDER)
+            .is("revoked_at", null)
+            .in("user_id", colleagues);
+
+        return (connected ?? [])
+            .map((row) => toRow(row.user_id as string, event, stampedAt))
+            .filter((row): row is EventRow => row !== null);
+    } catch (error) {
+        console.warn(`calendar cache: could not resolve invited colleagues — ${error}`);
+        return [];
+    }
+}

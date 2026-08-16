@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
         for (const key of INTERNAL_PARAMS) delete parameters[key];
         if (assignee) parameters.assigneeId = assignee;
 
-        const result = await handler(connection, parameters as Record<string, unknown>) as {
+        const result = await handler(connection, parameters as Record<string, unknown>, { userId: user.id }) as {
             key?: string;
             title?: string;
             url?: string;
