@@ -20,6 +20,7 @@
 		07A622CC698A15612B4B928E /* TeamRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91EC1F3CB967E89C69FD46C4 /* TeamRow.swift */; };
 		07BD9C3D98AE061B5430CACE /* ProposalDraftingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD6100174CAC486BBDF1833E /* ProposalDraftingTests.swift */; };
 		07E744DC1A8A6BA93890E29C /* LLMProxyClientModelRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDEBBFBD39757307CADDFF1A /* LLMProxyClientModelRoutingTests.swift */; };
+		086BCA1A2F8EFC9A74A4D4C0 /* NotchBarChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B53D50BE6DEEA067CF7EE06 /* NotchBarChrome.swift */; };
 		08E4B4DEE68DC6695EA01278 /* ProfileStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FA4547D79F1897EEBF224C0 /* ProfileStep.swift */; };
 		0A90D7B4CA61F5DD96851A6B /* LiveFindingNotesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 145615DE4F4AE466C9D6B487 /* LiveFindingNotesTests.swift */; };
 		0B94963C51746576B087CD1E /* AutoEndWatchdogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EA70E061B9FD8F7879A8E70 /* AutoEndWatchdogTests.swift */; };
@@ -403,6 +404,7 @@
 		1A1515A1627DB4A3DEDA5794 /* EntityMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityMatcher.swift; sourceTree = "<group>"; };
 		1AB078935561ED49704F720F /* IntegrationCapabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationCapabilityTests.swift; sourceTree = "<group>"; };
 		1AF3E71F8D3ADE11DFAA53CD /* SessionKnowledge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionKnowledge.swift; sourceTree = "<group>"; };
+		1B53D50BE6DEEA067CF7EE06 /* NotchBarChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchBarChrome.swift; sourceTree = "<group>"; };
 		1B57B25FFEF5C263E341153E /* TranscriptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptStore.swift; sourceTree = "<group>"; };
 		1C6A4343E588EAD8505C651F /* RetrievalFeedbackStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetrievalFeedbackStore.swift; sourceTree = "<group>"; };
 		1DA886D2817AD3AB74DCB17E /* HoverReveal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoverReveal.swift; sourceTree = "<group>"; };
@@ -740,6 +742,7 @@
 			isa = PBXGroup;
 			children = (
 				8E92AE5C380F00D41A2B84F4 /* NotchAlerts.swift */,
+				1B53D50BE6DEEA067CF7EE06 /* NotchBarChrome.swift */,
 				0534919E92AAD56E7A18419F /* NotchCollector.swift */,
 				BFEE1A4629797AB96AE7534E /* NotchController.swift */,
 				E8F281EA6B48EDFA2D458279 /* NotchGeometry.swift */,
@@ -1801,6 +1804,7 @@
 				DFE1787A1D0C21DB71D2E310 /* NetworkPathMonitor.swift in Sources */,
 				C7B524DC6679D9B4A217462F /* NodApp.swift in Sources */,
 				855217421BF50216DD832BA2 /* NotchAlerts.swift in Sources */,
+				086BCA1A2F8EFC9A74A4D4C0 /* NotchBarChrome.swift in Sources */,
 				372CB2F5EED0B023909ABA4D /* NotchCollector.swift in Sources */,
 				54F1778228048EC76B5308F6 /* NotchController.swift in Sources */,
 				F9DC1E7E0EFE3CDD6C880C1F /* NotchGeometry.swift in Sources */,

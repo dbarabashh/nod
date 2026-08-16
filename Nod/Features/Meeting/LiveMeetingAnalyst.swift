@@ -26,7 +26,9 @@ import Foundation
 ///   reaches memory. It is the cheapest guard we have against the failure the
 ///   user would notice first — a confident task nobody agreed to.
 ///
-/// Nothing is written to the database from here. See `LiveFinding` for why.
+/// Nothing is written to the database *by* this object. It hands its findings to
+/// `mirrorFindings` when somebody is listening in, and the record itself is
+/// still written once, at finalize. See `LiveFinding` for both.
 @MainActor
 final class LiveMeetingAnalyst: ObservableObject {
     /// Everything still standing, oldest first. Superseded findings stay in the
@@ -63,8 +65,8 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// store — and left nil wherever there is nobody to tell, which is every
     /// test and every preview.
     ///
-    /// Handed all of them rather than what just changed: superseding edits a
-    /// finding raised minutes ago, and a delta would have to describe that.
+    /// Handed all of them rather than what just changed — see
+    /// `MeetingStore.mirrorLiveFindings` for why the whole list is the point.
     var mirrorFindings: (([LiveFinding]) -> Void)?
     var recallLanguage: AppLanguage = .english
     var recallsUsed = 0

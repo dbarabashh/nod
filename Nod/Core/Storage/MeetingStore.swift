@@ -598,6 +598,12 @@ final class MeetingStore: ObservableObject {
     /// category of thing to be holding. Gating would mean this object knowing
     /// about `RoomListenerService`, and a race the first listener always loses.
     ///
+    /// Every finding, not just the one that changed. The cost is a few kilobytes
+    /// an hour, and it buys the property that matters here: because this call
+    /// swallows its own failures, each successful write repairs every write that
+    /// silently failed before it. A delta would leave a dropped finding missing
+    /// from the listener's Notes for the rest of the meeting.
+    ///
     /// Best-effort, and silent on failure by design. A listener's Notes going
     /// blank is a worse outcome than nothing only for the listener; the person
     /// recording must not lose so much as a log line's worth of attention over

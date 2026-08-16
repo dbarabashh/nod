@@ -73,23 +73,11 @@ struct NotchMeetingBar: View {
     @ViewBuilder
     private var alsoRecording: some View {
         if let other = session.concurrentRecording {
-            roomLine("nc-users", "\(other.ownerName) is recording this too", tint: Theme.Palette.muted)
+            MeetingBarStatusLine(icon: "nc-users", text: "\(other.ownerName) is recording this too")
         }
         if let names = listeningNames {
-            roomLine("nc-volume-up", names, tint: Theme.Palette.cyan)
+            MeetingBarStatusLine(icon: "nc-volume-up", text: names, tint: Theme.Palette.cyan)
         }
-    }
-
-    private func roomLine(_ icon: String, _ text: String, tint: Color) -> some View {
-        HStack(spacing: 6) {
-            Image(icon)
-                .icon(11)
-                .accessibilityHidden(true)
-            Text(text)
-                .font(.system(size: 11))
-                .lineLimit(1)
-        }
-        .foregroundStyle(tint)
     }
 
     /// Who is following this recording, named. Being listened to without being
@@ -117,13 +105,7 @@ struct NotchMeetingBar: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            left
-            Spacer(minLength: 4)
-            center
-            Spacer(minLength: 4)
-            right
-        }
+        MeetingBarHeader { left } center: { center } right: { right }
     }
 
     // MARK: Left — what this is
@@ -187,36 +169,24 @@ struct NotchMeetingBar: View {
 
     private var right: some View {
         HStack(spacing: 4) {
-            MeetingBarButton(title: "Ask", isActive: isAskOpen, action: onToggleAsk)
+            MeetingBarButton(title: "Ask", isActive: panel.isAsk, action: onToggleAsk)
             MeetingBarButton(title: "Notes", isActive: panel == .notes, action: onToggleNotes)
             MeetingBarEndButton(action: session.endMeeting)
-            NotchGlyphButton(icon: "nc-chevron-up", help: tuckHelp, action: onCollapse)
+            NotchGlyphButton(icon: "nc-chevron-up", help: geometry.tuckLabel, action: onCollapse)
         }
     }
 
     /// The cut-out is a place; the floating panel is not. Calling both "tuck
     /// into the notch" would name a thing that is not on the user's screen.
-    private var tuckHelp: String {
-        geometry.hasCutout ? "Tuck into the notch" : "Minimize"
-    }
-
-    private var isAskOpen: Bool {
-        if case .ask = panel { return true }
-        return false
-    }
-
     // MARK: Expansion — Ask or Notes, grown below the header
 
-    @ViewBuilder
     private var expansion: some View {
-        switch panel {
-        case .passive:
-            EmptyView()
-        case .notes:
-            MeetingNotesPanel(findings: session.analyst.findings)
-        case let .ask(phase):
-            MeetingAskPanel(phase: phase, onSubmit: onSubmitAsk, onSummarize: onSummarize)
-        }
+        MeetingBarExpansion(
+            panel: panel,
+            findings: session.analyst.findings,
+            onSubmit: onSubmitAsk,
+            onSummarize: onSummarize
+        )
     }
 }
 

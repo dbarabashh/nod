@@ -45,7 +45,7 @@ struct NotchStateContent: View {
         switch model.presentation {
         // The swipe folds a listening bar away exactly as it folds a recording
         // one — same gesture, same flag, same resting shape.
-        case .tucked, .meetingBar, .listening, .listeningTucked: true
+        case .tucked, .meetingBar: true
         case .updateRequired, .dormant, .offer, .liveRoom, .noticed, .recalled, .recap, .launch,
              .languageConfirm, .consent, .alert, .demo: false
         }
@@ -62,12 +62,16 @@ struct NotchStateContent: View {
             // to pin the width against it filled the entire canvas and painted
             // an empty black slab under the menu bar.
             Color.clear.frame(width: 0, height: 0)
-        case .tucked:
-            NotchTucked(
-                session: model.session,
-                audioCapture: model.audioCapture,
-                geometry: model.geometry
-            )
+        case let .tucked(role):
+            if let room = role.room {
+                NotchListeningTucked(room: room, geometry: model.geometry)
+            } else {
+                NotchTucked(
+                    session: model.session,
+                    audioCapture: model.audioCapture,
+                    geometry: model.geometry
+                )
+            }
         case let .liveRoom(room, alsoOffered):
             LiveRoomCard(
                 room: room,
@@ -76,22 +80,6 @@ struct NotchStateContent: View {
                 onDismiss: model.rooms.forgetRoom,
                 onRecordInstead: alsoOffered ? { model.acceptOffer() } : (nil as (() -> Void)?)
             )
-        case let .listening(room, panel):
-            NotchListeningBar(
-                rooms: model.rooms,
-                room: room,
-                panel: panel,
-                language: model.language,
-                onToggleAsk: model.toggleAsk,
-                onToggleNotes: model.toggleNotes,
-                onSubmitAsk: model.submitAsk,
-                onSummarize: model.askSummarize,
-                onCollapse: model.hideMeetingBar,
-                onOpenLibrary: model.openLibrary,
-                geometry: model.geometry
-            )
-        case let .listeningTucked(room):
-            NotchListeningTucked(room: room, geometry: model.geometry)
         case let .noticed(finding):
             NotchNotice(finding: finding, onDismiss: model.rejectNotice)
         case let .recalled(recall):
@@ -110,22 +98,40 @@ struct NotchStateContent: View {
                 onDismiss: model.declineOffer,
                 onMute: model.muteOffer
             )
-        case let .meetingBar(panel):
-            NotchMeetingBar(
-                rooms: model.rooms,
-                panel: panel,
-                session: model.session,
-                audioCapture: model.audioCapture,
-                language: model.language,
-                onToggleAsk: model.toggleAsk,
-                onToggleNotes: model.toggleNotes,
-                onSubmitAsk: model.submitAsk,
-                onSummarize: model.askSummarize,
-                onOpenLibrary: model.openLibrary,
-                onCollapse: { model.hideMeetingBar() },
-                panelSharing: model.panelSharing,
-                geometry: model.geometry
-            )
+        case let .meetingBar(role, panel):
+            // The one place the two sides genuinely differ, and so the only
+            // place that asks which is which.
+            if let room = role.room {
+                NotchListeningBar(
+                    rooms: model.rooms,
+                    room: room,
+                    panel: panel,
+                    language: model.language,
+                    onToggleAsk: model.toggleAsk,
+                    onToggleNotes: model.toggleNotes,
+                    onSubmitAsk: model.submitAsk,
+                    onSummarize: model.askSummarize,
+                    onCollapse: model.hideMeetingBar,
+                    onOpenLibrary: model.openLibrary,
+                    geometry: model.geometry
+                )
+            } else {
+                NotchMeetingBar(
+                    rooms: model.rooms,
+                    panel: panel,
+                    session: model.session,
+                    audioCapture: model.audioCapture,
+                    language: model.language,
+                    onToggleAsk: model.toggleAsk,
+                    onToggleNotes: model.toggleNotes,
+                    onSubmitAsk: model.submitAsk,
+                    onSummarize: model.askSummarize,
+                    onOpenLibrary: model.openLibrary,
+                    onCollapse: { model.hideMeetingBar() },
+                    panelSharing: model.panelSharing,
+                    geometry: model.geometry
+                )
+            }
         case let .recap(state):
             NotchRecapCard(
                 state: state,

@@ -52,10 +52,6 @@ final class RoomListenerService: ObservableObject {
     /// will be.
     @Published private(set) var hasEnded = false
 
-    /// What the listener missed, once they have asked for it.
-    @Published private(set) var catchUp: String?
-    @Published private(set) var isCatchingUp = false
-
     /// The host's live findings — the same list their own Notes panel is drawn
     /// from, mirrored through `meeting_live_findings`. Read rather than derived:
     /// a second pass over the same transcript would cost a second set of model
@@ -76,6 +72,9 @@ final class RoomListenerService: ObservableObject {
     /// honest end to the card.
     private static let summaryWait: TimeInterval = 180
     private static let summaryPollInterval: TimeInterval = 4
+    /// Comfortably under `LiveMeetingAnalyst`'s own floor between passes, so a
+    /// new finding is never more than this far behind the host's own screen.
+    private static let findingsMinInterval: TimeInterval = 10
 
     /// The same ceiling `LiveMeetingAnalyst` puts on its own catch-up: past
     /// this the prompt costs more than the extra context is worth.
@@ -87,6 +86,7 @@ final class RoomListenerService: ObservableObject {
     private var pump: Task<Void, Never>?
     private var summaryPoll: Task<Void, Never>?
     private var lastLookNote: String?
+    private var lastFindingsFetch: Date?
 
     init(supabase: SupabaseClient?, llm: LLMProxyClient? = nil) {
         self.supabase = supabase
@@ -101,30 +101,31 @@ final class RoomListenerService: ObservableObject {
     /// prompt is the same one the host's own Summarize chip uses, and it is
     /// handed the host's findings as memory, so the two answers are not merely
     /// the same kind of thing — they are built from the same two inputs.
-    func catchMeUp(language: AppLanguage) async {
-        guard let llm, !entries.isEmpty, !isCatchingUp else { return }
-        isCatchingUp = true
-        defer { isCatchingUp = false }
-        let transcript = entries
-            .suffix(Self.catchUpMaxEntries)
-            .map { "[\($0.label)]: \($0.text)" }
-            .joined(separator: "\n")
+    func catchMeUp(language: AppLanguage) async throws -> String {
+        guard let llm else { throw AskUnavailable() }
         let prompt = PromptLibrary.buildCatchUp(
-            transcript: transcript,
+            transcript: recentTranscript,
             known: LiveFinding.notes(from: findings),
             language: language
         )
-        do {
-            let result = try await llm.completeJSON(
-                system: prompt.system,
-                user: prompt.user,
-                as: PromptLibrary.CatchUpResult.self,
-                primaryModel: llm.chatModel
-            )
-            catchUp = result.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
-            Log.llm.error("RoomListenerService.catchMeUp failed: \(error.localizedDescription)")
-        }
+        let result = try await llm.completeJSON(
+            system: prompt.system,
+            user: prompt.user,
+            as: PromptLibrary.CatchUpResult.self,
+            primaryModel: llm.chatModel
+        )
+        return result.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The host's transcript as the prompts want it. One definition, because the
+    /// `[Me]`/`[Them]` tag is what every playbook rule in `PromptLibrary` keys
+    /// on — two copies drifting means the host's answers and the listener's
+    /// stop being built from the same shape of context.
+    private var recentTranscript: String {
+        entries
+            .suffix(Self.catchUpMaxEntries)
+            .map { "[\($0.label)]: \($0.text)" }
+            .joined(separator: "\n")
     }
 
     /// The listener's own question, about somebody else's meeting.
@@ -140,13 +141,9 @@ final class RoomListenerService: ObservableObject {
     /// asked for and which the host cannot switch off.
     func ask(_ question: String, language: AppLanguage) async throws -> String {
         guard let llm else { throw AskUnavailable() }
-        let transcript = entries
-            .suffix(Self.catchUpMaxEntries)
-            .map { "[\($0.label)]: \($0.text)" }
-            .joined(separator: "\n")
         let prompt = PromptLibrary.buildAsk(
             question: question,
-            transcript: transcript,
+            transcript: recentTranscript,
             known: LiveFinding.notes(from: findings),
             language: language
         )
@@ -213,11 +210,11 @@ final class RoomListenerService: ObservableObject {
             available = nil
             hasEnded = false
             findings = []
+            lastFindingsFetch = nil
             finalSummary = nil
             isAwaitingSummary = false
             Log.ui.info("joined live room hosted by \(room.hostName)")
             await refreshTranscript()
-            await refreshFindings(room)
             await subscribe(to: room.hostMeetingID)
         } catch {
             Log.ui.error("RoomListenerService.join failed: \(error.localizedDescription)")
@@ -231,7 +228,6 @@ final class RoomListenerService: ObservableObject {
         summaryPoll = nil
         joined = nil
         entries = []
-        catchUp = nil
         hasEnded = false
         findings = []
         finalSummary = nil
@@ -315,6 +311,15 @@ final class RoomListenerService: ObservableObject {
     /// 2026-08-16.
     private func refreshFindings(_ room: JoinedRoom) async {
         guard let supabase else { return }
+        // Throttled, because the two sides tick at very different rates: the
+        // transcript pokes on every settled chunk, while the live pass cannot
+        // raise or retire a finding faster than its own minimum interval. Left
+        // ungated this refetched the whole list hundreds of times an hour to
+        // learn nothing. No staleness is visible at this interval.
+        if let last = lastFindingsFetch, Date().timeIntervalSince(last) < Self.findingsMinInterval {
+            return
+        }
+        lastFindingsFetch = Date()
         do {
             let rows: [LiveFindingRow] = try await supabase
                 .from("meeting_live_findings")

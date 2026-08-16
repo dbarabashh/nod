@@ -105,7 +105,13 @@ struct LiveFinding: Identifiable, Equatable {
         }
     }
 
+    /// `id` and `state` are defaulted rather than split into a second
+    /// initializer: rebuilding a finding the host already made — see
+    /// `LiveFindingRow` — differs from minting one only in those two, and a
+    /// parallel init would be ten assignments that silently stop matching the
+    /// day a field is added.
     init(
+        id: UUID = UUID(),
         kind: ActionItem.Kind,
         text: String,
         tier: Tier = .strict,
@@ -113,9 +119,11 @@ struct LiveFinding: Identifiable, Equatable {
         evidenceIdx: Int? = nil,
         spokenAt: Date? = nil,
         revisionOf: UUID? = nil,
-        foundAt: Date = Date()
+        foundAt: Date = Date(),
+        state: State = .standing
     ) {
-        id = UUID()
+        self.id = id
+        self.state = state
         self.kind = kind
         self.text = text
         self.tier = tier
@@ -124,34 +132,6 @@ struct LiveFinding: Identifiable, Equatable {
         self.spokenAt = spokenAt
         self.revisionOf = revisionOf
         self.foundAt = foundAt
-    }
-
-    /// One the host already found, rebuilt on somebody else's machine.
-    ///
-    /// Separate from the init above because that one mints an id and this one
-    /// must not: the whole point is that a finding the host later supersedes is
-    /// recognisably the same finding here.
-    init(
-        id: UUID,
-        kind: ActionItem.Kind,
-        text: String,
-        tier: Tier,
-        deadline: String?,
-        spokenAt: Date?,
-        revisionOf: UUID?,
-        foundAt: Date,
-        state: State
-    ) {
-        self.id = id
-        self.kind = kind
-        self.text = text
-        self.tier = tier
-        self.deadline = deadline
-        evidenceIdx = nil
-        self.spokenAt = spokenAt
-        self.revisionOf = revisionOf
-        self.foundAt = foundAt
-        self.state = state
     }
 }
 

@@ -20,26 +20,10 @@ enum NotchPresentation: Equatable {
     /// only state the app raises on its own while the user is mid-conversation,
     /// which is why `LiveMeetingAnalyst` is strict about what reaches it.
     case noticed(LiveFinding)
-    /// A colleague is recording the meeting this account is in, and it can be
-    /// listened to rather than recorded a second time. Ranks below the offer to
-    /// record: joining is an alternative somebody may want, never a substitute
-    /// Nod picks for them.
     /// A colleague is recording this meeting. `alsoOffered` is true when the
     /// calendar was about to ask this person to record it themselves — the card
     /// keeps that answer reachable rather than swallowing it.
     case liveRoom(LiveRoom, alsoOffered: Bool)
-    /// Listening to a colleague's recording. Its own state rather than a flag on
-    /// `liveRoom`: the offer is a question and this is a place you are in, and
-    /// they size, rank and identify differently.
-    /// Carries the same panel the meeting bar does, because it is the same bar
-    /// with one substitution: the person listening can leave, not end. Ask and
-    /// Notes mean exactly what they mean while recording, so giving the two
-    /// surfaces two panel types would be two copies of one idea.
-    case listening(JoinedRoom, MeetingBarPanel)
-    /// Listening, folded away. `.tucked`'s own view is built around a recording
-    /// — mic level, pause — and none of that is true here, so this is its own
-    /// resting state rather than a flag that view would have to keep checking.
-    case listeningTucked(JoinedRoom)
     /// Capturing, and something the user settled in an earlier session bears on
     /// what is being said now. The only state that speaks about a meeting the
     /// user is not currently in, which is why `LiveMeetingAnalyst+Recall` is
@@ -50,12 +34,19 @@ enum NotchPresentation: Equatable {
     /// only by the user's own swipe-up over the notch (`NotchModel`'s gesture
     /// state); recording is unaffected either way. Never the default: see
     /// `.meetingBar` for that.
-    case tucked
+    case tucked(MeetingBarRole)
     /// Capturing — the meeting bar itself, visible for the whole recording
     /// rather than behind a click. One case for all three panels
     /// (`MeetingBarPanel`) rather than a state per panel: switching panels is
     /// a resize of the same surface, not a different surface arriving.
-    case meetingBar(MeetingBarPanel)
+    ///
+    /// And one case for both sides of the meeting, for the same reason: a
+    /// listener's bar is this bar with `End` swapped for `Leave`. It was briefly
+    /// two more cases, and every question the surface asks — does a click close
+    /// it, does the panel swap animate, does the tucked pill come back — had to
+    /// be answered twice by hand. Two of them were answered wrong, and the
+    /// second one stranded a listener in a pill with no way out.
+    case meetingBar(MeetingBarRole, MeetingBarPanel)
     /// Idle, and a meeting just ended — the recap, live as it streams in.
     /// Raised on its own, the same way `.noticed` is: the whole point is that
     /// the user sees it without having to open anything. Goes away when the
@@ -83,6 +74,33 @@ enum NotchAlert: Equatable {
     case allowance
 }
 
+/// Which side of the meeting the bar belongs to.
+///
+/// The bar is the same object either way — same header, same Ask, same Notes,
+/// same fold-away. What differs is authority: the person recording can end the
+/// meeting, the person listening can only leave it. Carrying that as a value
+/// rather than as a parallel set of presentation cases is what keeps every
+/// question the notch asks about "a bar is showing" answerable once.
+enum MeetingBarRole: Equatable {
+    case host
+    case listening(JoinedRoom)
+
+    var room: JoinedRoom? {
+        guard case let .listening(room) = self else { return nil }
+        return room
+    }
+
+    /// Identifies the *side*, not the room: a listener's surface does not become
+    /// a different surface because the host's meeting id differs, and making it
+    /// one would refire the emergence animation on every rejoin.
+    var contentID: String {
+        switch self {
+        case .host: "host"
+        case .listening: "listening"
+        }
+    }
+}
+
 /// The meeting bar's own panel, expanded below the always-visible header row
 /// (title/timer/status/Ask/Notes/End) or not expanded at all. A discriminated
 /// state rather than an `isAskOpen`/`isNotesOpen`/`askPhase` trio of
@@ -96,6 +114,13 @@ enum MeetingBarPanel: Equatable {
     case notes
     /// The Ask box, wherever it is in typing → asking → answered.
     case ask(AskPhase)
+
+    /// Whether the Ask box is what is expanded. Asked by both bars, so it lives
+    /// on the panel rather than being restated as a private helper on each.
+    var isAsk: Bool {
+        if case .ask = self { return true }
+        return false
+    }
 
     var contentID: String {
         switch self {
@@ -172,12 +197,10 @@ extension NotchPresentation {
         case .dormant: "dormant"
         case let .offer(offer): "offer.\(offer.identity)"
         case let .liveRoom(room, _): "liveRoom.\(room.hostName)"
-        case let .listening(room, panel): "listening.\(room.hostMeetingID.uuidString).\(panel.contentID)"
-        case .listeningTucked: "listeningTucked"
         case let .noticed(finding): "noticed.\(finding.id.uuidString)"
         case let .recalled(recall): "recalled.\(recall.id.uuidString)"
-        case .tucked: "tucked"
-        case let .meetingBar(panel): "meetingBar.\(panel.contentID)"
+        case let .tucked(role): "tucked.\(role.contentID)"
+        case let .meetingBar(role, panel): "meetingBar.\(role.contentID).\(panel.contentID)"
         case let .recap(state): "recap.\(state.contentID)"
         case .launch: "launch"
         case .languageConfirm: "languageConfirm"
@@ -202,8 +225,8 @@ extension NotchPresentation {
     /// comes from the content or from the hardware.
     var isOpen: Bool {
         switch self {
-        case .dormant, .tucked, .listeningTucked: false
-        case .updateRequired, .offer, .liveRoom, .listening, .noticed, .recalled, .meetingBar, .recap, .launch, .languageConfirm, .consent, .alert: true
+        case .dormant, .tucked: false
+        case .updateRequired, .offer, .liveRoom, .noticed, .recalled, .meetingBar, .recap, .launch, .languageConfirm, .consent, .alert: true
         case let .demo(stage): stage.form != .resting
         }
     }
@@ -221,16 +244,15 @@ extension NotchPresentation {
         case .updateRequired: return 400
         case .offer: return 384
         case .liveRoom: return 396
-        case let .listening(_, panel): return panel.surfaceWidth
         case .noticed, .recalled, .recap: return 360
-        case let .meetingBar(panel): return panel.surfaceWidth
+        case let .meetingBar(_, panel): return panel.surfaceWidth
         case .launch: return 384
         case .languageConfirm: return 340
         case .consent: return 380
         case .alert: return 396
         case .dormant:
             return geometry.hasCutout ? geometry.collapsedSize.width + flare : nil
-        case .tucked, .listeningTucked:
+        case .tucked:
             return geometry.hasCutout ? geometry.collapsedSize.width + flare + 124 : nil
         case let .demo(stage):
             guard stage.form == .resting else { return stage.surfaceWidth }
@@ -257,9 +279,9 @@ extension NotchPresentation {
         // would otherwise silently take its content's height instead of the
         // cut-out's, and leave daylight around the hardware notch.
         switch self {
-        case .dormant, .tucked, .listeningTucked:
+        case .dormant, .tucked:
             geometry.collapsedSize.height
-        case .updateRequired, .offer, .liveRoom, .listening, .noticed, .recalled, .meetingBar, .recap, .launch,
+        case .updateRequired, .offer, .liveRoom, .noticed, .recalled, .meetingBar, .recap, .launch,
              .languageConfirm, .consent, .alert:
             nil
         case let .demo(stage):

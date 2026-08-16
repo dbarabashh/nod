@@ -112,13 +112,20 @@ create trigger drop_live_findings
 -- the summary — is being written. Reading a recap of a conversation you sat
 -- through is not a wider promise than having sat through it.
 --
--- Permissive and narrow: this widens `meetings` and nothing else. The
--- transcript, the chat, the screen text and the embeddings are all governed by
--- their own policies and none of them mention `room_listeners`.
-create policy "listeners read the meeting they listened to"
+-- Narrow twice over. It widens `meetings` and nothing else — the transcript, the
+-- chat, the screen text and the embeddings are governed by their own policies
+-- and none of them mention `room_listeners`. And it is bounded in time: the
+-- client waits three minutes for the recap and then gives up, so a grant with no
+-- end would hand somebody who listened for thirty seconds a permanent read of a
+-- meeting they were never given. The window below is that wait, with room for a
+-- slow recap, and nothing more.
+create policy "listeners read the meeting they just listened to"
     on public.meetings for select to authenticated
     using (deleted_at is null and exists (
-        select 1 from public.room_listeners rl
+        select 1
+        from public.room_listeners rl
+        join public.meeting_start_leases l on l.meeting_id = rl.host_meeting_id
         where rl.host_meeting_id = meetings.id
           and rl.listener_user_id = (select auth.uid())
+          and coalesce(l.ended_at, l.last_used_at, l.granted_at) > now() - interval '15 minutes'
     ));

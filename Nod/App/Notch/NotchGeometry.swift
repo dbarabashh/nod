@@ -22,6 +22,14 @@ struct NotchGeometry: Equatable {
         cutoutWidth > 0
     }
 
+    /// What folding the bar away is called here. The cut-out is a place; the
+    /// floating panel is not, so "tuck into the notch" would name something that
+    /// is not on this user's screen. Lives on the geometry because that is what
+    /// the answer depends on — both bars ask it, and neither should own it.
+    var tuckLabel: String {
+        hasCutout ? "Tuck into the notch" : "Minimize"
+    }
+
     /// The resting surface. With a cut-out it must match the hardware exactly —
     /// a pixel of daylight around a notch is instantly visible. Without one it
     /// is a compact pill, sized for a glance rather than to cover anything.

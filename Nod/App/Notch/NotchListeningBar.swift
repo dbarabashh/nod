@@ -55,13 +55,7 @@ struct NotchListeningBar: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            left
-            Spacer(minLength: 4)
-            center
-            Spacer(minLength: 4)
-            right
-        }
+        MeetingBarHeader { left } center: { center } right: { right }
     }
 
     private var left: some View {
@@ -106,22 +100,13 @@ struct NotchListeningBar: View {
     /// destructive action the End button is would misstate what it does.
     private var right: some View {
         HStack(spacing: 4) {
-            MeetingBarButton(title: "Ask", isActive: isAskOpen, action: onToggleAsk)
+            MeetingBarButton(title: "Ask", isActive: panel.isAsk, action: onToggleAsk)
             MeetingBarButton(title: "Notes", isActive: panel == .notes, action: onToggleNotes)
             MeetingBarButton(title: "Leave", isActive: false) {
                 Task { await rooms.leave() }
             }
-            NotchGlyphButton(icon: "nc-chevron-up", help: tuckHelp, action: onCollapse)
+            NotchGlyphButton(icon: "nc-chevron-up", help: geometry.tuckLabel, action: onCollapse)
         }
-    }
-
-    private var tuckHelp: String {
-        geometry.hasCutout ? "Tuck into the notch" : "Minimize"
-    }
-
-    private var isAskOpen: Bool {
-        if case .ask = panel { return true }
-        return false
     }
 
     /// What the host pressing End looks like from here.
@@ -134,49 +119,25 @@ struct NotchListeningBar: View {
     @ViewBuilder
     private var ending: some View {
         if let summary = rooms.finalSummary {
-            endingNote("\(room.hostName) finished the meeting", tint: Theme.Palette.muted)
-            Text(summary)
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.Palette.ink)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                        .fill(Theme.Palette.surfaceStrong)
-                )
+            MeetingBarStatusLine(icon: "nc-check", text: "\(room.hostName) finished the meeting")
+            MeetingBarProse(text: summary)
         } else if rooms.isAwaitingSummary {
-            endingNote("Recording stopped — preparing the summary…", tint: Theme.Palette.muted)
+            MeetingBarStatusLine(icon: "nc-check", text: "Recording stopped — preparing the summary…")
         } else if rooms.hasEnded {
-            endingNote("Recording stopped", tint: Theme.Palette.muted)
+            MeetingBarStatusLine(icon: "nc-check", text: "Recording stopped")
         }
-    }
-
-    private func endingNote(_ text: String, tint: Color) -> some View {
-        HStack(spacing: 6) {
-            Image("nc-check")
-                .icon(11)
-                .accessibilityHidden(true)
-            Text(text)
-                .font(.system(size: 11))
-                .lineLimit(1)
-        }
-        .foregroundStyle(tint)
     }
 
     /// The same two panels the recording bar grows, given the same data: the
     /// host's findings arrive through `meeting_live_findings`, so Notes says one
     /// thing in a meeting rather than one thing per machine.
-    @ViewBuilder
     private var expansion: some View {
-        switch panel {
-        case .passive:
-            EmptyView()
-        case .notes:
-            MeetingNotesPanel(findings: rooms.findings)
-        case let .ask(phase):
-            MeetingAskPanel(phase: phase, onSubmit: onSubmitAsk, onSummarize: onSummarize)
-        }
+        MeetingBarExpansion(
+            panel: panel,
+            findings: rooms.findings,
+            onSubmit: onSubmitAsk,
+            onSummarize: onSummarize
+        )
     }
 }
 
@@ -191,20 +152,35 @@ struct NotchListeningTucked: View {
     let room: JoinedRoom
     let geometry: NotchGeometry
 
+    /// Straddles the cut-out the same way `NotchTucked` does: on a notched Mac
+    /// the middle of this surface is opaque hardware, so the two halves anchor
+    /// to the outer edges and the hole is reserved rather than drawn through.
+    /// Without one there is nothing to straddle, and spreading them would leave
+    /// a gap of black exactly where the notch isn't.
+    ///
+    /// No explicit height: `NotchPresentation.surfaceHeight` already pins the
+    /// resting states to the cut-out, and a second answer here could only
+    /// disagree with it.
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: geometry.hasCutout ? 0 : 8) {
             Image("nc-volume-up")
                 .icon(11)
                 .accessibilityHidden(true)
                 .foregroundStyle(Theme.Palette.cyan)
+                .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .leading)
+
+            if geometry.hasCutout {
+                Color.clear.frame(width: geometry.cutoutWidth)
+            }
+
             Text(room.hostName)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Theme.Palette.ink)
                 .lineLimit(1)
-            Spacer(minLength: 0)
+                .fixedSize()
+                .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .trailing)
         }
-        .padding(.horizontal, 12)
-        .frame(height: geometry.collapsedSize.height)
+        .padding(.horizontal, geometry.flare + 12)
         .accessibilityLabel("Listening to \(room.hostName)")
     }
 }

@@ -78,10 +78,10 @@ struct NotchStateResolver {
         // already in — and above the recap, because what is being said now
         // outranks what a finished meeting amounted to.
         if let joinedRoom {
-            // Folds away on the same flag the meeting bar uses, so one swipe
-            // means one thing on this surface no matter which side of the
-            // meeting you are on.
-            return isMeetingBarHidden ? .listeningTucked(joinedRoom) : .listening(joinedRoom, meetingBarPanel)
+            // The same two states the recording side resolves to, through the
+            // same flag: one swipe means one thing on this surface no matter
+            // which side of the meeting you are on.
+            return bar(.listening(joinedRoom))
         }
         if let recap {
             return .recap(recap)
@@ -113,9 +113,13 @@ struct NotchStateResolver {
         if let recalled = session.analyst.recall, meetingBarPanel == .passive {
             return .recalled(recalled)
         }
-        if isMeetingBarHidden {
-            return .tucked
-        }
-        return .meetingBar(meetingBarPanel)
+        return bar(.host)
+    }
+
+    /// Tucked or expanded, for whichever side of the meeting is asking. The
+    /// swipe-away flag is deliberately shared: it is the user saying "out of the
+    /// way", and that means the same thing in both rooms.
+    private func bar(_ role: MeetingBarRole) -> NotchPresentation {
+        isMeetingBarHidden ? .tucked(role) : .meetingBar(role, meetingBarPanel)
     }
 }
