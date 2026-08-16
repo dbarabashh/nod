@@ -224,6 +224,12 @@ in the same `eu-west-1` region.
   on (§ 3.11). That is a macOS permission, not a connected account, and nothing
   read from it is stored or sent anywhere.
 - We do **not** collect your contacts or address book.
+- We do **not** create or store a **voice print**. Nod separates a recording
+  into distinct voices so a transcript can say who said what within that one
+  meeting, and it does not keep anything that could recognise a voice in a
+  different one. Putting a name to a voice comes from the meeting's own
+  participant list, from what was said, or from you correcting it — never from
+  a biometric identifier.
 - We do **not** record video of your screen, and we do **not** save an image
   of it — ever. What Nod keeps from your screen is always **text**. With
   ambient context on, a window whose text macOS cannot describe is read from
@@ -603,6 +609,32 @@ always your own act.
 the organization, in both directions, at once: colleagues stop seeing what you
 shared with them, and you stop seeing what they shared with you. Your own
 meetings remain yours.
+
+### 3.16 Turning a meeting into work in your tools (advance notice — not in the released app)
+
+This section is **advance notice**. Nothing described here is in the released
+app, and none of it happens for anyone who has not connected a tool themselves.
+
+When you connect a tool that Nod can act in (§ 3.11 describes the calendar; the
+same mechanism covers a task tracker such as Linear and a team chat such as
+Slack), a finished meeting can offer to do something in it — file a task, open a
+channel for what was decided. Every one of those offers is **prepared and shown
+to you, and nothing leaves Nod until you approve it individually**. There is no
+setting that performs them automatically, and we have not built one.
+
+| **What is stored** | For each offer: what it would do, in which tool, the parameters it would use, and the position in the transcript that caused it. If the meeting named a colleague as the person taking something on, the offer carries **who** — as a reference to their record in your organization, plus their name as it will appear in the tool. |
+| **Reading who is in your workspace** | When an **administrator** of your organization connects a tool, Nod reads that tool's member list once and records, for each member with an address, their name, that address, and the identifier the tool uses for them. This is what lets a meeting assign work to a colleague on the day you set Nod up, instead of after everyone has been invited to Nod and accepted. It happens for administrators only — a member connecting their own account does not import anything, because their workspace is not the company's. |
+| **Colleagues who do not use Nod** | Someone in that member list who has no Nod account still gets a record, marked as having come from a connected workspace. They can be named as the owner of a task, and nothing else: they cannot sign in, they are sent nothing, and they have no access to anything. If they later create a Nod account with the same address, the record becomes theirs rather than a second one being made. |
+| **Matching** | **By email address only.** We never match on names, because two colleagues share a first name far more often than an address, and an assignment made on a name is a ticket in the wrong person's queue. A name someone set in their own Nod profile is never replaced by the version a workspace shows. |
+| **Speaker attribution** | Which voice in a recording belongs to which person, with a note of how that was decided — the conferencing app's participant list, a reading of the transcript, or your own correction — and how far it can be trusted. A name Nod worked out on its own is **never** enough to assign work to somebody; only a person you confirmed can be named as an owner. |
+| **What is never guessed** | If a meeting says "someone should look at this", the offer is created with **no owner** and asks you who. We do not infer an owner from who usually does that kind of work. |
+| **Your organization's say** | An administrator can turn any tool off for the whole organization. With it off, Nod will not act in that tool for anybody in the organization, whoever connected it. |
+| **What is written down** | Approving, declining, performing and failing to perform an offer are each recorded in the organization's audit log, with who did it and when. The record names the tool and the object created; it does not contain meeting content. |
+| **Turning it off** | Disconnect the tool in Settings → Integrations. The authorization ends at our integration provider, no further offers for that tool are made, and the identifiers we recorded for colleagues in it are deleted — unless a colleague in the same organization still has it connected, in which case the mapping remains for them. Work already created in the tool stays there; it is yours, in your account. A person record created from a workspace is kept, because past meetings and the audit log refer to it; ask us and we will delete it. |
+
+**Legal basis.** Legitimate interests (Art. 6(1)(f)) — carrying out, on request,
+the follow-up work a meeting decided on. The offer itself is prepared for you;
+the act that reaches another system is always yours.
 
 ## 4. Model training
 
