@@ -17,6 +17,7 @@ struct PaywallView: View {
     @State private var cycle = "yearly"
     @State private var referralCode = ""
     @State private var showReferralField = false
+    @State private var hasWinbackOffer = false
 
     private struct PlanCopy {
         let id: String
@@ -64,6 +65,15 @@ struct PaywallView: View {
             header
             BillingCycleToggle(cycle: $cycle, annualDiscountPercent: annualDiscountPercent)
                 .frame(width: 240)
+            if hasWinbackOffer {
+                Text(
+                    "Your email offer applies 15% to the first monthly Starter or Pro billing period and expires 14 days after it was issued."
+                )
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.Palette.muted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 520)
+            }
             HStack(alignment: .top, spacing: 14) {
                 ForEach(Self.plans, id: \.id) { plan in
                     planCard(plan)
@@ -103,11 +113,13 @@ struct PaywallView: View {
             await entitlements.refresh()
         }
         .onAppear {
+            hasWinbackOffer = BillingService.hasPendingWinbackOffer
+            if hasWinbackOffer { cycle = "monthly" }
             // Attribution B: a code captured from a nod://referral deep link
             // pre-fills the field and reveals it. Single-use so it isn't re-applied.
             // Only consume when the field can actually be shown — a paid user has
             // no referral field, so don't silently swallow the pending code.
-            guard !isPaid else { return }
+            guard !isPaid, !hasWinbackOffer else { return }
             if let pending = ReferralService.consumePendingCode() {
                 referralCode = pending
                 showReferralField = true
@@ -384,7 +396,11 @@ struct PaywallView: View {
         return Button {
             guard let id = price?.paddlePriceID else { return }
             Task {
-                let outcome = await billing.startCheckout(priceID: id, referralCode: referralCode)
+                let outcome = await billing.startCheckout(
+                    priceID: id,
+                    referralCode: hasWinbackOffer ? nil : referralCode,
+                    offer: hasWinbackOffer ? "winback" : nil
+                )
                 if outcome == .planChanged { await entitlements.refresh() }
             }
         } label: {

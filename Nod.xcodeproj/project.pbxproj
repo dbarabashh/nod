@@ -102,6 +102,7 @@
 		4D28BC37188FFB69B6691CD2 /* KnowledgeThreadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D976F928680016234925545 /* KnowledgeThreadStore.swift */; };
 		4D748B69654415EB99DB7D33 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E78FD6F93B40A3B13049CAE3 /* IOKit.framework */; };
 		4F9C0767EBFC5E618B244DCB /* ContextColumnWidth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23D56E89E4286CA40BF24452 /* ContextColumnWidth.swift */; };
+		50061825FE131CBC688B2FBB /* AppDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 712E443104DE8B7417827620 /* AppDeepLink.swift */; };
 		502B52A47B55266A19FD9D06 /* sherpa-onnx.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 486C97CDDC34BDB0555D25F3 /* sherpa-onnx.xcframework */; };
 		503F617B683B55A3FDD81E5C /* MeetingDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A96C62A8360FEBFC26D813F /* MeetingDetailView.swift */; };
 		50A2FBCED7FD216A15E8AA6E /* SupabaseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23DBB5F15412AEE92C6BD019 /* SupabaseConfig.swift */; };
@@ -197,6 +198,7 @@
 		936CF73C58DF2FC40716B593 /* AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA929108D42FD58B667EE2A8 /* AppVersion.swift */; };
 		944BFA973D67BA243EC813A0 /* MeetingSession+Identity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CA795C239CF72D01BF9B64C /* MeetingSession+Identity.swift */; };
 		945DADFE2F34D1D030698608 /* LabelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC7E0FBEE7DB2CA591D487B6 /* LabelStore.swift */; };
+		94D8FC1BAE5419C8D40ED301 /* AppDeepLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4928E19FC8D8F800E974D000 /* AppDeepLinkTests.swift */; };
 		94F80C21C1573FE94A8EC5AD /* StatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E667381849D7D59AC956F349 /* StatusItemController.swift */; };
 		95EF0DE5BA1CF649181D283E /* DebugAudioDump.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDE275CC07D0138C7185682 /* DebugAudioDump.swift */; };
 		9657D02D5CC3BD02A5312032 /* OptionalPresentationBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = F03D93923EADEF00E3C2A630 /* OptionalPresentationBinding.swift */; };
@@ -444,6 +446,7 @@
 		484AF3B51E293CECC4ED75C7 /* LiveFinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveFinding.swift; sourceTree = "<group>"; };
 		486C97CDDC34BDB0555D25F3 /* sherpa-onnx.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "sherpa-onnx.xcframework"; path = "Vendor/sherpa-onnx.xcframework"; sourceTree = "<group>"; };
 		48922831A1C01B93CEE6C55A /* ConnectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionService.swift; sourceTree = "<group>"; };
+		4928E19FC8D8F800E974D000 /* AppDeepLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDeepLinkTests.swift; sourceTree = "<group>"; };
 		4940AE0F466E23E8BD4994BD /* Nod.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nod.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		49B699873124AD7C3F99E39F /* ActionItemDeadline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItemDeadline.swift; sourceTree = "<group>"; };
 		49CD9743D67545C48B53017D /* OrganizationSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrganizationSection.swift; sourceTree = "<group>"; };
@@ -490,6 +493,7 @@
 		6FBF8024188E6DB586248C75 /* RecapGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecapGenerator.swift; sourceTree = "<group>"; };
 		70E6D976B12EB435E3C24123 /* MemoryBrief.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryBrief.swift; sourceTree = "<group>"; };
 		712C1BB3C8E46B4817080905 /* PromptLibrary+Recap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PromptLibrary+Recap.swift"; sourceTree = "<group>"; };
+		712E443104DE8B7417827620 /* AppDeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDeepLink.swift; sourceTree = "<group>"; };
 		71675307BCCE12D4449E35FC /* ChatThinking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatThinking.swift; sourceTree = "<group>"; };
 		71C5FAD49FF9308677FC7A15 /* MeetingRosterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRosterTests.swift; sourceTree = "<group>"; };
 		7240D0FAF24D64F78E681ED6 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
@@ -757,6 +761,7 @@
 		213FE0D2D39C3FCFA0CAEC37 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				712E443104DE8B7417827620 /* AppDeepLink.swift */,
 				17BCABF79A32F8ACA7E5451A /* AppServices.swift */,
 				649AEFDC67FDD49A98A082B0 /* NodApp.swift */,
 				E667381849D7D59AC956F349 /* StatusItemController.swift */,
@@ -1039,6 +1044,7 @@
 				06B697F7832C46F767AA38B8 /* ActionItemMatchTests.swift */,
 				89BBED8E7CD86E493FF9BB2C /* AmbientContextMenuTests.swift */,
 				C257E9A520EDFD67C5B29338 /* AnswerBlocksTests.swift */,
+				4928E19FC8D8F800E974D000 /* AppDeepLinkTests.swift */,
 				D382D1AD1CB8C95AB62A8E2F /* AppLanguageTests.swift */,
 				2EA70E061B9FD8F7879A8E70 /* AutoEndWatchdogTests.swift */,
 				7A4AC3ED42822F07F1AB0F1F /* CalendarAttendeeTests.swift */,
@@ -1536,6 +1542,7 @@
 				8A3B17B44B362E07ADF45597 /* ActionItemMatchTests.swift in Sources */,
 				5DE0BE05D3AC50D0B386C1D2 /* AmbientContextMenuTests.swift in Sources */,
 				C78361EB42C87B9332A74E6E /* AnswerBlocksTests.swift in Sources */,
+				94D8FC1BAE5419C8D40ED301 /* AppDeepLinkTests.swift in Sources */,
 				8DF62177F21E18339CCD7E22 /* AppLanguageTests.swift in Sources */,
 				0B94963C51746576B087CD1E /* AutoEndWatchdogTests.swift in Sources */,
 				3335EAB0EDE0444A1CEEEF0A /* CalendarAttendeeTests.swift in Sources */,
@@ -1612,6 +1619,7 @@
 				63023D26AA904D8EE12A776A /* ActionItemsAggregateView.swift in Sources */,
 				43FD0B0E18F91EAFA91DEFBE /* ActionItemsView.swift in Sources */,
 				9679CC0CDBAA32331D006B61 /* AmbientContextSidebarRow.swift in Sources */,
+				50061825FE131CBC688B2FBB /* AppDeepLink.swift in Sources */,
 				F4EDE7F6FB207812CFB364D6 /* AppDirectory.swift in Sources */,
 				87D0FC8D4B6AFBEEC273EB12 /* AppLanguage.swift in Sources */,
 				740905E7CA7257723BCDF95B /* AppServices.swift in Sources */,

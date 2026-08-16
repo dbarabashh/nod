@@ -43,6 +43,7 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 interface CheckoutRequest {
     price_id: string;
     ref?: string;
+    offer?: "winback";
 }
 
 interface PriceRow {
@@ -78,6 +79,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const ref = typeof body.ref === "string"
         ? body.ref.trim().toUpperCase() || undefined
         : undefined;
+    const offer = body.offer === "winback" ? body.offer : undefined;
+    if (body.offer !== undefined && !offer) return json({ error: "offer_not_eligible" }, 422);
+    if (ref && offer) return json({ error: "offer_not_eligible" }, 422);
 
     // One subscription per user. If they already have a live Paddle subscription,
     // a plan/cycle switch must UPDATE it in place — never spin up a second one
@@ -98,6 +102,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (body.price_id.startsWith("pri_REPLACE_")) {
         console.error(`checkout blocked for placeholder price=${body.price_id}`);
         return json({ error: "pricing_unconfigured" }, 503);
+    }
+    if (offer && (price.billing_cycle !== "monthly" || !["starter", "pro"].includes(price.plan))) {
+        return json({ error: "offer_not_eligible" }, 422);
     }
 
     const { data: sub } = await admin
@@ -187,10 +194,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
         referralId = typeof verdict.referral_id === "string" ? verdict.referral_id : undefined;
     }
 
+    let offerClaimId: string | undefined;
+    if (offer) {
+        const { data: claimId, error: claimError } = await admin.rpc("reserve_email_offer_claim", {
+            p_user_id: user.id,
+            p_offer_key: offer,
+        });
+        if (claimError || typeof claimId !== "string") {
+            return json({ error: "offer_not_eligible" }, 422);
+        }
+        offerClaimId = claimId;
+    }
+
     const customData: Record<string, unknown> = { user_id: user.id };
     // The reservation id, not the raw code: the webhook resolves the referral
     // from our own row, so nothing about the reward depends on client input.
     if (referralId) customData.referral_id = referralId;
+    if (offerClaimId) customData.offer_claim_id = offerClaimId;
 
     const payload: Record<string, unknown> = {
         items: [{ price_id: body.price_id, quantity: 1 }],
@@ -201,6 +221,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (referralId) {
         payload.discount_id = PADDLE_REFERRAL_DISCOUNT_ID;
         console.log(`referral discount applied user=${user.id} referral=${referralId}`);
+    } else if (offerClaimId) {
+        payload.discount = {
+            type: "percentage",
+            amount: "15",
+            description: "Nod win-back offer",
+            recur: false,
+            restrict_to: [body.price_id],
+        };
     }
 
     const res = await fetch(`${PADDLE_API_BASE}/transactions`, {
@@ -210,6 +238,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
     const text = await res.text();
     if (!res.ok) {
+        if (offerClaimId) {
+            await admin.rpc("release_email_offer_claim", { p_claim_id: offerClaimId, p_user_id: user.id });
+        }
         console.error(`paddle create transaction failed status=${res.status} body=${text.slice(0, 400)}`);
         return json({ error: "Checkout creation failed" }, 502);
     }
@@ -224,6 +255,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
         // fall through to the missing-url branch
     }
     if (!url) {
+        if (offerClaimId) {
+            await admin.rpc("release_email_offer_claim", { p_claim_id: offerClaimId, p_user_id: user.id });
+        }
         // No checkout.url means no default payment link is configured in the
         // Paddle dashboard (Checkout settings) — the transaction exists but has
         // nowhere to be paid.
@@ -244,6 +278,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
         if (bindError || bound !== true) {
             console.error(`referral checkout bind failed referral=${referralId} txn=${transactionId}: ${bindError?.message ?? "not bound"}`);
             return json({ error: "referral_unavailable" }, 503);
+        }
+    }
+    if (offerClaimId) {
+        if (!transactionId) {
+            await admin.rpc("release_email_offer_claim", { p_claim_id: offerClaimId, p_user_id: user.id });
+            return json({ error: "offer_unavailable" }, 503);
+        }
+        const { data: bound, error: bindError } = await admin.rpc("bind_email_offer_transaction", {
+            p_claim_id: offerClaimId,
+            p_user_id: user.id,
+            p_transaction_id: transactionId,
+        });
+        if (bindError || bound !== true) {
+            console.error(`winback checkout bind failed claim=${offerClaimId} txn=${transactionId}`);
+            return json({ error: "offer_unavailable" }, 503);
         }
     }
 

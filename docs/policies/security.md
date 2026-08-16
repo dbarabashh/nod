@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-08-14_
+_Last updated: 2026-08-15_
 
 _[Calendar access](#calendar-access), [Organizations](#organizations), and the
 email-delivery section under [How data flows](#how-data-flows) are **advance
@@ -520,6 +520,12 @@ outlives the 90-day delivery logs. Immediately before each send, consent,
 suppression, the gate, and the reason the message qualified are all re-checked, so
 a preference changed while a message was queued wins. Complaints and hard bounces
 suppress the address at once and cancel anything still queued for it.
+
+Each campaign has an independent rollout state (`off`, `seed`, `limited`, or
+`live`). New campaigns default to off. Limited rollout allows at most two
+customer sends in 24 hours until the delivery path has been checked. Trial
+learning requires the current lifecycle consent; earlier lifecycle consent is
+accepted only for the earlier 14-day cadence.
 
 Preference links carry an opaque token in the URL fragment only; loading the page
 performs a read, and a change requires an explicit confirmation. Open tracking is

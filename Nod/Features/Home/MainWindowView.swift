@@ -126,6 +126,10 @@ struct MainWindowView: View {
             focus = nil
             surface = .chat
         }
+        .onReceive(NotificationCenter.default.publisher(for: .nodOpenActionItems)) { _ in
+            focus = nil
+            surface = .actionItems
+        }
         .onReceive(NotificationCenter.default.publisher(for: .nodOpenMeetingDetail)) { note in
             if let id = note.userInfo?[Notification.nodMeetingIDKey] as? UUID {
                 focus(on: id)

@@ -1,6 +1,6 @@
 # Nod — Pricing
 
-_Last updated: 2026-08-12_
+_Last updated: 2026-08-15_
 
 The spec the pricing surfaces are built from. Three of them have to agree, and
 each has its own copy: `plans` / `plan_prices` in Supabase (the only enforced
@@ -68,6 +68,19 @@ The three marketing discounts on live (`Discount for friends` 40%,
 `Friendly discount` 15%, `Nod Pro monthly - 1 month free` 100%) are still
 restricted to the superseded price ids, so they no longer apply to a new
 checkout. The two referral discounts are unrestricted and follow the catalog.
+
+### Lifecycle win-back offer — built, not released
+
+An account that receives an eligible expired-trial or canceled-subscription
+email can claim **15% off the first monthly Starter or Pro billing period**.
+The claim expires 14 days after issue, is bound to that account and email
+campaign, and cannot be combined with a referral. Checkout creates a
+non-recurring Paddle transaction discount restricted to the selected price;
+there is no public coupon code or reusable catalog discount.
+
+The campaign rollout modes and the communications-v2 policy gate both start
+off. This offer therefore cannot reach customers merely because the code and
+templates exist.
 
 ### Nobody already paying gets repriced
 

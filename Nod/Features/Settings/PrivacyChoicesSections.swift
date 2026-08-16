@@ -14,8 +14,8 @@ struct EmailPreferencesSection: View {
                 .foregroundStyle(Theme.Palette.muted)
 
             Text(
-                "Optional emails are off unless you choose them here. Account and referral "
-                    + "notices aren't marketing and are sent regardless."
+                "Optional emails are off unless you choose them here. Trial learning uses the "
+                    + "three-email cadence shown below. Account and referral notices aren't marketing."
             )
             .font(.system(size: 12))
             .foregroundStyle(Theme.Palette.muted)

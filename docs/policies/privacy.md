@@ -506,7 +506,7 @@ three optional topics. **Each one starts off** and turns on only when you choose
 it, in onboarding or in **Settings → Privacy → Email choices**:
 
 - **Product updates** — occasional product news, offers, and referral announcements.
-- **Lifecycle guidance** — a nudge when a Nod feature would help with what you are already doing.
+- **Lifecycle guidance** — during a 14-day trial, up to three short learning emails on days 1, 4, and 10; after the trial, an occasional nudge when a Nod feature would help with what you are already doing.
 - **Founder research** — notes from a founder about how Nod is working for you, sometimes with an optional call.
 
 For each topic we store your choice, the policy version it was given under,
@@ -527,10 +527,21 @@ change which emails you are eligible for, and it applies to the link itself —
 not to where you go afterwards. Legal basis: legitimate interest (Art. 6(1)(f))
 in knowing whether the mail we send is worth sending.
 
-We will send at most one optional email in any 14 days, and at most one
-founder-research email in any 30. Consent, suppression, and eligibility are
+The standard cadence is at most one optional email in any 14 days, and at most
+one founder-research email in any 30. The only exception is the separately
+described trial-learning cadence: if you affirmatively choose the current
+lifecycle-guidance wording, it may send on trial days 1, 4, and 10, never less
+than 72 hours apart and never backfilled after its day. Consent, suppression, and eligibility are
 re-checked immediately before each send, so a choice you change while an email is
 queued takes effect rather than being overtaken.
+
+Choices recorded under the earlier communications wording remain valid for the
+same purpose and frequency that wording described: product-update choices may
+cover offers, founder-research choices may cover a direct reply or optional
+call, and lifecycle-guidance choices may cover the standard 14-day cadence. We
+do not use an earlier lifecycle choice for the higher-frequency trial series.
+Existing accounts see a separate, unchecked prompt for that series; dismissing
+it does not change any earlier choice.
 
 Account, security, billing, and referral-status messages are **not** marketing:
 they are part of the service and are sent regardless of these choices. They
@@ -542,8 +553,9 @@ bounce, complaint, and unsubscribe status. No meeting content is ever shared.
 Deleting your account also deletes the provider-side contact.
 
 **Nothing under this section is sending today.** No optional email, and no
-contact synchronisation with Resend, occurs before 30 days after this policy is
-published.
+contact synchronisation with Resend, occurs before 30 days after this updated
+policy is published. Campaigns also remain off until seed and limited delivery
+checks pass.
 
 Legal basis: Consent (Art. 6(1)(a)) for the optional topics; Contract
 (Art. 6(1)(b)) and legitimate interest (Art. 6(1)(f)) for the narrow operational

@@ -126,7 +126,7 @@ forwarded once and never written to durable storage anywhere in this chain.
 | 2026-08-15 | Gave advance notice of Nango for tool connections you make yourself — outbound actions (Linear) and, when it ships, reading your calendar. Nothing is connected until you connect it. |
 | 2026-08-14 | Corrected the email-tracking description: click tracking is enabled on our sending domain, not disabled as previously stated. Open tracking remains off. |
 | 2026-08-11 | Gave advance notice of Resend for the three separately consented optional email topics and for operational referral-status notices. Nothing is sending under this workflow yet. |
-| 2026-08-15 | Disabled click tracking, clarified the separate trial-learning consent and cadence, preserved earlier choices for their original purposes, and restarted the 30-day notice period. |
+| 2026-08-15 | Disabled click tracking, clarified the separate trial-learning consent and cadence, preserved earlier choices for their original purposes, and restarted the 30-day notice period before any Resend contact sync or send. |
 
 ---
 

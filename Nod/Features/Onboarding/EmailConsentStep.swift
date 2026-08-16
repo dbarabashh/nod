@@ -73,7 +73,7 @@ struct EmailConsentStep: View {
             await preferences.refresh()
             // Already answered on another device — don't ask the same question
             // again just because this Mac finished onboarding later.
-            if preferences.hasLoaded, !preferences.shouldPresentPrompt {
+            if preferences.hasLoaded, !preferences.shouldPresentFullPrompt {
                 onFinish()
             }
         }
