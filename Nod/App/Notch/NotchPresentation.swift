@@ -24,7 +24,10 @@ enum NotchPresentation: Equatable {
     /// listened to rather than recorded a second time. Ranks below the offer to
     /// record: joining is an alternative somebody may want, never a substitute
     /// Nod picks for them.
-    case liveRoom(LiveRoom)
+    /// A colleague is recording this meeting. `alsoOffered` is true when the
+    /// calendar was about to ask this person to record it themselves — the card
+    /// keeps that answer reachable rather than swallowing it.
+    case liveRoom(LiveRoom, alsoOffered: Bool)
     /// Listening to a colleague's recording. Its own state rather than a flag on
     /// `liveRoom`: the offer is a question and this is a place you are in, and
     /// they size, rank and identify differently.
@@ -160,7 +163,7 @@ extension NotchPresentation {
         case .updateRequired: "updateRequired"
         case .dormant: "dormant"
         case let .offer(offer): "offer.\(offer.identity)"
-        case let .liveRoom(room): "liveRoom.\(room.hostName)"
+        case let .liveRoom(room, _): "liveRoom.\(room.hostName)"
         case let .listening(room): "listening.\(room.hostMeetingID.uuidString)"
         case let .noticed(finding): "noticed.\(finding.id.uuidString)"
         case let .recalled(recall): "recalled.\(recall.id.uuidString)"

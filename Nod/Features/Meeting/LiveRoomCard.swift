@@ -10,6 +10,12 @@ struct LiveRoomCard: View {
     var isJoining = false
     let onJoin: () -> Void
     let onDismiss: () -> Void
+    /// Offered only when the calendar was about to ask this person to record the
+    /// same meeting. Joining is the better answer nearly always — one recording
+    /// of a call is enough — but "nearly" is not "always", and the person who
+    /// wants their own copy should not have to wait for this card to time out to
+    /// get it.
+    var onRecordInstead: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -47,6 +53,14 @@ struct LiveRoomCard: View {
                 .buttonStyle(.plain)
                 .disabled(isJoining)
                 .linkCursor()
+
+                if let onRecordInstead {
+                    Button("Record my own", action: onRecordInstead)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .linkCursor()
+                }
 
                 Button("Not now", action: onDismiss)
                     .buttonStyle(.plain)

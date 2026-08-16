@@ -54,23 +54,31 @@ struct NotchStateResolver {
         if let message = session.saveErrorToast, !session.pendingMeetingSaves.isEmpty {
             return .alert(.saveFailed(message))
         }
+        // Above the offer, and this is a reversal. The ordering used to put
+        // "shall I record this?" first, reasoning that a colleague recording is
+        // a reason to join rather than a reason not to be asked. True — but both
+        // arrive on the same calendar entry at the same second, so the offer
+        // simply hid the room for its whole life and the second person was never
+        // told anybody had started. What they saw instead was an invitation to
+        // record the same meeting a second time.
+        //
+        // So the room leads and the offer rides along: `alsoOffered` keeps
+        // "record it myself" one press away, which is what the old ordering was
+        // actually protecting.
+        if session.meeting == .idle, let liveRoom {
+            return .liveRoom(liveRoom, alsoOffered: offer != nil)
+        }
         if let offer {
             return .offer(offer)
         }
         if session.meeting != .idle {
             return recording()
         }
-        // Below the offer on purpose: "shall I record this?" is about what this
-        // person wants for themselves, and a colleague already recording is a
-        // reason to join rather than a reason not to be asked.
-        // Above the offer to join, because you cannot be offered a room you are
+        // Above everything below, because you cannot be offered a room you are
         // already in — and above the recap, because what is being said now
         // outranks what a finished meeting amounted to.
         if let joinedRoom {
             return .listening(joinedRoom)
-        }
-        if let liveRoom {
-            return .liveRoom(liveRoom)
         }
         if let recap {
             return .recap(recap)

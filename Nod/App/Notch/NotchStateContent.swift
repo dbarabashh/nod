@@ -66,12 +66,13 @@ struct NotchStateContent: View {
                 audioCapture: model.audioCapture,
                 geometry: model.geometry
             )
-        case let .liveRoom(room):
+        case let .liveRoom(room, alsoOffered):
             LiveRoomCard(
                 room: room,
                 isJoining: model.rooms.isJoining,
                 onJoin: model.joinLiveRoom,
-                onDismiss: model.rooms.forgetRoom
+                onDismiss: model.rooms.forgetRoom,
+                onRecordInstead: alsoOffered ? { model.acceptOffer() } : (nil as (() -> Void)?)
             )
         case .listening:
             LiveRoomTranscript(rooms: model.rooms, language: model.language.current)
