@@ -253,6 +253,19 @@ final class MeetingSession: ObservableObject {
     private let recapGenerator: RecapGenerator
     private var captureID: UUID?
 
+    /// The previous recording's audio teardown, so the next one can wait on it.
+    ///
+    /// `stop()` and `start()` were two unordered tasks against one capture
+    /// service. Stopping and starting again inside a couple of minutes let the
+    /// start overtake the stop, which then tore down the system-audio stream it
+    /// had just brought up. The microphone survived — `AVAudioEngine` comes back
+    /// — and `SCStream` did not, so the second recording transcribed an hour of
+    /// two people as one voice with nothing on the remote side.
+    private var audioTeardown: Task<Void, Never>?
+
+    /// When the live room was last told this recording is still going.
+    private var lastLeaseBeat = Date.distantPast
+
     /// The forgot-to-stop watchdog's timing state. It decides; this class acts.
     private var autoEnd = AutoEndWatchdog()
     private let rosterSampler: MeetingRosterSampler
@@ -332,8 +345,27 @@ final class MeetingSession: ObservableObject {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             if meeting == .recording { elapsed += 1 }
             tickInactivity()
+            beatLeaseIfDue()
         }
     }
+
+    /// Keeps the live room visible through a quiet stretch.
+    ///
+    /// Runs while paused as well as while recording: a paused recording is one
+    /// the person intends to resume, and a colleague should be offered the room
+    /// rather than told it ended. Stops when the lease is detached at End, which
+    /// is what makes the room disappear on time.
+    private func beatLeaseIfDue() {
+        guard meeting != .idle, let meetingID = activeMeetingLeaseID else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastLeaseBeat) >= Self.leaseBeatInterval else { return }
+        lastLeaseBeat = now
+        Task { [meetingStore] in await meetingStore.touchLease(meetingID: meetingID) }
+    }
+
+    /// Comfortably inside the 90 seconds `_live_lease_in_org` allows, so one
+    /// dropped beat still leaves the room visible.
+    private static let leaseBeatInterval: TimeInterval = 30
 
     /// Once a second while recording: raise the forgot-to-stop prompt after a
     /// stretch of silence on both streams, count it down, and auto-end (trimmed
@@ -523,6 +555,7 @@ final class MeetingSession: ObservableObject {
         elapsed = 0
         clearAutoEndPrompt()
         autoEnd.reset()
+        lastLeaseBeat = .distantPast
         wantsAutoStart = false
         // Stamp the wall-clock so the persisted row carries an accurate
         // `started_at` instead of using the summary-ready instant.
@@ -559,6 +592,10 @@ final class MeetingSession: ObservableObject {
             rosterSampler.start()
         }
         Task {
+            // Before the store, not just before `start`: the previous recording's
+            // teardown also resets shared transcriber state.
+            await audioTeardown?.value
+            audioTeardown = nil
             await store.start(meetingID: meetingID, diarizing: shouldDiarize)
             // The lease can be taken over while the models warm up; if this is no
             // longer the active recording, stop instead of capturing audio the
@@ -687,7 +724,7 @@ final class MeetingSession: ObservableObject {
         // Stopped, not reset: the finalize still has to write down what it
         // found, and that runs after the surface is back at rest.
         analyst.stop()
-        Task { await audioCapture.stop() }
+        audioTeardown = Task { await audioCapture.stop() }
         let meetingLeaseID = detachActiveMeetingLease()
         streamTask?.cancel()
         streamTask = nil

@@ -427,6 +427,7 @@ final class MeetingStore: ObservableObject {
             .select()
             .is("recap_json", value: nil)
             .is("deleted_at", value: nil)
+            .is("merged_into", value: nil)
             .gte("ended_at", value: ISO8601DateFormatter().string(from: since))
             .order("ended_at", ascending: false)
             .limit(limit)
@@ -539,6 +540,60 @@ final class MeetingStore: ObservableObject {
     /// opaque token (reusing the meeting's existing live share if there is
     /// one — so the same meeting always yields a stable link), and the viewer
     /// reads only the summary back through that token. The link is revocable.
+    /// Tells the server this recording is still running.
+    ///
+    /// On the session's own clock rather than on the transcript's: chunks only
+    /// exist while somebody is speaking, and a meeting is no less live for a
+    /// quiet stretch. See `touch_meeting_lease`.
+    func touchLease(meetingID: UUID) async {
+        struct Params: Encodable { let p_meeting: UUID }
+        do {
+            _ = try await supabase
+                .rpc("touch_meeting_lease", params: Params(p_meeting: meetingID))
+                .execute()
+        } catch {
+            // Best-effort: a missed beat costs the room a moment of visibility,
+            // never the recording.
+            Log.ui.error("lease heartbeat failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Somebody else in the organization recorded the same meeting.
+    ///
+    /// Both sides keep their own recording — two microphones hear different
+    /// halves of a room, and neither copy is the canonical one. This only asks
+    /// the question; `merge(_:into:)` is what a person answering it calls.
+    func sameMeetingCandidates(for meetingID: UUID) async -> [SameMeeting] {
+        async let mine = matches(from: "my_earlier_recording", for: meetingID)
+        async let others = matches(from: "same_meeting_in_org", for: meetingID)
+        // Your own first: rejoining a call is the commoner event and the more
+        // confusing one to find filed as two meetings.
+        return await mine.map { var match = $0; match.isMine = true; return match } + others
+    }
+
+    private func matches(from rpc: String, for meetingID: UUID) async -> [SameMeeting] {
+        struct Params: Encodable { let p_meeting: UUID }
+        do {
+            return try await supabase
+                .rpc(rpc, params: Params(p_meeting: meetingID))
+                .execute()
+                .value
+        } catch {
+            Log.ui.error("\(rpc) failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    func merge(_ source: UUID, into target: UUID) async throws {
+        struct Params: Encodable {
+            let p_source: UUID
+            let p_target: UUID
+        }
+        try await supabase
+            .rpc("merge_meeting", params: Params(p_source: source, p_target: target))
+            .execute()
+    }
+
     func createShareURL(for meeting: Meeting) async throws -> URL {
         Log.ui.info("MeetingStore.createShareURL meeting=\(meeting.id.uuidString)")
         #if DEBUG
@@ -853,6 +908,10 @@ final class MeetingStore: ObservableObject {
                 .from(Self.tableName)
                 .select()
                 .is("deleted_at", value: nil)
+                // A recording filed into another one is no longer a meeting of
+                // its own. The transcript stays readable under the row it was
+                // captured in; the list shows the meeting, not the recordings.
+                .is("merged_into", value: nil)
                 .order("started_at", ascending: false)
                 .limit(500)
                 .execute()

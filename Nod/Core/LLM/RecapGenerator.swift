@@ -25,7 +25,7 @@ struct RecapGenerator {
         var accumulated = ""
         var lastPublish = Date.distantPast
         do {
-            for try await delta in llm.streamComplete(system: system, user: user, jsonMode: true) {
+            for try await delta in llm.streamComplete(system: system, user: user, jsonMode: true, longRunning: true) {
                 accumulated += delta
                 // Re-parse + publish at ~6 fps. Each pass renders whatever
                 // sections have fully closed so far; the trailing, still-
@@ -64,7 +64,7 @@ struct RecapGenerator {
     /// Buffered one-shot recap — used for the rare mid-call `.summary` path and
     /// as `streamedRecap`'s fallback. Shares the bounded retry below.
     func recap(system: String, user: String, transcript: String, language: AppLanguage) async throws -> MeetingRecap {
-        let recap = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self)
+        let recap = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self, longRunning: true)
         return try await refined(recap, system: system, user: user, transcript: transcript, language: language)
     }
 
@@ -121,7 +121,7 @@ struct RecapGenerator {
 
         guard !overrides.isEmpty else { return recap }
         let retrySystem = system + "\n\n" + overrides.joined(separator: "\n\n")
-        return try await llm.completeJSON(system: retrySystem, user: user, as: MeetingRecap.self)
+        return try await llm.completeJSON(system: retrySystem, user: user, as: MeetingRecap.self, longRunning: true)
     }
 
     /// Detects whether the recap's PROSE (section titles + bullet text, NOT the

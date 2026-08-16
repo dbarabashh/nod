@@ -235,6 +235,26 @@ final class LLMProxyClient: ObservableObject {
         return URLSession(configuration: config)
     }()
 
+    /// Generating a recap is not an interactive request and must not be held to
+    /// an interactive ceiling.
+    ///
+    /// A 1h19m meeting reached the model as a 31k-token prompt and took 185
+    /// seconds to answer. The server finished and returned 200; the chat session
+    /// had already given up, so the recap was paid for and thrown away, and the
+    /// meeting was left with "a summary couldn't be generated". Long meetings
+    /// are exactly the ones a recap is worth most for.
+    ///
+    /// `timeoutIntervalForRequest` still guards a stalled model — it measures the
+    /// gap between packets, not the whole answer — so a stream that stops
+    /// producing fails in three minutes rather than hanging on the resource
+    /// ceiling.
+    private let generationSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 180
+        config.timeoutIntervalForResource = 900
+        return URLSession(configuration: config)
+    }()
+
     /// Dedicated session for audio transcription. `waitsForConnectivity` lets the
     /// OS park a chunk upload while the link is down and fire it the moment
     /// connectivity returns — so a Wi-Fi drop at the *start* of an upload no
@@ -287,7 +307,8 @@ final class LLMProxyClient: ObservableObject {
         system: String,
         user: String,
         jsonMode: Bool = false,
-        primaryModel: String? = nil
+        primaryModel: String? = nil,
+        longRunning: Bool = false
     ) async throws -> String {
         Log.llm.info(
             "→ chat via proxy model=\(primaryModel ?? model) fallback=\(fallbackModel) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)"
@@ -300,7 +321,8 @@ final class LLMProxyClient: ObservableObject {
                 .init(role: "user", content: user)
             ],
             jsonMode: jsonMode,
-            primaryModel: primaryModel
+            primaryModel: primaryModel,
+            longRunning: longRunning
         )
     }
 
@@ -351,7 +373,8 @@ final class LLMProxyClient: ObservableObject {
         jsonMode: Bool,
         temperature: Double? = nil,
         primaryModel: String? = nil,
-        cachePrompt: Bool = false
+        cachePrompt: Bool = false,
+        longRunning: Bool = false
     ) async throws -> String {
         // `primaryModel` overrides the default for a specific call purpose (the
         // Q&A chat runs on the cheaper `chatModel`); summary/recap generation
@@ -392,7 +415,10 @@ final class LLMProxyClient: ObservableObject {
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
 
         do {
-            let data = try await postToProxyWithRetry(body: body)
+            let data = try await postToProxyWithRetry(
+                body: body,
+                using: longRunning ? generationSession : nil
+            )
             let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
             guard let text = decoded.choices.first?.message.content, !text.isEmpty else {
                 Log.llm.error("empty content")
@@ -420,9 +446,16 @@ final class LLMProxyClient: ObservableObject {
         system: String,
         user: String,
         as type: T.Type,
-        primaryModel: String? = nil
+        primaryModel: String? = nil,
+        longRunning: Bool = false
     ) async throws -> T {
-        let raw = try await complete(system: system, user: user, jsonMode: true, primaryModel: primaryModel)
+        let raw = try await complete(
+            system: system,
+            user: user,
+            jsonMode: true,
+            primaryModel: primaryModel,
+            longRunning: longRunning
+        )
         let cleaned = Self.extractJSON(raw)
         guard let data = cleaned.data(using: .utf8) else {
             throw ClientError.decodingFailed("non-utf8 LLM response")
@@ -451,13 +484,19 @@ final class LLMProxyClient: ObservableObject {
     /// resilience here is the server-side `models = [primary, fallback]` chain.
     /// The caller falls back to the one-shot `complete()` path if the stream
     /// fails before producing any token.
-    func streamComplete(system: String, user: String, jsonMode: Bool = false) -> AsyncThrowingStream<String, Error> {
+    func streamComplete(
+        system: String,
+        user: String,
+        jsonMode: Bool = false,
+        longRunning: Bool = false
+    ) -> AsyncThrowingStream<String, Error> {
         Self.textOnly(stream(
             messages: [
                 .init(role: "system", content: system),
                 .init(role: "user", content: user)
             ],
-            jsonMode: jsonMode
+            jsonMode: jsonMode,
+            longRunning: longRunning
         ))
     }
 
@@ -582,7 +621,8 @@ final class LLMProxyClient: ObservableObject {
         jsonMode: Bool = false,
         temperature: Double? = nil,
         primaryModel: String? = nil,
-        cachePrompt: Bool = false
+        cachePrompt: Bool = false,
+        longRunning: Bool = false
     ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -608,7 +648,8 @@ final class LLMProxyClient: ObservableObject {
                     let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
                     let request = try await makeProxyRequest(body: body)
 
-                    let (bytes, response) = try await session.bytes(for: request)
+                    let transport = longRunning ? generationSession : session
+                    let (bytes, response) = try await transport.bytes(for: request)
                     guard let http = response as? HTTPURLResponse else {
                         throw ClientError.decodingFailed("Non-HTTP response")
                     }

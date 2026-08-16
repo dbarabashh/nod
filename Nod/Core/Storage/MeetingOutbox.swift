@@ -196,6 +196,15 @@ actor MeetingOutbox {
             }
             var recovered = entry
             recovered.meeting.summary = Meeting.recoveredPlaceholder
+            // The draft on disk carries `endedAt` seeded to `startedAt` — the
+            // real end is written at End, which is the step that did not run.
+            // Left alone, an hour of conversation is filed as a meeting of zero
+            // length: the list sorts it wrong, the duration reads "0:00", and
+            // every window query that asks what overlapped this time finds
+            // nothing. The last thing anybody said is the honest end.
+            if let lastHeard = recovered.transcripts.map(\.ts).max() {
+                recovered.meeting.endedAt = max(recovered.meeting.startedAt, lastHeard)
+            }
             recovered.state = .completed
             recovered.meetingSynced = false // force a re-push so the placeholder lands
             entries[id] = recovered

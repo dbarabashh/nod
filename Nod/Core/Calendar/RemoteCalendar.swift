@@ -51,6 +51,30 @@ final class RemoteCalendar: ObservableObject {
         occurrences.filter { $0.startsAt >= start && $0.startsAt <= end }
     }
 
+    /// The invitation a finished meeting was matched to.
+    ///
+    /// Fetched rather than read out of `occurrences`: that list is the rolling
+    /// window the sync keeps, and a meeting being repaired days later is outside
+    /// it. This is the only persisted record of who was in the room — the
+    /// conferencing roster is session-scoped by policy and gone — so it is what
+    /// lets a meeting whose finalize failed still learn whose voice it heard.
+    func occurrence(forICalUID uid: String) async -> CalendarOccurrence? {
+        guard let supabase else { return nil }
+        do {
+            let rows: [Row] = try await supabase
+                .from("calendar_events")
+                .select("title, starts_at, ends_at, ical_uid, conference_url, attendees")
+                .eq("ical_uid", value: uid)
+                .limit(1)
+                .execute()
+                .value
+            return rows.first.map { $0.occurrence(selfEmail: selfEmail) }
+        } catch {
+            Log.ui.error("invitation lookup failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     func clear() {
         occurrences = []
     }

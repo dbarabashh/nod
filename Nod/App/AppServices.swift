@@ -285,7 +285,8 @@ struct AppServices {
                 knowledgeStore: knowledgeStore,
                 profileStore: profileStore,
                 modeStore: modeStore,
-                entitlements: entitlements
+                entitlements: entitlements,
+                calendar: remoteCalendar
             ),
             screenExclusions: screenExclusions,
             screenContext: screenContext,

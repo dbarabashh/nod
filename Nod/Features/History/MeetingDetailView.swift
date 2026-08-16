@@ -12,6 +12,7 @@ struct MeetingDetailView: View {
     let onClose: () -> Void
 
     @EnvironmentObject private var meetingStore: MeetingStore
+    @EnvironmentObject private var organizations: OrganizationService
     @EnvironmentObject private var summaryRegeneration: SummaryRegeneration
     @EnvironmentObject private var analytics: ProductAnalytics
 
@@ -31,6 +32,9 @@ struct MeetingDetailView: View {
     @State private var isEditingSummary: Bool = false
     @State private var selectedTab: Tab = .summary
     @State private var transcriptLoad: TranscriptLoadState = .idle
+    /// Other people's recordings of this same meeting, asked once per open.
+    @State private var sameMeetings: [SameMeeting] = []
+    @State private var isMerging = false
 
     enum Tab: Hashable {
         case summary
@@ -98,6 +102,15 @@ struct MeetingDetailView: View {
                     onTitleEdited: scheduleSave
                 )
                 if !isFinalizing { MeetingFoldersRow(meetingID: meeting.id) }
+                if !sameMeetings.isEmpty, !isFinalizing {
+                    SameMeetingBanner(
+                        candidates: sameMeetings,
+                        canRead: { $0.isMine || meetingStore.byID[$0.meetingID] != nil },
+                        isMerging: isMerging,
+                        onMerge: mergeInto,
+                        onDismiss: { sameMeetings = [] }
+                    )
+                }
                 MeetingDetailMetadata(meeting: current, isUnsynced: isUnsynced)
                 MeetingDetailTabBar(selection: $selectedTab)
                 subToolbar
@@ -119,6 +132,7 @@ struct MeetingDetailView: View {
             editableTitle = current.title ?? ""
             editableSummary = current.summary
             recordSummaryViewedIfRendered()
+            Task { sameMeetings = await meetingStore.sameMeetingCandidates(for: meeting.id) }
         }
         .onChange(of: selectedTab) { tab in
             if tab == .transcript, !isFinalizing, case .idle = transcriptLoad {
@@ -177,7 +191,8 @@ struct MeetingDetailView: View {
             isEditingSummary: $isEditingSummary,
             isFinalizing: isFinalizing,
             isGenerating: isGenerating,
-            transcript: transcriptLoad
+            transcript: transcriptLoad,
+            hostName: hostName
         )
         if selectedTab == .summary {
             HStack(spacing: 12) {
@@ -213,6 +228,7 @@ struct MeetingDetailView: View {
                 state: transcriptLoad,
                 isFinalizing: isFinalizing,
                 speakerNames: current.speakerNames,
+                hostName: hostName,
                 isResolvingRemoteSpeakers: meetingStore.resolvingSpeakerIDs.contains(meeting.id),
                 onRetry: { Task { await loadTranscript() } }
             )
@@ -278,6 +294,30 @@ struct MeetingDetailView: View {
         } catch {
             Log.ui.error("MeetingDetailView fetchTranscript failed: \(error.localizedDescription)")
             transcriptLoad = .failed(error.localizedDescription)
+        }
+    }
+
+    /// The owner's name, but only when somebody else is reading. On your own
+    /// meeting "Me" is exactly right and naming yourself would be strange.
+    private var hostName: String? {
+        guard let viewer = organizations.currentUserID, viewer != current.userID else { return nil }
+        return organizations.directory.first { $0.userID == current.userID }
+            .map { $0.displayName ?? $0.email }
+    }
+
+    private func mergeInto(_ candidate: SameMeeting) {
+        guard !isMerging else { return }
+        isMerging = true
+        Task {
+            defer { isMerging = false }
+            do {
+                try await meetingStore.merge(meeting.id, into: candidate.meetingID)
+                sameMeetings = []
+                onClose()
+            } catch {
+                Log.ui.error("merge failed: \(error.localizedDescription)")
+                saveState = .failed(error.localizedDescription)
+            }
         }
     }
 

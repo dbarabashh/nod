@@ -60,7 +60,13 @@ final class MeetingOutboxTests: XCTestCase {
         )
     }
 
-    private func makeRecord(_ idx: Int, meetingID: UUID, userID: UUID, speaker: Int? = nil) -> TranscriptRecord {
+    private func makeRecord(
+        _ idx: Int,
+        meetingID: UUID,
+        userID: UUID,
+        speaker: Int? = nil,
+        at ts: Date? = nil
+    ) -> TranscriptRecord {
         TranscriptRecord(
             id: UUID(),
             meetingID: meetingID,
@@ -68,7 +74,7 @@ final class MeetingOutboxTests: XCTestCase {
             createdAt: nil,
             source: "them",
             text: "line \(idx)",
-            ts: Date(timeIntervalSince1970: Double(idx)),
+            ts: ts ?? Date(timeIntervalSince1970: Double(idx)),
             idx: idx,
             speaker: speaker
         )
@@ -267,6 +273,34 @@ final class MeetingOutboxTests: XCTestCase {
         XCTAssertEqual(writer.uniqueTranscriptIDs, Set(records.map(\.id)), "the interrupted transcript is preserved")
         let pending = await second.isPending(meeting.id)
         XCTAssertFalse(pending, "a recovered meeting reaches a terminal, drainable state")
+    }
+
+    /// The draft on disk is written with `endedAt` seeded to `startedAt`, and the
+    /// real end is stamped at End — the step an interrupted recording never
+    /// reaches. Recovering it without fixing that files an hour of conversation
+    /// as a meeting of zero length.
+    func testRecoveredMeetingEndsWhenTheTalkingStopped() async {
+        let user = UUID()
+        var draft = makeMeeting(userID: user)
+        draft.endedAt = draft.startedAt // exactly what `beginRecording` writes
+
+        let lastHeard = draft.startedAt.addingTimeInterval(3600)
+        let records = [
+            makeRecord(0, meetingID: draft.id, userID: user, at: draft.startedAt.addingTimeInterval(5)),
+            makeRecord(1, meetingID: draft.id, userID: user, at: lastHeard)
+        ]
+
+        let first = MeetingOutbox(directory: tempDir)
+        await first.begin(draft)
+        await first.record(records, for: draft.id)
+
+        let second = MeetingOutbox(directory: tempDir)
+        let writer = FakeRemoteWriter()
+        await second.recoverInterruptedMeetings()
+        await second.flush(using: writer, userID: user)
+
+        XCTAssertEqual(writer.upsertedMeetings.last?.endedAt, lastHeard)
+        XCTAssertEqual(writer.upsertedMeetings.last?.startedAt, draft.startedAt, "the start is not moved")
     }
 
     func testRecoverDropsEmptyInterruptedRecording() async {

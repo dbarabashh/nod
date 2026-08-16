@@ -28,6 +28,12 @@ struct Meeting: Codable, Identifiable, Equatable {
     /// identified are named, the rest keep rendering as "Speaker N".
     var speakerNames: [String: String]?
     var sourcePlatform: String? = nil
+    /// The calendar invitation this recording was matched to, when there was
+    /// one. Read-only here: the server stamps it from the room the recording
+    /// started in. It is what lets a meeting whose generation failed recover
+    /// its title and its participants from the invitation instead of staying
+    /// nameless forever.
+    var icalUID: String? = nil
     /// Soft-delete timestamp — non-nil when the meeting lives in the Trash
     /// segment (#16). Nil for active rows. Server-driven; the client only
     /// reads this (mutations go via `MeetingStore.softDelete` / `.restore`).
@@ -95,6 +101,7 @@ struct Meeting: Codable, Identifiable, Equatable {
         case language
         case speakerNames = "speaker_names"
         case sourcePlatform = "source_platform"
+        case icalUID = "ical_uid"
         case deletedAt = "deleted_at"
     }
 
@@ -295,5 +302,31 @@ extension Meeting: Hashable {
     /// hashing every field on each `NavigationLink(value:)` resolve.
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
+    }
+}
+
+/// Another person's recording of the meeting you are looking at, offered so the
+/// two can be filed as one. `matchedOn` says what tied them together — the
+/// calendar invitation both copies carry, or the conferencing room they name.
+struct SameMeeting: Decodable, Identifiable, Equatable {
+    let meetingID: UUID
+    let ownerName: String
+    let title: String?
+    let startedAt: Date
+    let matchedOn: String
+    /// Your own earlier recording of this room rather than a colleague's of this
+    /// call. Set by whichever matcher answered, not by the server.
+    var isMine = false
+
+    var id: UUID {
+        meetingID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case meetingID = "meeting_id"
+        case ownerName = "owner_name"
+        case title
+        case startedAt = "started_at"
+        case matchedOn = "matched_on"
     }
 }

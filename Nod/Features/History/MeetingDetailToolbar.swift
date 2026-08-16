@@ -16,6 +16,8 @@ struct MeetingDetailToolbar: View {
     let isFinalizing: Bool
     let isGenerating: Bool
     let transcript: TranscriptLoadState
+    /// Whose microphone `me` was, when that is not the person copying.
+    var hostName: String?
 
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var labelStore: LabelStore
@@ -157,7 +159,7 @@ struct MeetingDetailToolbar: View {
 
     private func copyTranscript() {
         guard let records = transcript.loadedRecords, !records.isEmpty else { return }
-        copyAndFlash(transcriptPlainText(records, names: meeting.speakerNames))
+        copyAndFlash(transcriptPlainText(records, names: meeting.speakerNames, host: hostName))
     }
 
     private func copyAndFlash(_ text: String) {

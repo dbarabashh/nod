@@ -263,3 +263,64 @@ struct MeetingDetailTabBar: View {
         .buttonStyle(.plain)
     }
 }
+
+/// "Vlad recorded this meeting too." Offered above the body, never acted on by
+/// itself: two people in one call each keep a recording, and only a person can
+/// say the two are the same meeting.
+struct SameMeetingBanner: View {
+    let candidates: [SameMeeting]
+    /// Whether the reader can actually open the other recording. Merging into
+    /// one they cannot read would hide the copy they have and show them nothing
+    /// in its place, so the offer becomes a request instead.
+    let canRead: (SameMeeting) -> Bool
+    let isMerging: Bool
+    let onMerge: (SameMeeting) -> Void
+    let onDismiss: () -> Void
+
+    private func message(for candidate: SameMeeting) -> String {
+        if candidate.isMine {
+            return "You recorded this room earlier — the same meeting, rejoined."
+        }
+        return canRead(candidate)
+            ? "\(candidate.ownerName) recorded this meeting too."
+            : "\(candidate.ownerName) recorded this meeting too. Ask them to share it and the two can be filed as one."
+    }
+
+    var body: some View {
+        if let candidate = candidates.first {
+            HStack(spacing: 10) {
+                Image("nc-users")
+                    .icon(12)
+                    .foregroundStyle(Theme.Palette.muted)
+                Text(message(for: candidate))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.ink.opacity(0.92))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button("Not the same", action: onDismiss)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .linkCursor()
+                if canRead(candidate) {
+                    Button("File as one") { onMerge(candidate) }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Theme.Palette.ink)
+                        .disabled(isMerging)
+                        .linkCursor()
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Theme.Palette.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Theme.Palette.border, lineWidth: 0.5)
+                    )
+            )
+        }
+    }
+}

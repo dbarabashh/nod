@@ -25,6 +25,12 @@ struct MeetingTranscriptTab: View {
     /// result for the meeting that just ended.
     let isFinalizing: Bool
     let speakerNames: [String: String]?
+    /// Whose microphone `me` was, when that is not the person reading.
+    ///
+    /// `Me` is written from the recording device's point of view. On a meeting
+    /// somebody shared, the reader is not that device, and a transcript where
+    /// half the lines say "Me" is a transcript about nobody.
+    let hostName: String?
     /// True while the remote speakers are still being clustered. The user's own
     /// mic is a single known voice, so its chip is final the moment it exists.
     let isResolvingRemoteSpeakers: Bool
@@ -107,7 +113,7 @@ struct MeetingTranscriptTab: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 SpeakerChip(
-                    label: record.displayLabel(names: speakerNames),
+                    label: label(for: record),
                     tint: speakerTint(record),
                     isResolving: isResolvingRemoteSpeakers
                         && TranscriptSource(rawValue: record.source) == .them
@@ -123,6 +129,13 @@ struct MeetingTranscriptTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private func label(for record: TranscriptRecord) -> String {
+        guard let hostName, TranscriptSource(rawValue: record.source) == .me else {
+            return record.displayLabel(names: speakerNames)
+        }
+        return hostName
     }
 
     /// Mic (`me`) is violet; the remote party (`them`) is cyan.
@@ -144,9 +157,18 @@ private let transcriptTimeFormatter: DateFormatter = {
 
 /// The transcript as plain text, one line per utterance: `[HH:MM:SS] Me: …`.
 /// Next to the rendering so the copied text and the rows on screen can't drift
-/// apart on speaker naming.
-func transcriptPlainText(_ records: [TranscriptRecord], names: [String: String]?) -> String {
+/// apart on speaker naming — `host` included, or a transcript pasted out of
+/// somebody else's meeting would attribute half of it to whoever pasted it.
+func transcriptPlainText(
+    _ records: [TranscriptRecord],
+    names: [String: String]?,
+    host: String? = nil
+) -> String {
     records
-        .map { "[\(transcriptTimeFormatter.string(from: $0.ts))] \($0.displayLabel(names: names)): \($0.text)" }
+        .map { record in
+            let label = host.flatMap { TranscriptSource(rawValue: record.source) == .me ? $0 : nil }
+                ?? record.displayLabel(names: names)
+            return "[\(transcriptTimeFormatter.string(from: record.ts))] \(label): \(record.text)"
+        }
         .joined(separator: "\n")
 }
