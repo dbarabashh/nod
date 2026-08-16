@@ -98,6 +98,28 @@ create trigger drop_live_findings
     after update of status on public.meeting_start_leases
     for each row execute function public._drop_live_findings_when_meeting_ends();
 
+-- The trigger only fires on an explicit End. A host who force-quits mid-meeting
+-- leaves the lease `active` and expired: nobody can read the findings any more
+-- (`is_live_room_listener` checks the expiry, not just the status), but the rows
+-- would sit there forever if that person never records again. A sweep, because
+-- the crash case is exactly the one a client-side delete cannot cover.
+do $$
+begin
+    perform cron.schedule(
+        'purge-abandoned-live-findings',
+        '17 4 * * *',
+        $cmd$delete from public.meeting_live_findings f
+             where not exists (
+                 select 1 from public.meeting_start_leases l
+                 where l.meeting_id = f.meeting_id
+                   and l.status = 'active'
+                   and l.expires_at > now()
+             )$cmd$
+    );
+exception when others then
+    raise notice 'cron.schedule unavailable (%) — abandoned findings will not be swept.', sqlerrm;
+end $$;
+
 -- ── The meeting, after it ends ──────────────────────────────────────────────
 --
 -- `20260815182000` set the rule that a listener's access lasts exactly as long

@@ -91,6 +91,13 @@ what it finds is held in memory for the length of the meeting and saved with the
 session's action items at the end. No new recipient sees your transcript because
 of this — it is the same summarising model, asked earlier and more often.
 
+There is one exception, and it happens only when a colleague from your
+organization has joined your recording to follow along (see § 3.9). For as long
+as someone is listening, what the live pass finds is shared with them, so their
+notes show the same thing yours do. It is stored for that purpose alone
+(`meeting_live_findings`), it is deleted when the recording stops, and if nobody
+has joined, nothing is written at all.
+
 The embeddings, chat messages, and entities are derived from transcript
 content you already chose to record; they are stored in the same
 Supabase database, in the same `eu-west-1` region, under the same per-user
@@ -577,7 +584,7 @@ of them yours to take.
 
 | **Sharing a project** | You can hand a folder of meetings to a team, or to the whole organization. Everyone in that audience can then read the meetings filed there — summary, transcript, and action items. Filing a meeting into a shared folder is what shares it; removing the share ends the access immediately. |
 | **Sharing one meeting** | You can hand a single finished meeting to a team or to the organization, without filing it anywhere. Same contents, same immediate revocation. This is the one offered right after a recording ends. |
-| **Listening to a live room** | When a colleague in your organization is recording a meeting you are also in — proven by your own calendar holding the same invitation, not by anyone typing an id — you can join as a listener and follow their transcript as it is written. You are not recording; nothing is stored for you. **Access ends the moment their recording stops**, without a delay or a clean-up job: the permission is written against their live recording, so when it ends there is nothing left to read. The host is told by name the moment you join, and again if you leave. |
+| **Listening to a live room** | When a colleague in your organization is recording a meeting you are also in — proven by your own calendar holding the same invitation, not by anyone typing an id — you can join as a listener and follow along: a short summary of what you missed, the notes their live pass is producing, and your own questions about it. You are not recording, and nothing is stored for you. **Your access to what they are saying ends the moment their recording stops** — the permission is written against the live recording itself, so when it ends there is nothing left to read. One thing outlives it by design: for a short window afterwards you can still see that meeting's summary, so pressing End on their Mac finishes as a recap on yours rather than as a blank card. That window is fifteen minutes and covers the summary only — never the transcript. The host is told by name the moment you join, and again if you leave. |
 
 **Your colleagues' names and addresses.** Inside an organization, Nod can see
 who else is in it — each active member's display name and the address they signed
@@ -735,6 +742,7 @@ We can provide our SCCs and transfer impact assessments on request to
 | Screen observations (`screen_observations`) | The expiry set when captured — **14 days by default**, changeable in Settings. A scheduled job deletes expired rows. Empty unless you switched ambient context on; deletable at any time; removed on account deletion (cascade). |
 | Top-up, referral, reward, and payout rows | Until you delete your account. |
 | Meeting-start leases | Minutes: a lease is short-lived and renewed only while a recording is running. Expired rows are removed. |
+| Live findings shared with a listener (`meeting_live_findings`) | The length of the recording. They are written only while a colleague is listening in, and deleted the moment the recording ends; a nightly job clears anything left behind by a host whose Mac quit mid-meeting. Nothing is written for a recording nobody joined. |
 | Optional email choices and suppression state | Until you change the choice or delete your account. A minimal suppression marker may outlive the account, because honouring an unsubscribe, complaint, or bounce requires remembering the address. |
 | Email send records and provider delivery events | 90 days once § 3.14 is active. The record that a specific message was already sent is kept beyond that, since it is what prevents sending it twice. |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |

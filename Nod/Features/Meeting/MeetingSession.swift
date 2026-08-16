@@ -251,6 +251,9 @@ final class MeetingSession: ObservableObject {
     let calendar: CalendarService
     private let analytics: ProductAnalytics
     private let recapGenerator: RecapGenerator
+    /// Only ever asked one question: is anybody listening to this recording. The
+    /// live pass's findings are mirrored for them and for nobody else.
+    private let rooms: RoomListenerService
     private var captureID: UUID?
 
     /// The previous recording's audio teardown, so the next one can wait on it.
@@ -296,7 +299,8 @@ final class MeetingSession: ObservableObject {
         screenExclusions: ScreenExclusions,
         calendar: CalendarService,
         analytics: ProductAnalytics,
-        proposalRaiser: ProposalRaiser
+        proposalRaiser: ProposalRaiser,
+        rooms: RoomListenerService
     ) {
         self.audioCapture = audioCapture
         self.store = store
@@ -312,6 +316,7 @@ final class MeetingSession: ObservableObject {
         self.calendar = calendar
         self.analytics = analytics
         self.proposalRaiser = proposalRaiser
+        self.rooms = rooms
         recapGenerator = RecapGenerator(llm: llm)
         rosterSampler = MeetingRosterSampler(exclusions: screenExclusions)
         enrichment = MeetingEnrichment(
@@ -554,7 +559,16 @@ final class MeetingSession: ObservableObject {
             guard let meeting = meetingStore?.meetings.first(where: { $0.id == id }) else { return nil }
             return meeting.displayTitle(dateFormatter: Meeting.listDateFormatter)
         }
-        analyst.mirrorFindings = { [weak meetingStore] findings in
+        // Only while somebody is actually listening. The live pass is promised
+        // to keep what it finds in memory, and a recording nobody joined has no
+        // reason to put any of it on a server — a solo voice note least of all.
+        //
+        // Somebody joining mid-meeting misses nothing for longer than one pass:
+        // every mirror sends the whole list, so the next finding carries all the
+        // earlier ones with it. That is the same property that makes a silently
+        // failed write repair itself, bought twice.
+        analyst.mirrorFindings = { [weak meetingStore, weak rooms] findings in
+            guard rooms?.listeners.isEmpty == false else { return }
             Task { await meetingStore?.mirrorLiveFindings(findings) }
         }
         if selectedKind.extractsActionItems { analyst.start() }

@@ -242,7 +242,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 integrations: services.integrations,
                 organizations: services.organizations,
                 meetings: services.meetingStore
-            )
+            ),
+            rooms: services.rooms
         )
 
         // The detector belongs to the session it can act on, and the notch
