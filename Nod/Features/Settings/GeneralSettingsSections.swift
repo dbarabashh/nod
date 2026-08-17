@@ -330,7 +330,16 @@ struct GeneralSettingsPane: View {
             if let launchBehavior {
                 LaunchBehaviorSection(behavior: launchBehavior)
             }
-            #if DEBUG
+            // Sandbox as well as Debug, because the sandbox build is the one
+            // that gets installed on a second Mac and demoed from — a toggle
+            // only reachable from Xcode is not reachable when it is wanted.
+            //
+            // Safe to widen, and only because the scripted demo is not the
+            // fixture-serving `DemoMode`: `NotchModel.requestStart` returns
+            // before it reaches a microphone, a lease or a write, so the row's
+            // "nothing is transcribed, sent, or saved" is literally true rather
+            // than enforced by swallowed writes. Release stays out.
+            #if DEBUG || NOD_SANDBOX
                 if let demoPlayback {
                     DemoSettingsSection(playback: demoPlayback)
                 }
