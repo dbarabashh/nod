@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Supabase
 
@@ -87,10 +88,37 @@ final class RoomListenerService: ObservableObject {
     private var summaryPoll: Task<Void, Never>?
     private var lastLookNote: String?
     private var lastFindingsFetch: Date?
+    private var sleepObserver: NSObjectProtocol?
 
     init(supabase: SupabaseClient?, llm: LLMProxyClient? = nil) {
         self.supabase = supabase
         self.llm = llm
+        observeSleep()
+    }
+
+    /// A closed lid leaves the room.
+    ///
+    /// The server would work this out on its own — a listener whose lease stops
+    /// being touched goes stale within ninety seconds — but "eventually" is the
+    /// wrong answer to the one thing this feature must never get wrong: the host
+    /// is told by name who is listening, and a name that lingers after somebody
+    /// has shut their laptop says they are still in the room when they are not.
+    ///
+    /// Best-effort by nature. There may not be time for the round trip, which is
+    /// exactly why the server-side staleness rule stays as the backstop rather
+    /// than being replaced by this.
+    private func observeSleep() {
+        sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.joined != nil else { return }
+                Log.ui.info("sleep: leaving the live room")
+                Task { await self.leave() }
+            }
+        }
     }
 
     /// "What did I miss?" — the point of joining twenty minutes late.
@@ -162,6 +190,9 @@ final class RoomListenerService: ObservableObject {
     deinit {
         pump?.cancel()
         summaryPoll?.cancel()
+        if let sleepObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
+        }
     }
 
     // MARK: - Discovery

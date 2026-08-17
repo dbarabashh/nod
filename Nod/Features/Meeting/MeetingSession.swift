@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import SwiftUI
@@ -187,6 +188,7 @@ final class MeetingSession: ObservableObject {
     }
 
     var concurrentCheck: Task<Void, Never>?
+    private var sleepObserver: NSObjectProtocol?
 
     /// The recording under way, for the surfaces that have to ask the server
     /// about it. Nil whenever nothing is being recorded.
@@ -333,12 +335,16 @@ final class MeetingSession: ObservableObject {
             actionItemStore: actionItemStore
         )
         analyst = LiveMeetingAnalyst(llm: llm, store: store, proactivity: proactivity)
+        observeSleep()
     }
 
     deinit {
         // A sign-out drops the session mid-recording; stop the streaming loop so
         // it doesn't outlive the panel. The WAL on disk keeps whatever streamed.
         streamTask?.cancel()
+        if let sleepObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
+        }
     }
 
     /// `media` stays opt-in until music-heavy audio is validated — soundtracks
@@ -751,6 +757,36 @@ final class MeetingSession: ObservableObject {
         streamedCount = settledCount
         await outbox.record(records, for: draft.id)
         await outbox.flush(using: meetingStore, userID: draft.userID)
+    }
+
+    /// A closed lid ends the meeting.
+    ///
+    /// `willSleepNotification`, which is system sleep — the same signal
+    /// `MeetingDetector` and `ScheduledMeetingWatcher` already watch, and
+    /// deliberately not display sleep: a call outlives a dark screen, and ending
+    /// then would throw away the rest of it.
+    ///
+    /// Ending rather than pausing, because a paused recording is a promise to
+    /// come back to it. Nobody closing their laptop is coming back to the same
+    /// conversation, and a recording that resumes hours later on a different
+    /// call is worse than one that ended when the meeting did.
+    ///
+    /// macOS gives very little time here and none of it is guaranteed, so this
+    /// leans on what is already durable: `endMeeting` stops capture and hands the
+    /// meeting to the on-disk outbox, which replays it on the next launch or
+    /// wake. The part that needs the network is allowed to fail.
+    private func observeSleep() {
+        sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.meeting != .idle else { return }
+                Log.ui.info("sleep: ending the meeting")
+                self.endMeeting()
+            }
+        }
     }
 
     func endMeeting() {

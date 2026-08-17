@@ -96,6 +96,11 @@ final class ScheduledMeetingWatcher: ObservableObject {
     /// call can start at any instant, where a meeting starts at a time both
     /// sides already agreed on.
     private static let interval: TimeInterval = 20
+    /// The cadence while somebody could be about to start recording the meeting
+    /// this Mac is also in — see `nextDelay`. Short enough to read as "the moment
+    /// they started", long enough that it is still one small indexed lookup
+    /// rather than a stream.
+    private static let roomInterval: TimeInterval = 3
 
     init(calendar: CalendarService, session: MeetingSession, rooms: RoomListenerService) {
         self.calendar = calendar
@@ -126,7 +131,8 @@ final class ScheduledMeetingWatcher: ObservableObject {
         Log.screen.info("scheduled: watching the calendar (every \(Int(Self.interval))s)")
         timer = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(Self.interval * 1_000_000_000))
+                let delay = await MainActor.run { self?.nextDelay ?? Self.interval }
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard let self, !Task.isCancelled else { return }
                 // Before the tick, not after: a connected calendar is only as
                 // current as its last read, and the entry this tick is looking
@@ -135,6 +141,28 @@ final class ScheduledMeetingWatcher: ObservableObject {
                 tick()
             }
         }
+    }
+
+    /// How long to wait before looking again.
+    ///
+    /// Twenty seconds is the right cadence for "has a meeting started?", which is
+    /// a question about the calendar and changes slowly. It is the wrong cadence
+    /// for "has a colleague started recording the meeting I am in?", which
+    /// changes the instant they press a button and which the other person is
+    /// sitting there waiting to be told about. At twenty seconds that card
+    /// arrived up to twenty seconds late, and read as the feature being broken.
+    ///
+    /// So the loop tightens for exactly as long as that question is live: a
+    /// meeting is on the calendar right now, we are not recording it ourselves,
+    /// and no room has been found yet. Outside that, nothing is waiting on us
+    /// and the slow cadence is what keeps this cheap for the rest of the day.
+    private var nextDelay: TimeInterval {
+        guard session.meeting == .idle,
+              rooms.joined == nil,
+              rooms.available == nil,
+              calendar.currentRoomIdentity() != nil
+        else { return Self.interval }
+        return Self.roomInterval
     }
 
     func stop() {
