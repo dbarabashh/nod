@@ -142,10 +142,7 @@ struct NotchMeetingBar: View {
                     .monospacedDigit()
                     .fixedSize()
                 if let statusText {
-                    Text(statusText)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .lineLimit(1)
-                        .fixedSize()
+                    MeetingBarCaption(text: statusText)
                 }
             }
             .foregroundStyle(paused ? Theme.Palette.warning : Theme.Palette.ink)
@@ -159,8 +156,12 @@ struct NotchMeetingBar: View {
     /// and repeating "Listening…" next to it read as noise. Only surfaces
     /// when something actually deviates from that: paused, or the Ask box
     /// working on an answer.
+    ///
+    /// Reads the ask itself rather than the expanded panel: a question keeps
+    /// being answered after its box is folded away, and the header is then the
+    /// only thing left on screen that can say so.
     private var statusText: String? {
-        if case .ask(.loading) = panel { return "Thinking…" }
+        if panel.isAnswering { return "Thinking…" }
         if paused { return "Paused" }
         return nil
     }
@@ -169,8 +170,13 @@ struct NotchMeetingBar: View {
 
     private var right: some View {
         HStack(spacing: 4) {
-            MeetingBarButton(title: "Ask", isActive: panel.isAsk, action: onToggleAsk)
-            MeetingBarButton(title: "Notes", isActive: panel == .notes, action: onToggleNotes)
+            MeetingBarButton(
+                title: "Ask",
+                isActive: panel.isAsk,
+                hasUnread: panel.isAnswerUnseen,
+                action: onToggleAsk
+            )
+            MeetingBarButton(title: "Notes", isActive: panel.isNotes, action: onToggleNotes)
             MeetingBarEndButton(action: session.endMeeting)
             NotchGlyphButton(icon: "nc-chevron-up", help: geometry.tuckLabel, action: onCollapse)
         }
@@ -295,6 +301,10 @@ struct MarqueeText: View {
 struct MeetingBarButton: View {
     let title: String
     let isActive: Bool
+    /// Something arrived behind this button while it was closed. Only Ask ever
+    /// sets it, but it lives here rather than on a bespoke Ask button so both
+    /// bars get the same mark from the one component they already share.
+    var hasUnread = false
     let action: () -> Void
 
     var body: some View {
@@ -309,8 +319,22 @@ struct MeetingBarButton: View {
                     RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                         .fill(isActive ? Theme.Palette.brand.opacity(0.16) : Theme.Palette.surfaceStrong)
                 )
+                .overlay(alignment: .topTrailing) { unreadMark }
         }
         .buttonStyle(.pressable)
+        .accessibilityLabel(hasUnread ? "\(title), answer ready" : title)
+    }
+
+    /// Sits half off the corner so the chip's own padding doesn't have to make
+    /// room for it — the row is already as tight as it goes.
+    @ViewBuilder
+    private var unreadMark: some View {
+        if hasUnread {
+            Circle()
+                .fill(Theme.Palette.brand)
+                .frame(width: 5, height: 5)
+                .offset(x: 2, y: -2)
+        }
     }
 }
 

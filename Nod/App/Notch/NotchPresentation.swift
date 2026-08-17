@@ -101,32 +101,84 @@ enum MeetingBarRole: Equatable {
     }
 }
 
-/// The meeting bar's own panel, expanded below the always-visible header row
-/// (title/timer/status/Ask/Notes/End) or not expanded at all. A discriminated
-/// state rather than an `isAskOpen`/`isNotesOpen`/`askPhase` trio of
-/// independent flags — the three are mutually exclusive by construction (only
-/// one thing can be expanded under the bar at a time), so a trio would only
-/// invite a combination the UI was never designed to render.
-enum MeetingBarPanel: Equatable {
-    /// Nothing expanded — just the header row.
-    case passive
-    /// The live findings-so-far, as bullets, with real counts.
-    case notes
-    /// The Ask box, wherever it is in typing → asking → answered.
-    case ask(AskPhase)
+/// The meeting bar's own panel: what is expanded below the always-visible
+/// header row (title/timer/status/Ask/Notes/End), and where the Ask box stands
+/// whether or not it is the thing expanded.
+///
+/// Two facts, not one. `expansion` alone is a discriminated state rather than
+/// an `isAskOpen`/`isNotesOpen` pair — only one thing can be expanded under the
+/// bar at a time, so a pair would only invite a combination the UI was never
+/// designed to render. `ask` sits beside it rather than inside `.ask` because a
+/// question outlives the panel it was typed into: an answer that takes a while
+/// to come back used to be dropped on arrival if the user had looked at Notes
+/// or clicked away meanwhile, leaving an empty field to retype into.
+struct MeetingBarPanel: Equatable {
+    /// What is expanded under the header row, if anything.
+    enum Expansion: Equatable {
+        /// Nothing expanded — just the header row.
+        case passive
+        /// The live findings-so-far, as bullets, with real counts.
+        case notes
+        /// The Ask box, showing whatever `ask` says.
+        case ask
+    }
+
+    var expansion: Expansion = .passive
+    /// Typing → asking → answered, kept across every expansion change until the
+    /// next recording starts.
+    var ask: AskPhase = .composing
+    /// An answer arrived while the box was not the thing on screen, so nobody
+    /// has laid eyes on it yet. Drives the mark on the Ask button — without it
+    /// the answer this panel now keeps alive would be waiting behind a button
+    /// that looks exactly like it did before anybody asked anything.
+    private(set) var isAnswerUnseen = false
 
     /// Whether the Ask box is what is expanded. Asked by both bars, so it lives
     /// on the panel rather than being restated as a private helper on each.
     var isAsk: Bool {
-        if case .ask = self { return true }
-        return false
+        expansion == .ask
     }
 
+    var isNotes: Bool {
+        expansion == .notes
+    }
+
+    /// A question is out and its answer is still coming, whatever the bar
+    /// happens to be showing meanwhile.
+    var isAnswering: Bool {
+        ask == .loading
+    }
+
+    /// A question is on its way. Nothing has been missed yet.
+    mutating func startAsking() {
+        ask = .loading
+        isAnswerUnseen = false
+    }
+
+    /// The finished ask, landed. An answer the user watched arrive needs no
+    /// mark; one that landed behind a folded panel or the Notes list does.
+    mutating func land(_ phase: AskPhase) {
+        ask = phase
+        isAnswerUnseen = !isAsk
+    }
+
+    /// Opening the box is reading what is in it.
+    mutating func expand(_ next: Expansion) {
+        expansion = next
+        if isAsk { isAnswerUnseen = false }
+    }
+
+    /// Identity is the expanded panel alone — not the phase inside it. An
+    /// answer landing while Notes is open updates the bar in place rather than
+    /// re-emerging it, and the Ask box keeps a half-typed follow-up question
+    /// across its own composing → loading → answered run: re-identifying the
+    /// surface throws that view's state away, which is the same "type it
+    /// again" this panel exists to prevent.
     var contentID: String {
-        switch self {
+        switch expansion {
         case .passive: "passive"
         case .notes: "notes"
-        case let .ask(phase): "ask.\(phase.contentID)"
+        case .ask: "ask"
         }
     }
 
@@ -141,7 +193,7 @@ enum MeetingBarPanel: Equatable {
     /// little more only because they add a second block of content below
     /// the header.
     var surfaceWidth: CGFloat {
-        switch self {
+        switch expansion {
         case .passive: 420
         case .notes: 440
         case .ask: 450

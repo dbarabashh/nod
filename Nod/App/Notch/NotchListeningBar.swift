@@ -81,17 +81,24 @@ struct NotchListeningBar: View {
     /// Gone once the recording stops, rather than frozen at its last value: a
     /// clock is how long this has been running, and nothing is running. The line
     /// underneath is what matters at that point.
-    @ViewBuilder
+    /// The caption rides alongside rather than replacing the clock, and outlives
+    /// the recording it belongs to: a question asked in the last seconds of a
+    /// meeting is still being answered after the host presses End.
     private var center: some View {
-        if !rooms.hasEnded {
-            TimelineView(.periodic(from: room.startedAt, by: 1)) { context in
-                Text(ElapsedClock.text(seconds: Int(context.date.timeIntervalSince(room.startedAt))))
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .monospacedDigit()
-                    .fixedSize()
-                    .foregroundStyle(Theme.Palette.ink)
+        HStack(spacing: 6) {
+            if !rooms.hasEnded {
+                TimelineView(.periodic(from: room.startedAt, by: 1)) { context in
+                    Text(ElapsedClock.text(seconds: Int(context.date.timeIntervalSince(room.startedAt))))
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                        .fixedSize()
+                }
+            }
+            if panel.isAnswering {
+                MeetingBarCaption(text: "Thinking…")
             }
         }
+        .foregroundStyle(Theme.Palette.ink)
     }
 
     /// Ask and Notes mean exactly what they mean while recording. `Leave` sits
@@ -100,8 +107,13 @@ struct NotchListeningBar: View {
     /// destructive action the End button is would misstate what it does.
     private var right: some View {
         HStack(spacing: 4) {
-            MeetingBarButton(title: "Ask", isActive: panel.isAsk, action: onToggleAsk)
-            MeetingBarButton(title: "Notes", isActive: panel == .notes, action: onToggleNotes)
+            MeetingBarButton(
+                title: "Ask",
+                isActive: panel.isAsk,
+                hasUnread: panel.isAnswerUnseen,
+                action: onToggleAsk
+            )
+            MeetingBarButton(title: "Notes", isActive: panel.isNotes, action: onToggleNotes)
             MeetingBarButton(title: "Leave", isActive: false) {
                 Task { await rooms.leave() }
             }
@@ -197,7 +209,7 @@ struct NotchListeningTucked: View {
         NotchListeningBar(
             rooms: .preview(joined: previewRoom),
             room: previewRoom,
-            panel: .passive,
+            panel: MeetingBarPanel(),
             language: LanguagePreference(),
             onToggleAsk: {},
             onToggleNotes: {},
@@ -216,7 +228,7 @@ struct NotchListeningTucked: View {
         NotchListeningBar(
             rooms: .preview(joined: previewRoom, ended: true, summary: "Pricing moved to the 12th; Alina is writing the migration note."),
             room: previewRoom,
-            panel: .passive,
+            panel: MeetingBarPanel(),
             language: LanguagePreference(),
             onToggleAsk: {},
             onToggleNotes: {},

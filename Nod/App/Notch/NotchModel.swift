@@ -61,27 +61,29 @@ final class NotchModel: ObservableObject {
     /// the menu bar. Everything else on screen is a consequence of state the app
     /// is already in.
     private var isOpened = false
-    /// Which of the meeting bar's own panels is showing, while a meeting is
-    /// active. Like `isOpened`, only `derived()` reads it — a plain var, reset
-    /// to `.passive` at the start of every new recording so a Notes panel left
-    /// open from a previous meeting doesn't carry over into the next.
-    private var meetingBarPanel: MeetingBarPanel = .passive
+    /// Which of the meeting bar's own panels is showing, and where its Ask box
+    /// stands, while a meeting is active. Like `isOpened`, only `derived()`
+    /// reads it — a plain var, reset whole at the start of every new recording
+    /// so neither a Notes panel nor a previous meeting's answer carries over
+    /// into the next.
+    private var meetingBarPanel = MeetingBarPanel()
     /// Whether the meeting bar is tucked into the notch, following a swipe-up
     /// over it (`NotchGestureZone`). Only ever set while `geometry.hasCutout` —
     /// there is nothing to tuck into otherwise — so `derived()` doesn't need to
     /// re-check that itself.
     ///
     /// Tucking away is the clearest possible "I'm done looking" signal, so the
-    /// `didSet` also resets `meetingBarPanel` to `.passive` — an expanded
-    /// Ask/Notes panel left open underneath would otherwise silently block
-    /// every future notice for the rest of the meeting, with nothing on
-    /// screen hinting why. Living here, on the property itself, means any
-    /// future path that tucks the bar away inherits the reset for free
-    /// instead of depending on that caller remembering it too.
+    /// `didSet` also folds the panel back to `.passive` — an expanded Ask/Notes
+    /// panel left open underneath would otherwise silently block every future
+    /// notice for the rest of the meeting, with nothing on screen hinting why.
+    /// Living here, on the property itself, means any future path that tucks
+    /// the bar away inherits the reset for free instead of depending on that
+    /// caller remembering it too. A question still being answered survives it:
+    /// folding the bar away is not cancelling the ask.
     private var meetingBarHidden = false {
         didSet {
             guard meetingBarHidden, !oldValue else { return }
-            meetingBarPanel = .passive
+            meetingBarPanel.expand(.passive)
         }
     }
 
@@ -94,6 +96,11 @@ final class NotchModel: ObservableObject {
     /// target rather than queueing behind it.
     private var transition: Task<Void, Never>?
     private var pendingTarget: NotchPresentation?
+    /// The Ask box's round trip. Held so the two things that make an answer
+    /// stale — a newer question, and the bar changing hands to another meeting
+    /// — can stop it rather than let it finish and be billed for an answer
+    /// nobody will read.
+    private var askTask: Task<Void, Never>?
     /// The session's once-a-second tick: the elapsed clock, and the silence
     /// watchdog that raises the forgot-to-stop countdown. Owned here rather than
     /// by a view's `.task` — it has to run for the whole session, and a view
@@ -196,11 +203,20 @@ final class NotchModel: ObservableObject {
     /// that a stray click must not silently abandon.
     var closesOnOutsideClick: Bool {
         switch presentation {
-        case .launch: true
+        // Except while a start is already in flight. Closing here cancels it
+        // (`cancelPendingRecordingStart`), and clicking into the app you are
+        // about to meet in is the most ordinary thing to do in the second after
+        // pressing Start — losing the recording to it, silently, is not an
+        // answer to anything the user asked. The hotkey and the menu-bar item
+        // still cancel deliberately.
+        case .launch: !isRequestingRecording && pendingCaptureID == nil
         // Only while a panel is actually expanded — the bar itself is always
         // visible during a meeting and a stray click must not hide it, only
-        // fold an expanded Ask/Notes panel back to the passive row.
-        case let .meetingBar(_, panel): panel != .passive
+        // fold an expanded Ask/Notes panel back to the passive row. And never
+        // while an answer is still on its way: clicking into another app is
+        // what people do while they wait, not them abandoning the question,
+        // and the answer landing in a folded panel would go unseen.
+        case let .meetingBar(_, panel): panel.expansion != .passive && !(panel.isAsk && panel.isAnswering)
         // The demo never closes on a click: a stray cursor must not cut a take.
         // A notice has its own dismiss and goes away on its own; a stray click
         // in another app is not the user answering it. The recap card is the
@@ -234,7 +250,7 @@ final class NotchModel: ObservableObject {
     /// next time the notch opens.
     func close() {
         if barRole != nil {
-            meetingBarPanel = .passive
+            meetingBarPanel.expand(.passive)
         } else {
             cancelPendingRecordingStart()
             isOpened = false
@@ -361,7 +377,7 @@ final class NotchModel: ObservableObject {
         guard !isRequestingRecording else { return }
         guard let captureID = pendingCaptureID else { return }
         gate = nil
-        meetingBarPanel = .passive
+        resetMeetingBar()
         meetingBarHidden = false
         session.clearAutoStartRequest()
         recordingStartError = nil
@@ -631,21 +647,26 @@ final class NotchModel: ObservableObject {
 /// as much a part of the model as anything above.
 extension NotchModel {
     /// The Ask row's own button: opens the box, or folds it back to the
-    /// passive row if it's already open. Always starts fresh, not a restore —
-    /// the box is for a new question, not a scrollback.
+    /// passive row if it's already open. Reopening lands on whatever the box
+    /// was last showing — a question still being answered, or the answer —
+    /// rather than an empty field: an answer takes seconds to come back, and
+    /// looking at Notes or clicking away meanwhile must not cost the question.
     func toggleAsk() {
-        if case .ask = meetingBarPanel {
-            meetingBarPanel = .passive
-        } else {
-            meetingBarPanel = .ask(.composing)
-        }
+        meetingBarPanel.expand(meetingBarPanel.isAsk ? .passive : .ask)
         refresh()
     }
 
     /// The Notes row's own button — same toggle shape as `toggleAsk`.
     func toggleNotes() {
-        meetingBarPanel = meetingBarPanel == .notes ? .passive : .notes
+        meetingBarPanel.expand(meetingBarPanel.isNotes ? .passive : .notes)
         refresh()
+    }
+
+    /// Hands the bar to a new meeting: nothing the last one was showing, and no
+    /// question still on its way to it, belongs to the next.
+    private func resetMeetingBar() {
+        askTask?.cancel()
+        meetingBarPanel = MeetingBarPanel()
     }
 
     /// The Ask box's own free-text question. Blank input is a no-op rather
@@ -693,22 +714,25 @@ extension NotchModel {
     }
 
     /// The shared shape behind every Ask-box request: show the loading state,
-    /// run the one-shot call, land on its answer or a failure — unless the
-    /// user has already moved on (closed the panel, or fired another ask) by
-    /// the time it comes back, in which case the answer is stale and dropped.
+    /// run the one-shot call, land on its answer or a failure. Only a newer
+    /// question, or the bar changing hands, supersedes it — what the bar
+    /// happens to be showing when the answer arrives does not, so a panel the
+    /// user folded away mid-flight still has the answer waiting in it when they
+    /// come back.
     private func runAsk(question: String, call: @escaping () async throws -> String) {
-        meetingBarPanel = .ask(.loading)
+        askTask?.cancel()
+        meetingBarPanel.startAsking()
         refresh()
-        Task { [weak self] in
+        askTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let answer = try await call()
-                guard meetingBarPanel == .ask(.loading) else { return }
-                meetingBarPanel = .ask(.answered(question: question, answer: answer))
+                guard !Task.isCancelled else { return }
+                meetingBarPanel.land(.answered(question: question, answer: answer))
             } catch {
+                guard !Task.isCancelled else { return }
                 Log.llm.error("ask: \(question) failed — \(error.localizedDescription)")
-                guard meetingBarPanel == .ask(.loading) else { return }
-                meetingBarPanel = .ask(.failed(question: question))
+                meetingBarPanel.land(.failed(question: question))
             }
             refresh()
         }
@@ -724,6 +748,7 @@ extension NotchModel {
     func joinLiveRoom() {
         Task { [weak self] in
             guard let self, let identity = calendar.currentRoomIdentity() else { return }
+            resetMeetingBar()
             await rooms.join(identity)
             refresh()
         }

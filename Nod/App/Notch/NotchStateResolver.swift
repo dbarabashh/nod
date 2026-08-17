@@ -98,7 +98,7 @@ struct NotchStateResolver {
         // them, and taking that away to say something they did not ask for is
         // the difference between proactive and rude.
         if let notice = session.analyst.notice {
-            if meetingBarPanel == .passive {
+            if meetingBarPanel.expansion == .passive {
                 Log.ui.debug("notch: showing notice kind=\(notice.kind.rawValue) hidden=\(isMeetingBarHidden)")
                 return .noticed(notice)
             }
@@ -106,11 +106,11 @@ struct NotchStateResolver {
             // tick (meetings sync, entitlement refresh, …) while a notice sits
             // blocked, so it would otherwise repeat well past what `.info` is
             // for.
-            Log.ui.debug("notch: notice pending but panel=\(String(describing: meetingBarPanel)) blocks it")
+            Log.ui.debug("notch: notice pending but panel=\(String(describing: meetingBarPanel.expansion)) blocks it")
         }
         // Same guard as a notice, and after it: what was just said in this room
         // outranks what was said in another one.
-        if let recalled = session.analyst.recall, meetingBarPanel == .passive {
+        if let recalled = session.analyst.recall, meetingBarPanel.expansion == .passive {
             return .recalled(recalled)
         }
         return bar(.host)

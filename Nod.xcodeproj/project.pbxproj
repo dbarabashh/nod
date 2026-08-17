@@ -79,6 +79,7 @@
 		338B67448086ED2EF7E97DD0 /* DemoScenario.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E9CE7FA82E51123E5BA9886 /* DemoScenario.swift */; };
 		33CCB24D7BC76B3DD6CD21FB /* DeleteOrganizationCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B3041C37281785F9528152D /* DeleteOrganizationCard.swift */; };
 		33F418AFF7D9563907037819 /* LauncherPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC023F8BDDF15EA28A731CD6 /* LauncherPanel.swift */; };
+		34CE7E0CDD13B578B19E757D /* MeetingBarPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4EFA3F52588FD549265719 /* MeetingBarPanelTests.swift */; };
 		36E0A9B04DCCD56236B72A7F /* NotchStates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31508F13449912B12788FFB1 /* NotchStates.swift */; };
 		372CB2F5EED0B023909ABA4D /* NotchCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0534919E92AAD56E7A18419F /* NotchCollector.swift */; };
 		37612B3D92D7C738CC85A4EB /* WebsiteCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A3821FF0DDA1ACC6EE3C54F /* WebsiteCategory.swift */; };
@@ -570,6 +571,7 @@
 		9B6FA69328C6F9B9E12ED22D /* SummaryTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplate.swift; sourceTree = "<group>"; };
 		9B99C2D73E32BFDDFFD07A1D /* ModesSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModesSettingsSection.swift; sourceTree = "<group>"; };
 		9C45FB108E26DA2679FB4DDF /* summary-ready.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "summary-ready.wav"; sourceTree = "<group>"; };
+		9C4EFA3F52588FD549265719 /* MeetingBarPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingBarPanelTests.swift; sourceTree = "<group>"; };
 		9D29E16C2F0B2E3B6F300CDE /* Meeting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting.swift; sourceTree = "<group>"; };
 		9D50620ECD4BD55BEE26B1AE /* EntityStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityStore.swift; sourceTree = "<group>"; };
 		9D61035651485268416FBDA8 /* DemoDirector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoDirector.swift; sourceTree = "<group>"; };
@@ -1099,6 +1101,7 @@
 				F6C7D15D215FA2082DB86C32 /* LiveMeetingAnalystTests.swift */,
 				03819EB12E678CD0C63D6260 /* LLMProxyClientHelperTests.swift */,
 				FDEBBFBD39757307CADDFF1A /* LLMProxyClientModelRoutingTests.swift */,
+				9C4EFA3F52588FD549265719 /* MeetingBarPanelTests.swift */,
 				B2D042486B145B121958603A /* MeetingDetectionTests.swift */,
 				D2BD7296E771E66D9A7F8743 /* MeetingMarkdownExportTests.swift */,
 				1A0609389426B622B59DFA01 /* MeetingOutboxTests.swift */,
@@ -1603,6 +1606,7 @@
 				07E744DC1A8A6BA93890E29C /* LLMProxyClientModelRoutingTests.swift in Sources */,
 				0A90D7B4CA61F5DD96851A6B /* LiveFindingNotesTests.swift in Sources */,
 				99CF191E53AD421F5EF9F205 /* LiveMeetingAnalystTests.swift in Sources */,
+				34CE7E0CDD13B578B19E757D /* MeetingBarPanelTests.swift in Sources */,
 				D23F4F8D452823631D7EBE7B /* MeetingDetectionTests.swift in Sources */,
 				913DE8BBF461E188D011DCFB /* MeetingMarkdownExportTests.swift in Sources */,
 				DF0AB3D1913288F0888409CF /* MeetingOutboxTests.swift in Sources */,

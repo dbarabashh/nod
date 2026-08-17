@@ -63,6 +63,24 @@ struct MeetingBarStatusLine: View {
     }
 }
 
+/// The word beside the clock when something deviates from "this is simply
+/// running" — "Thinking…", "Paused".
+///
+/// Shared because the Ask box now outlives the panel it was typed into: with
+/// the box folded away this caption is the only thing on either bar that can
+/// say an answer is still coming, and a listener asking a question deserves
+/// that as much as the host does.
+struct MeetingBarCaption: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10.5, weight: .medium))
+            .lineLimit(1)
+            .fixedSize()
+    }
+}
+
 /// Whatever is expanded below the header, for either bar.
 ///
 /// The findings are a parameter rather than a source this view reaches for,
@@ -76,13 +94,13 @@ struct MeetingBarExpansion: View {
     let onSummarize: () -> Void
 
     var body: some View {
-        switch panel {
+        switch panel.expansion {
         case .passive:
             EmptyView()
         case .notes:
             MeetingNotesPanel(findings: findings)
-        case let .ask(phase):
-            MeetingAskPanel(phase: phase, onSubmit: onSubmit, onSummarize: onSummarize)
+        case .ask:
+            MeetingAskPanel(phase: panel.ask, onSubmit: onSubmit, onSummarize: onSummarize)
         }
     }
 }
