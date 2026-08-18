@@ -156,7 +156,7 @@ struct AssistantTextBubble: View {
             ? []
             : AnswerBlocks.complete(in: content, isFinished: true)
             .enumerated()
-            .map { AnswerPiece.from($0.element, at: $0.offset) }
+            .flatMap { AnswerPiece.pieces(from: $0.element, at: $0.offset) }
     }
 
     /// Nothing to show yet: the turn exists but no paragraph has finished. The
@@ -220,6 +220,9 @@ private struct StreamingAnswer: View {
     /// length of the answer — is the quadratic cost the non-streaming path
     /// avoids by parsing in `init`.
     @State private var rendered: [AnswerPiece] = []
+    /// How many blocks those pieces came from. Counting pieces stopped
+    /// answering that the moment one block could produce several.
+    @State private var absorbed = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -238,9 +241,10 @@ private struct StreamingAnswer: View {
     /// answer streams, so everything already rendered is left alone.
     private func absorb(_ text: String) {
         let blocks = AnswerBlocks.complete(in: text, isFinished: false)
-        guard blocks.count > rendered.count else { return }
-        let first = rendered.count
-        rendered += blocks[first...].enumerated().map { AnswerPiece.from($0.element, at: first + $0.offset) }
+        guard blocks.count > absorbed else { return }
+        let first = absorbed
+        absorbed = blocks.count
+        rendered += blocks[first...].enumerated().flatMap { AnswerPiece.pieces(from: $0.element, at: first + $0.offset) }
     }
 }
 
@@ -251,17 +255,54 @@ struct AnswerPiece: Identifiable {
         case links([ProviderLinkItem])
     }
 
-    /// Blocks are append-only while an answer streams, so a piece's position is
-    /// its identity — and reading it must not cost a copy of the paragraph, in a
-    /// list SwiftUI re-diffs at every stream flush.
-    let id: Int
+    /// Position, not text: blocks are append-only while an answer streams, so
+    /// where a piece sits is its identity — and reading it must not cost a copy
+    /// of the paragraph, in a list SwiftUI re-diffs at every stream flush. A
+    /// block can now yield more than one piece, so the run within it is the
+    /// second half of the address.
+    let id: String
     let content: Content
 
-    static func from(_ block: String, at index: Int) -> AnswerPiece {
-        if let items = ProviderLinkItem.list(in: block) {
-            return AnswerPiece(id: index, content: .links(items))
+    /// Splits a paragraph into what it actually holds: runs of reference lines,
+    /// drawn as rows, and everything else, drawn as markdown.
+    ///
+    /// This used to ask whether the *whole* block was references, and a block
+    /// that mixed a sentence with the ticket it named — which is how the model
+    /// writes almost every one of them — fell through to markdown. The
+    /// reference then rendered as blue `Text`, with no mark, no pointer cursor
+    /// and nothing to click.
+    static func pieces(from block: String, at index: Int) -> [AnswerPiece] {
+        var pieces: [AnswerPiece] = []
+        var prose: [String] = []
+        var links: [ProviderLinkItem] = []
+
+        func flushProse() {
+            guard !prose.isEmpty else { return }
+            let text = prose.joined(separator: "\n")
+            prose = []
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .prose(renderRecapMarkdown(text))))
         }
-        return AnswerPiece(id: index, content: .prose(renderRecapMarkdown(block)))
+
+        func flushLinks() {
+            guard !links.isEmpty else { return }
+            let items = links
+            links = []
+            pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .links(items)))
+        }
+
+        for line in block.components(separatedBy: .newlines) {
+            if let item = ProviderLinkItem.item(in: line) {
+                flushProse()
+                links.append(item)
+            } else {
+                flushLinks()
+                prose.append(line)
+            }
+        }
+        flushProse()
+        flushLinks()
+        return pieces
     }
 }
 

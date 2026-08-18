@@ -12,26 +12,20 @@ struct ProviderLinkItem: Identifiable, Equatable {
         url
     }
 
-    /// A block of an answer that is nothing but references, so it can be drawn
-    /// as rows instead of a paragraph.
+    /// One line of an answer, if that line is nothing but a reference.
+    ///
+    /// Asked a line at a time rather than a paragraph at a time: a reference
+    /// almost always follows the sentence that introduces it, inside the same
+    /// paragraph, and a rule that only recognised a block of pure links left
+    /// exactly those references drawn as blue markdown text.
     ///
     /// Inline decoration inside `Text` can't size the mark — an asset image
     /// renders at its natural size there — and a `Text` link can't carry a
     /// pointer cursor. Both are why these get their own row.
-    static func list(in block: String) -> [ProviderLinkItem]? {
-        let lines = block
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        guard !lines.isEmpty else { return nil }
-
-        let items = lines.compactMap(parse)
-        return items.count == lines.count ? items : nil
-    }
-
+    ///
     /// `- [NOD-57 — Provide team access](https://linear.app/…)`, bullet optional.
-    private static func parse(_ line: String) -> ProviderLinkItem? {
-        var rest = Substring(line)
+    static func item(in line: String) -> ProviderLinkItem? {
+        var rest = Substring(line.trimmingCharacters(in: .whitespaces))
         for bullet in ["- ", "* ", "• "] where rest.hasPrefix(bullet) {
             rest = rest.dropFirst(bullet.count)
         }
