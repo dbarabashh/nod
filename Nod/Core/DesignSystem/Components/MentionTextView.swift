@@ -386,9 +386,24 @@ struct MentionTextView: NSViewRepresentable {
         // Rebuilt only when the model and the view genuinely disagree —
         // reassigning the storage on every keystroke would drop the caret and
         // the undo stack with it.
-        if MentionText.plain(from: storage) != text {
+        //
+        // The marks are half of that disagreement, not a detail of it. A tool or
+        // a project is derived from the sentence, so it arrives in the same
+        // update as the text that names it; a session is remembered separately
+        // and lands one update later — by which time the storage already matched
+        // the text, the rebuild was skipped, and the session stayed flat words
+        // in a field where every other mention was a pill.
+        let plain = MentionText.plain(from: storage)
+        if plain != text || context.coordinator.appliedMarks != mentions {
+            let caret = textView.selectedRange()
             storage.setAttributedString(MentionText.attributed(from: text, marks: mentions))
-            textView.setSelectedRange(NSRange(location: storage.length, length: 0))
+            context.coordinator.appliedMarks = mentions
+            // Same sentence, new pills: the person is still typing it, so the
+            // caret stays where they left it rather than jumping to the end.
+            // Clamped, because a token becomes one character and everything
+            // after it moves.
+            let location = plain == text ? min(caret.location, storage.length) : storage.length
+            textView.setSelectedRange(NSRange(location: location, length: 0))
             textView.typingAttributes = MentionText.baseAttributes()
         }
         if isFocused, textView.window?.firstResponder !== textView {
@@ -419,6 +434,9 @@ struct MentionTextView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MentionTextView
         let measurer = MentionMeasurer()
+        /// What the storage was last built with, so a mark that becomes known
+        /// after the text does still reaches the field.
+        var appliedMarks: [MentionMark] = []
 
         init(_ parent: MentionTextView) {
             self.parent = parent
