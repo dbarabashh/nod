@@ -14,9 +14,7 @@ struct ToolApprovalCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Image(approval.provider.iconName)
-                    .icon(13)
-                    .foregroundStyle(Theme.Palette.ink.opacity(0.85))
+                ProviderMark(provider: approval.provider, size: 14)
                 Text("Nod wants to use \(approval.provider.displayName)")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)

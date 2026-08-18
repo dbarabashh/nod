@@ -83,9 +83,8 @@ struct ActionItemFilingButton: View {
 
     private func mark(_ provider: IntegrationProvider) -> some View {
         Button { compose(in: provider) } label: {
-            Image(provider.iconName)
-                .icon(11)
-                .foregroundStyle(failed ? Theme.Palette.danger : Theme.Palette.muted)
+            ProviderMark(provider: provider, size: 12)
+                .opacity(failed ? 0.5 : 1)
                 .frame(width: 20, height: 20)
                 .contentShape(Rectangle())
         }
@@ -97,8 +96,7 @@ struct ActionItemFilingButton: View {
     private func reference(_ filed: ProviderLinkItem) -> some View {
         Button { NSWorkspace.shared.open(filed.url) } label: {
             HStack(spacing: 4) {
-                Image(filed.provider.iconName)
-                    .icon(10)
+                ProviderMark(provider: filed.provider, size: 11)
                 Text(filed.title)
                     .font(.system(size: 11, weight: .semibold))
             }
@@ -126,8 +124,7 @@ struct ActionItemFilingButton: View {
 
     private func header(_ provider: IntegrationProvider) -> some View {
         HStack(spacing: 6) {
-            Image(provider.iconName)
-                .icon(12)
+            ProviderMark(provider: provider, size: 13)
             Text("New task in \(provider.displayName)")
                 .font(.system(size: 12.5, weight: .semibold))
         }
@@ -221,9 +218,7 @@ struct ActionItemFilingButton: View {
     /// than a second ticket beside it.
     private func duplicate(_ match: TaskMatch) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(match.reference.provider.iconName)
-                .icon(11)
-                .foregroundStyle(Theme.Palette.muted)
+            ProviderMark(provider: match.reference.provider, size: 12)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(match.reference.title) already covers this")
                     .font(.system(size: 11.5, weight: .semibold))

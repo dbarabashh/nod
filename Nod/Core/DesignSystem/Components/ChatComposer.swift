@@ -348,8 +348,7 @@ struct ChatMentionPicker: View {
     private func toolRow(_ tool: IntegrationProvider) -> some View {
         let isLinked = integrations.isUsable(tool)
         return row(action: { onPick(isLinked ? .tool(tool) : .connectTool) }, content: {
-            Image(tool.iconName)
-                .icon(13)
+            ProviderMark(provider: tool, size: 14)
                 .frame(width: 16)
                 .opacity(isLinked ? 1 : 0.45)
             Text(tool.displayName)
@@ -398,8 +397,7 @@ struct ConnectedToolsRow: View {
         if !linked.isEmpty {
             HStack(spacing: 5) {
                 ForEach(linked) { provider in
-                    Image(provider.iconName)
-                        .icon(12)
+                    ProviderMark(provider: provider, size: 13)
                         .help("\(provider.displayName) is connected — mention it with @")
                 }
             }

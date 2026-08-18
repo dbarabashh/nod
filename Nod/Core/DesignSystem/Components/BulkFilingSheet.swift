@@ -59,8 +59,7 @@ struct BulkFilingSheet: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Image(provider.iconName)
-                .icon(12)
+            ProviderMark(provider: provider, size: 13)
             Text("New tasks in \(provider.displayName)")
                 .font(.system(size: 12.5, weight: .semibold))
             Spacer(minLength: 0)

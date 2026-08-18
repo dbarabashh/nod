@@ -96,9 +96,7 @@ struct ChatTurnTrace: View {
     private func row(_ step: ChatTurnStep) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 5) {
-                Image(step.provider.iconName)
-                    .icon(10)
-                    .foregroundStyle(Theme.Palette.ink.opacity(0.7))
+                ProviderMark(provider: step.provider, size: 11)
                 Text(step.title)
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(Theme.Palette.ink.opacity(0.8))

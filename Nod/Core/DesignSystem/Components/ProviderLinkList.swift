@@ -60,9 +60,7 @@ struct ProviderLinkList: View {
             ForEach(items) { item in
                 Button { NSWorkspace.shared.open(item.url) } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 7) {
-                        Image(item.provider.iconName)
-                            .icon(11)
-                            .foregroundStyle(Theme.Palette.ink.opacity(0.85))
+                        ProviderMark(provider: item.provider, size: 12)
                             // The mark sits on the text's baseline rather than
                             // the line box, so titles that wrap keep their first
                             // line level with it.

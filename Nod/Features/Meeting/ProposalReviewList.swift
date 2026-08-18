@@ -74,9 +74,7 @@ struct ProposalReviewCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 if let provider = proposal.provider {
-                    Image(provider.iconName)
-                        .icon(13)
-                        .foregroundStyle(Theme.Palette.muted)
+                    ProviderMark(provider: provider, size: 14)
                 }
                 TextField("Task title", text: $title)
                     .textFieldStyle(.plain)

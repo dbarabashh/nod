@@ -51,10 +51,10 @@ struct OrganizationOverview: View {
 
     /// The organization's answer for every product, in one table.
     ///
-    /// The same switch lives on each row of the Integrations pane, where it sits
-    /// beside the person's own connection — two different decisions on one line.
-    /// An administrator setting company policy is asking a single question about
-    /// all of them, and had to walk the list to answer it.
+    /// An administrator setting company policy is asking one question about every
+    /// product, so it is asked once, here. It used to sit as a bare switch on
+    /// each row of the Integrations pane, beside the person's own connection —
+    /// two different people's decisions on one line, one of them unlabelled.
     private func toolsCard(_ integrations: IntegrationService) -> some View {
         SettingsCard {
             SettingsRow(
@@ -68,7 +68,8 @@ struct OrganizationOverview: View {
             columnHeader
             ForEach(IntegrationProvider.allCases) { provider in
                 SettingsRowDivider()
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    ProviderMark(provider: provider, size: 15)
                     Text(provider.displayName)
                         .font(.system(size: 12.5))
                         .foregroundStyle(Theme.Palette.ink)
@@ -118,8 +119,7 @@ struct OrganizationOverview: View {
 }
 
 /// Whether the organization permits one tool at all — an administrator's
-/// answer, shown both in the tools table here and beside the person's own
-/// connection on the Integrations pane.
+/// answer, and the only place it is asked.
 struct OrgToolToggle: View {
     @ObservedObject var service: IntegrationService
     let provider: IntegrationProvider

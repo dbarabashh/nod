@@ -1,5 +1,20 @@
 import SwiftUI
 
+/// Every product Nod can reach, as one list.
+///
+/// This was two cards — "let Nod act in your tools" and "let Nod read from
+/// your tools" — which is a true statement about the architecture and the wrong
+/// question for somebody looking for Slack. People arrive knowing the product's
+/// name, so the name is what the list is keyed on, with the kind of tool it is
+/// beside it and the search field above.
+///
+/// A row says three things: which product, what it is for, and whether it is
+/// connected. Everything else — which team it serves, importing members,
+/// disconnecting — lives inside the row, because those are settings for a
+/// connection you already made and they were what made this page unreadable:
+/// four controls in a line. What the *organization* permits left this page
+/// entirely: it is one question an administrator answers about every product,
+/// and it is asked once, in the Tools table on the Organization page.
 struct IntegrationsSection: View {
     @ObservedObject var service: IntegrationService
     /// Optional: teams only exist for someone in an organization, and the picker
@@ -8,22 +23,43 @@ struct IntegrationsSection: View {
 
     /// Which provider the user has asked to disconnect, while they confirm it.
     @State private var disconnecting: IntegrationProvider?
+    @State private var expanded: IntegrationProvider?
+    @State private var search = ""
+
+    private var matches: [IntegrationProvider] {
+        let all = IntegrationProvider.allCases
+        guard !search.isEmpty else { return all }
+        return all.filter { provider in
+            provider.displayName.localizedCaseInsensitiveContains(search)
+                || provider.summary.localizedCaseInsensitiveContains(search)
+                || provider.capabilities.contains { $0.displayName.localizedCaseInsensitiveContains(search) }
+        }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            group(
-                .actsIn,
-                icon: "nc-link",
-                title: "Let Nod act in your tools",
-                subtitle: "Connecting opens the provider's own authorization page. Nod never sees your password, and you can revoke access from the provider at any time."
-            )
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsCard {
+                SettingsRow(
+                    icon: "nc-link",
+                    title: "Connect your tools",
+                    subtitle: "Connecting opens the provider's own authorization page. Nod never sees your password, and you can revoke access from the provider at any time."
+                ) {
+                    EmptyView()
+                }
+            }
 
-            group(
-                .readsFrom,
-                icon: "nc-calendar",
-                title: "Let Nod read from your tools",
-                subtitle: "Read-only, and only what the provider's own consent screen lists. Nod never writes to these."
-            )
+            SearchField(prompt: "Search tools", text: $search)
+
+            SettingsCard {
+                if matches.isEmpty {
+                    SettingsEmptyRow("Nothing matches “\(search)”")
+                } else {
+                    ForEach(Array(matches.enumerated()), id: \.element.id) { index, provider in
+                        if index > 0 { SettingsRowDivider() }
+                        providerRow(provider)
+                    }
+                }
+            }
 
             if let error = service.lastError {
                 Text(error)
@@ -70,48 +106,138 @@ struct IntegrationsSection: View {
         }
     }
 
-    private func group(
-        _ role: IntegrationRole,
-        icon: String,
-        title: String,
-        subtitle: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SettingsCard {
-                SettingsRow(icon: icon, title: title, subtitle: subtitle) {
-                    EmptyView()
-                }
-            }
-            SettingsCard {
-                ForEach(Array(IntegrationProvider.all(role).enumerated()), id: \.element.id) { index, provider in
-                    if index > 0 { SettingsRowDivider() }
-                    row(provider)
-                }
+    // MARK: - A product
+
+    @ViewBuilder
+    private func providerRow(_ provider: IntegrationProvider) -> some View {
+        let isLinked = service.linked.contains(provider)
+        let isOpen = expanded == provider
+        VStack(alignment: .leading, spacing: 0) {
+            summaryRow(provider, isLinked: isLinked, isOpen: isOpen)
+            if isOpen {
+                details(provider, isLinked: isLinked)
             }
         }
     }
 
-    private func row(_ provider: IntegrationProvider) -> some View {
-        let isLinked = service.linked.contains(provider)
+    private func summaryRow(_ provider: IntegrationProvider, isLinked: Bool, isOpen: Bool) -> some View {
         let isPending = service.pending == provider
-
         return HStack(spacing: 12) {
             providerChip(provider)
             VStack(alignment: .leading, spacing: 3) {
-                Text(provider.displayName)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
+                HStack(spacing: 7) {
+                    Text(provider.displayName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.ink)
+                    ForEach(provider.capabilities.sorted { $0.rawValue < $1.rawValue }) { capability in
+                        Text(capability.displayName)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(Theme.Palette.muted)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Theme.Palette.surfaceStrong))
+                    }
+                }
                 Text(isPending ? "Waiting for authorization in your browser…" : provider.summary)
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
-            organizationSwitch(provider)
-            trailing(provider, isLinked: isLinked, isPending: isPending)
+            connectControl(provider, isLinked: isLinked, isPending: isPending)
+            Image(isOpen ? "nc-chevron-down" : "nc-chevron-right")
+                .icon(9)
+                .foregroundStyle(Theme.Palette.muted)
+                .frame(width: 16, height: 16)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            expanded = expanded == provider ? nil : provider
+        }
+        .linkCursor()
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(isOpen ? "Hides this tool's settings" : "Shows this tool's settings")
+    }
+
+    /// Connected reads as a state, not a button — the thing you can do to a
+    /// connection you already have is disconnect it, and that lives below with
+    /// the rest of its settings rather than beside the name.
+    @ViewBuilder
+    private func connectControl(_ provider: IntegrationProvider, isLinked: Bool, isPending: Bool) -> some View {
+        if isLinked {
+            HStack(spacing: 5) {
+                Image("nc-check")
+                    .icon(10)
+                Text("Connected")
+                    .font(.system(size: 11.5, weight: .semibold))
+            }
+            .foregroundStyle(Theme.Palette.success)
+            .accessibilityLabel("\(provider.displayName) connected")
+        } else if isPending {
+            Button("Cancel") { service.cancelPending() }
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(Theme.Palette.muted)
+                .buttonStyle(.plain)
+        } else {
+            Button {
+                Task { await service.connect(provider) }
+            } label: {
+                Text("Connect")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundColor(Theme.GlassButton.text)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 7)
+                    .glassButtonSurface(Capsule(style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func details(_ provider: IntegrationProvider, isLinked: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(provider.whatNodDoes, id: \.self) { line in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image("nc-check")
+                            .icon(9)
+                            .foregroundStyle(Theme.Palette.muted)
+                            .padding(.top, 3)
+                        Text(line)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Theme.Palette.ink.opacity(0.8))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            if isLinked {
+                connectedSettings(provider)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 14)
+    }
+
+    /// Settings that only mean anything once the account is linked.
+    private func connectedSettings(_ provider: IntegrationProvider) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsRowDivider()
+            HStack(spacing: 12) {
+                teamPicker(provider)
+                directorySync(provider)
+                Spacer(minLength: 8)
+                Button { disconnecting = provider } label: {
+                    Text("Disconnect")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.danger)
+                }
+                .buttonStyle(.plain)
+                .linkCursor()
+            }
+        }
     }
 
     /// Re-reads this workspace's member list into the organization.
@@ -157,70 +283,6 @@ struct IntegrationsSection: View {
         }
     }
 
-    /// Whether the organization permits this tool at all — an administrator's
-    /// answer, sitting beside the individual's.
-    ///
-    /// Two switches on one row because they are two different decisions and
-    /// either one is enough to stop an action: the person chooses whether to
-    /// link their account, the company chooses whether Nod may act in that
-    /// product for anybody. A company standardised on one chat tool turns the
-    /// others off here, and nothing offers them again.
-    @ViewBuilder
-    private func organizationSwitch(_ provider: IntegrationProvider) -> some View {
-        if let organizations, let membership = organizations.activeMembership, membership.role.administers {
-            OrgToolToggle(service: service, provider: provider, membership: membership)
-        }
-    }
-
-    @ViewBuilder
-    private func trailing(_ provider: IntegrationProvider, isLinked: Bool, isPending: Bool) -> some View {
-        if isLinked {
-            HStack(spacing: 12) {
-                directorySync(provider)
-                teamPicker(provider)
-                HStack(spacing: 5) {
-                    Image("nc-check")
-                        .icon(10)
-                    Text("Connected")
-                        .font(.system(size: 11.5, weight: .semibold))
-                }
-                .foregroundStyle(Theme.Palette.success)
-                .accessibilityLabel("\(provider.displayName) connected")
-
-                Button { disconnecting = provider } label: {
-                    Text("Disconnect")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.danger)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Theme.Palette.surfaceStrong)
-                        )
-                }
-                .buttonStyle(.plain)
-                .linkCursor()
-            }
-        } else if isPending {
-            Button("Cancel") { service.cancelPending() }
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(Theme.Palette.muted)
-                .buttonStyle(.plain)
-        } else {
-            Button {
-                Task { await service.connect(provider) }
-            } label: {
-                Text("Connect")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundColor(Theme.GlassButton.text)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
     /// Which team this connection serves. Absent unless the person is actually in
     /// one — a picker with nothing to pick is a question with no answer — and
     /// absent for anything read-only: a calendar is one person's, so asking which
@@ -254,9 +316,7 @@ struct IntegrationsSection: View {
     }
 
     private func providerChip(_ provider: IntegrationProvider) -> some View {
-        Image(provider.iconName)
-            .icon(12)
-            .foregroundStyle(Theme.Palette.ink.opacity(0.85))
+        ProviderMark(provider: provider)
             .frame(width: 32, height: 32)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
