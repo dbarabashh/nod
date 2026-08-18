@@ -300,7 +300,12 @@ struct SettingsView: View {
     @ViewBuilder
     private var profilePane: some View {
         if let profileStore {
-            ProfileSettingsSection(store: profileStore)
+            VStack(alignment: .leading, spacing: 20) {
+                ProfileSettingsSection(store: profileStore)
+                if let emailPreferences {
+                    EmailPreferencesSection(preferences: emailPreferences)
+                }
+            }
         } else {
             Text("Sign in to edit your profile.")
                 .font(.system(size: 12.5))
@@ -401,17 +406,23 @@ struct SettingsView: View {
     @ViewBuilder
     private var privacyPane: some View {
         if let auth, let accountExport {
+            // Ordered as the questions arrive: what Nod does, what it may
+            // read, what leaves the Mac, and how to take it all back. Email
+            // choices moved to Profile — deciding which mail to receive is an
+            // account preference, and it sat here diluting a page that has to
+            // answer one thing well.
             VStack(alignment: .leading, spacing: 20) {
+                PrivacySnapshot()
                 if let screenExclusions, let screenContext {
                     ScreenPrivacySection(exclusions: screenExclusions, screenContext: screenContext)
-                }
-                if let emailPreferences {
-                    EmailPreferencesSection(preferences: emailPreferences)
                 }
                 if let productAnalytics {
                     ProductAnalyticsSection(analytics: productAnalytics)
                 }
-                AccountDataSection(auth: auth, export: accountExport)
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel("Your data")
+                    AccountDataSection(auth: auth, export: accountExport)
+                }
             }
         } else {
             Text("Sign in to manage your data.")

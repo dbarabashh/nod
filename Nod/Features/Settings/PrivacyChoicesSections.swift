@@ -27,7 +27,7 @@ struct EmailPreferencesSection: View {
                     SettingsRow(icon: topic.icon, title: topic.title, subtitle: topic.detail) {
                         Toggle("", isOn: binding(for: topic))
                             .labelsHidden()
-                            .toggleStyle(.switch)
+                            .nodSwitch()
                             .accessibilityLabel(topic.title)
                             .disabled(!preferences.hasLoaded || preferences.isLoading || preferences.isSaving(topic))
                     }
@@ -115,7 +115,7 @@ struct ProductAnalyticsSection: View {
                         set: { analytics.isOptedOut = !$0 }
                     ))
                     .labelsHidden()
-                    .toggleStyle(.switch)
+                    .nodSwitch()
                     .accessibilityLabel("Share usage events")
                 }
             }

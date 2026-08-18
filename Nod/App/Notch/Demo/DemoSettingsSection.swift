@@ -20,8 +20,7 @@ struct DemoSettingsSection: View {
                 ) {
                     Toggle("", isOn: $playback.isEnabled)
                         .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(Theme.Palette.violet)
+                        .nodSwitch()
                 }
 
                 if playback.isEnabled {

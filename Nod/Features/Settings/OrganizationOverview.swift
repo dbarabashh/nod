@@ -135,7 +135,7 @@ struct OrgToolToggle: View {
                 }
             )
         )
-        .toggleStyle(.switch)
+        .nodSwitch()
         .controlSize(.mini)
         .labelsHidden()
         .help("Allowed in \(membership.organization.name)")

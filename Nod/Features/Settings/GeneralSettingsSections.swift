@@ -64,8 +64,7 @@ struct MeetingDetectionSection: View {
                     + "running and its window title; nothing is stored."
             ) {
                 Toggle("", isOn: $preference.isEnabled)
-                    .toggleStyle(.switch)
-                    .tint(Theme.Palette.violet)
+                    .nodSwitch()
                     .labelsHidden()
                     .controlSize(.small)
             }
@@ -112,8 +111,7 @@ struct CalendarSettingsSection: View {
                     + "Reads your Mac's own calendar, on this Mac — no account is connected, nothing stored."
             ) {
                 Toggle("", isOn: $calendar.isEnabled)
-                    .toggleStyle(.switch)
-                    .tint(Theme.Palette.violet)
+                    .nodSwitch()
                     .labelsHidden()
                     .controlSize(.small)
             }
@@ -228,8 +226,7 @@ struct ScreenShareSettingsSection: View {
             ) {
                 Toggle("", isOn: $pref.visibleWhenSharing)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(Theme.Palette.violet)
+                    .nodSwitch()
             }
         }
     }
@@ -352,8 +349,7 @@ struct GeneralSettingsPane: View {
                 ) {
                     Toggle("", isOn: $confirmLanguageBeforeMeeting)
                         .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(Theme.Palette.violet)
+                        .nodSwitch()
                 }
                 SettingsRowDivider()
                 SettingsRow(
@@ -363,8 +359,7 @@ struct GeneralSettingsPane: View {
                 ) {
                     Toggle("", isOn: $soundsEnabled)
                         .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(Theme.Palette.violet)
+                        .nodSwitch()
                 }
             }
 
@@ -432,8 +427,7 @@ struct GeneralSettingsPane: View {
                 ) {
                     Toggle("", isOn: demoBinding)
                         .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(Theme.Palette.violet)
+                        .nodSwitch()
                 }
             }
         }
