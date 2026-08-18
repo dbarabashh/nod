@@ -243,6 +243,10 @@ final class KnowledgeChatStore: ObservableObject {
     /// first question, so opening "New chat" and walking away leaves nothing
     /// behind.
     func startNewThread() {
+        // Already in one: the sidebar's Ask row starts a chat every time it is
+        // clicked, and clicking it while looking at an empty one would throw
+        // away the draft being typed into it for no gain.
+        guard threadID != nil || !messages.isEmpty else { return }
         messages = []
         errorText = nil
         threadID = nil

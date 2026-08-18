@@ -21,14 +21,12 @@ struct HomeSidebar: View {
     @EnvironmentObject private var threads: KnowledgeThreadStore
     @EnvironmentObject private var chat: KnowledgeChatStore
     @EnvironmentObject private var demoPlayback: DemoPlayback
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var isAddingProject = false
     @State private var newProjectName = ""
     @State private var newProjectColor = LabelPalette.default
     @State private var editingLabel: SessionLabel?
     @State private var confirmingDeleteThread: UUID?
-    @State private var newChatHovering = false
     /// "3 sessions · 2h ago" per project, counted over LIVE sessions only — the
     /// raw link tally includes rows pointing at trashed sessions, which reads as
     /// "5 sessions" on a project that opens showing four.
@@ -174,42 +172,31 @@ struct HomeSidebar: View {
 
     // MARK: - Navigation rows
 
-    /// Going back to the conversation and starting a fresh one are different
-    /// intents, so they're different targets: the row returns you to the chat
-    /// you had, the ＋ opens an empty one.
+    /// Asking is the verb; the Chats list below is the history.
+    ///
+    /// This was two controls — a row that returned you to the chat you had, and
+    /// a ＋ that opened an empty one — which shared a destination and read as
+    /// one button drawn twice. The row that returns you was the redundant half:
+    /// a thread is saved the moment it has a message in it, so every
+    /// conversation worth returning to is already a row in Chats, with the open
+    /// one marked. What no list can offer is the empty page, so that is what
+    /// the row does.
+    ///
+    /// Nothing is lost by clicking it: a chat with anything in it is in the
+    /// list, and a chat with nothing in it is left alone (`startNewThread`).
     private var chatRow: some View {
-        HStack(spacing: 4) {
-            // "Chat" names the interface; "Ask Nod" names the job — and it's
-            // the phrase the composer already uses ("Ask across all memory").
-            SidebarNavRow(
-                title: "Ask NOD",
-                icon: "nc-sparkle-3",
-                isSelected: surface == .chat,
-                action: { onSelect(.chat) }
-            )
-            // Carries its own surface at rest: as a bare glyph it read as
-            // decoration beside the row and users didn't find it.
-            Button(action: onNewChat) {
-                Image("nc-pen-writing")
-                    .icon(13.5)
-                    .foregroundStyle(newChatHovering ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.72))
-                    // Stretches to the row beside it where the stack has a
-                    // height to give — inside a `ScrollView` it doesn't, and
-                    // `maxHeight` alone collapses to the glyph.
-                    .frame(width: 30)
-                    .frame(minHeight: 30, maxHeight: .infinity)
-                    .hoverSurface(
-                        newChatHovering,
-                        in: RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous),
-                        reduceMotion: reduceMotion
-                    )
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .onHover { newChatHovering = $0 }
-            .linkCursor()
-            .help("New chat")
-        }
+        // "Chat" names the interface; "Ask Nod" names the job — and it's the
+        // phrase the composer already uses ("Ask across all memory").
+        //
+        // Selected only while the new chat is still unsaved: once it has been
+        // sent it owns a row in Chats, and that row is where "you are here"
+        // belongs.
+        SidebarNavRow(
+            title: "Ask NOD",
+            icon: "nc-sparkle-3",
+            isSelected: surface == .chat && chat.threadID == nil,
+            action: onNewChat
+        )
     }
 
     /// Only shown while a scripted scenario is armed (Settings → Demo) — the
