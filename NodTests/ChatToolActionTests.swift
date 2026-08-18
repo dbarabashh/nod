@@ -24,6 +24,20 @@ final class ChatToolActionTests: XCTestCase {
         }
     }
 
+    /// Reading a channel is not a write, and the model is told so — but every
+    /// call still stops at the approval card, which is what `mutating` does not
+    /// decide. What it does decide is how the card reads, and a read presented
+    /// as a change is how somebody learns to click through them.
+    func testSlackReadsAreNotAdvertisedAsChanges() {
+        let tools = ChatTools.definitions(for: [.slack])
+        let byAction = Dictionary(uniqueKeysWithValues: tools.map { ($0.action, $0) })
+
+        XCTAssertEqual(byAction["list_channels"]?.mutating, false)
+        XCTAssertEqual(byAction["read_channel"]?.mutating, false)
+        XCTAssertEqual(byAction["read_thread"]?.mutating, false)
+        XCTAssertEqual(byAction["create_channel"]?.mutating, true)
+    }
+
     func testCalendarReadsWithoutApprovalAndWritesWithIt() {
         let tools = ChatTools.definitions(for: [.googleCalendar])
         XCTAssertEqual(Set(tools.map(\.action)), ["list_events", "create_event"])

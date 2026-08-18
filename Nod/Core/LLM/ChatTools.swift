@@ -38,6 +38,7 @@ struct ChatTool: Equatable {
         case "create": "Created in"
         case "list": "Listed from"
         case "update": "Updated in"
+        case "read": "Read from"
         default: "Used"
         }
     }
@@ -178,6 +179,50 @@ enum ChatTools {
     /// its prompt and no way to learn a Slack id, and the server turns one into
     /// the other where it can be checked.
     private static let slackTools: [ChatTool] = [
+        ChatTool(
+            provider: .slack,
+            name: "slack_list_channels",
+            description: """
+            List the Slack channels Nod can reach — every public one, plus private ones it was invited to. \
+            Use to find a channel's id before reading it; the user names channels by topic, not by id.
+            """,
+            parameters: ChatToolSchema(
+                properties: ["query": .init(description: "Optional words to narrow the list, e.g. pricing.")],
+                required: []
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .slack,
+            name: "slack_read_channel",
+            description: """
+            Read recent messages in one Slack channel. Use when the answer is what the team said there, \
+            not what a meeting recorded. Needs a channel id from slack_list_channels. Nod joins a public \
+            channel it isn't in yet, which the channel sees — so read the one that was asked about, not \
+            every one that might mention it.
+            """,
+            parameters: ChatToolSchema(
+                properties: [
+                    "channel": .init(description: "Channel id from slack_list_channels."),
+                    "limit": .init(description: "How many recent messages, 1-200. Default 50.")
+                ],
+                required: ["channel"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .slack,
+            name: "slack_read_thread",
+            description: "Read one thread's replies. Use only when a message from slack_read_channel says it has replies and those replies are the answer.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "channel": .init(description: "Channel id the thread is in."),
+                    "thread": .init(description: "The thread id reported by slack_read_channel.")
+                ],
+                required: ["channel", "thread"]
+            ),
+            mutating: false
+        ),
         ChatTool(
             provider: .slack,
             name: "slack_create_channel",

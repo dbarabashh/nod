@@ -6,10 +6,15 @@
 // takes Slack member ids, resolved from `people` by the executor, and this file
 // never sees a name it has to guess about.
 //
-// Deliberately three actions and no more. Creating a channel and inviting
-// colleagues are additive and visible — everybody invited can see what happened
-// and leave. Posting messages, archiving channels and removing members are not,
-// and none of them is needed to turn a meeting into work.
+// Reads and additive writes, and nothing else. Creating a channel and inviting
+// colleagues are visible and reversible — everybody invited can see what
+// happened and leave — and reading answers a question from what the team
+// already said. Posting messages, archiving channels and removing members are
+// none of those things, and none of them is needed to turn a meeting into work.
+//
+// Reading a public channel means joining it, because Slack gives a bot no other
+// way in. That is the one read here that leaves a trace, and the trace is a
+// "Nod joined" line the whole channel can see.
 import { ActionError, type Connection, proxy } from "./nango.ts";
 import type { ActionHandlers } from "./registry.ts";
 
@@ -27,7 +32,7 @@ async function call(
 
     if (!payload?.ok) {
         const detail = payload?.error ?? "unknown_error";
-        throw new ActionError(SLACK_ERRORS[detail] ?? "provider_error", messageFor(detail), 502);
+        throw new ActionError(SLACK_ERRORS[detail] ?? "provider_error", messageFor(detail), 502, detail);
     }
     return payload as Record<string, unknown>;
 }
@@ -158,22 +163,210 @@ function list(params: Record<string, unknown>, key: string): string[] {
     return [];
 }
 
+/// A channel's messages, letting Nod in first if it isn't a member yet.
+///
+/// Slack gives a bot no way to read a public channel it hasn't joined, and no
+/// scope changes that — so the choice is between joining and not answering.
+/// Joining is visible: the channel gets a "Nod joined" line, which is the right
+/// trade only because the alternative is a product that quietly cannot see the
+/// room it was asked about. A private channel has no such door, and its
+/// `not_in_channel` is passed on as the failure it is.
+async function history(
+    connection: Connection,
+    channel: string,
+    limit: number,
+): Promise<Record<string, unknown>> {
+    const read = () =>
+        call(connection, "conversations.history", {}, {
+            method: "GET",
+            query: { channel, limit: String(limit) },
+        });
+    try {
+        return await read();
+    } catch (error) {
+        if (!(error instanceof ActionError) || error.providerCode !== "not_in_channel") throw error;
+        await call(connection, "conversations.join", { channel });
+        return await read();
+    }
+}
+
+/// Slack stamps a message with a unix time and a sequence, as `1723989000.123`.
+/// The model reads dates, not epochs.
+function slackTimestamp(ts: string | undefined): string {
+    const seconds = Number((ts ?? "").split(".")[0]);
+    if (!Number.isFinite(seconds) || seconds <= 0) return "";
+    return new Date(seconds * 1000).toISOString();
+}
+
+/// One member of the workspace, as both readers of `users.list` need them.
+interface SlackMember {
+    id: string;
+    deleted?: boolean;
+    is_bot?: boolean;
+    real_name?: string;
+    profile?: { email?: string; real_name?: string; display_name?: string };
+}
+
+/// The workspace's roster, fetched at most once a minute per connection.
+///
+/// Two callers want it for different reasons — the directory import wants
+/// addresses, a channel read wants names to put beside quotes — and a single
+/// question can read a channel and then two of its threads. Fetched per call
+/// that was one full roster download each, against the same rate limit the
+/// directory import needs; the identical payload answers all of them.
+const rosters = new Map<string, { members: SlackMember[]; until: number }>();
+const ROSTER_TTL_MS = 60_000;
+
+async function workspaceMembers(connection: Connection): Promise<SlackMember[]> {
+    const cached = rosters.get(connection.id);
+    if (cached && cached.until > Date.now()) return cached.members;
+
+    const payload = await call(connection, "users.list", {}, {
+        method: "GET",
+        query: { limit: "500" },
+    });
+    const members = (payload.members as SlackMember[] | undefined) ?? [];
+    rosters.set(connection.id, { members, until: Date.now() + ROSTER_TTL_MS });
+    return members;
+}
+
+/// User ids to the names a person would recognise. Anything the roster doesn't
+/// answer for keeps its id rather than becoming "someone" — a name Nod cannot
+/// resolve is still a distinct speaker, and collapsing several of them into one
+/// word makes a conversation read as if one person said everything.
+async function displayNames(
+    connection: Connection,
+    ids: (string | undefined)[],
+): Promise<Record<string, string>> {
+    const wanted = new Set(ids.filter((id): id is string => Boolean(id)));
+    if (wanted.size === 0) return {};
+
+    const members = await workspaceMembers(connection).catch(() => [] as SlackMember[]);
+    const names: Record<string, string> = {};
+    for (const member of members) {
+        if (!wanted.has(member.id)) continue;
+        names[member.id] = member.profile?.display_name || member.profile?.real_name || member.real_name || member.id;
+    }
+    return names;
+}
+
 export const SLACK_ACTIONS: ActionHandlers = {
+    /// Every channel Nod can reach: all public ones, plus the private channels
+    /// somebody added it to.
+    ///
+    /// Public channels are listed whether or not Nod is in them, because it can
+    /// let itself in — `read_channel` joins on demand. Private ones are only
+    /// here when it was invited, since no scope lets a bot into a private
+    /// channel on its own; listing those would offer the model a door it cannot
+    /// open.
+    list_channels: async (connection, params) => {
+        const query = typeof params?.query === "string" ? params.query.toLowerCase().trim() : "";
+        const payload = await call(connection, "conversations.list", {}, {
+            method: "GET",
+            query: {
+                types: "public_channel,private_channel",
+                exclude_archived: "true",
+                limit: "200",
+            },
+        });
+        const channels = (payload.channels as {
+            id: string;
+            name?: string;
+            is_member?: boolean;
+            is_private?: boolean;
+            is_archived?: boolean;
+            topic?: { value?: string };
+            purpose?: { value?: string };
+        }[] | undefined) ?? [];
+
+        return {
+            channels: channels
+                .filter((channel) => channel.is_member || !channel.is_private)
+                .filter((channel) =>
+                    !query ||
+                    (channel.name ?? "").toLowerCase().includes(query) ||
+                    (channel.purpose?.value ?? "").toLowerCase().includes(query)
+                )
+                .slice(0, 60)
+                .map((channel) => ({
+                    id: channel.id,
+                    name: channel.name ?? channel.id,
+                    purpose: channel.purpose?.value || channel.topic?.value || "",
+                    joined: channel.is_member === true,
+                })),
+        };
+    },
+
+    /// What was said in one channel, newest first.
+    ///
+    /// Names are resolved here rather than handed back as `U0123ABCD`: the model
+    /// is being asked what a team decided, and an answer attributing it to a
+    /// user id is unreadable to the person who asked. Bot posts are dropped —
+    /// deploy notifications are not what anybody means by "what did we say".
+    read_channel: async (connection, params) => {
+        const channel = requireString(params, "channel");
+        const limit = Math.min(Math.max(Number(params?.limit ?? 50), 1), 200);
+        const payload = await history(connection, channel, limit);
+        const messages = (payload.messages as {
+            type?: string;
+            subtype?: string;
+            user?: string;
+            bot_id?: string;
+            text?: string;
+            ts?: string;
+            thread_ts?: string;
+            reply_count?: number;
+        }[] | undefined) ?? [];
+
+        const said = messages.filter((message) =>
+            message.type === "message" && !message.bot_id && !message.subtype && (message.text ?? "").trim()
+        );
+        const names = await displayNames(connection, said.map((message) => message.user));
+
+        return {
+            messages: said.map((message) => ({
+                author: names[message.user ?? ""] ?? message.user ?? "someone",
+                text: message.text ?? "",
+                at: slackTimestamp(message.ts),
+                thread: message.thread_ts && message.reply_count ? message.thread_ts : undefined,
+                replies: message.reply_count ?? 0,
+            })),
+        };
+    },
+
+    /// One thread, when a channel message turned out to be the start of the
+    /// conversation rather than the whole of it.
+    read_thread: async (connection, params) => {
+        const channel = requireString(params, "channel");
+        const thread = requireString(params, "thread");
+        const payload = await call(connection, "conversations.replies", {}, {
+            method: "GET",
+            query: { channel, ts: thread, limit: "100" },
+        });
+        const messages = (payload.messages as {
+            user?: string;
+            bot_id?: string;
+            text?: string;
+            ts?: string;
+        }[] | undefined) ?? [];
+
+        const said = messages.filter((message) => !message.bot_id && (message.text ?? "").trim());
+        const names = await displayNames(connection, said.map((message) => message.user));
+
+        return {
+            messages: said.map((message) => ({
+                author: names[message.user ?? ""] ?? message.user ?? "someone",
+                text: message.text ?? "",
+                at: slackTimestamp(message.ts),
+            })),
+        };
+    },
+
     /// The workspace's members, for matching a person to their Slack account by
     /// address. Same shape `linear.list_users` answers with, so the executor's
     /// identity import does not branch per provider.
     list_users: async (connection) => {
-        const payload = await call(connection, "users.list", {}, {
-            method: "GET",
-            query: { limit: "500" },
-        });
-        const members = (payload.members as {
-            id: string;
-            deleted?: boolean;
-            is_bot?: boolean;
-            real_name?: string;
-            profile?: { email?: string; real_name?: string };
-        }[] | undefined) ?? [];
+        const members = await workspaceMembers(connection);
 
         return {
             users: members

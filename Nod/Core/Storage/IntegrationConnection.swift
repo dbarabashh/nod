@@ -175,22 +175,57 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .linear: "Turn action items into Linear issues."
         case .googleCalendar: "Know which meeting is starting, so notes land on the right one."
-        case .slack: "Open a channel for what a meeting decided, and add the people in it."
+        case .slack: "Read what a channel decided, and open one for what a meeting did."
         }
     }
 
-    /// The brand mark, once someone drops `logo.png` into the matching imageset
-    /// — same arrangement as `ConnectionClient.iconAssetName`. Resolved at use
-    /// site so a missing asset degrades to the Nucleo stand-in instead of
-    /// rendering an empty frame.
-    var brandAssetName: String {
+    /// What connecting this actually gets you, and — where it matters — what it
+    /// does not. One line each: a person deciding whether to hand over access to
+    /// their company's tracker is answering "what will this do", and a single
+    /// summary sentence has never been enough to answer it.
+    var whatNodDoes: [String] {
         switch self {
-        case .linear: "ConnLinear"
-        // Not `ConnGoogleCalendar`: the same mark already ships for the notch
-        // demo, and a second copy of one logo is a second thing to replace.
-        case .googleCalendar: "Brandgooglecalendar"
-        case .slack: "ConnSlack"
+        case .linear:
+            [
+                "File an action item as an issue, with the meeting's own wording.",
+                "Check whether something is already tracked before filing it again.",
+                "Close an issue when you tick the action item off.",
+                "Every call is shown to you first; nothing is filed without your say-so."
+            ]
+        case .googleCalendar:
+            [
+                "Know which meeting is starting, so a recording lands on the right one.",
+                "Name the people who were invited, so notes can say who said what.",
+                "Read-only — Nod never writes to your calendar."
+            ]
+        case .slack:
+            [
+                "Read any public channel, so a question can be answered from what the team actually said.",
+                "Open a channel for what a meeting decided, and add the people in it.",
+                "Bring your workspace's members into the organization directory.",
+                "It joins a public channel to read it, which that channel sees. Private channels need an invite, and direct messages are never read."
+            ]
         }
+    }
+
+    /// Derived from the id rather than listed, so adding a product is adding a
+    /// case and dropping an SVG in — not remembering a third place to edit.
+    ///
+    /// Three hand-written names had already drifted into two conventions, and
+    /// Slack's pointed at an imageset nobody ever added: it drew the Nucleo
+    /// stand-in, silently, which is how it survived to ship.
+    var brandAssetName: String {
+        "Brand" + rawValue.replacingOccurrences(of: "-", with: "")
+    }
+
+    /// The same mark, from the place the connection itself comes from.
+    ///
+    /// Nango's integration id *is* our `rawValue` — `integration-connect` sends
+    /// it as `allowed_integrations` — so the catalogue we already authenticate
+    /// against also has the logo. A product added tomorrow draws its own mark
+    /// before anybody exports an asset for it.
+    var remoteLogoURL: URL? {
+        URL(string: "https://app.nango.dev/images/template-logos/\(rawValue).svg")
     }
 
     var fallbackIconName: String {
