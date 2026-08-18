@@ -16,6 +16,7 @@ struct ActionItemsAggregateView: View {
     let onBack: () -> Void
 
     @EnvironmentObject private var actionItemStore: ActionItemStore
+    @EnvironmentObject private var integrations: IntegrationService
     @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var analytics: ProductAnalytics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -47,6 +48,18 @@ struct ActionItemsAggregateView: View {
     @FocusState private var addingFocused: Bool
     /// Row currently under the pointer, so its trailing delete button reveals.
     @State private var hoveredID: UUID?
+    @State private var hoveredGroup: UUID?
+
+    /// What a bulk action will act on. Empty is the ordinary state — the bar
+    /// only exists while something is selected.
+    @State private var search = ""
+    /// Sessions folded away. Twenty meetings' worth of tasks is a scroll; the
+    /// ones already dealt with should be able to get out of the way.
+    @State private var collapsed: Set<UUID> = []
+
+    @State private var selection: Set<UUID> = []
+    /// Which tracker the review sheet is filing into, or nil while it's closed.
+    @State private var filingInto: IntegrationProvider?
 
     enum Filter: String, CaseIterable, Identifiable {
         case open = "Open"
@@ -205,7 +218,11 @@ struct ActionItemsAggregateView: View {
                     .foregroundStyle(Theme.Palette.muted)
             }
             Spacer(minLength: 8)
-            if !relevantItems.isEmpty { filterControl }
+            if !relevantItems.isEmpty {
+                SearchField(prompt: "Search tasks", text: $search)
+                    .frame(maxWidth: 220)
+                filterControl
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 18)
@@ -237,7 +254,9 @@ struct ActionItemsAggregateView: View {
                 ForEach(groupedItems) { group in
                     VStack(alignment: .leading, spacing: 7) {
                         sectionHeader(group)
-                        groupCard(group)
+                        if !isCollapsed(group.meetingID) {
+                            groupCard(group)
+                        }
                     }
                 }
             }
@@ -252,32 +271,111 @@ struct ActionItemsAggregateView: View {
         }
         .scrollContentBackground(.hidden)
         .tooltipContainer()
+        .overlay(alignment: .bottom) { selectionBar }
+        .animation(.standard(reduceMotion: reduceMotion), value: selection.isEmpty)
+        // Escape is what every list on this platform answers with, and the bar
+        // has a ✕ for the pointer.
+        .onExitCommand { selection = [] }
+        // Switching filters changes what the list is about; carrying a
+        // selection across that means acting on rows chosen under a different
+        // question.
+        .onChange(of: filter) { _ in selection = [] }
+    }
+
+    private var isFiling: Binding<Bool> {
+        Binding(get: { filingInto != nil }, set: { if !$0 { filingInto = nil } })
     }
 
     /// Per-meeting heading sitting above the group's card, so a session's tasks
     /// stay together and never interleave down the list. Tappable to open the
     /// source meeting; the per-row meeting chip is dropped as redundant.
     private func sectionHeader(_ group: ItemGroup) -> some View {
-        Button {
-            onOpenMeeting(group.meetingID)
-        } label: {
-            HStack(spacing: 6) {
-                Image(meetingIcon(group.meetingID))
-                    .icon(10.5)
-                Text(meetingTitle(group.meetingID))
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-                Text("\(group.items.count)")
-                    .font(.system(size: 11, weight: .medium))
-                    .opacity(0.7)
-                Spacer(minLength: 0)
+        // The select-all is a sibling of the title button, not a child of it:
+        // nested in the label it would sit inside the hit area that opens the
+        // meeting, so selecting a session's tasks would navigate away from them.
+        HStack(spacing: 6) {
+            Button {
+                toggleCollapsed(group.meetingID)
+            } label: {
+                Image(isCollapsed(group.meetingID) ? "nc-chevron-right" : "nc-chevron-down")
+                    .icon(9)
+                    .foregroundStyle(Theme.Palette.muted)
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
             }
-            .foregroundStyle(Theme.Palette.muted)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .linkCursor()
+            .help(isCollapsed(group.meetingID) ? "Show these tasks" : "Fold this session away")
+
+            Button {
+                onOpenMeeting(group.meetingID)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(meetingIcon(group.meetingID))
+                        .icon(10.5)
+                    Text(meetingTitle(group.meetingID))
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                    Text("\(group.items.count)")
+                        .font(.system(size: 11, weight: .medium))
+                        .opacity(0.7)
+                }
+                .foregroundStyle(Theme.Palette.muted)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open this meeting")
+
+            Spacer(minLength: 0)
+
+            // A whole meeting's tasks is the selection people actually want —
+            // "everything we agreed in that call, into Linear" — and picking
+            // eight rows one command-click at a time is the same intent typed
+            // out longhand.
+            if hoveredGroup == group.meetingID || isFullySelected(group) {
+                Button {
+                    toggleGroup(group)
+                } label: {
+                    Text(isFullySelected(group) ? "Deselect all" : "Select all")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .linkCursor()
+            }
         }
-        .buttonStyle(.plain)
         .padding(.horizontal, 4)
-        .help("Open this meeting")
+        .onHover { hovering in
+            if hovering { hoveredGroup = group.meetingID }
+            else if hoveredGroup == group.meetingID { hoveredGroup = nil }
+        }
+    }
+
+    /// A search overrides what is folded away: a result you cannot see is the
+    /// same as no result, and having to remember which session you folded is
+    /// exactly the work searching was meant to replace.
+    private func isCollapsed(_ meetingID: UUID) -> Bool {
+        search.isEmpty && collapsed.contains(meetingID)
+    }
+
+    private func toggleCollapsed(_ meetingID: UUID) {
+        withAnimation(.standard(reduceMotion: reduceMotion)) {
+            if collapsed.contains(meetingID) { collapsed.remove(meetingID) } else { collapsed.insert(meetingID) }
+        }
+    }
+
+    private func isFullySelected(_ group: ItemGroup) -> Bool {
+        !group.items.isEmpty && group.items.allSatisfy { selection.contains($0.id) }
+    }
+
+    private func toggleGroup(_ group: ItemGroup) {
+        let ids = group.items.map(\.id)
+        if isFullySelected(group) {
+            selection.subtract(ids)
+        } else {
+            selection.formUnion(ids)
+        }
     }
 
     /// A session's tasks in one rounded card; rows separated by inset hairlines
@@ -385,30 +483,7 @@ struct ActionItemsAggregateView: View {
                 .onTapGesture { Task { await toggle(item) } }
             VStack(alignment: .leading, spacing: 5) {
                 if editingID == item.id {
-                    // Top-aligned, so the save/cancel pair stays put on the
-                    // first line as the field grows instead of riding its
-                    // baseline down the row.
-                    HStack(alignment: .top, spacing: 8) {
-                        // Vertical axis so a two-line task stays fully visible
-                        // while it's edited — a single-line field scrolls the
-                        // sentence out of view exactly when you need to read it.
-                        TextField("Task", text: $editingText, axis: .vertical)
-                            .textFieldStyle(.plain)
-                            .lineLimit(1 ... 6)
-                            .font(.system(size: 13.5))
-                            .foregroundStyle(Theme.Palette.ink)
-                            .focused($editingFocused)
-                            .chatSubmit(text: $editingText) { Task { await commitEdit(item) } }
-                            .onExitCommand { cancelEdit() }
-                            .onAppear {
-                                editingFocused = true
-                                placeCaretAtEnd()
-                            }
-                        fieldButtons(
-                            save: { Task { await commitEdit(item) } },
-                            cancel: { cancelEdit() }
-                        )
-                    }
+                    editor(item)
                 } else {
                     Text(item.text)
                         .font(.system(size: 13.5, weight: .regular))
@@ -443,27 +518,189 @@ struct ActionItemsAggregateView: View {
         .padding(.vertical, 10)
         .padding(.horizontal, 12)
         .contentShape(Rectangle())
-        .overlay(alignment: .trailing) {
-            let hovering = hoveredID == item.id && editingID != item.id
-            // A filed item shows its reference whether or not the pointer is
-            // there — that one is information, not an affordance.
-            let show = hovering || item.isFiled
-            HStack(spacing: 6) {
-                ActionItemFilingButton(item: item)
-                deleteButton(item)
-                    .opacity(hovering ? 1 : 0)
-                    .allowsHitTesting(hovering)
-            }
-            .padding(.trailing, 10)
-            .opacity(show ? 1 : 0)
-            .allowsHitTesting(show)
-            .animation(.easeInOut(duration: 0.12), value: show)
-        }
+        .overlay(alignment: .trailing) { rowActions(item) }
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Theme.Palette.violet.opacity(selection.contains(item.id) ? 0.16 : 0))
+                .padding(.horizontal, 4)
+        )
         .onHover { hovering in
             if hovering { hoveredID = item.id }
             else if hoveredID == item.id { hoveredID = nil }
         }
+        // Command-click selects, the way a list on this platform has always
+        // selected — and the bar it raises is what teaches the rest.
+        .highPriorityGesture(
+            TapGesture().modifiers(.command).onEnded { toggleSelected(item.id) }
+        )
         .contextMenu { rowMenu(item) }
+    }
+
+    private func toggleSelected(_ id: UUID) {
+        if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+    }
+
+    /// What is selected, and the one button that acts on it.
+    ///
+    /// One "Actions" menu rather than a row of buttons: the list of things you
+    /// can do to a task grows with every integration Nod connects, and a bar
+    /// that spends a button on each runs out of bar. The count is the other
+    /// half — a bulk action with no statement of what it will touch is how you
+    /// complete forty tasks by accident.
+    @ViewBuilder
+    private var selectionBar: some View {
+        // Against what is on screen, not against the set: checking a row off
+        // under Open takes it out of the list, and a bar still counting it
+        // would offer to act on something the person can no longer see.
+        let selected = visibleItems.filter { selection.contains($0.id) }
+        if !selected.isEmpty {
+            HStack(spacing: 10) {
+                Text("\(selected.count) selected")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.Palette.ink)
+
+                Menu {
+                    if selected.contains(where: { !$0.done }) {
+                        Button {
+                            Task { await completeSelected(true) }
+                        } label: {
+                            IconLabel(title: "Mark done", icon: "nc-check")
+                        }
+                    }
+                    if selected.contains(where: \.done) {
+                        Button {
+                            Task { await completeSelected(false) }
+                        } label: {
+                            IconLabel(title: "Mark not done", icon: "nc-arrow-up-right")
+                        }
+                    }
+                    let unfiled = selected.filter { !$0.isFiled }
+                    if !unfiled.isEmpty, !integrations.taskTargets.isEmpty {
+                        Divider()
+                        ForEach(integrations.taskTargets) { provider in
+                            Button {
+                                filingInto = provider
+                            } label: {
+                                IconLabel(
+                                    title: "Send \(unfiled.count) to \(provider.displayName)",
+                                    icon: provider.iconName
+                                )
+                            }
+                        }
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        Task { await deleteSelected() }
+                    } label: {
+                        IconLabel(title: "Not actions", icon: "nc-xmark")
+                    }
+                } label: {
+                    Text("Actions")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
+                Button {
+                    selection = []
+                } label: {
+                    Image("nc-xmark")
+                        .icon(9)
+                        .foregroundStyle(Theme.Palette.muted)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .linkCursor()
+                .help("Clear selection")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Theme.Palette.surfaceStrong)
+                    .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+            )
+            .padding(.bottom, 18)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .popover(isPresented: isFiling, arrowEdge: .top) {
+                if let provider = filingInto {
+                    BulkFilingSheet(
+                        items: selected.filter { !$0.isFiled },
+                        provider: provider,
+                        onFinish: {
+                            filingInto = nil
+                            selection = []
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private func completeSelected(_ done: Bool) async {
+        let targets = visibleItems.filter { selection.contains($0.id) && $0.done != done }
+        selection = []
+        // A single undo toast can only speak for one row, and forty rows
+        // vanishing behind one "Undo" would promise something it can't keep.
+        clearUndo()
+        for item in targets {
+            await actionItemStore.setDone(done, itemID: item.id)
+        }
+    }
+
+    private func deleteSelected() async {
+        let targets = visibleItems.filter { selection.contains($0.id) }
+        selection = []
+        clearUndo()
+        for item in targets {
+            await actionItemStore.softDelete(itemID: item.id)
+        }
+    }
+
+    /// Top-aligned, so the save/cancel pair stays put on the first line as the
+    /// field grows instead of riding its baseline down the row.
+    private func editor(_ item: ActionItem) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            // Vertical axis so a two-line task stays fully visible while it's
+            // edited — a single-line field scrolls the sentence out of view
+            // exactly when you need to read it.
+            TextField("Task", text: $editingText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1 ... 6)
+                .font(.system(size: 13.5))
+                .foregroundStyle(Theme.Palette.ink)
+                .focused($editingFocused)
+                .chatSubmit(text: $editingText) { Task { await commitEdit(item) } }
+                .onExitCommand { cancelEdit() }
+                .onAppear {
+                    editingFocused = true
+                    placeCaretAtEnd()
+                }
+            fieldButtons(
+                save: { Task { await commitEdit(item) } },
+                cancel: { cancelEdit() }
+            )
+        }
+    }
+
+    /// The row's trailing slot: where this went, and what can be done with it.
+    private func rowActions(_ item: ActionItem) -> some View {
+        let hovering = hoveredID == item.id && editingID != item.id
+        // A filed item shows its reference whether or not the pointer is there
+        // — that one is information, not an affordance.
+        let show = hovering || item.isFiled
+        return HStack(spacing: 6) {
+            ActionItemFilingButton(item: item)
+            deleteButton(item)
+                .opacity(hovering ? 1 : 0)
+                .allowsHitTesting(hovering)
+        }
+        .padding(.trailing, 10)
+        .opacity(show ? 1 : 0)
+        .allowsHitTesting(show)
+        .animation(.easeInOut(duration: 0.12), value: show)
     }
 
     private func deleteButton(_ item: ActionItem) -> some View {
@@ -535,19 +772,35 @@ struct ActionItemsAggregateView: View {
 
     // MARK: - States
 
+    private var searchEmptyTitle: String {
+        if !search.isEmpty { return "Nothing matches “\(search)”" }
+        return filter == .open ? "No open action items." : "No action items yet."
+    }
+
     private var emptyState: some View {
         VStack(spacing: 14) {
             Image("nc-tasks-2")
                 .icon(34)
                 .foregroundStyle(Theme.Palette.muted)
-            Text(filter == .open ? "No open action items." : "No action items yet.")
+            Text(searchEmptyTitle)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
-            Text("Tasks Nod pulls from your meetings show up here, with a checkbox each.")
-                .font(.system(size: 12.5, weight: .regular))
-                .foregroundStyle(Theme.Palette.graphite)
-                .multilineTextAlignment(.center)
-            if filter != .all, !relevantItems.isEmpty {
+            if search.isEmpty {
+                Text("Tasks Nod pulls from your meetings show up here, with a checkbox each.")
+                    .font(.system(size: 12.5, weight: .regular))
+                    .foregroundStyle(Theme.Palette.graphite)
+                    .multilineTextAlignment(.center)
+            } else {
+                Button {
+                    search = ""
+                } label: {
+                    Text("Clear search")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.brand)
+                }
+                .buttonStyle(.plain)
+            }
+            if search.isEmpty, filter != .all, !relevantItems.isEmpty {
                 Button {
                     withAnimation(.standard(reduceMotion: reduceMotion)) { filter = .all }
                 } label: {
@@ -580,9 +833,19 @@ struct ActionItemsAggregateView: View {
         items.filter { activeMeetingIDs.contains($0.meetingID) }
     }
 
+    /// Matched against the task's own words and the title of the session it came
+    /// from, so "standup" finds everything that meeting produced without anyone
+    /// having to remember how a task was worded.
+    private func matchesSearch(_ item: ActionItem) -> Bool {
+        guard !search.isEmpty else { return true }
+        return item.text.localizedCaseInsensitiveContains(search)
+            || meetingTitle(item.meetingID).localizedCaseInsensitiveContains(search)
+    }
+
     private var visibleItems: [ActionItem] {
         relevantItems.filter { item in
-            switch filter {
+            guard matchesSearch(item) else { return false }
+            return switch filter {
             case .open: !item.done
             case .done: item.done
             case .all: true

@@ -42,13 +42,39 @@ struct ActionItemFilingButton: View {
     @ViewBuilder private var content: some View {
         if let filed = item.filed {
             reference(filed)
-        } else {
-            HStack(spacing: 4) {
-                ForEach(integrations.taskTargets) { provider in
-                    mark(provider)
+        } else if integrations.taskTargets.count == 1, let only = integrations.taskTargets.first {
+            // One tracker: the slot is that tracker. Asking "which one?" of a
+            // list of one is a click that answers itself.
+            mark(only)
+        } else if !integrations.taskTargets.isEmpty {
+            // One slot, whatever is connected. Drawn per tracker, the row grew a
+            // button for every integration Nod ever adds — four connected
+            // products meant four glyphs in a row that has space for two.
+            targetMenu
+        }
+    }
+
+    private var targetMenu: some View {
+        Menu {
+            ForEach(integrations.taskTargets) { provider in
+                Button {
+                    compose(in: provider)
+                } label: {
+                    IconLabel(title: "Send to \(provider.displayName)", icon: provider.iconName)
                 }
             }
+        } label: {
+            Image("nc-paper-plane-2")
+                .icon(11)
+                .foregroundStyle(failed ? Theme.Palette.danger : Theme.Palette.muted)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 20)
+        .linkCursor()
+        .help(failed ? "Couldn't file that — try again" : "Send to…")
     }
 
     private var isComposing: Binding<Bool> {
