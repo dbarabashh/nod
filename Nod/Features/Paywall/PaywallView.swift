@@ -38,7 +38,7 @@ struct PaywallView: View {
                 "Records you and the other side",
                 "Live transcription, summaries & action items",
                 "Ask Nod about a single meeting",
-                "Unlimited history, folders & search",
+                "Unlimited history, projects & search",
                 "Audio is never stored"
             ]
         ),
@@ -51,7 +51,7 @@ struct PaywallView: View {
                 "Everything in Starter, plus:",
                 "Ask Nod live during a meeting",
                 "Ask Nod across all meetings — your knowledge base",
-                "Folder-scoped questions",
+                "Project-scoped questions",
                 "Screen context — ask about what's in front of you",
                 "Early access + priority support"
             ]

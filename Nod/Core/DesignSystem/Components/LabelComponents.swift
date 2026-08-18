@@ -53,7 +53,7 @@ struct LabelChip: View {
         RemovablePill(
             title: label.name,
             swatch: label.swatchColor,
-            removeHelp: "Remove folder",
+            removeHelp: "Remove project",
             onRemove: onRemove
         )
     }
@@ -130,7 +130,7 @@ struct LabelEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("Folder name", text: $name)
+            TextField("Project name", text: $name)
                 .textFieldStyle(.roundedBorder)
             LabelSwatchRow(selection: $color)
             HStack(spacing: 8) {
@@ -140,7 +140,7 @@ struct LabelEditor: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.Palette.danger)
-                .help("Delete folder")
+                .help("Delete project")
                 Spacer(minLength: 0)
                 Button("Cancel", action: onFinish)
                     .keyboardShortcut(.cancelAction)
@@ -203,7 +203,7 @@ struct LabelPickerPopover: View {
                 Divider()
                 LabelEditor(label: editing) { self.editing = nil }
             } else {
-                TextField("Find or create a folder", text: $query)
+                TextField("Find or create a project", text: $query)
                     .textFieldStyle(.roundedBorder)
                     .padding(8)
                 Divider()
@@ -212,7 +212,7 @@ struct LabelPickerPopover: View {
                         ForEach(filtered) { row($0) }
                         if canCreate { createSection }
                         if filtered.isEmpty, !canCreate {
-                            Text("No folders yet")
+                            Text("No projects yet")
                                 .font(.system(size: 12))
                                 .foregroundStyle(Theme.Palette.muted)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -235,7 +235,7 @@ struct LabelPickerPopover: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(Theme.Palette.muted)
-            Text("Edit folder")
+            Text("Edit project")
                 .font(.system(size: 12.5, weight: .medium))
             Spacer(minLength: 0)
         }
@@ -249,7 +249,7 @@ struct LabelPickerPopover: View {
             Circle()
                 .fill(label.swatchColor)
                 .frame(width: 9, height: 9)
-            Text(confirming ? "Delete folder?" : label.name)
+            Text(confirming ? "Delete project?" : label.name)
                 .font(.system(size: 12.5, weight: confirming ? .medium : .regular))
                 .foregroundStyle(confirming ? Theme.Palette.danger : Theme.Palette.ink)
                 .lineLimit(1)
@@ -257,8 +257,8 @@ struct LabelPickerPopover: View {
             if confirming {
                 InlineConfirmButtons(
                     confirmIcon: "nc-trash",
-                    confirmHelp: "Delete folder",
-                    cancelHelp: "Keep folder",
+                    confirmHelp: "Delete project",
+                    cancelHelp: "Keep project",
                     onConfirm: { confirmDelete(label) },
                     onCancel: { confirmingDelete = nil }
                 )
@@ -276,7 +276,7 @@ struct LabelPickerPopover: View {
                 }
                 .buttonStyle(.plain)
                 .revealOnHover(hovering == label.id, reduceMotion: reduceMotion)
-                .help("Delete folder")
+                .help("Delete project")
                 .linkCursor()
             }
         }
@@ -288,7 +288,7 @@ struct LabelPickerPopover: View {
         .onHover { if $0 { hovering = label.id } else if hovering == label.id { hovering = nil } }
         .animation(.hoverReveal(reduceMotion: reduceMotion), value: hovering)
         .contextMenu {
-            Button("Edit folder…") { editing = label }
+            Button("Edit project…") { editing = label }
             Button("Delete", role: .destructive) { confirmingDelete = label.id }
         }
     }

@@ -88,7 +88,7 @@ struct MeetingFoldersRow: View {
                 HStack(spacing: 4) {
                     Image("nc-tag")
                         .icon(10)
-                    Text(assigned.isEmpty ? "Add to folder" : "Folder")
+                    Text(assigned.isEmpty ? "Add to project" : "Project")
                         .font(.system(size: 11, weight: .medium))
                 }
                 .foregroundStyle(Theme.Palette.muted)
@@ -101,7 +101,7 @@ struct MeetingFoldersRow: View {
                 )
             }
             .buttonStyle(.plain)
-            .help("Add or remove folders")
+            .help("Add or remove projects")
             .popover(isPresented: $showPicker, arrowEdge: .bottom) {
                 LabelPickerPopover(meetingID: meetingID)
             }

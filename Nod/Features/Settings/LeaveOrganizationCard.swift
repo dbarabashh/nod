@@ -40,7 +40,7 @@ struct LeaveOrganizationCard: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(
-                "You go back to your personal space. Folders shared with you disappear from your sidebar. Getting back in needs a new invite."
+                "You go back to your personal space. Projects shared with you disappear from your sidebar. Getting back in needs a new invite."
             )
         }
     }
