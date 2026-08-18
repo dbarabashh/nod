@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// The "Ask Nod" conversation — one question against everything the user has
@@ -62,7 +63,16 @@ final class KnowledgeChatStore: ObservableObject {
     /// chat view because it is now set from outside it — "Ask about Capable"
     /// opens the chat already narrowed, which is what makes a project a scope
     /// over memory instead of a filter on a list.
+    /// Which projects the next question is narrowed to.
+    ///
+    /// Derived from the tokens in the composer rather than set directly: the
+    /// scope pill that used to own this wrote the same set with a different
+    /// lifetime, so deleting "@Capable" from the sentence left the question
+    /// still scoped to Capable with nothing on screen saying so.
     @Published var scopeLabelIDs: Set<UUID> = []
+    /// A question seeded from elsewhere — "Ask about this project" hands the
+    /// composer its opening token rather than a hidden filter.
+    @Published var pendingDraft: String?
     @Published private(set) var messages: [Message] = []
     @Published private(set) var isSending = false
     /// True from the first token until the answer completes — the UI shows the
@@ -73,36 +83,30 @@ final class KnowledgeChatStore: ObservableObject {
     /// view paces it.
     @Published private(set) var thinkingScript: [String] = []
     @Published var errorText: String?
+    /// Asking before anything leaves Nod, and the running that follows. Shared
+    /// with the per-session chat, which reaches the same products and owes the
+    /// same question.
+    let toolGate = ChatToolGate()
+
     /// The tool calls the model wants to make, waiting on the user. Nothing
     /// leaves Nod while this is set.
-    @Published private(set) var pendingApproval: PendingToolApproval?
+    var pendingApproval: ChatToolGate.Pending? {
+        toolGate.pending
+    }
+
     /// Which product the chat is talking to right now, so the loader can say so.
-    @Published private(set) var callingProvider: IntegrationProvider?
+    var callingProvider: IntegrationProvider? {
+        toolGate.callingProvider
+    }
 
     private let integrations: IntegrationService?
-    /// The in-flight tool exchange. Deliberately not persisted and not part of
-    /// `messages`: it is scaffolding for one answer, and replaying it into every
-    /// later request would pay for those tokens forever.
-    private var toolTurns: [LLMProxyClient.ChatTurn] = []
-    /// The visible half of `toolTurns`: what to show under the answer once it
+    /// The visible half of the tool exchange: what to show under the answer once it
     /// lands. Cleared with them, at the start of every question.
     private var turnSteps: [ChatTurnStep] = []
     /// The tools offered this question. Built once so the decision, the request
     /// and the match in `runTools` can't be given different catalogues — and so
     /// the cached prompt prefix sees the same bytes every round.
     private var turnTools: [ChatTool] = []
-    /// Resumes `streamReply` once the user has decided.
-    private var approvalGate: CheckedContinuation<Bool, Never>?
-
-    /// One turn's worth of tool calls, presented and decided together. A single
-    /// question routinely produces several searches; asking three times trains
-    /// the user to approve without reading.
-    struct PendingToolApproval: Identifiable, Equatable {
-        let id = UUID()
-        let provider: IntegrationProvider
-        let calls: [ChatToolCall]
-        let tools: [ChatTool]
-    }
 
     private let llm: LLMProxyClient
     private let knowledge: KnowledgeStore
@@ -211,7 +215,14 @@ final class KnowledgeChatStore: ObservableObject {
         self.screenContext = screenContext
         self.calendar = calendar
         self.organizations = organizations
+        // The gate holds state this store publishes as its own, and a nested
+        // object's changes don't reach a view observing the owner.
+        gateChanges = toolGate.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
+
+    private var gateChanges: AnyCancellable?
 
     /// The user opened a session from an answer's sources. Attributed to the
     /// question that produced them, which is the last thing they asked.
@@ -322,7 +333,7 @@ extension KnowledgeChatStore {
         // thread's first question) in front of every answer.
         async let saved: Void = persist(question)
         thinkingScript = ChatThinking.searching
-        toolTurns = []
+        toolGate.beginQuestion()
         turnSteps = []
 
         // Answer in the language the user typed, not the app default — the
@@ -342,7 +353,7 @@ extension KnowledgeChatStore {
         // Overlaps query prep instead of standing in front of it: the first
         // question of a run otherwise paid a Supabase round trip before any work
         // started, including for everyone with nothing connected.
-        async let linked: Void = integrations?.refreshIfNeeded() ?? ()
+        async let tools = integrations?.chatTools() ?? []
         async let roster: Void = organizations?.refreshDirectoryIfNeeded() ?? ()
         async let preparing = llm.prepareSearchQuery(
             history: priorHistory,
@@ -351,9 +362,8 @@ extension KnowledgeChatStore {
             personalContext: profile.promptContext
         )
 
-        await linked
         await roster
-        turnTools = integrations.map { ChatTools.definitions(for: $0.linked) } ?? []
+        turnTools = await tools
 
         let prepared: (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool)
         let routing: Routing
@@ -377,14 +387,14 @@ extension KnowledgeChatStore {
         // something. Asking to book a meeting today with someone the entity
         // graph knows matches both a name and a date window, so the request was
         // being answered with an empty search result instead of being carried out.
-        if !prepared.needsSessions, !availableTools().isEmpty {
+        if !prepared.needsSessions, !turnTools.isEmpty {
             Log.ui.info("chat: acting without retrieval")
             thinkingScript = ChatThinking.acting
             let system = PromptLibrary.buildKnowledgeSystem(
                 excerpts: [teammatesBlock(), calendarBlock(for: prepared.standalone)].compactMap { $0 },
                 language: replyLanguage,
                 personalContext: profile.promptContext,
-                connectedTools: availableTools()
+                connectedTools: turnTools
             )
             let history = chatHistory
             await saved
@@ -435,7 +445,7 @@ extension KnowledgeChatStore {
                 question: grounding.observations,
                 crossed: grounding.crossedObservations
             ),
-            connectedTools: availableTools()
+            connectedTools: turnTools
         )
         let history = chatHistory
         thinkingScript = ChatThinking.writing
@@ -463,7 +473,7 @@ extension KnowledgeChatStore {
         let (system, history, sources, evidence) = (context.system, context.history, context.sources, context.evidence)
         // With tools on the table the first round is a decision, not a draft.
         // Later rounds have their results already and really are composing.
-        if !availableTools().isEmpty {
+        if !turnTools.isEmpty {
             thinkingScript = round == 0 ? ChatThinking.deciding : ChatThinking.writing
         }
         // Both captured up front. The user can open another saved chat or start
@@ -476,8 +486,8 @@ extension KnowledgeChatStore {
         // history they are what the model actually read; the sessions the
         // vector search happened to fetch contributed nothing, and listing them
         // turns a citation into decoration.
-        let citedSources = toolTurns.isEmpty ? sources : []
-        let citedEvidence = toolTurns.isEmpty ? evidence : []
+        let citedSources = toolGate.turns.isEmpty ? sources : []
+        let citedEvidence = toolGate.turns.isEmpty ? evidence : []
         var answer = Message(
             role: .assistant,
             content: "",
@@ -503,8 +513,8 @@ extension KnowledgeChatStore {
             // be written every time and read never, at 1.25× the token cost.
             for try await event in llm.streamChat(
                 system: system,
-                history: history + toolTurns,
-                tools: availableTools(),
+                history: history + toolGate.turns,
+                tools: turnTools,
                 temperature: 0.2,
                 cachePrompt: false
             ) {
@@ -538,7 +548,7 @@ extension KnowledgeChatStore {
         // anywhere yet: the calls go to the user first, and only an approval
         // runs them.
         Log.ui.info("chat turn ended requested=\(requested.count) streamed=\(streamed.count) round=\(round)")
-        if !requested.isEmpty, streamed.isEmpty, failure == nil, round < Self.maxToolRounds {
+        if !requested.isEmpty, streamed.isEmpty, failure == nil, round < ChatToolGate.maxRounds {
             await runTools(requested, context: context, round: round)
             return
         }
@@ -570,15 +580,15 @@ extension KnowledgeChatStore {
         do {
             let reply = try await llm.chat(
                 system: context.system,
-                history: context.history + toolTurns,
+                history: context.history + toolGate.turns,
                 temperature: 0.2,
                 cachePrompt: false
             )
             let oneShot = Message(
                 role: .assistant,
                 content: reply,
-                sources: toolTurns.isEmpty ? context.sources : [],
-                evidence: toolTurns.isEmpty ? context.evidence : [],
+                sources: toolGate.turns.isEmpty ? context.sources : [],
+                evidence: toolGate.turns.isEmpty ? context.evidence : [],
                 steps: turnSteps
             )
             messages.append(oneShot)
@@ -589,72 +599,36 @@ extension KnowledgeChatStore {
         }
     }
 
-    /// Every tool the user's connected products expose. Empty when nothing is
-    /// connected, which is also what keeps the request identical to today's for
-    /// everyone who hasn't linked anything.
-    private func availableTools() -> [ChatTool] {
-        turnTools
-    }
-
     /// Presents the calls, waits for the answer, runs the approved ones, and
     /// goes back to the model with the results.
     private func runTools(_ calls: [ChatToolCall], context: ReplyContext, round: Int) async {
-        let catalogue = availableTools()
-        let matched = calls.compactMap { call in catalogue.first { $0.name == call.name } }
-        guard matched.count == calls.count, let provider = matched.first?.provider, let integrations else {
+        guard let matched = ChatToolGate.match(calls, in: turnTools), let integrations else {
             Log.ui.error("KnowledgeChatStore: model asked for an unknown tool")
-            errorText = "That needs a tool Nod doesn't have."
+            errorText = ChatToolGate.unknownToolMessage
             thinkingScript = []
             return
         }
 
         thinkingScript = []
-        Log.ui.info("awaiting approval for \(calls.count) \(provider.rawValue) call(s)")
-        pendingApproval = PendingToolApproval(provider: provider, calls: calls, tools: matched)
-        let approved = await withCheckedContinuation { continuation in
-            approvalGate = continuation
-        }
-        pendingApproval = nil
-
-        // The assistant's request has to be replayed verbatim, or the provider
-        // rejects results for calls it can't see in the history.
-        toolTurns.append(LLMProxyClient.ChatTurn(role: .assistant, content: "", toolCalls: calls))
-        if approved {
-            callingProvider = provider
-            thinkingScript = ChatThinking.calling(provider)
-        }
-        for (call, tool) in zip(calls, matched) {
-            let result = approved
-                ? await integrations.run(call, tool: tool)
-                : IntegrationService.declinedResult()
-            toolTurns.append(.init(role: .tool, content: result, toolCallID: call.id))
-            turnSteps.append(ChatTurnStep(
-                provider: tool.provider,
-                action: tool.action,
-                detail: call.recognisableArgument(for: tool),
-                outcome: approved
-                    ? IntegrationService.failure(in: result).map(ChatTurnStep.Outcome.failed) ?? .ran
-                    : .declined
-            ))
-        }
-        callingProvider = nil
+        let outcome = await toolGate.run(
+            calls,
+            tools: matched.tools,
+            provider: matched.provider,
+            using: integrations,
+            onApproved: { [weak self] in self?.thinkingScript = ChatThinking.calling(matched.provider) }
+        )
+        turnSteps += outcome.steps
 
         await streamReply(context, round: round + 1)
     }
 
     func approvePendingTools() {
-        approvalGate?.resume(returning: true)
-        approvalGate = nil
+        toolGate.approve()
     }
 
     func denyPendingTools() {
-        approvalGate?.resume(returning: false)
-        approvalGate = nil
+        toolGate.deny()
     }
-
-    /// Two rounds is enough for search-then-answer or search-then-create. A
-    /// third is a model looping, and every round re-sends the whole prompt.
-    private static let maxToolRounds = 2
 
     private static let streamFlushInterval: Duration = .milliseconds(50)
 

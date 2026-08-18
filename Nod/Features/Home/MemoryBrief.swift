@@ -51,10 +51,25 @@ struct MemoryBrief: Equatable {
         )
     }
 
-    /// "3 sessions today · 5 open commitments · 2 unresolved" — assembled from
-    /// the parts that are non-zero, so the line never pads itself with noise.
     var summary: String {
         summaryParts.joined(separator: " · ")
+    }
+
+    /// What is true but not owed: how much was captured, and what got settled.
+    ///
+    /// The counts that need doing — open commitments, unresolved — moved to
+    /// `TodayFocus`, which is the one place that carries a number *and* the way
+    /// to act on it. Repeating them here made the home state its own to-do list
+    /// twice, in two shapes, neither of which could be ticked off.
+    var contextSummary: String? {
+        var parts: [String] = []
+        if captured > 0 {
+            parts.append("\(captured) \(captured == 1 ? "session" : "sessions") \(capturedSpansWeek ? "this week" : "today")")
+        }
+        if decisions > 0 {
+            parts.append("\(decisions) \(decisions == 1 ? "decision" : "decisions") this week")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private var summaryParts: [String] {

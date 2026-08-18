@@ -40,3 +40,11 @@ struct ChatMessage: Codable, Identifiable, Equatable {
         ChatMessage(id: UUID(), meetingID: meetingID, userID: userID, createdAt: nil, role: role, content: content)
     }
 }
+
+extension [ChatMessage] {
+    /// The conversation as the proxy takes it. Written out at each call site,
+    /// the two copies were free to disagree about which role a turn carries.
+    var chatTurns: [LLMProxyClient.ChatTurn] {
+        map { LLMProxyClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content) }
+    }
+}

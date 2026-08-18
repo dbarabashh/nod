@@ -12,6 +12,7 @@ struct SessionChatView: View {
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @EnvironmentObject private var llm: LLMProxyClient
     @EnvironmentObject private var analytics: ProductAnalytics
+    @EnvironmentObject private var settingsFocus: SettingsFocus
 
     /// Above this transcript size we retrieve the parts relevant to the
     /// question instead of stuffing the whole thing. Set high (≈ a multi-hour
@@ -49,7 +50,7 @@ struct SessionChatView: View {
     /// The scroll content stays hidden until that first jump lands, so the
     /// chat appears already at the bottom instead of visibly scrolling down.
     @State private var positioned = false
-    @FocusState private var inputFocused: Bool
+    @State private var inputFocused = false
 
     /// Freshest copy so chat grounds on the latest edited recap/title.
     private var current: Meeting {
@@ -101,7 +102,19 @@ struct SessionChatView: View {
                     ForEach(chatStore.messages) { message in
                         bubble(message).id(message.id)
                     }
-                    if isSending {
+                    // Separate elements with separate identities. Sharing one
+                    // anchor between the two lets SwiftUI treat the swap as
+                    // "same view, unchanged" and keep the indicator on screen
+                    // while an approval is already waiting.
+                    if let approval = chatStore.pendingApproval {
+                        ToolApprovalCard(
+                            approval: approval,
+                            onApprove: chatStore.approvePendingTools,
+                            onDeny: chatStore.denyPendingTools
+                        )
+                        .id(Self.approvalAnchor)
+                    }
+                    if isSending, chatStore.pendingApproval == nil {
                         typingIndicator.id(Self.typingAnchor)
                     }
                     if case let .failed(detail) = chatStore.sendState {
@@ -118,6 +131,9 @@ struct SessionChatView: View {
             }
             .onChange(of: chatStore.loadState) { _ in positionInitially(proxy) }
             .onChange(of: chatStore.sendState) { _ in scrollToEnd(proxy) }
+            // The card arrives without a message or a state change to announce
+            // it, and a question the user cannot see is one they cannot answer.
+            .onChange(of: chatStore.pendingApproval) { _ in scrollToEnd(proxy) }
         }
     }
 
@@ -146,7 +162,7 @@ struct SessionChatView: View {
     @ViewBuilder
     private func bubble(_ message: ChatMessage) -> some View {
         if message.role == .user {
-            UserTextBubble(text: AttributedString(message.content))
+            UserTextBubble(text: message.content, marks: marks(in: message.content))
                 .padding(.leading, 40)
         } else {
             AssistantTextBubble(content: message.content)
@@ -155,8 +171,11 @@ struct SessionChatView: View {
     }
 
     private var typingIndicator: some View {
-        ThinkingIndicator(script: ["Thinking…", "Reviewing the transcript…", "Putting it together…"])
-            .padding(.vertical, 4)
+        ThinkingIndicator(
+            script: chatStore.callingProvider.map(ChatThinking.calling) ?? ChatThinking.reviewing,
+            icon: chatStore.callingProvider?.iconName
+        )
+        .padding(.vertical, 4)
     }
 
     private func errorRow(_ detail: String) -> some View {
@@ -178,30 +197,51 @@ struct SessionChatView: View {
     // MARK: - Composer
 
     private var composer: some View {
-        HStack(alignment: .center, spacing: 8) {
-            ChatComposerField(
-                prompt: isReady ? "Message" : loadingPlaceholder,
-                text: $draft,
-                isEnabled: isReady,
-                focus: $inputFocused,
-                onSend: { send() }
-            )
-
-            Button(action: { send() }, label: {
-                Image("nc-circle-arrow-up")
-                    .icon(13)
-                    .foregroundStyle(canSend ? Theme.GlassButton.text : .white)
-                    .frame(width: 32, height: 32)
-                    .background(
-                        Circle().fill(canSend ? AnyShapeStyle(Theme.GlassButton.fill) : AnyShapeStyle(Theme.Palette.muted.opacity(0.4)))
-                    )
-            })
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-        }
+        ChatComposer(
+            prompt: isReady ? "Message  (@ for sessions and tools)" : loadingPlaceholder,
+            text: $draft,
+            isFocused: $inputFocused,
+            isEnabled: isReady,
+            canSend: canSend,
+            // Sessions and tools. Projects are not on offer: this chat answers
+            // from one transcript and has no scope to narrow, and a panel that
+            // lists one promises reach the answer has not got.
+            sources: ChatMentionSources(sessions: otherSessions, tools: true),
+            mentions: marks(in: draft, opens: false),
+            onPick: { if case .connectTool = $0 { settingsFocus.open(.integrations) } },
+            onSend: { send() }
+        )
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 12)
+    }
+
+    /// Every session but this one — mentioning the transcript you are already
+    /// reading adds nothing.
+    private var otherSessions: [Meeting] {
+        meetingStore.meetings.filter { $0.id != meeting.id }
+    }
+
+    /// The sessions a piece of text names, resolved against the store now
+    /// rather than tracked as it is typed: deleting the words drops the
+    /// mention, which is what deleting them should do.
+    ///
+    /// The `@` test comes first because it is the cheap one — this runs for the
+    /// draft on every keystroke and for every visible turn.
+    private func mentionedSessions(in text: String) -> [Meeting] {
+        MentionMark.named(in: text, from: otherSessions) { MentionMark(session: $0) }
+    }
+
+    /// A sent turn's pills carry their session; the ones in the field do not,
+    /// because the question they belong to is still being written.
+    ///
+    /// Tools are named the same way and drawn the same way. Which one the model
+    /// actually calls is its decision — the token says which product the person
+    /// meant, and every call still stops at the approval card.
+    private func marks(in text: String, opens: Bool = true) -> [MentionMark] {
+        mentionedSessions(in: text).map { MentionMark(session: $0, opens: opens) }
+            + MentionMark.named(in: text, from: IntegrationProvider.allCases, mark: MentionMark.init(tool:))
+            .map(MentionMark.init(tool:))
     }
 
     private var canSend: Bool {
@@ -229,9 +269,7 @@ struct SessionChatView: View {
             guard canSend else { return }
             priorTurns = chatStore.messages[...]
         }
-        let priorHistory = priorTurns.map {
-            LLMProxyClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
-        }
+        let priorHistory = Array(priorTurns).chatTurns
         if !retryLast { draft = "" }
         Task {
             // Show the user's bubble + typing indicator immediately, then build
@@ -321,17 +359,47 @@ struct SessionChatView: View {
                 repairIndex(full)
             }
         }
+        let mentioned = await mentionedGrounding(for: query, sessions: mentionedSessions(in: query))
+        // A mention widens the grounding for this turn only, so the system text
+        // differs from the last one and the provider has nothing on file for it.
+        if !mentioned.isEmpty { cacheable = false }
         let system = PromptLibrary.buildChatSystem(
             sessionKind: current.kind,
             title: current.title ?? "",
             summary: current.summary,
             transcript: grounding,
             transcriptIsExcerpt: isExcerpt,
+            mentionedSessions: mentioned,
+            connectedTools: chatStore.availableTools,
             language: language,
             personalContext: profileStore.promptContext,
             meetingDate: PromptLibrary.sessionDateString(current.startedAt)
         )
         return (system, cacheable)
+    }
+
+    /// What an `@session` in the question brings with it: that session's recap,
+    /// plus the passages retrieval finds in it for this question.
+    ///
+    /// This chat answers from one transcript by design. A mention is the one
+    /// way to widen that, and it widens it for the turn it was written in —
+    /// nothing is carried into the next question.
+    private func mentionedGrounding(for query: String, sessions: [Meeting]) async -> String {
+        guard !sessions.isEmpty else { return "" }
+        let chunks = await knowledgeStore.search(
+            query: query,
+            matchCount: min(sessions.count * 6, 24),
+            meetingIDs: sessions.map(\.id)
+        )
+        let excerpts = Dictionary(grouping: chunks, by: \.meetingID)
+        return sessions.map { session in
+            PromptLibrary.sessionGroundingBlock(
+                label: "\(session.displayTitle(dateFormatter: Meeting.shortDateFormatter)) — \(PromptLibrary.sessionDateString(session.startedAt))",
+                recap: session.summary,
+                excerpts: excerpts[session.id]?.map(\.content) ?? []
+            )
+        }
+        .joined(separator: "\n\n")
     }
 
     /// Rebuilds a short index in the background so the next question on this
@@ -390,7 +458,8 @@ struct SessionChatView: View {
     }
 
     private var scrollTarget: AnyHashable? {
-        isSending
+        if chatStore.pendingApproval != nil { return AnyHashable(Self.approvalAnchor) }
+        return isSending
             ? AnyHashable(Self.typingAnchor)
             : chatStore.messages.last.map { AnyHashable($0.id) }
     }
@@ -404,4 +473,5 @@ struct SessionChatView: View {
     }
 
     private static let typingAnchor = "nod.chat.typing"
+    private static let approvalAnchor = "nod.chat.approval"
 }

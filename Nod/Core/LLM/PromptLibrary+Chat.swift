@@ -17,6 +17,8 @@ extension PromptLibrary {
         summary: String,
         transcript: String,
         transcriptIsExcerpt: Bool = false,
+        mentionedSessions: String = "",
+        connectedTools: [ChatTool] = [],
         language: AppLanguage = .english,
         personalContext: String = "",
         meetingDate: String = ""
@@ -39,7 +41,9 @@ extension PromptLibrary {
             transcriptIsExcerpt ? excerptGroundingRule(noun) : "If something isn't in the transcript, say so plainly instead of inventing it."
         )
         - The labels [Me] (the user) and [Them] (other voices) are routing hints — refer to people naturally, never echo the literal tags.
-        - If the user asks you to assess a participant's ability in a language, base the assessment only on transcript passages originally spoken in that language. Do not assess translated, summarized, or paraphrased content as evidence of language ability.
+        - If the user asks you to assess a participant's ability in a language, base the assessment only on transcript passages originally spoken in that language. Do not assess translated, summarized, or paraphrased content as evidence of language ability.\(
+            connectedToolsRules(connectedTools)
+        )
 
         [STYLE]
         - Concise and concrete. Short paragraphs or tight bullet lists. No preamble like "Great question".
@@ -53,9 +57,36 @@ extension PromptLibrary {
         === \(transcriptIsExcerpt ? "TRANSCRIPT EXCERPTS (PARTIAL — retrieved for this question)" : "TRANSCRIPT") ===
         \(transcript.isEmpty ? "(No transcript was saved for this session.)" : transcript)
         """
-        return [personalContext, dateBlock(meetingDate), body]
+        return [personalContext, dateBlock(meetingDate), body, mentionedBlock(mentionedSessions)]
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
+    }
+
+    /// Other sessions the user named in the question, with their own heading so
+    /// the model cannot read them as more of this session's transcript. It sits
+    /// last: the recap and transcript are what this chat is for, and a mention
+    /// is context brought in beside them, not a replacement for them.
+    private static func mentionedBlock(_ sessions: String) -> String {
+        guard !sessions.isEmpty else { return "" }
+        return """
+        === OTHER SESSIONS THE USER NAMED ===
+        These are different recordings the user referred to with @. Use them when the question asks about them, attribute anything you take from them to the session it came from, and never present their content as part of the session this chat is about.
+
+        \(sessions)
+        """
+    }
+
+    /// One named session, as the model reads it: who it was with, its recap,
+    /// and whatever retrieval found in it for this question.
+    ///
+    /// The same shape the cross-session answer uses for a session it grounds
+    /// on, so the model meets one format rather than two for the same thing.
+    static func sessionGroundingBlock(label: String, recap: String, excerpts: [String]) -> String {
+        var block = "[From: \(label)]\nRecap:\n\(recap.isEmpty ? "(no recap)" : recap)"
+        if !excerpts.isEmpty {
+            block += "\n\nRelevant excerpts:\n" + excerpts.joined(separator: "\n…\n")
+        }
+        return block
     }
 
     /// What the model is allowed to conclude when it's holding excerpts rather

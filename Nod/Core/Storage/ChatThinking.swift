@@ -49,6 +49,14 @@ enum ChatThinking {
     /// The model has the question and is deciding whether to reach for a
     /// connected product. Nothing is being written yet, and saying "writing"
     /// here is the same small lie as claiming sessions were read.
+    /// One session, already loaded — the per-session chat has nothing to search
+    /// for and nothing to route, so it says what it is actually doing.
+    static let reviewing: [String] = [
+        "Thinking…",
+        "Reviewing the transcript…",
+        "Putting it together…"
+    ]
+
     static let deciding: [String] = [
         "Thinking it through…"
     ]

@@ -226,7 +226,7 @@ struct AppServices {
             meetingStore: meetingStore,
             meetingOutbox: MeetingOutbox(),
             profileStore: profileStore,
-            chatStore: ChatStore(supabase: supabase, llm: llmClient),
+            chatStore: ChatStore(supabase: supabase, llm: llmClient, integrations: integrations),
             entityStore: entityStore,
             actionItemStore: actionItemStore,
             knowledgeStore: knowledgeStore,

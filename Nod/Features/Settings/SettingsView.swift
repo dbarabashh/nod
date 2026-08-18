@@ -155,6 +155,7 @@ struct SettingsView: View {
         case .privacy: tab = .privacy
         case .profile: tab = .profile
         case .organization: tab = .organization
+        case .integrations: tab = .integrations
         case nil: break
         }
     }

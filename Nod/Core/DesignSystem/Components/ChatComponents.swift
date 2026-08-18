@@ -53,50 +53,42 @@ extension View {
 
 /// The chat composer input shared by both threads. Grows with its content up
 /// to roughly five lines, then scrolls internally instead of clipping.
-///
-/// A bare `TextField(axis: .vertical)` with `.lineLimit(1 ... 5)` caps the
-/// height but gives no scroll on macOS, so a long paste left everything below
-/// the fifth line clipped and unreachable. Wrapping the field in a height-
-/// bounded `ScrollView` keeps the native editing (paste, undo, IME, mentions)
-/// while making the overflow scrollable.
 struct ChatComposerField: View {
     let prompt: String
     @Binding var text: String
     var isEnabled: Bool = true
-    var focus: FocusState<Bool>.Binding
+    @Binding var isFocused: Bool
+    /// Names to draw as pills. Empty is the ordinary case — a question with no
+    /// mention in it looks exactly as it did.
+    var mentions: [MentionMark] = []
     let onSend: () -> Void
 
-    @State private var contentHeight: CGFloat = ChatComposerField.minHeight
-
-    private static let fontSize: CGFloat = 13.5
-    private static let lineHeight: CGFloat = 19 // one line at `fontSize`
     private static let maxLines: CGFloat = 5
-    private static let minHeight = lineHeight
-    private static let maxHeight = lineHeight * maxLines // grow to five lines, then scroll
+    private static let maxHeight = MentionText.rowHeight + (maxLines - 1) * MentionText.lineHeight
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            TextField(prompt, text: $text, axis: .vertical)
-                .textFieldStyle(.plain)
-                // A vertical ScrollView can propose an unspecified width, and a
-                // vertical-axis TextField's *ideal* width is a few characters
-                // wide — without this the field collapses and every fifth
-                // character wraps to a new line.
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .font(.system(size: Self.fontSize))
-                .foregroundStyle(Theme.Palette.ink)
-                .focused(focus)
-                .disabled(!isEnabled)
-                .chatSubmit(text: $text, onSend: onSend)
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: ComposerHeightKey.self, value: geo.size.height)
-                    }
-                )
+        MentionTextView(
+            text: $text,
+            isFocused: $isFocused,
+            mentions: mentions,
+            maxHeight: Self.maxHeight,
+            isEnabled: isEnabled,
+            onSend: onSend
+        )
+        // `NSTextView` has no placeholder, and the one it does expose is not
+        // public API — so the prompt is drawn behind it and hidden on the first
+        // character. Centred rather than offset by the text view's inset: the
+        // field is exactly one row tall whenever the prompt is showing, so the
+        // centre is where the caret is, and it stays there whatever the two
+        // font stacks make of the same point size.
+        .overlay(alignment: .leading) {
+            if text.isEmpty {
+                Text(prompt)
+                    .font(.system(size: MentionText.font.pointSize))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .allowsHitTesting(false)
+            }
         }
-        .frame(height: min(max(contentHeight, Self.minHeight), Self.maxHeight))
-        .scrollDisabled(contentHeight <= Self.maxHeight)
-        .onPreferenceChange(ComposerHeightKey.self) { contentHeight = $0 }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .background(
@@ -107,13 +99,6 @@ struct ChatComposerField: View {
                         .stroke(Theme.Palette.border, lineWidth: 0.5)
                 )
         )
-    }
-}
-
-private struct ComposerHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
     }
 }
 
@@ -352,28 +337,37 @@ private struct ChatBubbleFill: ViewModifier {
     }
 }
 
-/// A user chat turn: the right-aligned violet bubble. The `.tint(.white)` keeps
-/// inline links (e.g. @-mentions) legible on the violet fill.
+/// A user chat turn: the right-aligned bubble. A turn that named something is
+/// drawn by `MentionTextLabel`, so its pills match the ones the composer showed
+/// while the question was being written.
 struct UserTextBubble: View {
-    let text: AttributedString
+    let text: String
+    /// Present when the turn named something. Empty keeps the plain `Text`
+    /// path, which is most messages in both chats.
+    var marks: [MentionMark] = []
 
     @State private var isHovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            Text(text)
-                .font(.system(size: 13.5))
-                .tint(.white)
-                .foregroundStyle(Color.white)
-                .textSelection(.enabled)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .chatBubbleBackground(isUser: true)
+            Group {
+                if marks.isEmpty {
+                    Text(text)
+                        .font(.system(size: MentionText.font.pointSize))
+                        .foregroundStyle(Color.white)
+                        .textSelection(.enabled)
+                } else {
+                    MentionTextLabel(text: text, marks: marks)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .chatBubbleBackground(isUser: true)
             // Copying your own turn is how a question gets reused — reworded in
             // a new thread, or pasted somewhere else. The affordance mirrors the
             // assistant's, flipped to the side this bubble sits on.
-            ChatCopyButton(text: String(text.characters))
+            ChatCopyButton(text: text)
                 .padding(.trailing, 2)
                 .revealOnHover(isHovering, reduceMotion: reduceMotion, anchor: .trailing)
         }

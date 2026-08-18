@@ -64,7 +64,6 @@ struct MainWindowView: View {
         case chat
         case sessions
         case actionItems
-        case attention
         case settings
         case dailyModes
     }
@@ -244,15 +243,6 @@ struct MainWindowView: View {
                 onBack: { show(.chat) }
             )
             .transition(.opacity)
-        case .attention:
-            AttentionColumn(
-                onOpenMeeting: openMeeting,
-                onOpenAction: { focus = .action($0) },
-                onOpenActionItems: { show(.actionItems) }
-            )
-            .frame(maxWidth: 720)
-            .frame(maxWidth: .infinity)
-            .transition(.opacity)
         case .settings:
             settings.transition(.opacity)
         case .dailyModes:
@@ -270,7 +260,7 @@ struct MainWindowView: View {
     private var chatHome: some View {
         KnowledgeChatView(
             onOpenMeeting: openMeeting,
-            onOpenAttention: { show(.attention) }
+            onOpenActions: { show(.actionItems) }
         )
         .frame(maxWidth: 780)
         .frame(maxWidth: .infinity)
@@ -371,7 +361,7 @@ struct MainWindowView: View {
     /// question. The list stays where it was — the user is leaving it, not
     /// filtering it further.
     private func askAboutProject(_ label: SessionLabel) {
-        knowledgeChat.scopeLabelIDs = [label.id]
+        knowledgeChat.pendingDraft = "\(MentionMark(project: label).token) "
         show(.chat)
     }
 

@@ -16,10 +16,6 @@ struct HomeSidebarFooter: View {
             Divider()
                 .overlay(Theme.Palette.border)
                 .padding(.bottom, 6)
-            AttentionSidebarRow(
-                isSelected: surface == .attention,
-                onSelect: { onSelect(.attention) }
-            )
             // Takes the service from the environment itself. Holding it here
             // instead meant every capture tick — one every 5 seconds while
             // ambient context runs — invalidated the whole sidebar body to

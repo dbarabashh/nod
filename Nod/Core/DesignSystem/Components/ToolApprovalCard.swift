@@ -7,7 +7,7 @@ import SwiftUI
 /// reading — which is the failure mode this exists to prevent. Every call is
 /// still listed, and nothing runs unless the whole card is allowed.
 struct ToolApprovalCard: View {
-    let approval: KnowledgeChatStore.PendingToolApproval
+    let approval: ChatToolGate.Pending
     let onApprove: () -> Void
     let onDeny: () -> Void
 

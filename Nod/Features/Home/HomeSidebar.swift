@@ -50,10 +50,9 @@ struct HomeSidebar: View {
                 VStack(alignment: .leading, spacing: 2) {
                     captureButton
                     captureHint
-                    // The gap is the point: an action and a list of places are
-                    // not three peers. Without it the white primary button reads
-                    // as "the section you're in".
-                    Color.clear.frame(height: 14)
+                    // A wider gap than the rows keep between themselves: the
+                    // primary action and a list of places are not peers.
+                    Color.clear.frame(height: 20)
                     chatRow
                     dailyModesRow
                     SidebarNavRow(
@@ -66,11 +65,9 @@ struct HomeSidebar: View {
                     // things the main window is for, and the only route in used
                     // to be a header inside the attention list — which left the
                     // full list reachable but unfindable.
-                    SidebarNavRow(
-                        title: "Actions",
-                        icon: "nc-check",
+                    ActionsSidebarRow(
                         isSelected: surface == .actionItems,
-                        action: { onSelect(.actionItems) }
+                        onSelect: { onSelect(.actionItems) }
                     )
                     projectsSection
                     sharedProjectsSection
@@ -129,30 +126,26 @@ struct HomeSidebar: View {
         } label: {
             HStack(spacing: 8) {
                 Image("nc-plus")
-                    .icon(12)
-                Text("Capture")
+                    .icon(13)
+                Text("Start Nod")
                     .font(.system(size: 13.5, weight: .semibold))
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(Theme.Palette.ink)
-            .padding(.horizontal, 12)
+            .foregroundStyle(Theme.GlassButton.text)
+            .padding(.horizontal, 14)
             .frame(height: 38)
             .frame(maxWidth: .infinity)
-            // Filled and bordered, so it reads as a control rather than a
-            // heading — but neutral, not the white pill, which made the main
-            // action look like the section the user is currently in.
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                    .fill(Theme.Palette.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                            .stroke(Theme.Palette.borderStrong, lineWidth: 0.5)
-                    )
-            )
-            .contentShape(RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous))
+            // The app's primary-action surface, which every other call to
+            // action already wears and the main verb did not. A capsule, not the
+            // chip rectangle the nav rows use: an earlier attempt at a light
+            // fill read as "the section you're in" precisely because it kept
+            // their shape, so the two are separated by form rather than by
+            // brightness.
+            .glassButtonSurface(Capsule(style: .continuous))
+            .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
-        .help("Capture a meeting  ·  \(panelShortcut)")
+        .help("Start Nod  ·  \(panelShortcut)")
     }
 
     @ViewBuilder

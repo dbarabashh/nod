@@ -56,6 +56,10 @@ struct OrgSidebarRow: View {
         .padding(.bottom, 12)
     }
 
+    /// Deliberately without a fill or a border. It sits directly above the
+    /// Capture button, which carries both — two identical plates stacked read as
+    /// two controls of equal weight, and this one is a label saying which
+    /// organization you are in.
     private var surface: some View {
         let shape = RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
         return HStack(spacing: 9) {
@@ -79,7 +83,7 @@ struct OrgSidebarRow: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 7)
-        .hoverSurface(isHovering, in: shape, reduceMotion: reduceMotion)
+        .hoverHighlight(isHovering, reduceMotion: reduceMotion)
         .contentShape(shape)
     }
 

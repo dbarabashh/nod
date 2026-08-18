@@ -59,6 +59,15 @@ final class IntegrationService: ObservableObject {
         await refresh()
     }
 
+    /// What a chat may offer the model this turn. Both chats ask the same
+    /// question and must get the same answer — the catalogue has to match
+    /// between the prompt that describes it, the request that carries it, and
+    /// the match that checks a call against it.
+    func chatTools() async -> [ChatTool] {
+        await refreshIfNeeded()
+        return ChatTools.definitions(for: linked)
+    }
+
     func refresh() async {
         guard let supabase else { return }
         isLoading = true
