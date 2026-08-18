@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Supabase
 
@@ -116,6 +117,33 @@ final class OrganizationService: ObservableObject {
         await refresh()
     }
 
+    /// The caller's memberships, with the organization each one is in.
+    ///
+    /// Asked for the logo first and again without it if the column isn't there.
+    /// Sandbox and production keep their own migration histories and diverge on
+    /// purpose, so a build can meet a database that predates a column it knows
+    /// about — and losing every organization over an unknown column is a far
+    /// worse answer than drawing the monogram for a while.
+    private func membershipRows(of userID: UUID, from supabase: SupabaseClient) async throws -> [OrgMembershipRow] {
+        func rows(_ columns: String) async throws -> [OrgMembershipRow] {
+            try await supabase
+                .from("org_members")
+                .select("role, organizations(\(columns))")
+                .eq("user_id", value: userID.uuidString)
+                .eq("status", value: "active")
+                .execute()
+                .value
+        }
+        guard hasLogoColumn else { return try await rows("id, name, slug") }
+        do {
+            return try await rows("id, name, slug, logo_path")
+        } catch {
+            Log.ui.info("organizations have no logo_path yet; drawing monograms")
+            hasLogoColumn = false
+            return try await rows("id, name, slug")
+        }
+    }
+
     func refresh() async {
         guard let supabase, let userID = supabase.auth.currentUser?.id else { return }
         currentUserID = userID
@@ -126,13 +154,7 @@ final class OrganizationService: ObservableObject {
             // member of the organization by design — that is what makes a roster
             // a roster — so leaving the filter to row-level security returns one
             // row per colleague, each embedding the same organization.
-            let rows: [OrgMembershipRow] = try await supabase
-                .from("org_members")
-                .select("role, organizations(id, name, slug)")
-                .eq("user_id", value: userID.uuidString)
-                .eq("status", value: "active")
-                .execute()
-                .value
+            let rows = try await membershipRows(of: userID, from: supabase)
             memberships = rows.compactMap(\.membership).sorted { $0.organization.name < $1.organization.name }
 
             teams = memberships.isEmpty ? [] : try await supabase
@@ -529,6 +551,101 @@ final class OrganizationService: ObservableObject {
         // showing — being removed from an organization is a normal event, and
         // the honest answer is that they are back in their own space.
         return memberships.contains(where: { $0.id == stored }) ? stored : nil
+    }
+
+    // MARK: - The organization's mark
+
+    /// The bucket is public, so the mark is a plain URL: it sits beside the name
+    /// wherever the name is shown, and a signed link would expire mid-sidebar.
+    func logoURL(for organization: Organization) -> URL? {
+        guard let supabase, let path = organization.logoPath, !path.isEmpty else { return nil }
+        return try? supabase.storage.from(Self.logoBucket).getPublicURL(path: path)
+    }
+
+    /// Uploads a square PNG and points the organization at it.
+    ///
+    /// Two writes, in this order on purpose: the object first, the row second.
+    /// A row pointing at an object that failed to upload draws a broken image
+    /// for everyone in the organization, while an object nothing points at is
+    /// invisible and overwritten by the next attempt.
+    func setLogo(_ image: NSImage, for orgID: UUID) async -> Bool {
+        guard let supabase else { return false }
+        guard let png = Self.square(image, side: Self.logoSide) else {
+            lastError = "That image couldn't be read."
+            return false
+        }
+        let path = "\(orgID.uuidString.lowercased())/logo.png"
+        do {
+            _ = try await supabase.storage
+                .from(Self.logoBucket)
+                .upload(path, data: png, options: FileOptions(contentType: "image/png", upsert: true))
+            struct Params: Encodable {
+                let p_org: UUID
+                let p_path: String
+            }
+            _ = try await supabase.rpc("set_org_logo", params: Params(p_org: orgID, p_path: path)).execute()
+            lastError = nil
+            await refresh()
+            return true
+        } catch {
+            Log.ui.error("OrganizationService.setLogo failed: \(error.localizedDescription)")
+            lastError = "Couldn't upload that image."
+            return false
+        }
+    }
+
+    /// Clears the mark and removes the object behind it. The row is cleared
+    /// first here — the opposite order to setting one — because what is drawn is
+    /// what matters, and an object left behind is storage to reclaim rather than
+    /// a broken image.
+    func removeLogo(for orgID: UUID) async {
+        guard let supabase else { return }
+        do {
+            struct Params: Encodable {
+                let p_org: UUID
+                let p_path: String?
+            }
+            _ = try await supabase.rpc("set_org_logo", params: Params(p_org: orgID, p_path: nil)).execute()
+            _ = try? await supabase.storage
+                .from(Self.logoBucket)
+                .remove(paths: ["\(orgID.uuidString.lowercased())/logo.png"])
+            lastError = nil
+            await refresh()
+        } catch {
+            Log.ui.error("OrganizationService.removeLogo failed: \(error.localizedDescription)")
+            lastError = "Couldn't remove that image."
+        }
+    }
+
+    /// Cleared the first time the database says otherwise, so the fallback is
+    /// paid once per launch rather than on every refresh.
+    private var hasLogoColumn = true
+
+    private static let logoBucket = "org-logos"
+    /// Drawn at 32pt at most, so this is twice the biggest Retina size it needs
+    /// — enough that nobody uploads a 4MB photograph of their office wall.
+    private static let logoSide: CGFloat = 256
+
+    /// Centre-cropped to a square and redrawn at `side`, because the tile it
+    /// goes into is square: letting the server keep a 4000×3000 original would
+    /// mean every client downloads it to draw 32 points of it.
+    private static func square(_ image: NSImage, side: CGFloat) -> Data? {
+        let source = image.size
+        guard source.width > 0, source.height > 0 else { return nil }
+        let scale = max(side / source.width, side / source.height)
+        let scaled = NSSize(width: source.width * scale, height: source.height * scale)
+        let origin = NSPoint(x: (side - scaled.width) / 2, y: (side - scaled.height) / 2)
+
+        let canvas = NSImage(size: NSSize(width: side, height: side))
+        canvas.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image.draw(in: NSRect(origin: origin, size: scaled))
+        canvas.unlockFocus()
+
+        guard let tiff = canvas.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff)
+        else { return nil }
+        return bitmap.representation(using: .png, properties: [:])
     }
 }
 

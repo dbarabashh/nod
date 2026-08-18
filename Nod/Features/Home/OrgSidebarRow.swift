@@ -57,20 +57,29 @@ struct OrgSidebarRow: View {
     }
 
     /// Deliberately without a fill or a border. It sits directly above the
-    /// Capture button, which carries both — two identical plates stacked read as
-    /// two controls of equal weight, and this one is a label saying which
+    /// Start Nod button, which carries both — two identical plates stacked read
+    /// as two controls of equal weight, and this one is a label saying which
     /// organization you are in.
+    ///
+    /// Sized for a mark rather than for a letter. The tile used to hold an
+    /// initial the name beside it already spelled, so it could stay small; a
+    /// logo is the one thing here that isn't repeated in words, and at 24pt it
+    /// read as an icon in front of a label instead of the company's face.
     private var surface: some View {
         let shape = RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-        return HStack(spacing: 9) {
-            OrgMonogram(name: organizations.activeMembership?.organization.name)
-            VStack(alignment: .leading, spacing: 1) {
+        return HStack(spacing: 10) {
+            OrgMonogram(
+                name: organizations.activeMembership?.organization.name,
+                size: 32,
+                logo: organizations.activeMembership.flatMap { organizations.logoURL(for: $0.organization) }
+            )
+            VStack(alignment: .leading, spacing: 2) {
                 Text(organizations.activeMembership?.organization.name ?? "Personal")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
                     .lineLimit(1)
                 Text(organizations.activeMembership?.role.displayName ?? "Only you")
-                    .font(.system(size: 11))
+                    .font(.system(size: 11.5))
                     .foregroundStyle(Theme.Palette.muted)
                     .lineLimit(1)
             }
@@ -82,7 +91,7 @@ struct OrgSidebarRow: View {
             }
         }
         .padding(.horizontal, 9)
-        .padding(.vertical, 7)
+        .padding(.vertical, 8)
         .hoverHighlight(isHovering, reduceMotion: reduceMotion)
         .contentShape(shape)
     }

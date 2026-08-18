@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The organization pane: who you are administering, and three pages of it.
@@ -16,6 +17,8 @@ struct OrganizationSection: View {
 
     @State private var page = Page.overview
     @State private var newName = ""
+    /// The upload in flight, so the tile can say so and refuse a second pick.
+    @State private var uploadingLogo = false
 
     enum Page: String, CaseIterable, Identifiable {
         case overview = "Organization"
@@ -74,7 +77,7 @@ struct OrganizationSection: View {
 
     private func identityStrip(_ membership: OrgMembership) -> some View {
         HStack(spacing: 11) {
-            OrgMonogram(name: membership.organization.name, size: 32)
+            logoWell(membership)
             VStack(alignment: .leading, spacing: 1) {
                 Text(membership.organization.name)
                     .font(.system(size: 14, weight: .semibold))
@@ -84,6 +87,73 @@ struct OrganizationSection: View {
                     .foregroundStyle(Theme.Palette.muted)
             }
             Spacer(minLength: 0)
+        }
+    }
+
+    /// The mark, and — for the two roles that run the organization — the way to
+    /// change it. A member sees the same tile with nothing to click: the company
+    /// face is not theirs to set, and an affordance that fails on the server is
+    /// worse than one that was never offered.
+    @ViewBuilder
+    private func logoWell(_ membership: OrgMembership) -> some View {
+        let mark = OrgMonogram(
+            name: membership.organization.name,
+            size: 32,
+            logo: service.logoURL(for: membership.organization)
+        )
+        if membership.role.administers {
+            Button { chooseLogo(for: membership.organization) } label: {
+                mark
+                    .overlay(alignment: .bottomTrailing) {
+                        Group {
+                            if uploadingLogo {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image("nc-pen-writing")
+                                    .icon(8)
+                                    .foregroundStyle(Theme.Palette.ink)
+                            }
+                        }
+                        .padding(3)
+                        .background(Circle().fill(Theme.Palette.surfaceStrong))
+                        .overlay(Circle().stroke(Theme.Palette.border, lineWidth: 0.5))
+                        .offset(x: 3, y: 3)
+                    }
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .linkCursor()
+            .disabled(uploadingLogo)
+            .help(membership.organization.logoPath == nil ? "Add a logo" : "Change the logo")
+            .contextMenu {
+                if membership.organization.logoPath != nil {
+                    Button(role: .destructive) {
+                        Task { await service.removeLogo(for: membership.organization.id) }
+                    } label: {
+                        IconLabel(title: "Remove logo", icon: "nc-trash")
+                    }
+                }
+            }
+        } else {
+            mark
+        }
+    }
+
+    /// A standard open panel, restricted to what the bucket accepts. The image
+    /// is squared and shrunk before it leaves the Mac — see
+    /// `OrganizationService.setLogo`.
+    private func chooseLogo(for organization: Organization) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = "Use as logo"
+        panel.message = "Pick a square image for \(organization.name)."
+        guard panel.runModal() == .OK, let url = panel.url, let image = NSImage(contentsOf: url) else { return }
+        uploadingLogo = true
+        Task {
+            _ = await service.setLogo(image, for: organization.id)
+            uploadingLogo = false
         }
     }
 

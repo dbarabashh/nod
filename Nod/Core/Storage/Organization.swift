@@ -32,11 +32,15 @@ struct Organization: Codable, Identifiable, Equatable {
     let id: UUID
     let name: String
     let slug: String
+    /// Where the organization's mark lives in the `org-logos` bucket, or nil
+    /// while it is still the first letter of its name.
+    var logoPath: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case name
         case slug
+        case logoPath = "logo_path"
     }
 }
 

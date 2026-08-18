@@ -8,6 +8,10 @@ import SwiftUI
 struct OrgMonogram: View {
     let name: String?
     var size: CGFloat = 24
+    /// The organization's own mark, when it has one. The monogram is what shows
+    /// while it loads and what stays if it never does — a tile that flashes
+    /// empty on every launch is worse than a letter.
+    var logo: URL?
     /// An outline rather than a filled tile, for somebody who has only been
     /// invited. The difference is legible before the words are read.
     var isMuted = false
@@ -17,10 +21,18 @@ struct OrgMonogram: View {
         ZStack {
             shape.fill(isMuted ? .clear : Theme.Palette.surfaceStrong)
             shape.stroke(Theme.Palette.border, lineWidth: 0.5)
-            if let initial {
-                Text(initial)
-                    .font(.system(size: size * 0.48, weight: .semibold))
-                    .foregroundStyle(isMuted ? Theme.Palette.muted : Theme.Palette.ink)
+            if let logo {
+                AsyncImage(url: logo) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } placeholder: {
+                    letter
+                }
+                .frame(width: size, height: size)
+                .clipShape(shape)
+            } else if let initial {
+                letter
             } else {
                 Image("nc-user")
                     .icon(size * 0.46)
@@ -29,6 +41,14 @@ struct OrgMonogram: View {
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private var letter: some View {
+        if let initial {
+            Text(initial)
+                .font(.system(size: size * 0.48, weight: .semibold))
+                .foregroundStyle(isMuted ? Theme.Palette.muted : Theme.Palette.ink)
+        }
     }
 
     private var initial: String? {
