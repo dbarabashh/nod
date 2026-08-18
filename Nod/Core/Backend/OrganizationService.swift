@@ -24,12 +24,20 @@ final class OrganizationService: ObservableObject {
     /// Who the signed-in person is, so the member list can tell their own row
     /// apart — you administer an organization, you do not administer yourself.
     @Published private(set) var currentUserID: UUID?
-    @Published private(set) var members: [OrgMember] = []
+    @Published private(set) var members: [OrgMember] = [] {
+        didSet { rebuildRoster() }
+    }
+
+    /// The one roster the People page renders, whichever RPC filled it.
+    @Published private(set) var roster: [RosterEntry] = []
     /// Colleagues this account may address by name — see `org_directory`.
     ///
     /// Separate from `members`, which is the administrator's view and raises for
     /// everyone else. This one carries only what an invitation needs.
-    @Published private(set) var directory: [Teammate] = []
+    @Published private(set) var directory: [Teammate] = [] {
+        didSet { rebuildRoster() }
+    }
+
     private var hasLoadedDirectory = false
     /// Everybody the organization knows about, including colleagues who have
     /// never installed Nod — imported from whichever tracker or chat the company
@@ -66,6 +74,10 @@ final class OrganizationService: ObservableObject {
     /// no memberships has nothing to put in it.
     var belongsToAnyOrganization: Bool {
         !memberships.isEmpty
+    }
+
+    private func rebuildRoster() {
+        roster = Self.rosterEntries(members: members, directory: directory)
     }
 
     func teams(in orgID: UUID) -> [Team] {
@@ -185,25 +197,44 @@ final class OrganizationService: ObservableObject {
 
     /// Switches the context new recordings are filed under. `nil` means personal.
     func switchContext(to orgID: UUID?) async {
-        guard let supabase, orgID == nil || memberships.contains(where: { $0.id == orgID }) else { return }
+        guard orgID == nil || memberships.contains(where: { $0.id == orgID }) else { return }
         let previous = activeOrgID
         activeOrgID = orgID
+        guard await writeContext(orgID) else {
+            activeOrgID = previous
+            return
+        }
+        // Both rosters are scoped to the active context by the server, so the
+        // ones in hand answer for the organization we just left. The cached
+        // directory in particular survived every switch and every sign-out,
+        // which meant a chat that had once loaded an empty roster never got
+        // another one.
+        hasLoadedDirectory = false
+        directory = []
+        async let roster: Void = refreshDirectoryIfNeeded()
+        async let assignable: Void = refreshPeople()
+        _ = await (roster, assignable)
+    }
+
+    private func writeContext(_ orgID: UUID?) async -> Bool {
+        guard let supabase else { return false }
         do {
             struct Payload: Encodable {
                 let active_org_id: UUID?
             }
-            guard let userID = supabase.auth.currentUser?.id else { return }
+            guard let userID = supabase.auth.currentUser?.id else { return false }
             try await supabase
                 .from("profiles")
                 .update(Payload(active_org_id: orgID))
                 .eq("user_id", value: userID.uuidString)
                 .execute()
             lastError = nil
-            Log.ui.info("organization context switched org=\(orgID?.uuidString ?? "personal")")
+            Log.ui.info("organization context set org=\(orgID?.uuidString ?? "personal")")
+            return true
         } catch {
-            activeOrgID = previous
             lastError = "Couldn't switch context."
-            Log.ui.error("OrganizationService.switchContext failed: \(error.localizedDescription)")
+            Log.ui.error("OrganizationService.writeContext failed: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -473,9 +504,11 @@ final class OrganizationService: ObservableObject {
         members = []
         pendingInvites = []
         teamMembers = [:]
+        directory = []
         currentUserID = nil
         activeOrgID = nil
         hasLoaded = false
+        hasLoadedDirectory = false
         lastError = nil
     }
 

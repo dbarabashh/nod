@@ -23,12 +23,29 @@ struct SessionsListView: View {
 
     @State private var searchQuery: String = ""
     @State private var segment: Segment = .all
+    @State private var owner: Owner = .everyone
     @State private var reindexProgress: ReindexProgress?
     @State private var pendingHardDelete: Meeting?
 
     enum Segment: String, CaseIterable, Identifiable {
         case all = "All"
         case trash = "Trash"
+        var id: String {
+            rawValue
+        }
+    }
+
+    /// Whose session this is — the question a colleague's shared recording
+    /// raises the moment it lands in the list beside your own.
+    ///
+    /// A filter rather than a context to switch into, because that is what the
+    /// data supports: what you can read is decided by membership and by the
+    /// grants on each session, and no context you could be in changes it. A
+    /// switcher would have implied a partition that does not exist.
+    enum Owner: String, CaseIterable, Identifiable {
+        case everyone = "All"
+        case mine = "Mine"
+        case shared = "Shared with me"
         var id: String {
             rawValue
         }
@@ -79,6 +96,7 @@ struct SessionsListView: View {
             projectSummary
             searchField
             segmentBar
+            ownerFilterBar
             labelFilterBar
             content
                 .id(contentKey)
@@ -196,6 +214,27 @@ struct SessionsListView: View {
             if new == .trash, case .idle = meetingStore.trashState {
                 Task { await meetingStore.refreshTrash() }
             }
+        }
+    }
+
+    /// Absent until somebody else's session is actually in the list. For an
+    /// account working alone every row is theirs, and a filter whose two other
+    /// options are both empty is a control that only asks a question.
+    @ViewBuilder
+    private var ownerFilterBar: some View {
+        if segment == .all, meetingStore.hasSharedSessions {
+            HStack(spacing: 8) {
+                SegmentedControl(
+                    selection: $owner,
+                    options: Owner.allCases,
+                    title: \.rawValue,
+                    animation: Self.contentFade
+                )
+                .frame(width: 320)
+                Spacer(minLength: 12)
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 10)
         }
     }
 
@@ -318,7 +357,7 @@ struct SessionsListView: View {
     }
 
     private var contentKey: String {
-        "\(segment.rawValue)|\(filterLabelID?.uuidString ?? "")"
+        "\(segment.rawValue)|\(owner.rawValue)|\(filterLabelID?.uuidString ?? "")"
     }
 
     private static let contentFade = Animation.easeInOut(duration: 0.2)
@@ -376,6 +415,10 @@ struct SessionsListView: View {
         if segment == .all, let filterLabelID {
             let ids = labelStore.meetingIDs(withLabel: filterLabelID)
             result = result.filter { ids.contains($0.id) }
+        }
+        if segment == .all, owner != .everyone {
+            let wantsShared = owner == .shared
+            result = result.filter { meetingStore.isSharedWithMe($0) == wantsShared }
         }
         let q = normalizedQuery
         if q.isEmpty { return result }

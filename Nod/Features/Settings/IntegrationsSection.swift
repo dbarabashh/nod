@@ -168,19 +168,7 @@ struct IntegrationsSection: View {
     @ViewBuilder
     private func organizationSwitch(_ provider: IntegrationProvider) -> some View {
         if let organizations, let membership = organizations.activeMembership, membership.role.administers {
-            Toggle(
-                "Allowed in \(membership.organization.name)",
-                isOn: Binding(
-                    get: { !service.blockedByOrganization.contains(provider) },
-                    set: { allowed in
-                        Task { await service.setAllowed(allowed, for: provider, in: membership.id) }
-                    }
-                )
-            )
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .labelsHidden()
-            .help("Allowed in \(membership.organization.name)")
+            OrgToolToggle(service: service, provider: provider, membership: membership)
         }
     }
 

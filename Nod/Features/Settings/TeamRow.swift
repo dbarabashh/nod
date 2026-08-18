@@ -88,9 +88,7 @@ struct TeamRow: View {
                     }
                     Button("Delete team…", role: .destructive) { isConfirmingDelete = true }
                 } label: {
-                    Text("Manage")
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.muted)
+                    MenuTrigger(title: "Manage")
                 }
                 .plainMenuChrome()
                 .fixedSize()
@@ -136,14 +134,13 @@ struct TeamRow: View {
                         Button(candidate.displayName ?? candidate.email) { add(candidate) }
                     }
                 } label: {
-                    Text("Add someone")
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.muted)
+                    MenuTrigger(title: "Add someone", icon: "nc-plus")
                 }
                 .plainMenuChrome()
                 .fixedSize()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 37)
+                .padding(.top, 2)
                 .padding(.bottom, 10)
             }
         }

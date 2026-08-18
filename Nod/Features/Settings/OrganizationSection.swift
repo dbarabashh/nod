@@ -1,42 +1,44 @@
-import AppKit
 import SwiftUI
 
+/// The organization pane: who you are administering, and three pages of it.
+///
+/// One scroll used to carry the context switcher, the roster, the teams and the
+/// two ways out. That reads as a pile rather than a place — an administrator
+/// looking for one person scrolls past team rosters to find them. The switcher
+/// moved to the window's sidebar, where switching actually belongs, and what is
+/// left splits along the three questions people arrive with: what is this
+/// organization, who is in it, how is it divided.
 struct OrganizationSection: View {
     @ObservedObject var service: OrganizationService
+    /// Absent in previews and for a signed-out account. Only the tools table
+    /// needs it, and that table is an administrator's surface anyway.
+    var integrations: IntegrationService?
+
+    @State private var page = Page.overview
     @State private var newName = ""
-    @State private var inviteEmail = ""
-    @State private var inviteRole: OrgRole = .member
-    @State private var newTeamName = ""
+
+    enum Page: String, CaseIterable, Identifiable {
+        case overview = "Organization"
+        case people = "People"
+        case teams = "Teams"
+        var id: String {
+            rawValue
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            contextCard
             if let membership = service.activeMembership {
-                if membership.role.administers {
-                    peopleCard(membership)
-                    teamsCard(membership)
-                } else if !service.teams(in: membership.id).isEmpty {
-                    teamsCard(membership)
-                }
-            }
-            if service.memberships.isEmpty {
+                identityStrip(membership)
+                SegmentedControl(selection: $page, options: Page.allCases, title: \.rawValue)
+                    .frame(maxWidth: 300)
+                pageContent(membership)
+            } else if service.memberships.isEmpty {
                 createCard
-            }
-            if let membership = service.activeMembership {
-                if service.isSoleOwner(of: membership.id) {
-                    DeleteOrganizationCard(organization: membership.organization) {
-                        Task { await service.deleteOrganization(membership.id) }
-                    }
-                } else {
-                    LeaveOrganizationCard(organization: membership.organization) {
-                        Task { await service.leaveOrganization(membership.id) }
-                    }
-                    if membership.role == .owner {
-                        DeleteOrganizationCard(organization: membership.organization) {
-                            Task { await service.deleteOrganization(membership.id) }
-                        }
-                    }
-                }
+            } else {
+                // Belongs to something, working personally. Nothing here is
+                // wrong — it just needs a context before it has a subject.
+                switchHint
             }
             if let error = service.lastError {
                 Text(error)
@@ -49,230 +51,52 @@ struct OrganizationSection: View {
             // moment somebody is asking who is in the organization, and the
             // answer may have changed on a colleague's Mac since it was cached.
             await service.refresh()
-            if let active = service.activeMembership, active.role.administers {
-                await service.loadMembers(in: active.id)
+            // Not only for the People page: the Overview reads the owners and
+            // whether leaving would strand the organization out of the same
+            // roster.
+            if let active = service.activeMembership {
+                await service.loadRoster(in: active.id, canAdminister: active.role.administers)
             }
         }
     }
 
-    private var contextCard: some View {
+    @ViewBuilder
+    private func pageContent(_ membership: OrgMembership) -> some View {
+        switch page {
+        case .overview:
+            OrganizationOverview(service: service, integrations: integrations, membership: membership)
+        case .people:
+            OrganizationPeople(service: service, membership: membership)
+        case .teams:
+            OrganizationTeams(service: service, membership: membership)
+        }
+    }
+
+    private func identityStrip(_ membership: OrgMembership) -> some View {
+        HStack(spacing: 11) {
+            OrgMonogram(name: membership.organization.name, size: 32)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(membership.organization.name)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                Text("You're \(membership.role == .admin ? "an" : "a") \(membership.role.displayName.lowercased())")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.Palette.muted)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var switchHint: some View {
         SettingsCard {
             SettingsRow(
                 icon: "nc-users",
-                title: "Where new sessions go",
-                subtitle: "Sessions you record are filed here. Your own sessions stay visible to you in every context — switching never hides your work."
+                title: "You're working personally",
+                subtitle: "Switch to an organization in the sidebar to administer it."
             ) {
                 EmptyView()
             }
-            SettingsRowDivider()
-            VStack(spacing: 2) {
-                ContextRow(
-                    title: "Personal",
-                    subtitle: "Only you",
-                    monogram: nil,
-                    isSelected: service.activeOrgID == nil
-                ) {
-                    switchContext(to: nil)
-                }
-                ForEach(service.memberships) { membership in
-                    ContextRow(
-                        title: membership.organization.name,
-                        subtitle: membership.role.displayName,
-                        monogram: membership.organization.name,
-                        isSelected: service.activeOrgID == membership.id
-                    ) {
-                        switchContext(to: membership.id)
-                    }
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
         }
-    }
-
-    private func switchContext(to orgID: UUID?) {
-        guard service.activeOrgID != orgID else { return }
-        Task { await service.switchContext(to: orgID) }
-    }
-
-    private func createOrganization() {
-        Task {
-            if await service.createOrganization(named: newName) { newName = "" }
-        }
-    }
-
-    private func sendInvite(to orgID: UUID) {
-        Task {
-            if await service.invite(email: inviteEmail, role: inviteRole, to: orgID) { inviteEmail = "" }
-        }
-    }
-
-    /// Teams group people and the tools they reach for — not the recordings they
-    /// make. A person sits in one team but records meetings that concern
-    /// several, so filing a session under a team would ask a question with no
-    /// honest answer; what a session is shared with is decided on its own axis.
-    private func teamsCard(_ membership: OrgMembership) -> some View {
-        let teams = service.teams(in: membership.id)
-        return SettingsCard {
-            SettingsRow(
-                icon: "nc-users",
-                title: "Teams",
-                subtitle: "Each team can point an integration at its own workspace."
-            ) {
-                Text("\(teams.count)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.muted)
-            }
-            if membership.role.administers {
-                SettingsRowDivider()
-                newTeamField(membership)
-            }
-            ForEach(teams) { team in
-                SettingsRowDivider()
-                TeamRow(
-                    team: team,
-                    canAdminister: membership.role.administers,
-                    members: service.teamMembers[team.id],
-                    candidates: service.members.filter(\.isActive),
-                    load: { await service.loadTeamMembers(team) },
-                    rename: { name in Task { await service.renameTeam(team, to: name) } },
-                    delete: { Task { await service.deleteTeam(team) } },
-                    add: { member in Task { await service.addTeamMember(member, to: team) } },
-                    remove: { member in Task { await service.removeTeamMember(member, from: team) } },
-                    leave: service.teamMembers[team.id]?.contains { $0.userID == service.currentUserID } == true
-                        ? { Task { await service.leaveTeam(team) } }
-                        : nil
-                )
-            }
-        }
-    }
-
-    private func newTeamField(_ membership: OrgMembership) -> some View {
-        HStack(spacing: 10) {
-            TextField("Team name", text: $newTeamName)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12.5))
-            Button {
-                createTeam(in: membership.id)
-            } label: {
-                Text("Add team")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(newTeamName.trimmingCharacters(in: .whitespaces).isEmpty)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-    }
-
-    private func createTeam(in orgID: UUID) {
-        Task {
-            if await service.createTeam(named: newTeamName, in: orgID) { newTeamName = "" }
-        }
-    }
-
-    private func peopleCard(_ membership: OrgMembership) -> some View {
-        SettingsCard {
-            SettingsRow(
-                icon: "nc-users",
-                title: "People",
-                subtitle: "Invites only work for the address you send them to."
-            ) {
-                Text(peopleCount)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.muted)
-            }
-            SettingsRowDivider()
-            inviteField(membership)
-            ForEach(service.pendingInvites) { invite in
-                SettingsRowDivider()
-                PersonRow(
-                    name: invite.email,
-                    detail: "Invited as \(invite.role.displayName.lowercased()) · not accepted yet",
-                    isPending: true
-                ) {
-                    HStack(spacing: 12) {
-                        Button("Copy link") {
-                            copy(invite.url)
-                        }
-                        .font(.system(size: 12))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Theme.Palette.muted)
-                        Button("Revoke") {
-                            Task { await service.revokeInvite(invite, in: membership.id) }
-                        }
-                        .font(.system(size: 12))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Theme.Palette.danger)
-                    }
-                }
-            }
-            ForEach(service.members.filter(\.isActive)) { member in
-                SettingsRowDivider()
-                PersonRow(
-                    name: member.displayName ?? member.email,
-                    detail: member.displayName == nil ? nil : member.email,
-                    isPending: false
-                ) {
-                    MemberActions(
-                        member: member,
-                        isSelf: member.userID == service.currentUserID,
-                        viewerRole: membership.role,
-                        grantableRoles: service.grantableRoles(as: membership.role),
-                        setRole: { role in Task { await service.setRole(role, for: member, in: membership.id) } },
-                        remove: { Task { await service.removeMember(member, in: membership.id) } }
-                    )
-                }
-            }
-        }
-    }
-
-    private func inviteField(_ membership: OrgMembership) -> some View {
-        HStack(spacing: 10) {
-            TextField("name@company.com", text: $inviteEmail)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12.5))
-            SegmentedControl(
-                selection: $inviteRole,
-                options: service.grantableRoles(as: membership.role),
-                title: \.displayName
-            )
-            .frame(width: membership.role == .owner ? 186 : 130)
-            .accessibilityLabel("Role for the invite")
-            Button {
-                sendInvite(to: membership.id)
-            } label: {
-                Text("Invite")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(!inviteEmail.contains("@") || service.isLoading)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-    }
-
-    /// Counted apart, because "3" beside a list of five rows reads as a bug. An
-    /// invited address is not a member yet — that is the whole difference the
-    /// row below is drawing.
-    private var peopleCount: String {
-        let members = service.members.filter(\.isActive).count
-        let invited = service.pendingInvites.count
-        guard invited > 0 else { return "\(members)" }
-        return "\(members) · \(invited) invited"
-    }
-
-    private func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private var createCard: some View {
@@ -304,6 +128,12 @@ struct OrganizationSection: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
+        }
+    }
+
+    private func createOrganization() {
+        Task {
+            if await service.createOrganization(named: newName) { newName = "" }
         }
     }
 }

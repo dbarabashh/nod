@@ -379,7 +379,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var organizationPane: some View {
         if let organizations {
-            OrganizationSection(service: organizations)
+            OrganizationSection(service: organizations, integrations: integrations)
         } else {
             Text("Sign in to work with an organization.")
                 .font(.system(size: 12.5))

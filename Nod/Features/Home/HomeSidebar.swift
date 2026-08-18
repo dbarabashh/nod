@@ -20,8 +20,6 @@ struct HomeSidebar: View {
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var threads: KnowledgeThreadStore
     @EnvironmentObject private var chat: KnowledgeChatStore
-    @EnvironmentObject private var profileStore: ProfileStore
-    @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var demoPlayback: DemoPlayback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -47,6 +45,7 @@ struct HomeSidebar: View {
     var body: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: Self.topBand)
+            OrgSidebarRow()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
                     captureButton
@@ -57,8 +56,8 @@ struct HomeSidebar: View {
                     Color.clear.frame(height: 14)
                     chatRow
                     dailyModesRow
-                    navRow(
-                        "Sessions",
+                    SidebarNavRow(
+                        title: "Sessions",
                         icon: "nc-layers-3",
                         isSelected: surface == .sessions,
                         action: { onSelect(.sessions) }
@@ -67,8 +66,8 @@ struct HomeSidebar: View {
                     // things the main window is for, and the only route in used
                     // to be a header inside the attention list — which left the
                     // full list reachable but unfindable.
-                    navRow(
-                        "Actions",
+                    SidebarNavRow(
+                        title: "Actions",
                         icon: "nc-check",
                         isSelected: surface == .actionItems,
                         action: { onSelect(.actionItems) }
@@ -81,7 +80,7 @@ struct HomeSidebar: View {
                 .padding(.bottom, 12)
             }
             Spacer(minLength: 0)
-            footer
+            HomeSidebarFooter(surface: surface, onSelect: onSelect)
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -189,8 +188,8 @@ struct HomeSidebar: View {
         HStack(spacing: 4) {
             // "Chat" names the interface; "Ask Nod" names the job — and it's
             // the phrase the composer already uses ("Ask across all memory").
-            navRow(
-                "Ask NOD",
+            SidebarNavRow(
+                title: "Ask NOD",
                 icon: "nc-sparkle-3",
                 isSelected: surface == .chat,
                 action: { onSelect(.chat) }
@@ -226,43 +225,13 @@ struct HomeSidebar: View {
     @ViewBuilder
     private var dailyModesRow: some View {
         if demoPlayback.armed != nil {
-            navRow(
-                "Today",
+            SidebarNavRow(
+                title: "Today",
                 icon: "nc-window-chart-line",
                 isSelected: surface == .dailyModes,
                 action: { onSelect(.dailyModes) }
             )
         }
-    }
-
-    private func navRow(
-        _ title: String,
-        icon: String,
-        isSelected: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 9) {
-                Image(icon)
-                    .icon(12.5)
-                    .frame(width: 16)
-                Text(title)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.72))
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                    .fill(Theme.Palette.surfaceStrong)
-                    .opacity(isSelected ? 1 : 0)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -524,79 +493,5 @@ struct HomeSidebar: View {
             chat.startNewThread()
         }
         Task { await threads.delete(thread.id) }
-    }
-
-    // MARK: - Footer
-
-    private var footer: some View {
-        VStack(spacing: 2) {
-            Divider()
-                .overlay(Theme.Palette.border)
-                .padding(.bottom, 6)
-            AttentionSidebarRow(
-                isSelected: surface == .attention,
-                onSelect: { onSelect(.attention) }
-            )
-            // Takes the service from the environment itself. Holding it here
-            // instead meant every capture tick — one every 5 seconds while
-            // ambient context runs — invalidated the whole sidebar body to
-            // redraw one 30pt row.
-            AmbientContextSidebarRow()
-            navRow(
-                "Give 50%, get a free month",
-                icon: "nc-gift",
-                isSelected: false,
-                action: { NotificationCenter.default.post(name: .nodOpenRewards, object: nil) }
-            )
-            navRow(
-                "Settings",
-                icon: "nc-gear-2",
-                isSelected: surface == .settings,
-                action: { onSelect(.settings) }
-            )
-            accountRow
-        }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 10)
-    }
-
-    private var accountRow: some View {
-        Button { onSelect(.settings) } label: {
-            HStack(spacing: 9) {
-                Image("nc-user")
-                    .icon(15)
-                    .foregroundStyle(Theme.Palette.muted)
-                    .frame(width: 16)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(displayName)
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(Theme.Palette.ink.opacity(0.85))
-                        .lineLimit(1)
-                    Text(planLabel)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.Palette.muted)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Account and plan")
-    }
-
-    private var displayName: String {
-        let name = profileStore.profile?.displayName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return name.isEmpty ? "Your account" : name
-    }
-
-    /// Reads the plan the server resolved. Unresolved (offline, first launch)
-    /// says nothing rather than guessing a tier the user isn't on.
-    private var planLabel: String {
-        guard let entitlement = entitlements.entitlement else { return "—" }
-        let plan = entitlement.plan.capitalized
-        return entitlement.status == .trialing ? "\(plan) · trial" : plan
     }
 }

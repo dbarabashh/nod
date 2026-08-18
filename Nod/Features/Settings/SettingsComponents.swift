@@ -72,3 +72,21 @@ struct SettingsRowDivider: View {
             .padding(.leading, 58)
     }
 }
+
+/// The "nothing here yet" line inside a `SettingsCard`, aligned with its rows.
+struct SettingsEmptyRow: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundStyle(Theme.Palette.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+    }
+}

@@ -35,9 +35,7 @@ struct MemberActions: View {
                     isConfirmingRemoval = true
                 }
             } label: {
-                Text(member.role.displayName)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.muted)
+                MenuTrigger(title: member.role.displayName)
             }
             .plainMenuChrome()
             .fixedSize()

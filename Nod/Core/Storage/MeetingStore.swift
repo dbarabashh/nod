@@ -31,8 +31,15 @@ final class MeetingStore: ObservableObject {
         didSet {
             byID = Dictionary(meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             digestKey = DigestKey(count: meetings.count, newest: meetings.first?.id)
+            hasSharedSessions = meetings.contains(where: isSharedWithMe)
         }
     }
+
+    /// Whether anybody else's session is in the loaded list, so the owner filter
+    /// can stay out of the way of an account working alone. Derived with the
+    /// list rather than in a `body`: for that solo account the scan never
+    /// short-circuits, and it would run on every keystroke of the search field.
+    @Published private(set) var hasSharedSessions = false
 
     /// Cheap identity of the loaded set, for the surfaces that re-derive when
     /// sessions are added or removed. They used to join every id into a string
