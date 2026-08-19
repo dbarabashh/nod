@@ -67,6 +67,16 @@ struct HomeSidebar: View {
                         isSelected: surface == .actionItems,
                         onSelect: { onSelect(.actionItems) }
                     )
+                    // A destination beside Sessions rather than a segment above
+                    // it: restoring and destroying are not things you do to a
+                    // live session, so this is a different place to be, and it
+                    // costs the sessions list nothing to sit here.
+                    SidebarNavRow(
+                        title: "Trash",
+                        icon: "nc-trash",
+                        isSelected: surface == .trash,
+                        action: { onSelect(.trash) }
+                    )
                     projectsSection
                     sharedProjectsSection
                     threadsSection

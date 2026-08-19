@@ -59,37 +59,6 @@ struct LabelChip: View {
     }
 }
 
-/// A selectable label pill for the History filter strip and the chat scope
-/// picker. Filled with the label's colour when selected.
-struct LabelFilterChip: View {
-    let title: String
-    let color: Color
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(color)
-                    .frame(width: 7, height: 7)
-                Text(title)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(isSelected ? Color.white : Theme.Palette.ink.opacity(0.8))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(isSelected ? color.opacity(0.85) : Theme.Palette.surface)
-                    .overlay(Capsule().stroke(isSelected ? Color.clear : Theme.Palette.border, lineWidth: 0.5))
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 /// A row of tappable colour swatches for the fixed `LabelPalette`. Shared by
 /// label creation and editing so the picker looks the same in both.
 struct LabelSwatchRow: View {

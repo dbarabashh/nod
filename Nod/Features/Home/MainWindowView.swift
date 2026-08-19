@@ -63,6 +63,11 @@ struct MainWindowView: View {
     enum Surface: String {
         case chat
         case sessions
+        /// Deleted sessions. A destination rather than a segment above the
+        /// list: what you can do to a trashed session — restore it, destroy it
+        /// — is not what you can do to a live one, so it is a different place,
+        /// not a lens on the same one.
+        case trash
         case actionItems
         case settings
         case dailyModes
@@ -227,8 +232,9 @@ struct MainWindowView: View {
         switch surface {
         case .chat:
             chatHome.transition(.opacity)
-        case .sessions:
+        case .sessions, .trash:
             SessionsListView(
+                mode: surface == .trash ? .trash : .all,
                 filterLabelID: $filterLabelID,
                 onOpen: { focus = .session($0) },
                 onStartCapture: capture,

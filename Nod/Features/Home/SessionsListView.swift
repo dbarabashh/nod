@@ -4,6 +4,10 @@ import SwiftUI
 /// itself. Its own view rather than another 400 lines inside the window shell —
 /// the shell's job is choosing which surface to show, not being one.
 struct SessionsListView: View {
+    /// Live sessions or the trash. Passed in rather than held here: the two are
+    /// separate sidebar destinations now, so which one is showing is the
+    /// window's business, not a control inside the list.
+    let mode: Segment
     /// Project filter, owned by the window: picking a project in the sidebar
     /// navigates here with it already applied.
     @Binding var filterLabelID: UUID?
@@ -22,17 +26,15 @@ struct SessionsListView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var searchQuery: String = ""
-    @State private var segment: Segment = .all
     @State private var owner: Owner = .everyone
     @State private var reindexProgress: ReindexProgress?
     @State private var pendingHardDelete: Meeting?
 
-    enum Segment: String, CaseIterable, Identifiable {
-        case all = "All"
-        case trash = "Trash"
-        var id: String {
-            rawValue
-        }
+    /// Which of the two lists this is. Not a control any more — the window
+    /// picks it from the sidebar destination.
+    enum Segment: String {
+        case all
+        case trash
     }
 
     /// Whose session this is — the question a colleague's shared recording
@@ -77,33 +79,33 @@ struct SessionsListView: View {
     private var sessionsList: some View {
         VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(activeProject?.name ?? "Sessions")
+                Text(title)
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
-                if activeProject != nil {
-                    Button { filterLabelID = nil } label: {
-                        Text("Clear filter")
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(Theme.Palette.muted)
-                    }
-                    .buttonStyle(.plain)
-                    .linkCursor()
-                }
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 18)
             .padding(.top, 18)
             projectSummary
-            searchField
-            segmentBar
-            ownerFilterBar
-            labelFilterBar
+            toolbar
+            activeFilters
             content
                 .id(contentKey)
                 .transition(.opacity)
         }
         .onChange(of: labelStore.labels) { _ in clearFilterIfProjectVanished() }
         .onAppear(perform: clearFilterIfProjectVanished)
+        // The segmented control used to load the trash the first time it was
+        // selected. It is a destination now, so arriving is the trigger.
+        .task(id: mode) {
+            guard mode == .trash, case .idle = meetingStore.trashState else { return }
+            await meetingStore.refreshTrash()
+        }
+    }
+
+    private var title: String {
+        guard mode == .all else { return "Trash" }
+        return activeProject?.name ?? "Sessions"
     }
 
     private var activeProject: SessionLabel? {
@@ -189,87 +191,99 @@ struct SessionsListView: View {
                 .fill(Color.white.opacity(0.06))
                 .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
         )
-        .frame(maxWidth: 280, alignment: .leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 18)
-        .padding(.top, 12)
+        .frame(maxWidth: 280)
     }
 
-    private var segmentBar: some View {
+    /// The only permanent row of controls. What used to sit under it — a
+    /// segmented control for the trash, another for whose sessions these are,
+    /// and a chip per project — described three different things at the same
+    /// altitude and cost the list a hundred points of height before a single
+    /// row of content. The trash is a place now, the project comes from the
+    /// sidebar, and ownership is a filter you open rather than one you scroll
+    /// past.
+    private var toolbar: some View {
         HStack(spacing: 8) {
-            SegmentedControl(
-                selection: $segment,
-                options: Segment.allCases,
-                title: \.rawValue,
-                animation: Self.contentFade
-            )
-            .frame(width: 200)
+            searchField
             Spacer(minLength: 12)
+            if mode == .all, meetingStore.hasSharedSessions {
+                ownerFilterMenu
+            }
             listActions
         }
         .padding(.horizontal, 18)
-        .padding(.top, 8)
+        .padding(.top, 12)
         .padding(.bottom, 10)
-        .onChange(of: segment) { new in
-            if new == .trash, case .idle = meetingStore.trashState {
-                Task { await meetingStore.refreshTrash() }
-            }
-        }
     }
 
     /// Absent until somebody else's session is actually in the list. For an
     /// account working alone every row is theirs, and a filter whose two other
     /// options are both empty is a control that only asks a question.
+    private var ownerFilterMenu: some View {
+        Menu {
+            Picker("Show", selection: $owner) {
+                ForEach(Owner.allCases) { option in
+                    Text(option.rawValue).tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 5) {
+                Image("nc-filter")
+                    .icon(12)
+                Text(owner == .everyone ? "Filter" : owner.rawValue)
+                    .font(.system(size: 11.5, weight: .medium))
+            }
+            .foregroundStyle(owner == .everyone ? Theme.Palette.muted : Theme.Palette.ink)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Filter by whose session it is")
+    }
+
+    /// What is narrowing the list right now, and the way out of it. Nothing is
+    /// drawn while the list is unfiltered — which is most of the time, and the
+    /// state the old three bars charged the most for.
     @ViewBuilder
-    private var ownerFilterBar: some View {
-        if segment == .all, meetingStore.hasSharedSessions {
-            HStack(spacing: 8) {
-                SegmentedControl(
-                    selection: $owner,
-                    options: Owner.allCases,
-                    title: \.rawValue,
-                    animation: Self.contentFade
-                )
-                .frame(width: 320)
-                Spacer(minLength: 12)
+    private var activeFilters: some View {
+        let chips = appliedFilters
+        if !chips.isEmpty {
+            HStack(spacing: 6) {
+                ForEach(chips) { chip in
+                    FilterChip(title: chip.title, color: chip.color, onRemove: chip.remove)
+                }
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 18)
             .padding(.bottom, 10)
         }
     }
 
-    /// Browse by project. Only on the All segment, and only once the user has
-    /// at least one — the sidebar carries the same list, this is the in-place
-    /// filter for when you're already looking at sessions.
-    @ViewBuilder
-    private var labelFilterBar: some View {
-        if segment == .all, !labelStore.labels.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    LabelFilterChip(title: "All", color: Theme.Palette.muted, isSelected: filterLabelID == nil) {
-                        withAnimation(Self.contentFade) { filterLabelID = nil }
-                    }
-                    ForEach(labelStore.labels) { label in
-                        LabelFilterChip(
-                            title: label.name,
-                            color: label.swatchColor,
-                            isSelected: filterLabelID == label.id
-                        ) {
-                            withAnimation(Self.contentFade) {
-                                filterLabelID = filterLabelID == label.id ? nil : label.id
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 18)
-            }
-            .padding(.bottom, 10)
+    private struct AppliedFilter: Identifiable {
+        let id: String
+        let title: String
+        let color: Color?
+        let remove: () -> Void
+    }
+
+    private var appliedFilters: [AppliedFilter] {
+        guard mode == .all else { return [] }
+        var chips: [AppliedFilter] = []
+        if let project = activeProject {
+            chips.append(AppliedFilter(id: "project", title: project.name, color: project.swatchColor) {
+                withAnimation(Self.contentFade) { filterLabelID = nil }
+            })
         }
+        if owner != .everyone {
+            chips.append(AppliedFilter(id: "owner", title: owner.rawValue, color: nil) {
+                withAnimation(Self.contentFade) { owner = .everyone }
+            })
+        }
+        return chips
     }
 
     private var listActions: some View {
         HStack(spacing: 6) {
-            if meetingStore.lastRefreshFailed, segment == .all {
+            if meetingStore.lastRefreshFailed, mode == .all {
                 Button(action: refreshActive) {
                     HStack(spacing: 4) {
                         Image("nc-triangle-warning")
@@ -289,7 +303,7 @@ struct SessionsListView: View {
                 .buttonStyle(.plain)
                 .help("Showing cached sessions. Click to retry refresh.")
             }
-            if segment == .all {
+            if mode == .all {
                 reindexControl
             }
             Button(action: refreshActive) {
@@ -352,7 +366,7 @@ struct SessionsListView: View {
 
     private func refreshActive() {
         Task {
-            switch segment {
+            switch mode {
             case .all: await meetingStore.refresh(force: true)
             case .trash: await meetingStore.refreshTrash()
             }
@@ -360,14 +374,14 @@ struct SessionsListView: View {
     }
 
     private var contentKey: String {
-        "\(segment.rawValue)|\(owner.rawValue)|\(filterLabelID?.uuidString ?? "")"
+        "\(mode.rawValue)|\(owner.rawValue)|\(filterLabelID?.uuidString ?? "")"
     }
 
     private static let contentFade = Animation.easeInOut(duration: 0.2)
 
     @ViewBuilder
     private var content: some View {
-        switch (segment, currentLoadState) {
+        switch (mode, currentLoadState) {
         case (_, .idle), (_, .loading):
             loadingState
         case let (_, .failed(message)):
@@ -404,7 +418,7 @@ struct SessionsListView: View {
     }
 
     private var currentLoadState: MeetingStore.LoadState {
-        segment == .all ? meetingStore.loadState : meetingStore.trashState
+        mode == .all ? meetingStore.loadState : meetingStore.trashState
     }
 
     private var normalizedQuery: String {
@@ -415,11 +429,11 @@ struct SessionsListView: View {
 
     private func filtered(_ rows: [Meeting]) -> [Meeting] {
         var result = rows
-        if segment == .all, let filterLabelID {
+        if mode == .all, let filterLabelID {
             let ids = labelStore.meetingIDs(withLabel: filterLabelID)
             result = result.filter { ids.contains($0.id) }
         }
-        if segment == .all, owner != .everyone {
+        if mode == .all, owner != .everyone {
             let wantsShared = owner == .shared
             result = result.filter { meetingStore.isSharedWithMe($0) == wantsShared }
         }
@@ -806,5 +820,45 @@ private struct StatusFlagPill<Glyph: View>: View {
 private extension String {
     var nonEmpty: String? {
         isEmpty ? nil : self
+    }
+}
+
+/// One applied filter, and the way out of it.
+///
+/// A chip that is only ever drawn when its filter is on — the list's default
+/// state carries no filter chrome at all. The swatch is present for a project
+/// and absent for everything else, which is what tells the two apart at a
+/// glance without a second label saying "project".
+struct FilterChip: View {
+    let title: String
+    var color: Color?
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let color {
+                Circle()
+                    .fill(color)
+                    .frame(width: 7, height: 7)
+            }
+            Text(title)
+                .font(.system(size: 11.5, weight: .medium))
+                .lineLimit(1)
+            Button(action: onRemove) {
+                Image("nc-circle-xmark")
+                    .icon(10)
+            }
+            .buttonStyle(.plain)
+            .help("Remove this filter")
+        }
+        .foregroundStyle(Theme.Palette.ink.opacity(0.8))
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Theme.Palette.surface)
+                .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
+        )
+        .linkCursor()
     }
 }
