@@ -60,7 +60,18 @@ struct ScreenActivityDigest: Equatable {
         for (bundleID, groups) in byApp {
             var folded = groups.values.compactMap(plannedWindow(from:))
             guard !folded.isEmpty else { continue }
-            folded.sort { $0.lastSeen > $1.lastSeen }
+            // By how long the window was up, exactly as apps are ranked below —
+            // the two used to disagree, and that disagreement is what made a
+            // recap of a period unstable. Ranked by `lastSeen`, a window opened
+            // a minute ago outranked one that filled the morning, so four idle
+            // glances evicted the day's actual work and the same question
+            // answered twice, seconds apart, described two different days.
+            // Captures are five seconds each, so the count is dwell time.
+            folded.sort { left, right in
+                left.captures == right.captures
+                    ? left.lastSeen > right.lastSeen
+                    : left.captures > right.captures
+            }
             let captures = groups.values.reduce(0) { $0 + $1.count }
             apps.append(ScreenActivityPlan.App(
                 bundleID: bundleID,

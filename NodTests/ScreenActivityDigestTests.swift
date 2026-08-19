@@ -137,6 +137,51 @@ final class ScreenActivityDigestTests: XCTestCase {
         XCTAssertTrue(plan.apps.contains { $0.bundleID == "com.figma" })
     }
 
+    /// The counterpart to `testMorningWindowsSurviveAnAfternoonOfOtherApps`,
+    /// one level down: surviving as an app is no use if the window that carried
+    /// the work is then evicted from inside it.
+    ///
+    /// Asked "what was my day" twice, seconds apart, Nod described two
+    /// different days — a few idle browser tabs opened in between had newer
+    /// `lastSeen` than the pull request that took the evening, and took its
+    /// slot. Windows rank by how long they were up, exactly as apps do.
+    func testAWindowThatFilledTheDayOutranksRecentGlances() {
+        var rows: [ScreenObservation] = []
+        for minute in 60 ... 200 {
+            rows.append(observation(app: "com.chrome", title: "PR #17", content: "review", minutesAgo: minute))
+        }
+        for (index, glance) in ["Dimension", "Littlebird", "Pricing", "Fundraising"].enumerated() {
+            rows.append(observation(app: "com.chrome", title: glance, content: "tab", minutesAgo: index + 1))
+        }
+
+        let digest = digest(from: rows)
+        let titles = digest.apps[0].windows.map(\.title)
+
+        XCTAssertEqual(titles.first, "PR #17")
+        XCTAssertEqual(digest.apps[0].windows.count, ScreenActivityDigest.maximumWindowsPerApp)
+    }
+
+    /// The same day asked about twice, with nothing but a fresh glance in
+    /// between, has to come back the same. This is the property the recency
+    /// ranking broke.
+    func testANewGlanceDoesNotChangeWhatTheDayWasAbout() {
+        var day: [ScreenObservation] = []
+        for minute in 30 ... 120 {
+            day.append(observation(app: "com.chrome", title: "PR #17", content: "review", minutesAgo: minute))
+        }
+        for minute in 130 ... 200 {
+            day.append(observation(app: "com.chrome", title: "Reddit testers", content: "post", minutesAgo: minute))
+        }
+
+        let before = digest(from: day).apps[0].windows.map(\.title)
+        let after = digest(from: day + [
+            observation(app: "com.chrome", title: "Spectre", content: "player", minutesAgo: 1)
+        ]).apps[0].windows.map(\.title)
+
+        XCTAssertEqual(before.prefix(2).map { $0 }, ["PR #17", "Reddit testers"])
+        XCTAssertEqual(after.prefix(2).map { $0 }, ["PR #17", "Reddit testers"])
+    }
+
     func testPlanNamesEveryScreenStateOfAWindowUpToTheCandidateCap() {
         let rows = (1 ... ScreenActivityDigest.maximumCandidatesPerWindow + 4).map {
             observation(app: "com.editor", title: "main.swift", content: "state \($0)", minutesAgo: $0)
