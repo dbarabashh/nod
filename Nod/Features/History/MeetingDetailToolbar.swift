@@ -47,8 +47,14 @@ struct MeetingDetailToolbar: View {
                 SubToolbarItem(icon: "nc-language", label: meeting.language.uppercased())
                 SubToolbarDivider()
                 if tab == .summary {
-                    editButton
-                    SubToolbarDivider()
+                    // Only where a line cannot be corrected in place. With a
+                    // typed recap the rendered text is editable itself, and a
+                    // second way in — the raw markdown — would write `summary`
+                    // while leaving `recap_json` saying the old thing.
+                    if meeting.recap?.isEmpty != false {
+                        editButton
+                        SubToolbarDivider()
+                    }
                     copyButton(isEnabled: !isGenerating, action: copySummary)
                     SubToolbarDivider()
                     shareButton

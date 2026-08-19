@@ -18,6 +18,10 @@ struct MeetingDetailView: View {
 
     @State private var editableTitle: String = ""
     @State private var editableSummary: String = ""
+    /// Edited alongside the markdown, and saved in the same patch — see
+    /// `MeetingSummaryTab.correct`.
+    @State private var editableRecap: MeetingRecap?
+    @State private var isConfirmingRegenerate = false
     @State private var saveState: SaveState = .idle
     @State private var saveTask: Task<Void, Never>?
     /// True while there are pending edits the user has typed but the
@@ -60,7 +64,7 @@ struct MeetingDetailView: View {
     /// the version on screen, not the one last written to the server.
     private var edited: Meeting {
         let title = editableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        return current.updating(title: title.isEmpty ? nil : title, summary: editableSummary)
+        return current.updating(title: title.isEmpty ? nil : title, summary: editableSummary, recap: editableRecap)
     }
 
     /// True while ContentView's post-meeting Task is still waiting on the
@@ -128,9 +132,18 @@ struct MeetingDetailView: View {
         .tooltipContainer()
         .background(Color.clear)
         .navigationTitle("")
+        .confirmationDialog(
+            "Rebuild this summary?",
+            isPresented: $isConfirmingRegenerate,
+            titleVisibility: .visible
+        ) {
+            Button("Rebuild", role: .destructive) { rebuildSummary() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("It is written again from the transcript, and replaces what is here — including any lines corrected by hand.")
+        }
         .onAppear {
-            editableTitle = current.title ?? ""
-            editableSummary = current.summary
+            seedEditors(from: current)
             recordSummaryViewedIfRendered()
             Task { sameMeetings = await meetingStore.sameMeetingCandidates(for: meeting.id) }
         }
@@ -159,8 +172,9 @@ struct MeetingDetailView: View {
             // `def` during the 300ms roundtrip → onChange overwrites
             // `abcdef` with the stale `abc`).
             guard !generating else { return }
-            if editableSummary != current.summary {
+            if editableSummary != current.summary || editableRecap != current.recap {
                 editableSummary = current.summary
+                editableRecap = current.recap
             }
             let liveTitle = current.title ?? ""
             if editableTitle != liveTitle {
@@ -215,6 +229,8 @@ struct MeetingDetailView: View {
             MeetingSummaryTab(
                 meeting: current,
                 summary: $editableSummary,
+                recap: editableRecap,
+                onCorrect: correct,
                 isGenerating: isGenerating,
                 isEditing: isEditingSummary,
                 isFinalizing: isFinalizing,
@@ -351,12 +367,49 @@ struct MeetingDetailView: View {
         }
     }
 
+    /// Asked first when there is something to lose. Rebuilding writes a recap
+    /// from the transcript, which is exactly what a correction is not — and a
+    /// name somebody fixed by hand coming back is worse than the misspelling,
+    /// because the second time they stop trusting the fix.
     private func regenerateSummary() {
+        guard editableRecap?.isEmpty != false else {
+            isConfirmingRegenerate = true
+            return
+        }
+        rebuildSummary()
+    }
+
+    private func rebuildSummary() {
         Task {
             guard let updated = await summaryRegeneration.run(for: current) else { return }
-            editableSummary = updated.summary
-            editableTitle = updated.title ?? ""
+            seedEditors(from: updated)
+            // A rebuilt meeting has a typed recap, and the toolbar hides Done
+            // once it does — left on, the raw-markdown box would have no way out.
+            isEditingSummary = false
         }
+    }
+
+    /// One correction, applied to both halves.
+    ///
+    /// `summary` is re-rendered rather than patched: it is the markdown view of
+    /// `recap_json`, and the two are read by different screens — the notch, the
+    /// chat's grounding prompt and the share viewer take the markdown, action
+    /// items take the JSON. Editing one and leaving the other is how a meeting
+    /// starts saying two different things about itself.
+    private func correct(_ edited: MeetingRecap) {
+        editableRecap = edited
+        editableSummary = edited.toMarkdown()
+        scheduleSave()
+    }
+
+    /// The editors hold what is on screen; this is the one place the meeting
+    /// fills them. Kept together because the summary and the recap are one
+    /// fact in two columns: seeding either without the other leaves the next
+    /// autosave writing a stale half back.
+    private func seedEditors(from meeting: Meeting) {
+        editableTitle = meeting.title ?? ""
+        editableSummary = meeting.summary
+        editableRecap = meeting.recap
     }
 
     // MARK: - Autosave (debounced)

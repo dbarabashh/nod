@@ -5,6 +5,12 @@ import SwiftUI
 struct MeetingSummaryTab: View {
     let meeting: Meeting
     @Binding var summary: String
+    /// The typed recap behind the rendered text, and the correction handed
+    /// back. Read-only here on purpose: the summary and the recap are one fact
+    /// in two columns, and a view that can write either one separately is a
+    /// view that can leave them disagreeing.
+    let recap: MeetingRecap?
+    let onCorrect: (MeetingRecap) -> Void
     let isGenerating: Bool
     let isEditing: Bool
     let isFinalizing: Bool
@@ -27,12 +33,14 @@ struct MeetingSummaryTab: View {
             missingRecap
         } else if isEditing {
             editor
+        } else if let recap, !recap.isEmpty {
+            EditableRecap(recap: recap, onEdit: onCorrect)
         } else {
-            recap(summary)
+            rendered(summary)
         }
     }
 
-    private func recap(_ markdown: String) -> some View {
+    private func rendered(_ markdown: String) -> some View {
         Text(renderRecapMarkdown(markdown))
             .font(.system(size: 14, weight: .regular))
             .foregroundStyle(Theme.Palette.ink.opacity(0.92))
@@ -49,7 +57,7 @@ struct MeetingSummaryTab: View {
     private func liveRecap(_ partial: String?) -> some View {
         if let partial {
             VStack(alignment: .leading, spacing: 16) {
-                recap(partial)
+                rendered(partial)
                 ThinkingIndicator(script: [
                     "Writing the recap…",
                     "Capturing decisions & action items…",

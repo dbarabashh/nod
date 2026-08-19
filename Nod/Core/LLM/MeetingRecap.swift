@@ -180,6 +180,43 @@ struct MeetingRecap: Codable, Equatable {
         return sections[0].bullets[0].text.localizedCaseInsensitiveContains("too short or unclear")
     }
 
+    /// Where a bullet sits, so a view can name the one being edited without
+    /// carrying indices around.
+    struct BulletID: Hashable {
+        let section: Int
+        let bullet: Int
+    }
+
+    /// The recap with one bullet rewritten by hand.
+    ///
+    /// The quote goes with it. A bullet's quote is a verbatim line from the
+    /// transcript, carried so a reader can check the recap against what was
+    /// actually said — once somebody edits the sentence it was attached to, it
+    /// no longer stands behind anything, and leaving it there would dress a
+    /// human correction up as something the transcript confirms.
+    ///
+    /// An empty edit removes the bullet: clearing the text of a line you are
+    /// correcting is how a person deletes it, and a blank bullet renders as a
+    /// stray dash nobody can get rid of.
+    func replacing(_ id: BulletID, with text: String) -> MeetingRecap {
+        guard sections.indices.contains(id.section),
+              sections[id.section].bullets.indices.contains(id.bullet)
+        else { return self }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var rebuilt = sections
+        var bullets = rebuilt[id.section].bullets
+        if trimmed.isEmpty {
+            bullets.remove(at: id.bullet)
+        } else {
+            bullets[id.bullet] = Bullet(text: trimmed, quote: nil)
+        }
+        rebuilt[id.section] = Section(title: rebuilt[id.section].title, bullets: bullets)
+        // A section with nothing left in it is not a heading, it is a hole.
+        rebuilt.removeAll { $0.bullets.isEmpty }
+        return MeetingRecap(sections: rebuilt, actionItems: actionItems)
+    }
+
     func toMarkdown() -> String {
         Self.markdown(for: sections)
     }
