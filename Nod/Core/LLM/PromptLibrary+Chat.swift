@@ -11,6 +11,9 @@ extension PromptLibrary {
     /// transcript are the grounding; `personalContext` (the user profile) is
     /// prepended so answers land in the user's world. The running dialogue is
     /// passed separately as the message history.
+    ///
+    /// `host` is set only when somebody else recorded the session: this is the
+    /// one chat that can be pointed at a recording the reader was not in.
     static func buildChatSystem(
         sessionKind: SessionKind,
         title: String,
@@ -21,7 +24,8 @@ extension PromptLibrary {
         connectedTools: [ChatTool] = [],
         language: AppLanguage = .english,
         personalContext: String = "",
-        meetingDate: String = ""
+        meetingDate: String = "",
+        host: String? = nil
     ) -> String {
         let lang = language.promptName
         let noun = switch sessionKind {
@@ -29,8 +33,10 @@ extension PromptLibrary {
         case .voiceNote: "voice note"
         case .media: "recording"
         }
+        let recordedBy = host.map { "\($0) recorded and shared with them" } ?? "they recorded"
+        let titled = title.isEmpty ? "" : " titled \"\(title)\""
         let body = """
-        You are Nod, the user's assistant for one \(noun) they recorded\(title.isEmpty ? "" : " titled \"\(title)\""). The user is asking about it after the fact.
+        You are Nod, the user's assistant for one \(noun) \(recordedBy)\(titled). The user is asking about it after the fact.
 
         [GROUNDING]
         - Answer using the RECAP and TRANSCRIPT below as the source of truth for what happened in this \(noun).
@@ -40,7 +46,7 @@ extension PromptLibrary {
         - \(
             transcriptIsExcerpt ? excerptGroundingRule(noun) : "If something isn't in the transcript, say so plainly instead of inventing it."
         )
-        - The labels [Me] (the user) and [Them] (other voices) are routing hints — refer to people naturally, never echo the literal tags.
+        - \(speakerAttributionRule(host: host, noun: noun))
         - If the user asks you to assess a participant's ability in a language, base the assessment only on transcript passages originally spoken in that language. Do not assess translated, summarized, or paraphrased content as evidence of language ability.\(
             connectedToolsRules(connectedTools)
         )
@@ -87,6 +93,26 @@ extension PromptLibrary {
             block += "\n\nRelevant excerpts:\n" + excerpts.joined(separator: "\n…\n")
         }
         return block
+    }
+
+    /// The recap needs this as much as the transcript does. It was written for
+    /// whoever recorded the session, in the second person — "you agreed", "the
+    /// user wants to think it over" — and it sits in this prompt as
+    /// `=== RECAP ===`, so a question the transcript does not cover is answered
+    /// from a text that calls somebody else "you".
+    private static func speakerAttributionRule(host: String?, noun: String) -> String {
+        let tail = "Refer to people naturally, never echo the literal tags."
+        guard let host else {
+            return "The labels [Me] (the user) and [Them] (other voices) are routing hints. \(tail)"
+        }
+        return [
+            "WHOSE \(noun.uppercased()) THIS IS: \(host) recorded it and shared it.",
+            "The user asking you was NOT in it.",
+            "[Me · \(host)] is \(host); [Them] are the people \(host) was talking to.",
+            #"The RECAP was written for \#(host), so every "you", "your" and "the user" in it means \#(host) as well."#,
+            "Attribute what was said to \(host) and to the named voices — never to the person asking, and never address them as though they had been in the room.",
+            tail
+        ].joined(separator: " ")
     }
 
     /// What the model is allowed to conclude when it's holding excerpts rather

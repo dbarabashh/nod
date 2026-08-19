@@ -163,10 +163,7 @@ struct MeetingTranscriptTab: View {
     }
 
     private func label(for record: TranscriptRecord) -> String {
-        guard let hostName, TranscriptSource(rawValue: record.source) == .me else {
-            return record.displayLabel(names: speakerNames)
-        }
-        return hostName
+        record.displayLabel(names: speakerNames, host: hostName)
     }
 
     /// Mic (`me`) is violet; the remote party (`them`) is cyan.
@@ -197,8 +194,7 @@ func transcriptPlainText(
 ) -> String {
     records
         .map { record in
-            let label = host.flatMap { TranscriptSource(rawValue: record.source) == .me ? $0 : nil }
-                ?? record.displayLabel(names: names)
+            let label = record.displayLabel(names: names, host: host)
             return "[\(transcriptTimeFormatter.string(from: record.ts))] \(label): \(record.text)"
         }
         .joined(separator: "\n")

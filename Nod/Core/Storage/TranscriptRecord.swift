@@ -50,19 +50,23 @@ extension TranscriptRecord {
     /// otherwise the routing tag — `Me`, `Them`, or `Them · Speaker 2`. A name
     /// replaces `Them` rather than narrowing it; "Them · Eric" reads as two
     /// people to everyone but us.
-    func displayLabel(names: [String: String]? = nil) -> String {
-        guard let speaker = themSpeaker else { return sourceLabel }
+    ///
+    /// `host` is whoever recorded the session, passed only when the reader is
+    /// somebody else. It replaces `Me` for the same reason a name replaces
+    /// `Them`: on screen the tag is not routing, it is who spoke.
+    func displayLabel(names: [String: String]? = nil, host: String? = nil) -> String {
+        guard let speaker = themSpeaker else { return host ?? sourceLabel }
         return name(for: speaker, in: names) ?? "\(sourceLabel) · Speaker \(speaker)"
     }
 
     /// The label a prompt sees. `[Me]` / `[Them]` are routing hints every
     /// playbook rule in `PromptLibrary` keys on, so here a name NARROWS the tag
     /// instead of replacing it — dropping `Them` would silently disable those
-    /// rules for exactly the meetings we managed to name.
-    func promptLabel(names: [String: String]? = nil) -> String {
-        guard let speaker = themSpeaker else { return sourceLabel }
-        let narrowed = name(for: speaker, in: names) ?? "Speaker \(speaker)"
-        return "\(sourceLabel) · \(narrowed)"
+    /// rules for exactly the meetings we managed to name. `host` narrows `Me`
+    /// the same way, for the same reason.
+    func promptLabel(names: [String: String]? = nil, host: String? = nil) -> String {
+        let narrowed = themSpeaker.map { name(for: $0, in: names) ?? "Speaker \($0)" } ?? host
+        return narrowed.map { "\(sourceLabel) · \($0)" } ?? sourceLabel
     }
 
     private var sourceLabel: String {
@@ -99,8 +103,8 @@ extension [TranscriptRecord] {
     /// `PromptLibrary` key on it — so each surface that grounds a model in a
     /// saved meeting has to hand it the same shape, or a rule fires on one
     /// surface and not another.
-    func promptContext(names: [String: String]?) -> String {
-        map { "[\($0.promptLabel(names: names))]: \($0.text)" }
+    func promptContext(names: [String: String]?, host: String? = nil) -> String {
+        map { "[\($0.promptLabel(names: names, host: host))]: \($0.text)" }
             .joined(separator: "\n")
     }
 }

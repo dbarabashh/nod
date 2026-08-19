@@ -253,6 +253,7 @@
 		AA0B3F8A5DDA9BCACD87674C /* PrivacySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E8A104748D7783E4CAB54B2 /* PrivacySnapshot.swift */; };
 		AAE983C36D51A61DC01204D2 /* SegmentedControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08E15061DB401211F675D939 /* SegmentedControl.swift */; };
 		AB9180C08829E72F431FF696 /* ConsentPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31D47EBC1238C9F5C5284120 /* ConsentPreference.swift */; };
+		ACF028D23234F88BCEDFAADA /* SharedSessionAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D48449550D82BEAD2980A056 /* SharedSessionAttributionTests.swift */; };
 		AD522DB859CF667036058AAE /* ExclusionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6B6927276D787E385BEF18C /* ExclusionsSheet.swift */; };
 		AD8DF7863FBD9DA19BA0FFD5 /* MemberActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE3596D7885F829F87F8A5FE /* MemberActions.swift */; };
 		ADB0AA911F1742CAF904DB5E /* BillingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F186092CBCFE2453631F2736 /* BillingService.swift */; };
@@ -704,6 +705,7 @@
 		D382D1AD1CB8C95AB62A8E2F /* AppLanguageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguageTests.swift; sourceTree = "<group>"; };
 		D3DDE26A0DA66D8BD7049EE2 /* ChatThinkingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatThinkingTests.swift; sourceTree = "<group>"; };
 		D451590C6B2056FD38F117E1 /* MeetingRecap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingRecap.swift; sourceTree = "<group>"; };
+		D48449550D82BEAD2980A056 /* SharedSessionAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedSessionAttributionTests.swift; sourceTree = "<group>"; };
 		D4E591A68316F8A38F089FAF /* CalendarStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarStep.swift; sourceTree = "<group>"; };
 		D598BFE82FF1FAD8C4A792DD /* MeetingGrant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingGrant.swift; sourceTree = "<group>"; };
 		D5A71DC95A96E3C9B9C590B5 /* PlainMenuChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlainMenuChrome.swift; sourceTree = "<group>"; };
@@ -1190,6 +1192,7 @@
 				1FBB0F30D26A43870912AA61 /* ScreenExclusionsTests.swift */,
 				5C84017CBDE47A632C75D1F7 /* ScreenPrivacySectionRenderTests.swift */,
 				4E77989069E4DBC555BF97D2 /* SessionTimeRangeTests.swift */,
+				D48449550D82BEAD2980A056 /* SharedSessionAttributionTests.swift */,
 				D934FC2A556C4A0F41E8BD86 /* SpeakerAssignmentTests.swift */,
 				74FFE8D5A03ED99BC46D2E6C /* SpeakerAttributionTests.swift */,
 				DB60FAB25F7CA4C2B34CE38D /* SpeakerEliminationTests.swift */,
@@ -1713,6 +1716,7 @@
 				F7F367F64B52C2F0A77A817B /* ScreenExclusionsTests.swift in Sources */,
 				D4E190DF7A9A6F226B0F5A9E /* ScreenPrivacySectionRenderTests.swift in Sources */,
 				91E4FEA96D1E44DF3308F3B4 /* SessionTimeRangeTests.swift in Sources */,
+				ACF028D23234F88BCEDFAADA /* SharedSessionAttributionTests.swift in Sources */,
 				51591E661AB283BD4E8C1268 /* SpeakerAssignmentTests.swift in Sources */,
 				2E148EED7FBE3217B6E4AA39 /* SpeakerAttributionTests.swift in Sources */,
 				ECB33CF3435B6AA11AD3F9C1 /* SpeakerEliminationTests.swift in Sources */,

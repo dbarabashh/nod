@@ -13,6 +13,7 @@ struct SessionChatView: View {
     @EnvironmentObject private var llm: LLMProxyClient
     @EnvironmentObject private var analytics: ProductAnalytics
     @EnvironmentObject private var settingsFocus: SettingsFocus
+    @EnvironmentObject private var organizations: OrganizationService
 
     /// Above this transcript size we retrieve the parts relevant to the
     /// question instead of stuffing the whole thing. Set high (≈ a multi-hour
@@ -55,6 +56,10 @@ struct SessionChatView: View {
     /// Freshest copy so chat grounds on the latest edited recap/title.
     private var current: Meeting {
         meetingStore.meetings.first(where: { $0.id == meeting.id }) ?? meeting
+    }
+
+    private var hostName: String? {
+        organizations.nameOfOwner(current.userID)
     }
 
     private var isSending: Bool {
@@ -373,7 +378,8 @@ struct SessionChatView: View {
             connectedTools: chatStore.availableTools,
             language: language,
             personalContext: profileStore.promptContext,
-            meetingDate: PromptLibrary.sessionDateString(current.startedAt)
+            meetingDate: PromptLibrary.sessionDateString(current.startedAt),
+            host: hostName
         )
         return (system, cacheable)
     }
@@ -412,9 +418,15 @@ struct SessionChatView: View {
     }
 
     private func loadTranscript() async {
+        // Alongside the transcript, but awaited before the text is built: the
+        // labels are baked into the cached string once, and a directory that
+        // lands a moment later would leave every line of somebody else's
+        // session tagged [Me] for the rest of the conversation.
+        async let directory: Void = organizations.refreshDirectoryIfNeeded()
         do {
             let records = try await meetingStore.fetchTranscript(meetingID: meeting.id)
-            let text = records.promptContext(names: meeting.speakerNames)
+            await directory
+            let text = records.promptContext(names: meeting.speakerNames, host: hostName)
             expectedChunks = KnowledgeStore.chunk(text).count
             transcriptText = text
         } catch {

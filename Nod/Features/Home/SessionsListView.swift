@@ -329,7 +329,10 @@ struct SessionsListView: View {
     /// existed (or under older chunking) become searchable.
     private func rebuildIndex() {
         guard reindexProgress == nil else { return }
-        let meetings = meetingStore.meetings
+        // Own sessions only. The index is per-account and the proxy refuses a
+        // meeting the caller does not own, so a shared one costs a transcript
+        // fetch and a rejected round trip to end up exactly where it started.
+        let meetings = meetingStore.meetings.filter { !meetingStore.isSharedWithMe($0) }
         guard !meetings.isEmpty else { return }
         reindexProgress = ReindexProgress(done: 0, total: meetings.count)
         Task {

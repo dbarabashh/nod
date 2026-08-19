@@ -85,6 +85,14 @@ final class OrganizationService: ObservableObject {
         teams.filter { $0.orgID == orgID }
     }
 
+    /// What to call the person something belongs to, when that is not the
+    /// person looking at it. Nil on your own: there "Me" is exactly right, and
+    /// naming yourself would be strange.
+    func nameOfOwner(_ userID: UUID) -> String? {
+        guard let viewer = currentUserID, viewer != userID else { return nil }
+        return directory.first { $0.userID == userID }?.name
+    }
+
     /// Loaded once per run: an organization's roster changes when somebody joins
     /// or leaves, not between two questions in a chat.
     func refreshDirectoryIfNeeded() async {

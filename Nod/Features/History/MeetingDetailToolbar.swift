@@ -215,7 +215,8 @@ struct MeetingDetailToolbar: View {
                 meeting: meeting,
                 transcript: records,
                 tags: labelStore.labels(for: meeting.id).map(\.name),
-                actionItems: actionItemStore.items(forMeeting: meeting.id)
+                actionItems: actionItemStore.items(forMeeting: meeting.id),
+                host: hostName
             )
 
             let panel = NSSavePanel()

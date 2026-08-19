@@ -63,13 +63,18 @@ struct Profile: Codable, Equatable {
     /// filled in, so an empty profile costs zero tokens and changes nothing.
     /// Phrased as background-only to keep the transcript-grounding rules in
     /// each prompt authoritative.
+    ///
+    /// It says who is asking and deliberately not who `[Me]` is: on a session
+    /// somebody shared, `[Me]` is the person who recorded it. Which voice the
+    /// tag belongs to is known where the session is, so it is stated there, by
+    /// the prompts that hold a transcript.
     var promptBlock: String {
         guard !isEmpty else { return "" }
-        var lines = ["[ABOUT THE USER — background only, never invent beyond it]"]
+        var lines = ["[WHO IS ASKING — background only, never invent beyond it]"]
         if !displayName.trimmed.isEmpty { lines.append("- Name: \(displayName.trimmed)") }
         if !preferences.trimmed.isEmpty { lines.append("- What they want Nod to focus on: \(preferences.trimmed)") }
         lines.append(
-            "Use this to interpret who [Me] is and to shape what you emphasise. It is NOT part of the transcript — do not attribute it as something that was said."
+            "Use this to shape what you emphasise. It is NOT part of the transcript — do not attribute it as something that was said, and do not assume this person is a voice in the recording."
         )
         return lines.joined(separator: "\n")
     }

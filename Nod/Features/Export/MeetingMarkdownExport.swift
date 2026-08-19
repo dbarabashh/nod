@@ -14,7 +14,8 @@ enum MeetingMarkdownExport {
         meeting: Meeting,
         transcript: [TranscriptRecord],
         tags: [String] = [],
-        actionItems: [ActionItem] = []
+        actionItems: [ActionItem] = [],
+        host: String? = nil
     ) -> String {
         var out = frontmatter(meeting: meeting, tags: tags)
         out += "\n"
@@ -41,7 +42,7 @@ enum MeetingMarkdownExport {
         if !transcript.isEmpty {
             out += "\n## Transcript\n\n"
             out += transcript
-                .map { line(for: $0, meetingStart: meeting.startedAt, names: meeting.speakerNames) }
+                .map { line(for: $0, meetingStart: meeting.startedAt, names: meeting.speakerNames, host: host) }
                 .joined(separator: "\n")
             out += "\n"
         }
@@ -129,9 +130,14 @@ enum MeetingMarkdownExport {
 
     // MARK: - Body helpers
 
-    private static func line(for record: TranscriptRecord, meetingStart: Date, names: [String: String]?) -> String {
+    private static func line(
+        for record: TranscriptRecord,
+        meetingStart: Date,
+        names: [String: String]?,
+        host: String?
+    ) -> String {
         let stamp = offsetLabel(from: meetingStart, to: record.ts)
-        return "[\(stamp)] **\(record.displayLabel(names: names))**: \(record.text)"
+        return "[\(stamp)] **\(record.displayLabel(names: names, host: host))**: \(record.text)"
     }
 
     /// `[MM:SS]` (or `[H:MM:SS]` past an hour) offset of a transcript line from

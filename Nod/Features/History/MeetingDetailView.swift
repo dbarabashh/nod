@@ -250,7 +250,7 @@ struct MeetingDetailView: View {
                 hostName: hostName,
                 isResolvingRemoteSpeakers: meetingStore.resolvingSpeakerIDs.contains(meeting.id),
                 people: correctablePeople,
-                canCorrectSpeakers: hostName == nil,
+                canCorrectSpeakers: !meetingStore.isSharedWithMe(current),
                 onConfirmSpeaker: confirmSpeaker,
                 onRetry: { Task { await loadTranscript() } }
             )
@@ -319,12 +319,8 @@ struct MeetingDetailView: View {
         }
     }
 
-    /// The owner's name, but only when somebody else is reading. On your own
-    /// meeting "Me" is exactly right and naming yourself would be strange.
     private var hostName: String? {
-        guard let viewer = organizations.currentUserID, viewer != current.userID else { return nil }
-        return organizations.directory.first { $0.userID == current.userID }
-            .map { $0.displayName ?? $0.email }
+        organizations.nameOfOwner(current.userID)
     }
 
     /// Who a voice in this recording may be attributed to.
