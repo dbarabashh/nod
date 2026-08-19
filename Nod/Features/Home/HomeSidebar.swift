@@ -23,8 +23,6 @@ struct HomeSidebar: View {
     @EnvironmentObject private var demoPlayback: DemoPlayback
 
     @State private var isAddingProject = false
-    @State private var newProjectName = ""
-    @State private var newProjectColor = LabelPalette.default
     @State private var editingLabel: SessionLabel?
     @State private var confirmingDeleteThread: UUID?
     /// "3 sessions · 2h ago" per project, counted over LIVE sessions only — the
@@ -332,8 +330,11 @@ struct HomeSidebar: View {
         .buttonStyle(.plain)
         .contextMenu {
             if labelStore.isOwn(label) {
+                // Sharing used to be a submenu here. It lives in the sheet now,
+                // beside the name and the colour — who a project is for is
+                // decided when it is made far more often than it is changed
+                // afterwards, and a submenu is not where anyone looks first.
                 Button("Edit project…") { editingLabel = label }
-                shareMenu(for: label)
             } else {
                 // A context menu with nothing in it does not open at all, so a
                 // right-click on a colleague's project answered nothing — which
@@ -342,44 +343,11 @@ struct HomeSidebar: View {
                     .disabled(true)
             }
         }
-        .popover(isPresented: Binding(
+        .sheet(isPresented: Binding(
             get: { editingLabel?.id == label.id },
             set: { if !$0 { editingLabel = nil } }
-        ), arrowEdge: .trailing) {
-            LabelEditor(label: label) { editingLabel = nil }
-                .frame(width: 240)
-        }
-    }
-
-    /// Sharing lives on the folder because that is the object being shared.
-    /// Absent for someone in no organization: there is nobody to share with, and
-    /// a menu item that opens onto an empty list is a question with no answer.
-    @ViewBuilder
-    private func shareMenu(for label: SessionLabel) -> some View {
-        if let orgID = organizations.activeOrgID, let membership = organizations.activeMembership {
-            let teams = organizations.teams(in: orgID)
-            let existing = labelStore.shares[label.id] ?? []
-            Divider()
-            ForEach(teams) { team in
-                if let share = existing.first(where: { $0.teamID == team.id }) {
-                    Button("Stop sharing with \(team.name)") {
-                        Task { await labelStore.unshare(share) }
-                    }
-                } else {
-                    Button("Share with \(team.name)") {
-                        Task { await labelStore.share(label.id, withTeam: team.id, org: nil) }
-                    }
-                }
-            }
-            if let share = existing.first(where: { $0.orgID != nil }) {
-                Button("Stop sharing with \(membership.organization.name)") {
-                    Task { await labelStore.unshare(share) }
-                }
-            } else {
-                Button("Share with all of \(membership.organization.name)") {
-                    Task { await labelStore.share(label.id, withTeam: nil, org: orgID) }
-                }
-            }
+        )) {
+            ProjectSheet(mode: .edit(label))
         }
     }
 
@@ -399,35 +367,9 @@ struct HomeSidebar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .popover(isPresented: $isAddingProject, arrowEdge: .trailing) {
-            VStack(alignment: .leading, spacing: 10) {
-                TextField("Project name", text: $newProjectName)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(createProject)
-                LabelSwatchRow(selection: $newProjectColor)
-                HStack {
-                    Spacer(minLength: 0)
-                    Button("Cancel") { isAddingProject = false }
-                        .keyboardShortcut(.cancelAction)
-                    Button("Create", action: createProject)
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(newProjectName.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-                .font(.system(size: 12.5))
-            }
-            .padding(12)
-            .frame(width: 240)
+        .sheet(isPresented: $isAddingProject) {
+            ProjectSheet(mode: .create)
         }
-    }
-
-    private func createProject() {
-        let name = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        let color = newProjectColor
-        isAddingProject = false
-        newProjectName = ""
-        newProjectColor = LabelPalette.default
-        Task { try? await labelStore.create(name: name, color: color) }
     }
 
     // MARK: - Recent chats
