@@ -456,7 +456,7 @@ extension KnowledgeChatStore {
         // row, and awaiting it here put a full eu-west round trip (three, on a
         // thread's first question) in front of every answer.
         async let saved: Void = persist(question)
-        thinkingScript = ChatThinking.searching
+        thinkingScript = ChatThinking.preparing
         toolGate.beginQuestion()
         turnSteps = []
 
@@ -546,6 +546,10 @@ extension KnowledgeChatStore {
             scope = routed
         }
 
+        // Said only now, with routing decided: until this line nothing is known
+        // to be searchable, and claiming otherwise is what let a request to file
+        // a ticket read as a search of every session the user has.
+        thinkingScript = ChatThinking.searching
         // Independent of retrieval — it only needs the resolved question — so
         // it overlaps the search instead of adding a round trip after it.
         async let tasks = outstandingTasksBlock(for: prepared.standalone)

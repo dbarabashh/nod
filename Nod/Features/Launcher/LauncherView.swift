@@ -211,7 +211,16 @@ struct LauncherView: View {
             )
             .padding(.horizontal, 10)
             .padding(.vertical, 10)
-        } else if chat.isSending, launcherAnswerHasContent == false {
+        } else if let answer = launcherAnswer {
+            // Ahead of the indicator, not behind it. The two used to be a fork,
+            // and the test for "is there anything to show" held a whole
+            // paragraph back — so a short answer, the panel's usual kind, sat
+            // behind bouncing dots until the stream ended even though its
+            // words had all arrived. The pane carries its own indicator
+            // underneath while the stream runs, so progress and text sit
+            // together instead of taking turns.
+            answerPane(answer)
+        } else if chat.isSending {
             // The chat's own indicator, not a bare spinner: it names the stage
             // it's on (searching → reading N sessions → writing), which is the
             // difference between "it's working" and "it's stuck".
@@ -221,8 +230,6 @@ struct LauncherView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 10)
-        } else if let answer = launcherAnswer {
-            answerPane(answer)
         } else if let failure = chat.failure {
             // Without this the fallback below is also the failure state, and a
             // failed ask sits on "Asking…" forever. The panel is one line tall
@@ -241,14 +248,6 @@ struct LauncherView: View {
     /// Library's thread and would read as a reply to the empty field.
     private var launcherAnswer: KnowledgeChatStore.Message? {
         model.answer
-    }
-
-    /// Whether the answer has a finished paragraph to show yet. Until it does,
-    /// the indicator holds the panel; after that the paragraphs do, and the
-    /// indicator moves below them.
-    private var launcherAnswerHasContent: Bool {
-        guard let answer = launcherAnswer else { return false }
-        return chat.isStreaming ? AnswerBlocks.hasComplete(in: answer.content) : !answer.content.isEmpty
     }
 
     private func answerPane(_ answer: KnowledgeChatStore.Message) -> some View {

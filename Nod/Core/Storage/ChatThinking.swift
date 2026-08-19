@@ -8,10 +8,21 @@ import Foundation
 /// only the first of the four — so a long wait read as a stall, and the one
 /// thing the user was told was the least of what happened.
 enum ChatThinking {
+    /// Before anything has been decided.
+    ///
+    /// Its own script rather than the first line of `searching`, because a
+    /// script keeps walking: hand over `searching` while query prep is still
+    /// running and 1.6 seconds later the surface claims to be searching every
+    /// session — on a question that may turn out to need no retrieval at all,
+    /// and often does. Nothing is promised until something is known.
+    static let preparing: [String] = [
+        "Reading your question…"
+    ]
+
     /// Retrieval, in the order it actually runs. The last line holds if the
-    /// search runs longer than the script.
+    /// search runs longer than the script. Handed over only once routing has
+    /// decided there is something to search.
     static let searching: [String] = [
-        "Reading your question…",
         "Searching everything you've captured…",
         "Sessions, tasks, and what was on your screen…",
         "Following a few more threads…",

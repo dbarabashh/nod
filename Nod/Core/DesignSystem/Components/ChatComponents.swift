@@ -376,8 +376,25 @@ enum AnswerBlocks {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         guard !isFinished else { return blocks }
-        return blocks.count <= 1 ? [] : Array(blocks.dropLast())
+        guard blocks.count <= 1 else { return Array(blocks.dropLast()) }
+        // A single paragraph has no successor to prove it finished, so holding
+        // it back means holding back the *whole* answer — and a short answer,
+        // which is most of what the launcher gets, showed nothing at all until
+        // the stream ended. A sentence that has reached its full stop is not
+        // half-written, so it can be read while the rest is still coming.
+        return blocks.first.flatMap(finishedSentences).map { [$0] } ?? []
     }
+
+    /// The part of a paragraph up to its last sentence ending, or nil while it
+    /// has not reached one. Never returns a clause mid-flight: the point is to
+    /// show sooner, not to show something unfinished.
+    static func finishedSentences(in block: String) -> String? {
+        guard let end = block.lastIndex(where: { sentenceEndings.contains($0) }) else { return nil }
+        let sentence = block[...end].trimmingCharacters(in: .whitespacesAndNewlines)
+        return sentence.isEmpty ? nil : sentence
+    }
+
+    private static let sentenceEndings: Set<Character> = [".", "!", "?", "…", "。", "！", "？"]
 }
 
 /// Applies the assistant bubble only when the surface isn't already one.

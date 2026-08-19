@@ -63,8 +63,40 @@ final class AnswerBlocksTests: XCTestCase {
         }
     }
 
-    func testHasCompleteWaitsForASecondParagraphToStart() {
-        XCTAssertFalse(AnswerBlocks.hasComplete(in: "First paragraph.\n\n"))
-        XCTAssertTrue(AnswerBlocks.hasComplete(in: "First paragraph.\n\nSecond starts"))
+    /// A paragraph used to be held until a *second* one started, which meant a
+    /// one-paragraph answer — most of what the launcher gets — showed nothing
+    /// at all until the stream ended, with its words already arrived.
+    func testAFinishedSentenceIsShownWithoutWaitingForASecondParagraph() {
+        XCTAssertTrue(AnswerBlocks.hasComplete(in: "First paragraph."))
+        XCTAssertEqual(AnswerBlocks.complete(in: "First paragraph.", isFinished: false), ["First paragraph."])
+    }
+
+    /// Showing sooner, not showing something unfinished: a clause still in
+    /// flight stays off screen.
+    func testAnUnfinishedSentenceIsStillHeldBack() {
+        XCTAssertTrue(AnswerBlocks.complete(in: "The answer is", isFinished: false).isEmpty)
+        XCTAssertTrue(AnswerBlocks.complete(in: "Halfway through a sen", isFinished: false).isEmpty)
+    }
+
+    /// While the rest of the paragraph is still coming, only its finished
+    /// sentences are shown — never the half-written one after them.
+    func testOnlyTheFinishedSentencesOfALoneParagraphAreShown() {
+        let streaming = "It shipped on Tuesday. Leo pushed back on the pric"
+
+        XCTAssertEqual(AnswerBlocks.complete(in: streaming, isFinished: false), ["It shipped on Tuesday."])
+    }
+
+    /// Once a second paragraph exists the old rule stands: the trailing one is
+    /// the one being written, and it waits.
+    func testASecondParagraphRestoresTheParagraphRule() {
+        let streamed = "First paragraph.\n\nSecond is still being writ"
+
+        XCTAssertEqual(AnswerBlocks.complete(in: streamed, isFinished: false), ["First paragraph."])
+    }
+
+    func testFinishedSentencesHandleTheEndingsPeopleActuallyType() {
+        XCTAssertEqual(AnswerBlocks.finishedSentences(in: "Really? Yes, and"), "Really?")
+        XCTAssertEqual(AnswerBlocks.finishedSentences(in: "Wait…  more"), "Wait…")
+        XCTAssertNil(AnswerBlocks.finishedSentences(in: "no ending yet"))
     }
 }
