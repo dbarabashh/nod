@@ -221,9 +221,9 @@ struct KnowledgeChatView: View {
                 .foregroundStyle(Theme.Palette.ink)
             // What the question will actually reach. Without it an empty
             // composer reads as a chatbot rather than as the user's own memory.
-            Text(ChatHomeSuggestions.scopeHeadline(projects: scopeLabels.map(\.name)))
+            Text(ChatHomeSuggestions.homeSubtitle(projects: scopeLabels.map(\.name)))
                 .font(.system(size: 12.5))
-                .foregroundStyle(Theme.Palette.muted)
+                .foregroundStyle(Theme.Palette.ink)
                 .padding(.bottom, 14)
 
             // What is waiting before what you could ask about it: the counts are
@@ -235,7 +235,11 @@ struct KnowledgeChatView: View {
                 .padding(.bottom, 18)
 
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(ChatHomeSuggestions.build(meetings: meetingStore.meetings, projects: scopeLabels.map(\.name))) { opener in
+                ForEach(ChatHomeSuggestions.build(
+                    meetings: meetingStore.meetings,
+                    projects: scopeLabels.map(\.name),
+                    firstRunPreview: ChatHomeSuggestions.isPreviewingFirstRun
+                )) { opener in
                     suggestion(opener)
                 }
             }

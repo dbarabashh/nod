@@ -112,6 +112,7 @@
 		4642F1D3FCF051D58459A38C /* MeetingDetailHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBF8F012180EB14AE7C0C9D1 /* MeetingDetailHeader.swift */; };
 		46D6010871F17C3E18F273D1 /* HallucinationFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B876E78544D08B58FB9C93D /* HallucinationFilter.swift */; };
 		476A166CE3338935B4BDFD92 /* TextTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4333C214FF7C3286501651 /* TextTokens.swift */; };
+		4AD74ABC52566999CC5C265E /* AboutNod.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA12BEDE148CE35CEEAF5E33 /* AboutNod.swift */; };
 		4AE0E5316E863557BFEFCDC7 /* ChatFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC67F17B9F47AEECD67A2656 /* ChatFailure.swift */; };
 		4AF30C5831BE3717833E7DE2 /* RecapEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5D6DB26F5AF7E933AE53C9 /* RecapEditingTests.swift */; };
 		4B1E37BFE3154EBD0DBCB8C7 /* SpeakerDiarizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEC07C7C17BE93EF84534B44 /* SpeakerDiarizer.swift */; };
@@ -156,6 +157,7 @@
 		68A4554971DBBA7EB6596162 /* InputLevel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30313C7F98C39CE0CA72DCAE /* InputLevel.swift */; };
 		68F76F25E7BE6B0B2D145CDC /* ScreenObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7EF912D8AEABA9C3926C2F7 /* ScreenObservation.swift */; };
 		6976689BEC74069D13D13B80 /* IntegrationConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A849D71DFB7EE0310C75FD3D /* IntegrationConnection.swift */; };
+		6988F047699DDB3511DE0C21 /* AboutNodTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C3D8896C30EC7C72F922BD /* AboutNodTests.swift */; };
 		69DEB6C11FC9D632E7EDDC07 /* PermissionsStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43412391608A6FED27D0A24 /* PermissionsStep.swift */; };
 		6E4264D8ABCC6B7EEB3EA9A8 /* SummaryTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B6FA69328C6F9B9E12ED22D /* SummaryTemplate.swift */; };
 		702922A73A379975CC911D82 /* SettingsFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF4914E784B549D06AA02CE8 /* SettingsFocus.swift */; };
@@ -715,6 +717,7 @@
 		CFC2A9390F8A9041B448474F /* ThreeBalls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreeBalls.swift; sourceTree = "<group>"; };
 		D0E4C074549FE7A406A1CB8B /* PromptLibrary+Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PromptLibrary+Live.swift"; sourceTree = "<group>"; };
 		D1AF822695CA2FDBCC7AB9D0 /* ChatHomeSuggestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHomeSuggestions.swift; sourceTree = "<group>"; };
+		D1C3D8896C30EC7C72F922BD /* AboutNodTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutNodTests.swift; sourceTree = "<group>"; };
 		D2BD7296E771E66D9A7F8743 /* MeetingMarkdownExportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingMarkdownExportTests.swift; sourceTree = "<group>"; };
 		D2E2D736A1AB7EA4EA4214B4 /* PromptLibrary+Task.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PromptLibrary+Task.swift"; sourceTree = "<group>"; };
 		D37A065AD7206583757F3498 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -756,6 +759,7 @@
 		E78FD6F93B40A3B13049CAE3 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
 		E8F281EA6B48EDFA2D458279 /* NotchGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchGeometry.swift; sourceTree = "<group>"; };
 		E9AAA084724B63A1D59C306A /* NotchPanelPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchPanelPlacementTests.swift; sourceTree = "<group>"; };
+		EA12BEDE148CE35CEEAF5E33 /* AboutNod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutNod.swift; sourceTree = "<group>"; };
 		EA4333C214FF7C3286501651 /* TextTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextTokens.swift; sourceTree = "<group>"; };
 		EA929108D42FD58B667EE2A8 /* AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersion.swift; sourceTree = "<group>"; };
 		EAAE419DBBD5F47BFE681214 /* TextList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextList.swift; sourceTree = "<group>"; };
@@ -1149,6 +1153,7 @@
 		9041C2ACC25BDD5C9CA73D4A /* NodTests */ = {
 			isa = PBXGroup;
 			children = (
+				D1C3D8896C30EC7C72F922BD /* AboutNodTests.swift */,
 				FBEF6255645C70C2EA274799 /* ActionItemDeadlineTests.swift */,
 				63B761F7A2D19F0B4C74E3F3 /* ActionItemDedupTests.swift */,
 				06B697F7832C46F767AA38B8 /* ActionItemMatchTests.swift */,
@@ -1262,6 +1267,7 @@
 		99C5BFA16DE3C0A3CE1794AD /* LLM */ = {
 			isa = PBXGroup;
 			children = (
+				EA12BEDE148CE35CEEAF5E33 /* AboutNod.swift */,
 				DD172F6445902644F14E924F /* ChatTools.swift */,
 				6C5D8109B9D3813E03034E16 /* LLMProxyClient.swift */,
 				D451590C6B2056FD38F117E1 /* MeetingRecap.swift */,
@@ -1681,6 +1687,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6988F047699DDB3511DE0C21 /* AboutNodTests.swift in Sources */,
 				7CEBD158B3FF030B3A967726 /* ActionItemDeadlineTests.swift in Sources */,
 				10D4A6B7EFA1AF11824BAD97 /* ActionItemDedupTests.swift in Sources */,
 				8A3B17B44B362E07ADF45597 /* ActionItemMatchTests.swift in Sources */,
@@ -1761,6 +1768,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4AD74ABC52566999CC5C265E /* AboutNod.swift in Sources */,
 				1C7BD37766FA6C5793C92FA7 /* AccessChannel.swift in Sources */,
 				767F99911F7F24AD4B043B2A /* AccessibilityAccess.swift in Sources */,
 				96DCBA0FC088495D23F03371 /* AccessibilityReader.swift in Sources */,

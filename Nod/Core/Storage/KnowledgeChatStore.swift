@@ -434,6 +434,18 @@ extension KnowledgeChatStore {
         let priorHistory = chatHistory
         let question = Message(role: .user, content: text, mentions: pinned)
         messages.append(question)
+        // Before query prep, routing and retrieval alike. A question about Nod
+        // has no session to ground on, and with a tool connected it would take
+        // the acting path and never reach the router — answered from whatever
+        // the model believes about a Mac app it has never seen, in the one
+        // conversation that decides whether somebody records anything.
+        if let prepared = AboutNod.answer(to: text) {
+            let answer = Message(role: .assistant, content: prepared)
+            messages.append(answer)
+            await persist(question)
+            await persist(answer)
+            return
+        }
         #if DEBUG
             if DemoMode.isEnabled {
                 await answerFromDemo(question: text, scope: scope)

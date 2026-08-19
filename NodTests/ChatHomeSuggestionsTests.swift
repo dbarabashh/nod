@@ -21,13 +21,73 @@ final class ChatHomeSuggestionsTests: XCTestCase {
         )
     }
 
-    func testFirstRunFallsBackToGenericOpeners() {
+    /// A first run has nothing to remember, so the openers that read memory
+    /// ("what did I promise?") are answered with "I don't have anything on
+    /// that yet" — the worst possible first impression of a memory product.
+    func testFirstRunAsksAboutNodInstead() {
         let suggestions = ChatHomeSuggestions.build(meetings: [], now: now)
 
-        XCTAssertEqual(suggestions.map(\.question), [
-            "What did I promise?",
-            "What decisions are still unresolved?"
-        ])
+        XCTAssertEqual(
+            suggestions.map(\.question),
+            Array(AboutNod.questions.prefix(ChatHomeSuggestions.maximum))
+        )
+    }
+
+    /// Every opener a first run offers has to be one Nod answers from the
+    /// prepared set. Reword either side and the pitch silently becomes an
+    /// ungrounded model answer about a Mac app it has never seen.
+    func testEveryFirstRunOpenerHasAPreparedAnswer() {
+        for opener in ChatHomeSuggestions.build(meetings: [], now: now) {
+            XCTAssertNotNil(AboutNod.answer(to: opener.question), opener.question)
+        }
+    }
+
+    /// The trashed-only case is still a first run: the sessions are gone.
+    func testASoleTrashedSessionStillCountsAsAFirstRun() {
+        let suggestions = ChatHomeSuggestions.build(
+            meetings: [meeting(title: "Standup", daysAgo: 1, deleted: true)],
+            now: now
+        )
+
+        XCTAssertEqual(suggestions.map(\.question), AboutNod.questions)
+    }
+
+    /// The debug switch forces the empty state on an account that has
+    /// sessions, so the one screen nobody can see twice stays reviewable.
+    func testThePreviewSwitchForcesTheFirstRunOpeners() {
+        let suggestions = ChatHomeSuggestions.build(
+            meetings: [meeting(title: "Standup", daysAgo: 1)],
+            now: now,
+            firstRunPreview: true
+        )
+
+        XCTAssertEqual(
+            suggestions.map(\.question),
+            Array(AboutNod.questions.prefix(ChatHomeSuggestions.maximum))
+        )
+    }
+
+    /// The switch is the only thing that can do that — a build that read it
+    /// from a preference made this pure function depend on the developer's
+    /// machine, and seven tests failed the moment it was flipped.
+    func testWithoutTheSwitchSessionsWin() {
+        let suggestions = ChatHomeSuggestions.build(
+            meetings: [meeting(title: "Standup", daysAgo: 1)],
+            now: now
+        )
+
+        XCTAssertFalse(suggestions.contains { AboutNod.answer(to: $0.question) != nil })
+    }
+
+    /// One real session and the openers go back to reading memory.
+    func testOneSessionBringsBackTheMemoryOpeners() {
+        let suggestions = ChatHomeSuggestions.build(
+            meetings: [meeting(title: "Standup", daysAgo: 1)],
+            now: now
+        )
+
+        XCTAssertTrue(suggestions.contains { $0.question == "What did I promise?" })
+        XCTAssertFalse(suggestions.contains { AboutNod.answer(to: $0.question) != nil })
     }
 
     func testProjectScopeNamesTheProjectInEveryOpener() {
@@ -156,5 +216,66 @@ final class ChatHomeSuggestionsTests: XCTestCase {
     func testGreetingWithoutANameDropsTheComma() {
         XCTAssertEqual(ChatHomeSuggestions.greeting(for: nil), "What's on your mind?")
         XCTAssertEqual(ChatHomeSuggestions.greeting(for: "   "), "What's on your mind?")
+    }
+
+    // MARK: - The day under the greeting
+
+    /// 19 August 2026 was a Wednesday — the date the screen this was written
+    /// for was showing.
+    private var wednesday: Date {
+        var components = DateComponents()
+        components.year = 2026
+        components.month = 8
+        components.day = 19
+        components.hour = 12
+        components.timeZone = TimeZone(identifier: "UTC")
+        return Calendar(identifier: .gregorian).date(from: components) ?? Date()
+    }
+
+    func testTheDayReadsAsAWeekdayAndADate() {
+        let line = ChatHomeSuggestions.dayLine(wednesday, locale: Locale(identifier: "en_US"))
+
+        XCTAssertEqual(line, "Wednesday, August 19")
+    }
+
+    /// Where the day leads the month, it leads here too. Hardcoding the
+    /// American order would be wrong for most of the people this ships to.
+    func testTheDayFollowsTheReadersOrder() {
+        let line = ChatHomeSuggestions.dayLine(wednesday, locale: Locale(identifier: "en_GB"))
+
+        XCTAssertEqual(line, "Wednesday 19 August")
+    }
+
+    /// A header saying what day it is has no business naming the year.
+    func testTheDayOmitsTheYear() {
+        for identifier in ["en_US", "en_GB", "uk_UA"] {
+            let line = ChatHomeSuggestions.dayLine(wednesday, locale: Locale(identifier: identifier))
+            XCTAssertFalse(line.contains("2026"), line)
+        }
+    }
+
+    func testTheSubtitleCarriesBothTheDayAndTheReach() {
+        let line = ChatHomeSuggestions.homeSubtitle(projects: [], now: wednesday, locale: Locale(identifier: "en_US"))
+
+        XCTAssertEqual(line, "Wednesday, August 19 · Ask across all memory")
+    }
+
+    /// Scoping the chat to a project must not cost the date, and naming the
+    /// project is still what the second half is for.
+    func testAScopedSubtitleKeepsTheDay() {
+        let line = ChatHomeSuggestions.homeSubtitle(
+            projects: ["Capable"],
+            now: wednesday,
+            locale: Locale(identifier: "en_US")
+        )
+
+        XCTAssertEqual(line, "Wednesday, August 19 · Ask about Capable")
+    }
+
+    /// The composer's placeholder reads `scopeHeadline` directly, and a date in
+    /// a text field's placeholder would be noise that never changes what you
+    /// can type.
+    func testTheComposerPlaceholderStaysDateless() {
+        XCTAssertEqual(ChatHomeSuggestions.scopeHeadline(projects: []), "Ask across all memory")
     }
 }
