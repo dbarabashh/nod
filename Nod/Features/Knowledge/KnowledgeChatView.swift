@@ -22,12 +22,24 @@ struct KnowledgeChatView: View {
     /// conversation, so a question asked in the launcher can be continued here.
     @EnvironmentObject private var chat: KnowledgeChatStore
     @EnvironmentObject private var analytics: ProductAnalytics
+    @EnvironmentObject private var reachability: NetworkReachability
 
     private typealias SessionRef = KnowledgeChatStore.SessionRef
+
+    /// A question written while the previous one was still answering. Held in
+    /// the view because a queued question is a draft with its mentions and its
+    /// scope resolved — exactly what the composer owns — and not yet anything
+    /// the thread knows about.
+    private struct QueuedQuestion {
+        let text: String
+        let pinned: [SessionRef]
+        let scope: [SessionLabel]
+    }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draft: String = ""
     @State private var inputFocused = false
+    @State private var queued: QueuedQuestion?
 
     /// Sessions the user pinned with @ — when non-empty the question is scoped
     /// to exactly these (the router is skipped; the user said what they want).
@@ -68,6 +80,14 @@ struct KnowledgeChatView: View {
             draft = pending
             chat.pendingDraft = nil
             inputFocused = true
+        }
+        // The link coming back is the one thing that fixes an offline turn, and
+        // it fixes it without anybody clicking. `NetworkPathMonitor` exists to
+        // decide *when to retry what already failed* — never to gate a send,
+        // which would be the TOCTOU race its own documentation warns about.
+        .onChange(of: reachability.isOnline) { online in
+            guard online, chat.failure?.isOffline == true else { return }
+            Task { await chat.regenerateLast() }
         }
         .onChange(of: labelStore.labels) { labels in
             let live = Set(labels.map(\.id))
@@ -149,11 +169,9 @@ struct KnowledgeChatView: View {
                     if chat.isSending, chat.pendingApproval == nil {
                         typingIndicator.id(Self.typingAnchor)
                     }
-                    if let errorText = chat.errorText {
-                        Text(errorText)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(Theme.Palette.warning)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    if let failure = chat.failure {
+                        ChatErrorRow(failure: failure) { Task { await chat.regenerateLast() } }
+                            .id(Self.failureAnchor)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -164,6 +182,9 @@ struct KnowledgeChatView: View {
             }
             .onChange(of: chat.messages.count) { _ in scrollToEnd(proxy) }
             .onChange(of: chat.isSending) { _ in scrollToEnd(proxy) }
+            // A failure arrives without a message to announce it, and one the
+            // user cannot see is one they cannot act on.
+            .onChange(of: chat.failure) { _ in scrollToEnd(proxy) }
             // A growing answer pushes itself off-screen otherwise.
             // Keyed on length, not the string: SwiftUI would otherwise compare
             // the whole growing answer on every flush.
@@ -241,15 +262,20 @@ struct KnowledgeChatView: View {
     @ViewBuilder
     private func bubble(_ message: KnowledgeChatStore.Message) -> some View {
         if message.role == .user {
-            UserTextBubble(text: message.content, marks: marks(in: message))
-                .padding(.leading, 40)
+            VStack(alignment: .trailing, spacing: 4) {
+                UserTextBubble(text: message.content, marks: marks(in: message))
+                notes(for: message.id)
+            }
+            .padding(.leading, 40)
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 AssistantTextBubble(
                     content: message.content,
-                    isStreaming: chat.isStreaming && message.id == chat.messages.last?.id
+                    isStreaming: chat.isStreaming && message.id == chat.messages.last?.id,
+                    onRegenerate: regenerateAction(for: message)
                 )
                 .padding(.trailing, 40)
+                notes(for: message.id)
                 // What the turn did, collapsed. Below the answer rather than
                 // above it: the answer is what was asked for, the record of how
                 // it was reached is there to be checked, not read.
@@ -262,6 +288,23 @@ struct KnowledgeChatView: View {
                     sourcesRow(message.sources, in: message.id)
                 }
             }
+        }
+    }
+
+    /// Offered on the newest answer only — regenerating an older one would
+    /// orphan every turn written against the answer being replaced.
+    private func regenerateAction(for message: KnowledgeChatStore.Message) -> (() -> Void)? {
+        guard message.id == chat.messages.last?.id, !chat.isSending, !chat.isStreaming else { return nil }
+        return { Task { await chat.regenerateLast() } }
+    }
+
+    private func notes(for id: KnowledgeChatStore.Message.ID) -> some View {
+        ChatTurnNotes(
+            wasStopped: chat.stoppedMessageIDs.contains(id),
+            isUnsaved: chat.unsavedMessageIDs.contains(id),
+            storeNoun: "this thread"
+        ) {
+            Task { await chat.retrySaving(id) }
         }
     }
 
@@ -357,6 +400,8 @@ struct KnowledgeChatView: View {
                 text: $draft,
                 isFocused: $inputFocused,
                 canSend: canSend,
+                isGenerating: chat.isSending,
+                onStop: chat.cancel,
                 sources: ChatMentionSources(
                     projects: labelStore.labels,
                     sessions: meetingStore.meetings,
@@ -395,6 +440,11 @@ struct KnowledgeChatView: View {
     }
 
     private var composerPrompt: String {
+        // The wait is the composer's business too: a field that says nothing
+        // while an answer runs looks disabled, and one that says what pressing
+        // Return will do turns the wait into somewhere to keep working.
+        if queued != nil { return "Queued — sends when this answer finishes" }
+        if chat.isSending { return "Ask something else while you wait…" }
         // Not the headline's words again — it sits four lines above, and a
         // placeholder that repeats it teaches nothing twice.
         guard !chat.scopeLabelIDs.isEmpty else { return "Ask anything  (/ for projects, @ for sessions and tools)" }
@@ -436,25 +486,40 @@ struct KnowledgeChatView: View {
         MentionMark.named(in: draft, from: IntegrationProvider.allCases, mark: MentionMark.init(tool:))
     }
 
+    /// The send button is swapped for Stop while a turn runs, so this only has
+    /// to answer "is there anything to send" — a question written mid-answer is
+    /// queued rather than refused.
     private var canSend: Bool {
-        !chat.isSending && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Send
 
     /// The view's only job at send time: work out which mentions are still
     /// live in the text (deleting the inline "@Title" drops the mention) and
-    /// hand the question to the store.
+    /// hand the question to the store — or hold it, if one is still running.
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend else { return }
         let active = MentionMark.named(in: text, from: mentions) { MentionMark(session: $0) }
+        let scope = scopeLabels
         draft = ""
         mentions = []
-        let scope = scopeLabels
+        let question = QueuedQuestion(text: text, pinned: active, scope: scope)
+        // One deep. A second question written while one is queued replaces it:
+        // a backlog nobody can see or edit is worse than losing the older of
+        // two things typed in the same ten seconds.
+        guard !chat.isSending else {
+            queued = question
+            return
+        }
+        ask(question)
+    }
+
+    private func ask(_ question: QueuedQuestion) {
         let baseline = chat.messages.count
         Task {
-            await chat.ask(text, pinned: active, scope: scope)
+            await chat.ask(question.text, pinned: question.pinned, scope: question.scope)
             if chat.answer(after: baseline) != nil {
                 analytics.record(
                     .aiActionCompleted,
@@ -467,12 +532,18 @@ struct KnowledgeChatView: View {
                     )
                 )
             }
+            if let next = queued {
+                queued = nil
+                ask(next)
+            }
         }
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
         let target: AnyHashable? = if chat.pendingApproval != nil {
             AnyHashable(Self.approvalAnchor)
+        } else if chat.failure != nil {
+            AnyHashable(Self.failureAnchor)
         } else if chat.isSending {
             AnyHashable(Self.typingAnchor)
         } else {
@@ -490,4 +561,5 @@ struct KnowledgeChatView: View {
 
     private static let typingAnchor = "nod.knowledge.typing"
     private static let approvalAnchor = "nod.knowledge.approval"
+    private static let failureAnchor = "nod.knowledge.failure"
 }

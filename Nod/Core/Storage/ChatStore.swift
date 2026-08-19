@@ -15,12 +15,23 @@ final class ChatStore: ObservableObject {
     enum SendState: Equatable {
         case idle
         case sending
-        case failed(String)
+        case failed(ChatFailure)
+        /// The person stopped this turn. Not a failure — nothing went wrong,
+        /// and the row that says so offers no apology and no retry button.
+        case stopped
     }
 
     @Published private(set) var messages: [ChatMessage] = []
     @Published private(set) var loadState: MeetingStore.LoadState = .idle
     @Published private(set) var sendState: SendState = .idle
+    /// Turns that are on screen but not in `chat_messages`. The insert is
+    /// best-effort by design, and a turn that will be gone tomorrow has to say
+    /// so rather than looking exactly like a saved one.
+    @Published private(set) var unsavedMessageIDs: Set<UUID> = []
+    /// What this turn did before it answered — kept so a failure can show the
+    /// tool calls that ran before it, which is the difference between "nothing
+    /// happened" and "the ticket exists, the answer doesn't".
+    private(set) var turnSteps: [ChatTurnStep] = []
 
     /// Asking before anything leaves Nod. The same gate the cross-session chat
     /// uses — a session chat reaches the same products, and consent that means
@@ -36,6 +47,10 @@ final class ChatStore: ObservableObject {
     /// a tool call can't be given different catalogues.
     private(set) var availableTools: [ChatTool] = []
     private var gateChanges: AnyCancellable?
+    /// The turn in flight, so `cancel()` has something to stop. Unstructured
+    /// on purpose: it must not inherit cancellation from whatever view task
+    /// happened to start it.
+    private var inFlight: Task<Void, Never>?
     /// Which session's history is loaded. Published so a header rendered beside
     /// the chat can tell "this session's messages" from the previous session's,
     /// still on screen while the swap is in flight.
@@ -73,9 +88,13 @@ final class ChatStore: ObservableObject {
     /// meeting keeps the cached messages (no refetch).
     func open(meetingID: UUID) async {
         if openMeetingID == meetingID, case .loaded = loadState { return }
+        // A turn still running against the session being navigated away from
+        // would land its answer in a conversation nobody is looking at.
+        cancel()
         openMeetingID = meetingID
         messages = []
         sendState = .idle
+        unsavedMessageIDs = []
         loadState = .loading
         #if DEBUG
             if DemoMode.isEnabled {
@@ -131,6 +150,24 @@ final class ChatStore: ObservableObject {
         return true
     }
 
+    /// Re-asks the last question, dropping the answer it produced.
+    ///
+    /// Scoped to the newest answer: regenerating an older one would orphan
+    /// every turn after it, which was written against the answer being
+    /// replaced. Returns the question to re-send, or nil when there is none.
+    func beginRegenerate() async -> String? {
+        guard sendState != .sending, let last = messages.last, last.role == .assistant else { return nil }
+        guard let question = messages.last(where: { $0.role == .user })?.content else { return nil }
+        messages.removeLast()
+        unsavedMessageIDs.remove(last.id)
+        // Not awaited: the replaced row and the new turn touch different rows,
+        // so making the reply wait on a delete round trip only delays the first
+        // token of the answer the user just asked for.
+        Task { await delete(last.id) }
+        sendState = .sending
+        return question
+    }
+
     /// The catalogue for this question. Nothing is offered when nothing is
     /// connected, which keeps the request byte-identical to what it was for
     /// everyone who has linked nothing.
@@ -149,10 +186,36 @@ final class ChatStore: ObservableObject {
     func reply(systemPrompt: String, meetingID: UUID, userID: UUID, cachePrompt: Bool = true) async {
         guard sendState == .sending else { return }
         toolGate.beginQuestion()
-        await requestReply(
-            ReplyContext(systemPrompt: systemPrompt, meetingID: meetingID, userID: userID, cachePrompt: cachePrompt),
-            round: 0
+        turnSteps = []
+        let context = ReplyContext(
+            systemPrompt: systemPrompt,
+            meetingID: meetingID,
+            userID: userID,
+            cachePrompt: cachePrompt
         )
+        // Run in a task this store owns rather than the caller's, so `cancel()`
+        // has something to stop. Awaiting it keeps the call site — which reads
+        // `sendState` once this returns — working unchanged.
+        let task = Task { await requestReply(context, round: 0) }
+        inFlight = task
+        await task.value
+        inFlight = nil
+    }
+
+    /// Stops the turn in flight.
+    ///
+    /// This chat shows its answer whole rather than streaming it, so there is
+    /// never half a reply to keep: a stopped turn leaves the question standing
+    /// and `.stopped` on screen, and the same question is re-asked with Retry.
+    func cancel() {
+        guard inFlight != nil else { return }
+        Log.ui.info("session chat turn cancelled")
+        // Ahead of the cancel: a turn parked on the approval card is suspended
+        // on a continuation, and a cancelled task never reaches the resume.
+        toolGate.cancelPending()
+        inFlight?.cancel()
+        inFlight = nil
+        sendState = .stopped
     }
 
     /// One question's worth of what a reply needs, so a tool round can ask
@@ -182,23 +245,27 @@ final class ChatStore: ObservableObject {
                 temperature: 0.2,
                 cachePrompt: context.cachePrompt
             ) {
+                if Task.isCancelled { break }
                 switch event {
                 case let .delta(delta): answer += delta
                 case let .toolCalls(calls): requested = calls
                 }
             }
+        } catch is CancellationError {
+            Log.ui.info("ChatStore reply cancelled")
+            return
         } catch {
             Log.ui.error("ChatStore.send LLM failed: \(error.localizedDescription)")
             guard openMeetingID == context.meetingID else { return }
-            sendState = .failed(error.localizedDescription)
+            sendState = .failed(ChatFailure(error, steps: turnSteps))
             return
         }
-        guard openMeetingID == context.meetingID else { return }
+        guard openMeetingID == context.meetingID, !Task.isCancelled else { return }
 
         // The model asked for a tool instead of answering. Nothing has gone
         // anywhere yet: the calls go to the user first, and only an approval
         // runs them.
-        if !requested.isEmpty, answer.isEmpty, round < ChatToolGate.maxRounds {
+        if !requested.isEmpty, answer.isEmpty, !Task.isCancelled, round < ChatToolGate.maxRounds {
             await runTools(requested, context: context, round: round)
             return
         }
@@ -209,7 +276,7 @@ final class ChatStore: ObservableObject {
         // retry it.
         guard !answer.isEmpty else {
             Log.ui.error("ChatStore: reply ended with no text round=\(round) requested=\(requested.count)")
-            sendState = .failed("Nod couldn't finish that answer.")
+            sendState = .failed(.emptyAnswer(steps: turnSteps))
             return
         }
 
@@ -227,16 +294,20 @@ final class ChatStore: ObservableObject {
     private func runTools(_ calls: [ChatToolCall], context: ReplyContext, round: Int) async {
         guard let matched = ChatToolGate.match(calls, in: availableTools) else {
             Log.ui.error("ChatStore: model asked for an unknown tool")
-            sendState = .failed(ChatToolGate.unknownToolMessage)
+            sendState = .failed(.unknownTool(steps: turnSteps))
             return
         }
-        _ = await toolGate.run(
+        let outcome = await toolGate.run(
             calls,
             tools: matched.tools,
             provider: matched.provider,
             using: integrations
         )
-        guard openMeetingID == context.meetingID else { return }
+        turnSteps += outcome.steps
+        // A stop while the approval card was up resumes the gate as a denial;
+        // going back to the model with that spends a round on an answer nobody
+        // is waiting for any more.
+        guard openMeetingID == context.meetingID, !Task.isCancelled else { return }
         // The history now carries the call and its result, so it no longer
         // matches the prefix the provider has on file.
         await requestReply(
@@ -251,9 +322,11 @@ final class ChatStore: ObservableObject {
     }
 
     func clear() {
+        cancel()
         messages = []
         loadState = .idle
         sendState = .idle
+        unsavedMessageIDs = []
         openMeetingID = nil
     }
 
@@ -278,6 +351,7 @@ final class ChatStore: ObservableObject {
             guard openMeetingID == meetingID else { return }
             messages = []
             sendState = .idle
+            unsavedMessageIDs = []
         } catch {
             Log.ui.error("ChatStore.clearHistory failed: \(error.localizedDescription)")
         }
@@ -291,8 +365,35 @@ final class ChatStore: ObservableObject {
         #endif
         do {
             try await supabase.from(Self.tableName).insert(message).execute()
+            unsavedMessageIDs.remove(message.id)
         } catch {
+            // Still best-effort — a network blip must not drop the turn from
+            // the conversation on screen. What changed is that it no longer
+            // does so silently: a turn that will be gone tomorrow says so.
             Log.ui.error("ChatStore.persist failed (non-fatal): \(error.localizedDescription)")
+            unsavedMessageIDs.insert(message.id)
+        }
+    }
+
+    /// Re-saves a turn whose insert failed. The row carries its own id, so a
+    /// retry landing after a first attempt secretly succeeded is a
+    /// duplicate-key error, not a duplicate turn.
+    func retrySaving(_ id: UUID) async {
+        guard let message = messages.first(where: { $0.id == id }) else { return }
+        await persist(message)
+    }
+
+    /// Removes one turn from `chat_messages`. Used when an answer is
+    /// regenerated — the replaced reply has to leave the table too, or
+    /// reopening the session shows the question answered twice.
+    private func delete(_ id: UUID) async {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+        do {
+            try await supabase.from(Self.tableName).delete().eq("id", value: id.uuidString).execute()
+        } catch {
+            Log.ui.error("ChatStore.delete failed: \(error.localizedDescription)")
         }
     }
 }

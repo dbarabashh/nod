@@ -14,6 +14,7 @@ struct SessionChatView: View {
     @EnvironmentObject private var analytics: ProductAnalytics
     @EnvironmentObject private var settingsFocus: SettingsFocus
     @EnvironmentObject private var organizations: OrganizationService
+    @EnvironmentObject private var reachability: NetworkReachability
 
     /// Above this transcript size we retrieve the parts relevant to the
     /// question instead of stuffing the whole thing. Set high (≈ a multi-hour
@@ -52,6 +53,10 @@ struct SessionChatView: View {
     /// chat appears already at the bottom instead of visibly scrolling down.
     @State private var positioned = false
     @State private var inputFocused = false
+    /// A question typed while the previous one was still answering. This chat
+    /// carries no scope or mentions into the store, so the text is the whole
+    /// of it.
+    @State private var queued: String?
 
     /// Freshest copy so chat grounds on the latest edited recap/title.
     private var current: Meeting {
@@ -122,8 +127,19 @@ struct SessionChatView: View {
                     if isSending, chatStore.pendingApproval == nil {
                         typingIndicator.id(Self.typingAnchor)
                     }
-                    if case let .failed(detail) = chatStore.sendState {
-                        errorRow(detail)
+                    switch chatStore.sendState {
+                    case let .failed(failure):
+                        ChatErrorRow(failure: failure) { send(retryLast: true) }
+                            .id(Self.failureAnchor)
+                    case .stopped:
+                        ChatNoteRow(
+                            icon: "nc-hand",
+                            text: "You stopped this answer.",
+                            action: ("Ask again", { send(retryLast: true) })
+                        )
+                        .id(Self.failureAnchor)
+                    case .idle, .sending:
+                        EmptyView()
                     }
                 }
                 .padding(.horizontal, 16)
@@ -139,6 +155,14 @@ struct SessionChatView: View {
             // The card arrives without a message or a state change to announce
             // it, and a question the user cannot see is one they cannot answer.
             .onChange(of: chatStore.pendingApproval) { _ in scrollToEnd(proxy) }
+        }
+        // The link coming back is the one thing that fixes an offline turn, and
+        // it fixes it without anybody clicking. `NetworkPathMonitor` decides
+        // *when to retry what already failed* — never whether to send, which
+        // would be the TOCTOU race its own documentation warns about.
+        .onChange(of: reachability.isOnline) { online in
+            guard online, case let .failed(failure) = chatStore.sendState, failure.isOffline else { return }
+            send(retryLast: true)
         }
     }
 
@@ -167,11 +191,30 @@ struct SessionChatView: View {
     @ViewBuilder
     private func bubble(_ message: ChatMessage) -> some View {
         if message.role == .user {
-            UserTextBubble(text: message.content, marks: marks(in: message.content))
-                .padding(.leading, 40)
+            VStack(alignment: .trailing, spacing: 4) {
+                UserTextBubble(text: message.content, marks: marks(in: message.content))
+                notes(for: message.id)
+            }
+            .padding(.leading, 40)
         } else {
-            AssistantTextBubble(content: message.content)
-                .padding(.trailing, 40)
+            VStack(alignment: .leading, spacing: 4) {
+                AssistantTextBubble(content: message.content, onRegenerate: regenerateAction(for: message))
+                notes(for: message.id)
+            }
+            .padding(.trailing, 40)
+        }
+    }
+
+    /// Offered on the newest answer only — regenerating an older one would
+    /// orphan every turn written against the answer being replaced.
+    private func regenerateAction(for message: ChatMessage) -> (() -> Void)? {
+        guard message.id == chatStore.messages.last?.id, !isSending else { return nil }
+        return regenerate
+    }
+
+    private func notes(for id: UUID) -> some View {
+        ChatTurnNotes(isUnsaved: chatStore.unsavedMessageIDs.contains(id), storeNoun: "this session") {
+            Task { await chatStore.retrySaving(id) }
         }
     }
 
@@ -183,31 +226,17 @@ struct SessionChatView: View {
         .padding(.vertical, 4)
     }
 
-    private func errorRow(_ detail: String) -> some View {
-        HStack(spacing: 6) {
-            Image("nc-triangle-warning")
-                .icon(11)
-                .foregroundStyle(Theme.Palette.warning)
-            Text(detail)
-                .font(.system(size: 11.5))
-                .foregroundStyle(Theme.Palette.muted)
-                .lineLimit(2)
-            Spacer(minLength: 0)
-            Button("Retry") { send(retryLast: true) }
-                .controlSize(.small)
-        }
-        .padding(.vertical, 4)
-    }
-
     // MARK: - Composer
 
     private var composer: some View {
         ChatComposer(
-            prompt: isReady ? "Message  (@ for sessions and tools)" : loadingPlaceholder,
+            prompt: composerPrompt,
             text: $draft,
             isFocused: $inputFocused,
             isEnabled: isReady,
             canSend: canSend,
+            isGenerating: isSending,
+            onStop: chatStore.cancel,
             // Sessions and tools. Projects are not on offer: this chat answers
             // from one transcript and has no scope to narrow, and a panel that
             // lists one promises reach the answer has not got.
@@ -249,61 +278,103 @@ struct SessionChatView: View {
             .map(MentionMark.init(tool:))
     }
 
+    /// The send button is swapped for Stop while a turn runs, so this only has
+    /// to answer "is there anything to send" — a question written mid-answer is
+    /// queued rather than refused.
     private var canSend: Bool {
-        isReady && !isSending && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        isReady && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var loadingPlaceholder: String {
-        isFinalizing ? "Finishing session…" : "Loading session…"
+    private var composerPrompt: String {
+        guard isReady else { return isFinalizing ? "Finishing session…" : "Loading session…" }
+        // The wait is the composer's business too: a field that says nothing
+        // while an answer runs looks disabled, and one that says what pressing
+        // Return will do turns the wait into somewhere to keep working.
+        if queued != nil { return "Queued — sends when this answer finishes" }
+        if isSending { return "Ask something else while you wait…" }
+        return "Message  (@ for sessions and tools)"
     }
 
     // MARK: - Actions
 
     private func send(retryLast: Bool = false) {
-        let text: String
-        // Conversation before the current question — what query prep resolves
-        // follow-up references against.
-        let priorTurns: ArraySlice<ChatMessage>
-        if retryLast {
+        guard !retryLast else {
             // The last user turn is already saved; resend it to get a reply.
             guard let lastUserIndex = chatStore.messages.lastIndex(where: { $0.role == .user }) else { return }
-            text = chatStore.messages[lastUserIndex].content
-            priorTurns = chatStore.messages[..<lastUserIndex]
-        } else {
-            text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard canSend else { return }
-            priorTurns = chatStore.messages[...]
+            start(
+                question: chatStore.messages[lastUserIndex].content,
+                priorTurns: chatStore.messages[..<lastUserIndex],
+                resend: true
+            )
+            return
         }
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canSend else { return }
+        draft = ""
+        // One deep. A second question written while one is queued replaces it:
+        // a backlog nobody can see or edit is worse than losing the older of
+        // two things typed in the same ten seconds.
+        guard !isSending else {
+            queued = text
+            return
+        }
+        start(question: text, priorTurns: chatStore.messages[...], resend: false)
+    }
+
+    /// Re-asks the last question, dropping the answer it produced. The prior
+    /// history is read before the answer leaves, so the question is resolved
+    /// against exactly the conversation it was first asked in.
+    private func regenerate() {
+        guard let lastUserIndex = chatStore.messages.lastIndex(where: { $0.role == .user }) else { return }
+        let priorHistory = Array(chatStore.messages[..<lastUserIndex]).chatTurns
+        Task {
+            guard let question = await chatStore.beginRegenerate() else { return }
+            await answer(question, priorHistory: priorHistory)
+        }
+    }
+
+    /// `resend` means the user turn is already in the conversation and in
+    /// `chat_messages` — appending it again would duplicate it in both.
+    private func start(question: String, priorTurns: ArraySlice<ChatMessage>, resend: Bool) {
+        // Conversation before the current question — what query prep resolves
+        // follow-up references against.
         let priorHistory = Array(priorTurns).chatTurns
-        if !retryLast { draft = "" }
         Task {
             // Show the user's bubble + typing indicator immediately, then build
             // the (slow) grounding prompt while "thinking" is on screen — so the
             // chat never looks empty between pressing send and the reply landing.
-            let started = retryLast
+            let started = resend
                 ? chatStore.beginRetry()
-                : await chatStore.appendUserTurn(text: text, meetingID: meeting.id, userID: meeting.userID)
+                : await chatStore.appendUserTurn(text: question, meetingID: meeting.id, userID: meeting.userID)
             guard started else { return }
-            let built = await buildSystemPrompt(for: text, history: priorHistory)
-            await chatStore.reply(
-                systemPrompt: built.system,
-                meetingID: meeting.id,
-                userID: meeting.userID,
-                cachePrompt: built.cacheable
-            )
-            if chatStore.sendState == .idle {
-                analytics.record(
-                    .aiActionCompleted,
-                    properties: .init(
-                        sessionKind: current.kind.rawValue,
-                        entryPoint: .meetingDetail,
-                        surface: .ask,
-                        contentType: .answer,
-                        aiFeature: .meetingAsk,
-                        outcome: .success
-                    )
+            await answer(question, priorHistory: priorHistory)
+        }
+    }
+
+    private func answer(_ question: String, priorHistory: [LLMProxyClient.ChatTurn]) async {
+        let built = await buildSystemPrompt(for: question, history: priorHistory)
+        await chatStore.reply(
+            systemPrompt: built.system,
+            meetingID: meeting.id,
+            userID: meeting.userID,
+            cachePrompt: built.cacheable
+        )
+        if chatStore.sendState == .idle {
+            analytics.record(
+                .aiActionCompleted,
+                properties: .init(
+                    sessionKind: current.kind.rawValue,
+                    entryPoint: .meetingDetail,
+                    surface: .ask,
+                    contentType: .answer,
+                    aiFeature: .meetingAsk,
+                    outcome: .success
                 )
-            }
+            )
+        }
+        if let next = queued {
+            queued = nil
+            start(question: next, priorTurns: chatStore.messages[...], resend: false)
         }
     }
 
@@ -471,9 +542,13 @@ struct SessionChatView: View {
 
     private var scrollTarget: AnyHashable? {
         if chatStore.pendingApproval != nil { return AnyHashable(Self.approvalAnchor) }
-        return isSending
-            ? AnyHashable(Self.typingAnchor)
-            : chatStore.messages.last.map { AnyHashable($0.id) }
+        if isSending { return AnyHashable(Self.typingAnchor) }
+        switch chatStore.sendState {
+        // A failure or a stop arrives without a message to announce it, and one
+        // the user cannot see is one they cannot act on.
+        case .failed, .stopped: return AnyHashable(Self.failureAnchor)
+        case .idle, .sending: return chatStore.messages.last.map { AnyHashable($0.id) }
+        }
     }
 
     private var kindNoun: String {
@@ -486,4 +561,5 @@ struct SessionChatView: View {
 
     private static let typingAnchor = "nod.chat.typing"
     private static let approvalAnchor = "nod.chat.approval"
+    private static let failureAnchor = "nod.chat.failure"
 }

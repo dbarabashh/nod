@@ -27,6 +27,9 @@ struct AppServices {
     let meetingOutbox: MeetingOutbox
     let profileStore: ProfileStore
     let chatStore: ChatStore
+    /// The link's state, published for the chat surfaces. Not a pre-flight
+    /// gate — see `NetworkReachability`.
+    let reachability: NetworkReachability
     let entityStore: EntityStore
     /// First-class action items extracted from each meeting's recap — checkable
     /// to-dos persisted in `action_items`, surfaced in the meeting body and the
@@ -227,6 +230,7 @@ struct AppServices {
             meetingOutbox: MeetingOutbox(),
             profileStore: profileStore,
             chatStore: ChatStore(supabase: supabase, llm: llmClient, integrations: integrations),
+            reachability: NetworkReachability(),
             entityStore: entityStore,
             actionItemStore: actionItemStore,
             knowledgeStore: knowledgeStore,

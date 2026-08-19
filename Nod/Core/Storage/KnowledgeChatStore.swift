@@ -82,7 +82,19 @@ final class KnowledgeChatStore: ObservableObject {
     /// `ThinkingIndicator` walks them — the store says what is happening, the
     /// view paces it.
     @Published private(set) var thinkingScript: [String] = []
-    @Published var errorText: String?
+    /// Why the last turn produced no answer, and what to offer for it. Typed
+    /// rather than a string so the row under the thread can carry the right
+    /// button — see `ChatFailure`.
+    @Published private(set) var failure: ChatFailure?
+    /// Answers the person stopped part-way. Held here rather than on the
+    /// `Message` because the marker is about this session's act of stopping,
+    /// not about the text — a reopened thread shows a short answer, which is
+    /// what it is, with no schema change to say so.
+    @Published private(set) var stoppedMessageIDs: Set<Message.ID> = []
+    /// Turns that are on screen but not in the thread. `persist` is
+    /// best-effort by design, and a turn the user can read but that will be
+    /// gone tomorrow has to say so.
+    @Published private(set) var unsavedMessageIDs: Set<Message.ID> = []
     /// Asking before anything leaves Nod, and the running that follows. Shared
     /// with the per-session chat, which reaches the same products and owes the
     /// same question.
@@ -124,6 +136,10 @@ final class KnowledgeChatStore: ObservableObject {
     private let actionItems: ActionItemStore
     private let threads: KnowledgeThreadStore
     private let feedback: RetrievalFeedbackStore
+    /// The turn in flight, so `cancel()` can stop it. Unstructured on purpose:
+    /// an unstructured task does not inherit the caller's cancellation, so the
+    /// only thing that can stop a question is somebody asking for it to stop.
+    private var inFlight: Task<Void, Never>?
 
     /// The saved thread these messages belong to. Nil until the first question
     /// creates one — an empty thread in the list would be noise.
@@ -158,6 +174,15 @@ final class KnowledgeChatStore: ObservableObject {
         case let days: "\(days) days ago"
         }
         var label = "\(title) — \(when) (\(age))"
+        // Whose microphone this was. This prompt mixes the user's own sessions
+        // with ones colleagues shared, so ownership cannot be stated once at
+        // the top the way the per-session chat states it — it has to travel
+        // with each session, and `PromptLibrary.sharedSessionRule` is the half
+        // that tells the model to read it here. Nil for your own sessions, so
+        // the common case reads exactly as it did.
+        if let host = organizations?.nameOfOwner(meeting.userID) {
+            label += " — " + PromptLibrary.sharedSessionLabelNote(host: host)
+        }
         // "Mentions", not "people": these names come from entity extraction over
         // what was SAID, and the transcript records no speaker identity at all
         // ([Me]/[Them]). Labelling them as the session's people made the model
@@ -247,19 +272,21 @@ final class KnowledgeChatStore: ObservableObject {
         // clicked, and clicking it while looking at an empty one would throw
         // away the draft being typed into it for no gain.
         guard threadID != nil || !messages.isEmpty else { return }
+        cancel()
         messages = []
-        errorText = nil
         threadID = nil
         thinkingScript = []
+        clearTurnMarkers()
     }
 
     /// Reopens a saved conversation, with the sources and passages its answers
     /// were built on.
     func open(threadID: UUID) async {
         guard self.threadID != threadID else { return }
+        cancel()
         self.threadID = threadID
-        errorText = nil
         thinkingScript = []
+        clearTurnMarkers()
         messages = await threads.messages(in: threadID).map { stored in
             Message(
                 role: stored.role == "user" ? .user : .assistant,
@@ -279,11 +306,14 @@ final class KnowledgeChatStore: ObservableObject {
         } else {
             // Named after the question that started it — the cheapest title
             // that's always exactly what was asked.
-            guard let created = await threads.create(title: message.content) else { return }
+            guard let created = await threads.create(title: message.content) else {
+                unsavedMessageIDs.insert(message.id)
+                return
+            }
             threadID = created.id
             self.threadID = created.id
         }
-        await threads.append(
+        let saved = await threads.append(
             threadID: threadID,
             id: message.id,
             role: message.role == .user ? "user" : "assistant",
@@ -293,6 +323,22 @@ final class KnowledgeChatStore: ObservableObject {
                 .init(meetingID: $0.meetingID, title: $0.title, date: $0.date, text: $0.text)
             }
         )
+        // Best-effort persistence used to be silent, which meant a turn the
+        // user could read and a turn that would still be there tomorrow looked
+        // identical. It now says which one it is.
+        if saved {
+            unsavedMessageIDs.remove(message.id)
+        } else {
+            unsavedMessageIDs.insert(message.id)
+        }
+    }
+
+    /// Re-saves a turn whose insert failed. The row carries its own id, so a
+    /// retry that lands after a first attempt secretly succeeded is a
+    /// duplicate-key error, not a duplicate turn.
+    func retrySaving(_ id: Message.ID) async {
+        guard let message = messages.first(where: { $0.id == id }) else { return }
+        await persist(message)
     }
 
     /// The assistant turn that arrived after `baseline` messages, if any. A
@@ -310,20 +356,82 @@ extension KnowledgeChatStore {
     /// Answers `text` across the user's sessions. `pinned` are @-mentioned
     /// sessions (most specific intent, wins over everything); `scope` narrows to
     /// the union of one or more folders when no mention was made.
+    ///
+    /// The work runs in a task this store owns rather than the caller's, so
+    /// `cancel()` has something to stop. Awaiting it here keeps every existing
+    /// call site — which reads the answer once this returns — working unchanged.
     func ask(_ text: String, pinned: [SessionRef] = [], scope: [SessionLabel] = []) async {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Claimed BEFORE the task exists. `run` starts on the next suspension,
+        // and a second ask arriving in that window would otherwise pass this
+        // guard and run a whole parallel pipeline on the same store.
         guard !text.isEmpty, !isSending else { return }
-        errorText = nil
+        isSending = true
+        failure = nil
+        let task = Task { await run(text, pinned: pinned, scope: scope) }
+        inFlight = task
+        await task.value
+        inFlight = nil
+        isSending = false
+        isStreaming = false
+        thinkingScript = []
+    }
 
+    /// Stops the turn in flight. What has already been written stays — a
+    /// stopped answer the reader was half-way through is worth more than the
+    /// blank the abort would otherwise leave.
+    func cancel() {
+        guard inFlight != nil else { return }
+        Log.ui.info("chat turn cancelled")
+        // Ahead of the cancel: a turn parked on the approval card is suspended
+        // on a continuation, and a cancelled task never reaches the resume.
+        toolGate.cancelPending()
+        inFlight?.cancel()
+        inFlight = nil
+    }
+
+    /// Re-asks the last question, replacing the answer that is there.
+    ///
+    /// Scoped to the last turn on purpose: regenerating an older answer would
+    /// orphan every turn after it, which read the answer being replaced.
+    func regenerateLast() async {
+        guard !isSending, let questionIndex = messages.lastIndex(where: { $0.role == .user }) else { return }
+        let question = messages[questionIndex]
+        let replaced = Array(messages[questionIndex...])
+        messages.removeSubrange(questionIndex...)
+        // The replaced turns leave the saved thread too — `ask` writes the
+        // question again, and a thread that kept both shows it asked twice.
+        // Not awaited: `ask` writes new rows with new ids, so the delete cannot
+        // collide with it, and making the answer wait on a round trip that
+        // changes nothing it reads is latency for nothing.
+        if let thread = threadID {
+            let ids = replaced.map(\.id)
+            Task { await threads.deleteMessages(ids, in: thread) }
+        }
+        for message in replaced {
+            stoppedMessageIDs.remove(message.id)
+            unsavedMessageIDs.remove(message.id)
+        }
+        await ask(question.content, pinned: question.mentions, scope: currentScope)
+    }
+
+    /// The folders the composer's tokens currently name. Regeneration asks the
+    /// same question with the same reach; reading it from the live scope rather
+    /// than storing it on the turn keeps one owner for what a question sees.
+    private var currentScope: [SessionLabel] {
+        labels.labels.filter { scopeLabelIDs.contains($0.id) }
+    }
+
+    private func clearTurnMarkers() {
+        failure = nil
+        stoppedMessageIDs = []
+        unsavedMessageIDs = []
+    }
+
+    private func run(_ text: String, pinned: [SessionRef], scope: [SessionLabel]) async {
         // Captured before the new turn is appended — this is the context the
         // query-prep step resolves follow-ups against.
         let priorHistory = chatHistory
-        // Claimed BEFORE the first `await`. Set after one, the guard above is
-        // not a guard: `persist` suspends on a network insert, and a second
-        // ask arriving in that window passes it and runs a whole parallel
-        // pipeline on the same store.
-        isSending = true
-        defer { isSending = false }
         let question = Message(role: .user, content: text, mentions: pinned)
         messages.append(question)
         #if DEBUG
@@ -378,6 +486,10 @@ extension KnowledgeChatStore {
             prepared = await preparing
             routing = await route(pinned: pinned, scope: scope, standalone: prepared.standalone)
         }
+        // Query prep and routing are two model round trips before a single
+        // token is written — the longest stretch of a turn with nothing on
+        // screen, and so the one people actually stop.
+        if Task.isCancelled { await saved; return }
         // A self-contained action — "file this in Linear", "put a meeting in my
         // calendar at 13:30" — cannot be answered better by anything in the
         // recordings, so retrieval is skipped whole: no vector search, no screen
@@ -427,6 +539,7 @@ extension KnowledgeChatStore {
             embedText: prepared.hyde,
             aboutScreen: prepared.aboutScreen
         )
+        if Task.isCancelled { await saved; return }
         let sources = grounding.sources
         thinkingScript = [ChatThinking.reading(
             sessions: grounding.readSessions,
@@ -502,7 +615,7 @@ extension KnowledgeChatStore {
         var appended = false
         var streamed = ""
         var lastFlush = ContinuousClock.now
-        var failure: Error?
+        var streamError: Error?
         var requested: [ChatToolCall] = []
 
         /// Writes the text into the on-screen turn, if it's still on screen.
@@ -522,6 +635,10 @@ extension KnowledgeChatStore {
                 temperature: 0.2,
                 cachePrompt: false
             ) {
+                // Checked per event rather than per stage: this is the one
+                // place a stop can land while text is arriving, and the loop
+                // holds the connection open until it breaks.
+                if Task.isCancelled { break }
                 guard case let .delta(delta) = event else {
                     if case let .toolCalls(calls) = event { requested = calls }
                     continue
@@ -545,36 +662,50 @@ extension KnowledgeChatStore {
                 lastFlush = .now
             }
         } catch {
-            failure = error
+            streamError = error
         }
 
         // The model asked for tools instead of answering. Nothing has been sent
         // anywhere yet: the calls go to the user first, and only an approval
         // runs them.
         Log.ui.info("chat turn ended requested=\(requested.count) streamed=\(streamed.count) round=\(round)")
-        if !requested.isEmpty, streamed.isEmpty, failure == nil, round < ChatToolGate.maxRounds {
+        if !requested.isEmpty, streamed.isEmpty, streamError == nil, !Task.isCancelled, round < ChatToolGate.maxRounds {
             await runTools(requested, context: context, round: round)
             return
         }
 
-        // One finish for both endings. A partial answer the user is already
-        // reading has to be saved too, or reopening the thread shows the
-        // question with no reply at all — worse than a truncated one.
         if !streamed.isEmpty {
             show(streamed)
             answer.content = streamed
-            await persist(answer, into: thread)
-            if let failure {
-                Log.ui.error("KnowledgeChatStore stream broke mid-answer: \(failure.localizedDescription)")
-                errorText = "The answer was cut short — ask again to retry."
-            }
+            await keep(answer, into: thread, brokenBy: streamError)
             isStreaming = false
             return
         }
 
-        await answerWithoutStreaming(context, into: thread)
+        // Stopped before a word arrived: there is nothing to keep and nothing
+        // went wrong, so the turn just ends. The question stays in the thread —
+        // it was asked, and `regenerateLast` is how it gets asked again.
+        if !Task.isCancelled {
+            await answerWithoutStreaming(context, into: thread)
+        }
         isStreaming = false
         thinkingScript = []
+    }
+
+    /// Saves what actually arrived, whatever ended the stream.
+    ///
+    /// A partial answer the user is already reading has to be saved too, or
+    /// reopening the thread shows the question with no reply at all — worse
+    /// than a truncated one. A stopped answer is the same case: they asked for
+    /// it to end there, which is a note on the turn rather than an apology.
+    private func keep(_ answer: Message, into thread: UUID?, brokenBy streamError: Error?) async {
+        await persist(answer, into: thread)
+        if Task.isCancelled {
+            stoppedMessageIDs.insert(answer.id)
+        } else if let streamError {
+            Log.ui.error("KnowledgeChatStore stream broke mid-answer: \(streamError.localizedDescription)")
+            failure = .cutShort(steps: turnSteps)
+        }
     }
 
     /// Nothing arrived at all — the stream can't be replayed, so retry the
@@ -582,6 +713,10 @@ extension KnowledgeChatStore {
     private func answerWithoutStreaming(_ context: ReplyContext, into thread: UUID?) async {
         Log.ui.info("KnowledgeChatStore stream produced nothing, falling back to one-shot")
         do {
+            // Transient failures are already absorbed a layer down: `chat`
+            // reaches the proxy through `postToProxyWithRetry`, which classifies
+            // with `isTransient` and backs off with `retryDelayMillis`. Retrying
+            // again here would multiply attempts, not add resilience.
             let reply = try await llm.chat(
                 system: context.system,
                 history: context.history + toolGate.turns,
@@ -597,9 +732,13 @@ extension KnowledgeChatStore {
             )
             messages.append(oneShot)
             await persist(oneShot, into: thread)
+        } catch is CancellationError {
+            Log.ui.info("KnowledgeChatStore one-shot cancelled")
         } catch {
             Log.ui.error("KnowledgeChatStore.ask failed: \(error.localizedDescription)")
-            errorText = error.localizedDescription
+            // The steps ride along: a tool that ran before the answer broke is
+            // the difference between "nothing happened" and "the ticket exists".
+            failure = ChatFailure(error, steps: turnSteps)
         }
     }
 
@@ -608,7 +747,7 @@ extension KnowledgeChatStore {
     private func runTools(_ calls: [ChatToolCall], context: ReplyContext, round: Int) async {
         guard let matched = ChatToolGate.match(calls, in: turnTools), let integrations else {
             Log.ui.error("KnowledgeChatStore: model asked for an unknown tool")
-            errorText = ChatToolGate.unknownToolMessage
+            failure = .unknownTool(steps: turnSteps)
             thinkingScript = []
             return
         }
@@ -622,6 +761,13 @@ extension KnowledgeChatStore {
             onApproved: { [weak self] in self?.thinkingScript = ChatThinking.calling(matched.provider) }
         )
         turnSteps += outcome.steps
+        // A stop while the approval card was up resumes the gate as a denial;
+        // going back to the model with that would spend a round answering a
+        // question nobody is waiting for any more.
+        guard !Task.isCancelled else {
+            thinkingScript = []
+            return
+        }
 
         await streamReply(context, round: round + 1)
     }
@@ -753,9 +899,17 @@ extension KnowledgeChatStore {
                 guard let spokenAt = meeting?.startedAt else { return nil }
                 return ActionItemDeadline.exportLabel(phrase: phrase, spokenAt: spokenAt)
             }
-            return "- \(item.text)\(due.map { " (\($0))" } ?? "") [from: \(source)]"
+            // A shared meeting's action items are readable here — RLS grants
+            // them along with the recording ("members read action items shared
+            // directly") — and they were extracted for whoever recorded it. So
+            // the source has to say whose they are, or a colleague's follow-ups
+            // are read back as the user's own to-do list.
+            let owner = meeting.flatMap { organizations?.nameOfOwner($0.userID) }
+            let from = owner.map { "\(source) — " + PromptLibrary.sharedSessionLabelNote(host: $0) } ?? source
+            return "- \(item.text)\(due.map { " (\($0))" } ?? "") [from: \(from)]"
         }
-        return "[OPEN ACTION ITEMS — the user's outstanding tasks, with dates resolved]\n" + lines.joined(separator: "\n")
+        let header = "[OPEN ACTION ITEMS — outstanding tasks from the sessions the user can see, with dates resolved]"
+        return header + "\n" + lines.joined(separator: "\n")
     }
 
     /// Enough to answer "what's on my plate" without turning the prompt into a
@@ -787,7 +941,18 @@ extension KnowledgeChatStore {
         let beyond = hasCalendarReadTool
             ? " Beyond that, use the calendar tool."
             : " That is as far ahead as Nod can see."
-        let header = "[YOUR CALENDAR — the user's own events, today through \(Self.calendarDayFormatter.string(from: horizon)).\(beyond)]"
+        // The window opens at the start of today, not at `now`, so "what was my
+        // day" can be answered from it. That makes past events ordinary
+        // contents of this block rather than a mistake — but an event that
+        // ended hours ago used to be listed identically to one tomorrow, and
+        // came back as "you have one meeting this week" at nine in the evening.
+        // The status is computed here because it is a comparison against the
+        // clock, which is the one thing a model should never be asked to do.
+        let horizonDay = Self.calendarDayFormatter.string(from: horizon)
+        let header = """
+        [YOUR CALENDAR — the user's own events, from the start of today through \(horizonDay).\(beyond)]
+        The window starts this morning, so it contains events that have already happened.
+        """
         guard !upcoming.isEmpty else {
             // Not "the user is free": a connected account whose first sync has
             // not landed yet looks exactly like an empty week from here, and
@@ -797,7 +962,7 @@ extension KnowledgeChatStore {
                 : ""
             return header + "\n(No events on this device for that window.\(check))"
         }
-        return header + "\n" + upcoming.map(Self.calendarLine).joined(separator: "\n")
+        return header + "\n" + upcoming.map { Self.calendarLine($0, now: now) }.joined(separator: "\n")
     }
 
     /// The colleagues this account can invite, by name.
@@ -839,13 +1004,22 @@ extension KnowledgeChatStore {
         integrations?.linked.contains(.googleCalendar) == true
     }
 
-    private static func calendarLine(_ event: CalendarOccurrence) -> String {
+    private static func calendarLine(_ event: CalendarOccurrence, now: Date) -> String {
         let others = event.others.map(\.display)
         let people = others.isEmpty ? "" : " (with \(others.joined(separator: ", ")))"
         let title = event.title.isEmpty ? "(no title)" : event.title
         let when = calendarDayFormatter.string(from: event.startsAt)
         let times = "\(calendarTimeFormatter.string(from: event.startsAt))–\(calendarTimeFormatter.string(from: event.endsAt))"
-        return "- \(when) \(times) — \(title)\(people)"
+        return "- \(when) \(times)\(calendarStatus(of: event, now: now)) — \(title)\(people)"
+    }
+
+    /// Where an event sits relative to the clock, in the words the block's
+    /// header tells the model to read. Empty for anything still ahead, which is
+    /// most of the list and the case that needs no explaining.
+    nonisolated static func calendarStatus(of event: CalendarOccurrence, now: Date) -> String {
+        if event.endsAt <= now { return " " + PromptLibrary.endedMarker }
+        if event.startsAt <= now { return " " + PromptLibrary.inProgressMarker }
+        return ""
     }
 
     /// One week, matching what `calendar-sync` actually pulls down — promising

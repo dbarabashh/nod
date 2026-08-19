@@ -46,6 +46,46 @@ final class SharedSessionAttributionTests: XCTestCase {
         XCTAssertFalse(text.contains("WHOSE MEETING THIS IS"))
     }
 
+    /// The cross-session chat had the same hole for longer, and worse: it can
+    /// hold a shared session and the user's own in one prompt, and it stated
+    /// flatly that "[Me]" was the user. A meeting a colleague recorded came
+    /// back as "you had a call with Georgi".
+    func testTheKnowledgePromptReadsOwnershipOffEachLabel() {
+        let text = PromptLibrary.buildKnowledgeSystem(excerpts: ["[From: Ads agency — Tuesday]\n[Me]: hello"])
+
+        XCTAssertTrue(text.contains("recorded by <name>, shared with the user"))
+        XCTAssertTrue(text.contains("the user was NOT there"))
+        // The old flat claim is what produced the wrong answer.
+        XCTAssertFalse(text.contains(#""[Me]" is the user"#))
+    }
+
+    /// The recap travels inside each grounding block in this prompt too, and
+    /// carries the same second person as the per-session one.
+    func testTheKnowledgePromptBindsASharedRecapsSecondPerson() {
+        XCTAssertTrue(PromptLibrary.sharedSessionRule.contains("written for <name>"))
+        XCTAssertTrue(PromptLibrary.sharedSessionRule.contains(#"every "you" and "your" inside it means <name>"#))
+    }
+
+    /// The same note labels a shared session's open action items, so the rule
+    /// has to reach them too — a colleague's follow-up is not the reader's
+    /// to-do, and it arrives through a different block.
+    func testTheRuleReachesTasksFromASharedSession() {
+        XCTAssertTrue(PromptLibrary.sharedSessionRule.contains("task source"))
+        XCTAssertTrue(PromptLibrary.sharedSessionRule.contains("action item"))
+    }
+
+    /// The rule is only worth anything if the label actually says the words it
+    /// tells the model to look for. The store writes one, the prompt describes
+    /// the other, and nothing but this connects them.
+    func testTheLabelNoteIsTheShapeTheRuleLooksFor() {
+        let note = PromptLibrary.sharedSessionLabelNote(host: "Vlad Kampov")
+
+        XCTAssertEqual(note, "recorded by Vlad Kampov, shared with the user")
+        XCTAssertTrue(
+            PromptLibrary.sharedSessionRule.contains(note.replacingOccurrences(of: "Vlad Kampov", with: "<name>"))
+        )
+    }
+
     /// The profile block is prepended to prompts that have no transcript at all,
     /// and it is the reader's own name. Binding `[Me]` to it there was the bug:
     /// which voice the tag belongs to is known where the session is.

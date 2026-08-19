@@ -141,14 +141,20 @@ struct AssistantTextBubble: View {
     @State private var isHovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Set on the newest answer only. Regenerating an older one would orphan
+    /// every turn after it, which was written against the answer being
+    /// replaced — so the affordance simply isn't offered there.
+    private let onRegenerate: (() -> Void)?
+
     /// `showsBubble: false` is the same answer without the chat chrome — used
     /// where the surface itself is already the container (the launcher panel),
     /// so the markdown rendering and the copy affordance stay shared instead of
     /// being written a second time.
-    init(content: String, showsBubble: Bool = true, isStreaming: Bool = false) {
+    init(content: String, showsBubble: Bool = true, isStreaming: Bool = false, onRegenerate: (() -> Void)? = nil) {
         self.content = content
         self.showsBubble = showsBubble
         self.isStreaming = isStreaming
+        self.onRegenerate = onRegenerate
         // Rendered once here, not in `body`: re-parsing the whole markdown on
         // every body pass is quadratic in the answer's length. While streaming,
         // `StreamingAnswer` parses per block instead — also once each.
@@ -186,9 +192,18 @@ struct AssistantTextBubble: View {
                 .modifier(ChatBubbleFill(isEnabled: showsBubble))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if !isStreaming {
-                    ChatCopyButton(text: content)
-                        .padding(.leading, 2)
-                        .revealOnHover(isHovering, reduceMotion: reduceMotion, anchor: .leading)
+                    // One row of actions on hover rather than a button that
+                    // only appears once something has gone wrong: asking for
+                    // the answer again is an ordinary thing to want, and a
+                    // pointer is already here to reveal it.
+                    HStack(spacing: 10) {
+                        ChatCopyButton(text: content)
+                        if let onRegenerate {
+                            ChatActionButton(icon: "nc-refresh-2", label: "Regenerate", action: onRegenerate)
+                        }
+                    }
+                    .padding(.leading, 2)
+                    .revealOnHover(isHovering, reduceMotion: reduceMotion, anchor: .leading)
                 }
             }
             .contentShape(Rectangle())
@@ -446,6 +461,30 @@ struct ChatCopyButton: View {
         flash = Task {
             await flashConfirmation(set: { copied = true }, reset: { copied = false }, for: 1.5)
         }
+    }
+}
+
+/// A small labelled action in a chat turn's hover row. Shares the copy
+/// button's weight and colour so the row reads as one strip rather than as a
+/// button that arrived from somewhere else.
+struct ChatActionButton: View {
+    let icon: String
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(icon)
+                    .icon(10)
+                Text(label)
+                    .font(.system(size: 10.5, weight: .medium))
+            }
+            .foregroundStyle(Theme.Palette.muted)
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .linkCursor()
     }
 }
 

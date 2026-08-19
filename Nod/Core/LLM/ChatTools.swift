@@ -252,7 +252,14 @@ enum ChatTools {
         ChatTool(
             provider: .googleCalendar,
             name: "google-calendar_list_events",
-            description: "Read the user's calendar over a date range. Use it for any question about what they have scheduled beyond the coming week; nearer days are already in the prompt.",
+            description: [
+                "Read the user's calendar over a date range.",
+                "Use it for any question about what they have scheduled beyond the coming week;",
+                "nearer days are already in the prompt.",
+                "Results cover the whole window asked for, so a window that opens before the current time",
+                "comes back holding events that already finished —",
+                "check each one's end time against the clock before calling it upcoming."
+            ].joined(separator: " "),
             parameters: ChatToolSchema(
                 properties: [
                     "starts_at": .init(description: "RFC3339 start of the window, e.g. 2026-09-01T00:00:00+01:00."),

@@ -115,6 +115,63 @@ extension PromptLibrary {
         ].joined(separator: " ")
     }
 
+    /// Time already spent is still in the prompt, and the model must not offer
+    /// it back as something upcoming.
+    ///
+    /// Every list of events here — the calendar block, and whatever the
+    /// calendar tool returns for a range that started before now — can contain
+    /// things that already happened. Asked "any meetings this week?" at nine on
+    /// a Wednesday evening, the answer came back "you have one meeting this
+    /// week" and named a sync that had finished four hours earlier. The clock
+    /// is stated in [TODAY]; this says what to do with it.
+    /// What a calendar line carries when it is not simply upcoming. Written by
+    /// `KnowledgeChatStore.calendarStatus` and explained by `pastEventsRule`:
+    /// one owner, because a marker the rule doesn't name is a label nothing
+    /// explains, and a rule naming a marker nothing writes is dead text.
+    static let endedMarker = "[ended]"
+    static let inProgressMarker = "[happening now]"
+
+    static let pastEventsRule = [
+        "The current time in [TODAY] is what decides whether an event is upcoming.",
+        "A calendar line marked \(endedMarker) is over, one marked \(inProgressMarker) is running right now, and an unmarked line is still ahead.",
+        #"Answer "what do I have", "what's left" and "am I free" from the unmarked lines only,"#,
+        "and if every line is marked, say the rest of the period is clear.",
+        #"Never present a finished event as something the user "has" or "will have": an event whose end time is before now is over, and is described in the past tense."#,
+        "This applies to the calendar block and to anything a calendar tool returns, since a requested range can start in the past.",
+        "When a period the user asked about has already gone by, say so rather than listing what is behind them as though it were ahead:",
+        #""the rest of this week is clear, your last meeting was the Wednesday sync at 17:00"."#
+    ].joined(separator: " ")
+
+    /// The cross-session counterpart to `speakerAttributionRule`.
+    ///
+    /// That one names a single recording's owner, because the per-session chat
+    /// is pointed at exactly one. This prompt mixes the user's own sessions
+    /// with ones colleagues shared, so ownership cannot be stated once at the
+    /// top — it rides on each session's label, and this rule tells the model to
+    /// read it there. Without it the prompt said "[Me] is the user" flatly, and
+    /// a shared session came back as "you had a call with Georgi" about a call
+    /// the user was never in.
+    /// The exact words `sharedSessionRule` tells the model to look for in a
+    /// session label. One owner for the phrase: it is written by the store and
+    /// read by the prompt, and a reword on either side would silently unhook
+    /// the rule from the thing it keys on — leaving the model a label it has
+    /// no instruction for and the old wrong answer.
+    static func sharedSessionLabelNote(host: String) -> String {
+        "recorded by \(host), shared with the user"
+    }
+
+    static let sharedSessionRule = [
+        #"A session label or task source that says "recorded by <name>, shared with the user""#,
+        "is somebody else's recording:",
+        "in it [Me] is <name>, [Them] are the people <name> was talking to, and the user was NOT there.",
+        "Attribute everything from it — its excerpts, its recap, which was written for <name>",
+        #"in the second person, so every "you" and "your" inside it means <name>,"#,
+        "and any open action item it produced — to <name>.",
+        #"Never write "you" about what happened in it: say "Vlad's call with Georgi", never "your call","#,
+        "and never put one of its tasks on the user's plate as though it were theirs.",
+        "A label with no such note is the user's own session, where [Me] is the user."
+    ].joined(separator: " ")
+
     /// What the model is allowed to conclude when it's holding excerpts rather
     /// than the whole transcript. Without this it reads a handful of retrieved
     /// passages as the entire session and answers "that was never discussed" —
@@ -250,6 +307,7 @@ extension PromptLibrary {
         - Never call a session the newest, latest or most recent unless the excerpts below actually show it is. They are the sessions retrieved for this question, not the user's full history — an older one can be the only match here while newer sessions exist. Describe what a session says and when it was; leave its rank alone.
         - When the user asks about days still ahead ("next week", "tomorrow"), answer with what the recent sessions say is planned, due, or committed for that period. Never reply that you have no information about the future — the question is about plans already discussed.
         - A YOUR CALENDAR block, when present, is what the user actually has scheduled — read it and answer from it. It is their real calendar, already resolved to their local time, so "do I have anything today", "what's my week" and "when am I free" are answered from it directly and never with a claim that you cannot see their calendar. It covers the days it names; for a date beyond that, use the calendar tool.
+        - \(pastEventsRule)
         - An OPEN ACTION ITEMS block, when present, is the user's real task list: already extracted, still outstanding, with dates resolved. Lead with it for "what should I do" / "what's due" questions, group by when things are due, and only then add context from the excerpts.
 
         [GROUNDING]
@@ -257,7 +315,8 @@ extension PromptLibrary {
         - Reference where something came from naturally, by the session label shown above each excerpt (e.g. "In your meeting on Tuesday about pricing…"). Don't quote the raw labels verbatim.
         - If neither contains the answer, say you don't have anything on that yet — do NOT invent or fill gaps with outside facts.
         - What reaches you was retrieved for this one question; it is not everything the user has. So answer from what you were given rather than reporting on the gap: lead with what you do have and say what it covers ("from Tuesday's session on the migration…"). Never declare that nothing exists for a person, topic or period — say you found nothing about it *here*, and let them narrow it.
-        - [Me] / [Them] are routing tags from transcription, not names. The transcript does NOT record who was present: "[Me]" is the user, "[Them]" is whoever they spoke with, and that person is often never named aloud.
+        - [Me] / [Them] are routing tags from transcription, not names. The transcript does NOT record who was present. [Me] is whoever's microphone recorded that session, and which person that is depends on the session — read it off the label, never assume.
+        - \(sharedSessionRule)
         - A session label's "mentions" are people TALKED ABOUT in that session. They are not an attendee list. Never state or imply who attended, met, or spoke — say "in your session on Thursday" or "this came up in", not "your meeting with X". If the user asks who they met, say the recording doesn't identify speakers.
         - If the user names a person that appears in a session's mentions, that session is still the best evidence about them — use it rather than claiming you have nothing.
         - If the user asks you to assess a participant's ability in a language, base the assessment only on excerpt passages originally spoken in that language. Do not assess translated, summarized, or paraphrased content as evidence of language ability.

@@ -114,6 +114,14 @@ final class ChatToolGate: ObservableObject {
         approval = nil
     }
 
+    /// Releases a question that is being cancelled. The continuation has to be
+    /// resumed or the task awaiting it never finishes — and it resumes as a
+    /// denial, so a turn abandoned mid-approval sends nothing on its way out.
+    func cancelPending() {
+        guard approval != nil else { return }
+        deny()
+    }
+
     /// The catalogue entries for `calls`, or nil when the model named a tool
     /// that isn't on offer — which is the one case a chat must refuse rather
     /// than guess at.

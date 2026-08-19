@@ -177,6 +177,7 @@ final class KnowledgeThreadStore: ObservableObject {
     /// a message is one request rather than an insert plus an update — and the
     /// timestamp comes from the database rather than the device's clock, which
     /// is the same reason `Thread.encode` omits it.
+    @discardableResult
     func append(
         threadID: UUID,
         id: UUID,
@@ -184,8 +185,8 @@ final class KnowledgeThreadStore: ObservableObject {
         content: String,
         sources: [KnowledgeChatStore.SessionRef],
         evidence: [StoredExcerpt]
-    ) async {
-        guard let userID = await currentUserID() else { return }
+    ) async -> Bool {
+        guard let userID = await currentUserID() else { return false }
         let message = StoredMessage(
             id: id,
             threadID: threadID,
@@ -199,8 +200,27 @@ final class KnowledgeThreadStore: ObservableObject {
         do {
             try await supabase.from(Self.messagesTable).insert(message).execute()
             moveToTop(threadID)
+            return true
         } catch {
             Log.ui.error("KnowledgeThreadStore.append failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Drops specific turns from a saved thread. Used when an answer is
+    /// regenerated: the replaced turns have to leave the thread too, or
+    /// reopening it shows the same question answered twice.
+    func deleteMessages(_ ids: [UUID], in threadID: UUID) async {
+        guard !ids.isEmpty else { return }
+        do {
+            try await supabase
+                .from(Self.messagesTable)
+                .delete()
+                .eq("thread_id", value: threadID.uuidString)
+                .in("id", values: ids.map(\.uuidString))
+                .execute()
+        } catch {
+            Log.ui.error("KnowledgeThreadStore.deleteMessages failed: \(error.localizedDescription)")
         }
     }
 

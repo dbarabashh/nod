@@ -51,6 +51,11 @@ struct ChatComposer: View {
     @Binding var isFocused: Bool
     var isEnabled = true
     let canSend: Bool
+    /// A turn is running. The field stays live through it — on a desktop the
+    /// keyboard is always to hand, and a disabled composer throws away what
+    /// somebody typed while they waited — and the send button becomes Stop.
+    var isGenerating = false
+    var onStop: () -> Void = {}
     let sources: ChatMentionSources
     /// The names already in the draft, drawn as pills.
     let mentions: [MentionMark]
@@ -105,9 +110,14 @@ struct ChatComposer: View {
                     withAnimation(.standard(reduceMotion: reduceMotion)) { trigger = typed }
                 }
 
-                sendButton
+                if isGenerating {
+                    stopButton
+                } else {
+                    sendButton
+                }
             }
         }
+        .animation(.standard(reduceMotion: reduceMotion), value: isGenerating)
     }
 
     private var sendButton: some View {
@@ -122,6 +132,24 @@ struct ChatComposer: View {
         }
         .buttonStyle(.plain)
         .disabled(!canSend)
+    }
+
+    /// Words, not a glyph. Every desktop chat that has room for the label uses
+    /// it, an icon-only square reads as "record" as readily as "stop", and Nod
+    /// ships no stop glyph — a Nucleo gap is not a reason to invent one when
+    /// the better control on this platform is text anyway.
+    private var stopButton: some View {
+        Button(action: onStop) {
+            Text("Stop")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.GlassButton.text)
+                .padding(.horizontal, 12)
+                .frame(height: 32)
+                .background(Capsule(style: .continuous).fill(Theme.GlassButton.fill))
+        }
+        .buttonStyle(.plain)
+        .help("Stop generating (Esc)")
+        .keyboardShortcut(.cancelAction)
     }
 
     private func pick(_ pick: ChatMentionPick) {

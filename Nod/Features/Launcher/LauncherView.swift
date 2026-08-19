@@ -223,10 +223,12 @@ struct LauncherView: View {
             .padding(.vertical, 10)
         } else if let answer = launcherAnswer {
             answerPane(answer)
-        } else if let errorText = chat.errorText {
+        } else if let failure = chat.failure {
             // Without this the fallback below is also the failure state, and a
-            // failed ask sits on "Asking…" forever.
-            hint(errorText)
+            // failed ask sits on "Asking…" forever. The panel is one line tall
+            // and has no room for a recovery button — the sentence is the part
+            // that matters here, and the Library's thread carries the actions.
+            hint(failure.message)
         } else {
             hint("Asking across your sessions…")
         }
