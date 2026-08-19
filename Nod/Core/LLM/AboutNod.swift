@@ -81,14 +81,23 @@ enum AboutNod {
             question: "Does Nod watch my screen?",
             answer: paragraphs([
                 [
-                    "**No screenshots. Ever.** Nod takes no pictures of your screen, and there is no",
-                    "code in it that can — nothing visual is captured, stored or sent anywhere."
+                    "Only if you switch it on. Ambient context is **off until you turn it on**,",
+                    "and with it off nothing about your screen is read, stored or sent."
                 ],
                 [
-                    "There is an optional feature called ambient context, and it is **off until you turn it on**.",
-                    "When it is on, Nod reads the *text* of your frontmost window — the same text a",
-                    "screen reader would — so that \"what was I working on this morning\" can be answered",
-                    "from what you had open and not only from what was said out loud."
+                    "With it on, Nod reads the *text* of your frontmost window — the same text a",
+                    #"screen reader would — so that "what was I working on this morning" can be"#,
+                    "answered from what you had open and not only from what was said out loud."
+                ],
+                [
+                    "Some windows tell macOS almost nothing — chat apps, design tools, and",
+                    "anything else that draws itself rather than describing itself.",
+                    "For those, and only those,",
+                    "Nod captures that one window on your Mac and reads the text out of the",
+                    "picture with Apple's on-device recognition, at most once every twenty",
+                    "seconds. **The image is never stored and never leaves your Mac** — it exists",
+                    "for the length of that one call and only the text survives it.",
+                    "There is no video, no screenshot history, nothing image-shaped kept anywhere."
                 ],
                 [
                     "You decide what it never reads: apps and windows on your blocklist are skipped",
@@ -97,8 +106,11 @@ enum AboutNod {
                     "and it turns itself back on so you don't have to remember."
                 ],
                 [
-                    "What it does keep expires on its own. Every captured line carries an expiry",
-                    "and is deleted server-side when it passes, and you can wipe the lot at any time."
+                    "What it keeps expires on its own — \(ScreenContextDefaults.defaultRetentionDays) days by",
+                    "default, and you can set 7 or 30 in Settings.",
+                    "A scheduled job on the server deletes expired",
+                    "captures even if you never open Nod again, and you can delete the last five",
+                    "minutes, the last hour, or everything Nod has ever read, at any time."
                 ]
             ])
         ),
@@ -128,6 +140,70 @@ enum AboutNod {
     private static func paragraphs(_ blocks: [[String]]) -> String {
         blocks.map { $0.joined(separator: " ") }.joined(separator: "\n\n")
     }
+
+    /// The facts about Nod itself, for the prompt.
+    ///
+    /// The prepared answers above are matched on the exact question, which the
+    /// first-run pills produce and a person typing rarely does — least of all
+    /// in another language. Asked "чи ти робиш скріншоти?" or "will you still
+    /// remember this in a month?", Nod had no session to ground on and said so:
+    /// *"I cannot reliably name the retention period."* True, and useless, and
+    /// about the one subject where a shrug costs the most trust.
+    ///
+    /// So these travel as grounding rather than as an answer. The model writes
+    /// them in whatever language was asked, and it writes them from facts
+    /// instead of from what it imagines a Mac app does.
+    ///
+    /// Every line is traceable: `ScreenTextRecognizer` for the pixel fallback,
+    /// `ScreenContextDefaults` for the default and the choices,
+    /// `20260723120000_add_screen_observations.sql` for the server-side purge,
+    /// and `docs/policies/privacy.md` § 12 for the rest of the table.
+    static func grounding(for question: String) -> String? {
+        guard QuestionIntent.asksAboutNod(question) else { return nil }
+        return facts
+    }
+
+    private static let facts = paragraphs([
+        ["[ABOUT NOD — answer from this, in the language the question was asked]"],
+        [
+            "Recording: Nod records the call's audio and the microphone on the user's Mac.",
+            "No bot joins the meeting. Transcription is per-chunk through a server-side proxy;",
+            "provider keys never ship in the app."
+        ],
+        [
+            "Ambient screen context is OFF until the user turns it on, and nothing about the",
+            "screen is read while it is off.",
+            "When on, Nod reads the TEXT of the frontmost window through the accessibility",
+            "interface. For windows that describe themselves poorly it captures that one",
+            "window and runs Apple's on-device text recognition over the picture, at most",
+            "once every 20 seconds, and only on macOS 14 or later.",
+            "The image is dropped in the same call: nothing image-shaped is stored or sent,",
+            "there is no video and no screenshot history. Only the recognised text is kept.",
+            "Say this plainly if asked whether Nod takes screenshots — it does capture a",
+            "window to read it, and only the text survives. Do not deny the capture."
+        ],
+        [
+            "Screen captures expire on their own: \(ScreenContextDefaults.defaultRetentionDays) days by default,",
+            "and the user can choose 7, 14 or 30 in Settings.",
+            "A scheduled job on the server deletes expired rows even",
+            "if Nod is never opened again. The user can delete the last 5 minutes, 15 minutes,",
+            "hour, or everything Nod has ever read, at any time; deleting captures does not",
+            "touch sessions or transcripts."
+        ],
+        [
+            "Excluded apps and windows are skipped before anything is read, not filtered",
+            "afterwards, and ambient capture can be paused for a few minutes and restores",
+            "itself. There is no automatic redaction of card numbers or keys — the blocklist",
+            "is the control. Never claim redaction.",
+            "Recordings themselves are kept until the user deletes them; a trashed session is",
+            "purged after 30 days. Everything is deleted with the account."
+        ],
+        [
+            "Nod holds no SOC 2, HIPAA or ISO certification. Never claim one, and never imply",
+            "an audit that has not happened. Data lives in Supabase in eu-west-1.",
+            "The macOS app embeds no third-party analytics SDK."
+        ]
+    ])
 
     /// The prepared answer to `question`, when it is one of ours.
     ///

@@ -288,8 +288,9 @@ struct KnowledgeChatView: View {
                 // they read as one row of chips rather than two lists in two
                 // shapes. A session opens; an app is a label — the chip says
                 // which by whether it responds to the pointer.
-                if !message.sources.isEmpty {
-                    sourcesRow(message.sources, in: message.id)
+                ChatSourcesRow(sources: message.sources) { source, rank in
+                    chat.noteOpenedSource(meetingID: source.id, rank: rank, in: message.id)
+                    onOpenMeeting(source.id)
                 }
             }
         }
@@ -310,64 +311,6 @@ struct KnowledgeChatView: View {
         ) {
             Task { await chat.retrySaving(id) }
         }
-    }
-
-    /// Everything the answer drew on, in one row: sessions first — they're the
-    /// spine of the answer and they open — then the apps it read off the screen.
-    private func sourcesRow(_ sources: [SessionRef], in answerID: KnowledgeChatStore.Message.ID) -> some View {
-        let ordered = sources.filter { !$0.isApp } + sources.filter(\.isApp)
-        return VStack(alignment: .leading, spacing: 4) {
-            Text("SOURCES")
-                .font(.system(size: 9, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(Theme.Palette.muted)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(Array(ordered.enumerated()), id: \.element.id) { rank, source in
-                        if source.isApp {
-                            sourceChip(source)
-                        } else {
-                            Button {
-                                chat.noteOpenedSource(meetingID: source.id, rank: rank, in: answerID)
-                                onOpenMeeting(source.id)
-                            } label: {
-                                sourceChip(source)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Open this session")
-                        }
-                    }
-                }
-            }
-        }
-        .padding(.leading, 2)
-    }
-
-    /// One chip. The icon carries the kind: an app's own icon for something read
-    /// off the screen, a document glyph for a recorded session.
-    private func sourceChip(_ source: SessionRef) -> some View {
-        HStack(spacing: 5) {
-            if let bundleID = source.bundleID,
-               let icon = AppDirectory.icon(for: AppDirectory.identity(forBundleID: bundleID)) {
-                Image(nsImage: icon)
-                    .resizable()
-                    .frame(width: 12, height: 12)
-            } else {
-                Image(source.isApp ? "nc-window-pointer" : "nc-file")
-                    .icon(8.5)
-            }
-            Text(source.title)
-                .font(.system(size: 11, weight: .medium))
-                .lineLimit(1)
-        }
-        .foregroundStyle(Theme.Palette.ink.opacity(0.75))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-            Capsule(style: .continuous)
-                .fill(Theme.Palette.surface)
-                .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
-        )
     }
 
     /// A sent message's pills, rebuilt at render time from what the app knows

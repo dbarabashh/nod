@@ -24,6 +24,7 @@ is set, so neither is claimed anywhere. All contact emails resolve to
 | Meeting-hour enforcement, the meeting-start lease, or the Starter top-up changes | `terms.md` § 7, `refund.md` § 6, `privacy.md` § 3.7/7, `security.md` "Allowance and top-ups", `docs/pricing.md` |
 | Referral or advocacy reward rules change (eligibility, hold, cap, clawback) | `terms.md` § 7, `refund.md` § 6, `privacy.md` § 3.7 |
 | Product-analytics events or the opt-out change | `privacy.md` § 3.5/3.8 |
+| In-app answers about how Nod works (`Nod/Core/LLM/AboutNod.swift`) — what is captured, what is kept, what is not claimed | `privacy.md` § 3.10/12, `security.md`. This copy ships **inside a system prompt**, so no reviewer reads it: it drifted from the policy once already, claiming Nod took no screenshots after the docs had been corrected to describe the `ScreenTextRecognizer` pixel fallback. |
 | Audio is ever persisted (today: never; `WhisperTranscriber` discards chunks) | `security.md` "Audio recordings", `privacy.md` § 3.2 |
 | OpenRouter privacy toggles flipped (ZDR off, "may train on request data" enabled, first-party endpoints re-enabled) | `security.md` § Model training, `privacy.md` § 4 |
 | New table in `public.*` schema, or RLS dropped on any table | `security.md` "Infrastructure", `privacy.md` § 3 |

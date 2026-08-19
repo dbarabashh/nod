@@ -3,6 +3,7 @@ import XCTest
 
 final class ScreenActivityDigestTests: XCTestCase {
     private let user = UUID()
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
 
     private func observation(
         app: String,
@@ -150,15 +151,141 @@ final class ScreenActivityDigestTests: XCTestCase {
         for minute in 60 ... 200 {
             rows.append(observation(app: "com.chrome", title: "PR #17", content: "review", minutesAgo: minute))
         }
-        for (index, glance) in ["Dimension", "Littlebird", "Pricing", "Fundraising"].enumerated() {
-            rows.append(observation(app: "com.chrome", title: glance, content: "tab", minutesAgo: index + 1))
+        // More glances than the cap, so something genuinely has to be evicted.
+        for index in 1 ... (ScreenActivityDigest.maximumWindowsPerApp + 3) {
+            rows.append(observation(app: "com.chrome", title: "Tab \(index)", content: "tab", minutesAgo: index))
         }
 
         let digest = digest(from: rows)
         let titles = digest.apps[0].windows.map(\.title)
 
         XCTAssertEqual(titles.first, "PR #17")
+        XCTAssertTrue(titles.contains("PR #17"))
         XCTAssertEqual(digest.apps[0].windows.count, ScreenActivityDigest.maximumWindowsPerApp)
+    }
+
+    /// Dwell alone answers "what am I doing", not "what was my day": an
+    /// afternoon of one long document would otherwise bury every twenty-second
+    /// thing the day was about. Each hour present gets its best window before
+    /// the remaining room is filled by time on screen.
+    func testEachHourOfTheDayIsRepresented() {
+        var rows: [ScreenObservation] = []
+        // One window held for two hours, plus a short look in each of six
+        // earlier hours — more windows than the cap, so coverage has to fight.
+        for minute in 1 ... 120 {
+            rows.append(observation(app: "com.chrome", title: "Long read", content: "x", minutesAgo: minute))
+        }
+        for hour in 3 ... 8 {
+            rows.append(observation(app: "com.chrome", title: "Hour \(hour)", content: "x", minutesAgo: hour * 60 + 5))
+        }
+        for index in 1 ... 6 {
+            rows.append(observation(app: "com.chrome", title: "Glance \(index)", content: "x", minutesAgo: 1))
+        }
+
+        let titles = digest(from: rows).apps[0].windows.map(\.title)
+
+        for hour in 3 ... 8 {
+            XCTAssertTrue(titles.contains("Hour \(hour)"), "hour \(hour) missing from \(titles)")
+        }
+    }
+
+    /// The finding behind the whole change: Slack's title is the same from
+    /// morning to night, so a day in it folded into one row and one snapshot —
+    /// which is why a recap could say "you were in Slack" and never which
+    /// tickets were discussed.
+    func testComingBackToAWindowLaterIsASecondVisit() {
+        var rows: [ScreenObservation] = []
+        for minute in 1 ... 20 {
+            rows.append(observation(app: "com.slack", title: "Nod, ops", content: "morning \(minute)", minutesAgo: 400 + minute))
+        }
+        for minute in 1 ... 20 {
+            rows.append(observation(app: "com.slack", title: "Nod, ops", content: "afternoon \(minute)", minutesAgo: 60 + minute))
+        }
+
+        let windows = digest(from: rows).apps[0].windows
+
+        XCTAssertEqual(windows.count, 2, "a day in one channel is not one snapshot")
+        XCTAssertNotEqual(windows[0].content, windows[1].content)
+    }
+
+    /// Splitting on the clock instead would cut a window that was up from
+    /// 13:55 to 14:05 in half at a boundary that means nothing.
+    func testStayingInAWindowIsOneVisitHoweverLong() {
+        let rows = (1 ... 180).map {
+            observation(app: "com.code", title: "AboutNod.swift", content: "x", minutesAgo: $0)
+        }
+
+        XCTAssertEqual(digest(from: rows).apps[0].windows.count, 1)
+    }
+
+    /// A pause shorter than the threshold is stepping away for coffee, not a
+    /// second visit.
+    func testAShortPauseDoesNotSplitAVisit() {
+        let gapMinutes = Int(ScreenActivityDigest.revisitGap / 60) - 10
+        let rows = [
+            observation(app: "com.code", title: "spec", content: "a", minutesAgo: gapMinutes + 5),
+            observation(app: "com.code", title: "spec", content: "b", minutesAgo: 5)
+        ]
+
+        XCTAssertEqual(digest(from: rows).apps[0].windows.count, 1)
+    }
+
+    /// One app must not fill the screen section on its own: breadth is what a
+    /// recap of a day is for.
+    func testOneAppCannotSwallowTheWholeSection() {
+        let content = busyBrowser().apps[0].windows.map(\.content).joined()
+
+        XCTAssertLessThanOrEqual(
+            content.count,
+            ScreenActivityDigest.appBudget
+                + ScreenActivityDigest.maximumWindowCharacters
+                + ScreenActivityDigest.maximumWindowsPerApp * ScreenActivityDigest.glimpseCharacters
+        )
+    }
+
+    /// Spending the allowance used to delete the rest of the app outright — a
+    /// browser picked eight tabs for coverage and five vanished, title and all.
+    /// A tab's title is most of what it was.
+    func testTabsPastTheAllowanceSurviveAsAGlance() {
+        let windows = busyBrowser().apps[0].windows
+
+        XCTAssertEqual(windows.count, ScreenActivityDigest.maximumWindowsPerApp)
+        XCTAssertTrue(windows.allSatisfy { !$0.title.isEmpty })
+    }
+
+    /// Depth for the first few, presence for the rest — the shape a day has.
+    func testTheFirstTabsKeepTheirDepth() {
+        let windows = busyBrowser().apps[0].windows
+
+        XCTAssertEqual(windows.first?.content.count, ScreenActivityDigest.maximumWindowCharacters)
+        XCTAssertEqual(windows.last?.content.count, ScreenActivityDigest.glimpseCharacters)
+    }
+
+    /// Eight long-bodied tabs, each in its own hour so coverage keeps them all.
+    private func busyBrowser() -> ScreenActivityDigest {
+        let long = String(repeating: "x", count: ScreenActivityDigest.maximumWindowCharacters * 2)
+        let rows = (1 ... ScreenActivityDigest.maximumWindowsPerApp).map { index in
+            observation(app: "com.chrome", title: "Tab \(index)", content: long + "\(index)", minutesAgo: index * 50)
+        }
+        return digest(from: rows)
+    }
+
+    /// Coverage decides who is included, not who is listed first — the list
+    /// stays in dwell order so the day's substance leads.
+    func testCoverageDoesNotDisturbTheOrder() {
+        let windows = (0 ..< 5).map { index in
+            ScreenActivityPlan.Window(
+                title: "W\(index)",
+                firstSeen: now.addingTimeInterval(Double(-index) * 3600),
+                lastSeen: now.addingTimeInterval(Double(-index) * 3600),
+                captures: 100 - index,
+                candidateHashes: ["h\(index)"]
+            )
+        }
+
+        let kept = ScreenActivityDigest.covering(windows, limit: 3)
+
+        XCTAssertEqual(kept.map(\.title), ["W0", "W1", "W2"])
     }
 
     /// The same day asked about twice, with nothing but a fresh glance in

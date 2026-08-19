@@ -76,15 +76,36 @@ final class AboutNodTests: XCTestCase {
         }
     }
 
-    /// The one claim in here that is a promise rather than a description. If
-    /// this ever stops being true the copy has to change in the same commit —
-    /// and if the wording drifts, the denial has to survive the rewrite.
-    func testTheScreenAnswerDeniesScreenshotsOutright() {
-        let answer = try? XCTUnwrap(AboutNod.answer(to: "Does Nod watch my screen?"))
-        let copy = answer ?? ""
+    private var screenAnswer: String {
+        AboutNod.answer(to: "Does Nod watch my screen?") ?? ""
+    }
 
-        XCTAssertTrue(copy.localizedCaseInsensitiveContains("no screenshots"), copy)
-        XCTAssertTrue(copy.localizedCaseInsensitiveContains("off until you turn it on"), copy)
+    /// The claims that are promises rather than descriptions. If any stops
+    /// being true the copy has to change in the same commit.
+    func testTheScreenAnswerKeepsItsPromises() {
+        XCTAssertTrue(screenAnswer.localizedCaseInsensitiveContains("off until you turn it on"), screenAnswer)
+        XCTAssertTrue(screenAnswer.localizedCaseInsensitiveContains("never stored"), screenAnswer)
+        XCTAssertTrue(screenAnswer.contains("\(ScreenContextDefaults.defaultRetentionDays) days by"), screenAnswer)
+    }
+
+    /// This copy used to say Nod took no pictures of the screen and that there
+    /// was no code in it that could. `ScreenTextRecognizer` is that code: when
+    /// accessibility comes up short it captures the one window with
+    /// `SCScreenshotManager` and reads it with Vision. The image is dropped in
+    /// the same call and only the text survives — which is a promise worth
+    /// making, and a very different one from the denial that was there.
+    ///
+    /// A flat denial is worse than the truth: the day somebody finds the
+    /// capture call, every other claim on this screen goes with it.
+    func testTheScreenAnswerDoesNotDenyWhatTheCodeDoes() {
+        for denial in ["no screenshots", "takes no pictures", "nothing visual is captured"] {
+            XCTAssertFalse(screenAnswer.localizedCaseInsensitiveContains(denial), denial)
+        }
+    }
+
+    /// The default the copy quotes has to be the default in code.
+    func testTheQuotedRetentionMatchesTheDefault() {
+        XCTAssertEqual(ScreenContextDefaults.defaultRetentionDays, 14)
     }
 
     /// "Off until you turn it on" has to be true of a fresh install, not of the
@@ -104,5 +125,60 @@ final class AboutNodTests: XCTestCase {
         for absent in ["iPhone", "iPad", "Android", "Microsoft"] {
             XCTAssertFalse(copy.localizedCaseInsensitiveContains(absent), absent)
         }
+    }
+}
+
+/// The grounding half: the prepared answers are matched on the exact question,
+/// which a person typing rarely produces — least of all in another language.
+/// Asked "чи ти робиш скріншоти?", Nod had nothing to ground on and said it
+/// could not name the retention period. True, useless, and about the one
+/// subject where a shrug costs the most trust.
+final class AboutNodGroundingTests: XCTestCase {
+    func testItAnswersTheQuestionsPeopleActuallyType() {
+        let asked = [
+            "а ти робиш скріншоти?",
+            "ти запам'ятовуєш всю інфу з екрану? через місяць будеш памятати?",
+            "як довго зберігаються мої дані",
+            "do you take screenshots?",
+            "how long do you keep this",
+            "will you remember this in a month?",
+            "are you SOC 2 compliant?"
+        ]
+
+        for question in asked {
+            XCTAssertNotNil(AboutNod.grounding(for: question), question)
+        }
+    }
+
+    /// It must not fire on an ordinary question about the user's own work, or
+    /// every answer pays for a block about Nod's plumbing.
+    func testItStaysOutOfOrdinaryQuestions() {
+        let ordinary = [
+            "what did I promise?",
+            "що я робив сьогодні?",
+            "catch me up on the pricing call",
+            "what did we decide this week?"
+        ]
+
+        for question in ordinary {
+            XCTAssertNil(AboutNod.grounding(for: question), question)
+        }
+    }
+
+    /// The three claims that would be lies, and the one denial that was one.
+    func testTheGroundingRefusesTheClaimsWeCannotMake() {
+        let facts = AboutNod.grounding(for: "do you take screenshots?") ?? ""
+
+        XCTAssertTrue(facts.contains("Do not deny the capture"), facts)
+        XCTAssertTrue(facts.contains("Never claim redaction"), facts)
+        XCTAssertTrue(facts.localizedCaseInsensitiveContains("no SOC 2"), facts)
+    }
+
+    /// The numbers in the block are the numbers in the code.
+    func testTheGroundingQuotesTheRealRetention() {
+        let facts = AboutNod.grounding(for: "how long do you keep this") ?? ""
+
+        XCTAssertTrue(facts.contains("\(ScreenContextDefaults.defaultRetentionDays) days by default"), facts)
+        XCTAssertTrue(facts.contains("7, 14 or 30"), facts)
     }
 }

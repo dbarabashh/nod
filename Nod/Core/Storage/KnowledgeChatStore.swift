@@ -465,6 +465,10 @@ extension KnowledgeChatStore {
         // from an English question. Resolved up front so query prep writes the
         // HyDE passage in the same language too.
         let replyLanguage = AppLanguage.detect(from: text) ?? language.current
+        // A question about how Nod works is answered from facts or not at all,
+        // and retrieval has nothing to say about it. Resolved once: `run`
+        // builds a prompt in two places, and only one of them had this.
+        let aboutNod = AboutNod.grounding(for: text)
         // HyDE + conversational rewrite: a self-contained query (drives routing
         // + entity matching) and a hypothetical transcript-style answer
         // (embedded for the vector match).
@@ -519,7 +523,7 @@ extension KnowledgeChatStore {
             Log.ui.info("chat: acting without retrieval")
             thinkingScript = ChatThinking.acting
             let system = PromptLibrary.buildKnowledgeSystem(
-                excerpts: [teammatesBlock(), calendarBlock(for: prepared.standalone)].compactMap { $0 },
+                excerpts: [aboutNod, teammatesBlock(), calendarBlock(for: prepared.standalone)].compactMap { $0 },
                 language: replyLanguage,
                 personalContext: profile.promptContext,
                 connectedTools: turnTools
@@ -562,6 +566,7 @@ extension KnowledgeChatStore {
         // ahead is answered by the calendar, and a retrieval budget that trimmed
         // it would leave the model guessing from last week's transcripts.
         let ahead = [
+            aboutNod,
             QuestionIntent.asksAboutSchedule(prepared.standalone) ? teammatesBlock() : nil,
             calendarBlock(for: prepared.standalone),
             taskBlock
@@ -572,7 +577,8 @@ extension KnowledgeChatStore {
             personalContext: profile.promptContext,
             observations: Self.sharingScreenBudget(
                 question: grounding.observations,
-                crossed: grounding.crossedObservations
+                crossed: grounding.crossedObservations,
+                isRecap: grounding.isRecap
             ),
             connectedTools: turnTools
         )
@@ -841,19 +847,24 @@ extension KnowledgeChatStore {
     /// whole excerpts, in retrieval order (most relevant first), until the
     /// budget is spent — truncating mid-excerpt would ground the answer on half
     /// a sentence.
+    /// Skips a block that doesn't fit rather than ending the list.
+    ///
+    /// It used to `break`, and on a day recap that quietly cost most of the
+    /// day: one fat app block filled the allowance and every app after it —
+    /// already fetched, already folded — was dropped without a word. Order
+    /// still decides who gets the room first; it no longer decides who gets
+    /// considered at all.
     static func withinBudget(_ excerpts: [String], limit: Int = groundingBudget) -> [String] {
         var kept: [String] = []
         var used = 0
-        for excerpt in excerpts {
-            let cost = excerpt.count
-            guard used + cost <= limit else {
-                // Always keep at least one, or a single long recap yields
-                // nothing to answer from.
-                if kept.isEmpty { kept.append(String(excerpt.prefix(limit))) }
-                break
-            }
+        for excerpt in excerpts where used + excerpt.count <= limit {
             kept.append(excerpt)
-            used += cost
+            used += excerpt.count
+        }
+        // A single excerpt longer than the whole allowance would otherwise
+        // leave nothing to answer from.
+        if kept.isEmpty, let first = excerpts.first {
+            kept.append(String(first.prefix(limit)))
         }
         return kept
     }
@@ -864,7 +875,26 @@ extension KnowledgeChatStore {
     /// Screen context gets its own allowance rather than competing with session
     /// excerpts: a day of captures would otherwise crowd out the transcripts on
     /// every question, and a recap needs several apps to be worth reading.
-    static let screenBudget = 9_000
+    /// A day of real work is five or six apps, and each now carries a few full
+    /// windows plus a glance at the rest. At 9k — of which only 6k was
+    /// reachable — two apps filled the section and the rest of the day never
+    /// left the device. This is the one place where spending tokens buys the
+    /// answer its specifics, so it is sized for a whole day rather than to
+    /// look thrifty.
+    ///
+    /// It is the *recap's* allowance, not every turn's. `recentContext` returns
+    /// a handful of keyword-matched windows on ordinary questions, and giving
+    /// those a day's room would make a question about a ticket carry as much
+    /// screen text as a question about the whole day.
+    /// Sized to hold `ScreenActivityDigest.maximumApps` app blocks at full
+    /// depth — `ScreenBudgetTests.testTheSectionCanHoldAFullDayOfApps` is what
+    /// keeps the two files agreeing. Raising it is only affordable because the
+    /// keyword-matched path below no longer shares it.
+    static let screenBudget = 32_000
+
+    /// What the keyword-matched windows get on an ordinary turn — the size the
+    /// section was before a recap needed more.
+    static let matchedScreenBudget = 9_000
 
     /// The crossing's guaranteed share of `screenBudget`.
     ///
@@ -879,8 +909,20 @@ extension KnowledgeChatStore {
     /// Both halves of the screen section, each held to its own share so neither
     /// can starve the other. Their sum is `screenBudget`, so the budget applied
     /// at the call site cannot cut this further.
-    static func sharingScreenBudget(question: [String], crossed: [String]) -> [String] {
-        withinBudget(question, limit: screenBudget - crossingBudget)
+    ///
+    /// The reservation is only made when there is something to reserve for. A
+    /// recap of a period never crosses — `crossed` short-circuits on
+    /// `coversAWindow`, which that path always sets — so a third of the screen
+    /// allowance was being held back for a half that could not exist, on the
+    /// one question where breadth is the whole answer.
+    static func sharingScreenBudget(question: [String], crossed: [String], isRecap: Bool = false) -> [String] {
+        // A recap is the whole period, app by app, and breadth is the answer.
+        // Every other question gets the windows its keywords matched — at most
+        // a handful, often stale — and paying a day's allowance for those would
+        // inflate ordinary turns for nothing.
+        let allowance = isRecap ? screenBudget : matchedScreenBudget
+        guard !crossed.isEmpty else { return withinBudget(question, limit: allowance) }
+        return withinBudget(question, limit: allowance - crossingBudget)
             + withinBudget(crossed, limit: crossingBudget)
     }
 
@@ -1086,6 +1128,10 @@ extension KnowledgeChatStore {
         /// Screen context, kept apart from session excerpts: the two are
         /// grounded differently and the prompt says so.
         var observations: [String] = []
+        /// Whether the screen half is a whole period, app by app, rather than
+        /// the handful of windows a question's keywords matched. Only the
+        /// first needs room for a day.
+        var isRecap = false
         /// Windows reached through the sessions rather than through the
         /// question. Kept apart only until the budget is applied — the prompt
         /// sees one section.
@@ -1390,6 +1436,7 @@ extension KnowledgeChatStore {
                 }),
                 readSessions: grounded.count,
                 observations: screen.blocks,
+                isRecap: screen.coversAWindow,
                 crossedObservations: linked.blocks
             )
         case let .specific(ids):
@@ -1459,6 +1506,7 @@ extension KnowledgeChatStore {
                 evidence: evidence,
                 readSessions: inScope.count,
                 observations: screen.blocks,
+                isRecap: screen.coversAWindow,
                 crossedObservations: linked.blocks
             )
         }

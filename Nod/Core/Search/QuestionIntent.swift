@@ -24,6 +24,29 @@ enum QuestionIntent {
         "сделать", "нужно"
     ]
 
+    /// Phrases that make a question about Nod itself — how it captures, what it
+    /// keeps, how long — better answered from stated facts than from anything
+    /// the user recorded. `AboutNod.grounding` supplies those facts.
+    ///
+    /// Kept here with the other intents rather than beside the copy it gates:
+    /// one place owns "does this question match category X", and a language
+    /// added to one table has no reason to be missing from the next.
+    private static let aboutNodPhrases = [
+        "screenshot", "screen shot", "record my screen", "watch my screen", "see my screen",
+        "how long do you keep", "how long is it kept", "how long do you store", "retention",
+        "delete my data", "store my data", "keep my data", "privacy", "encrypted",
+        "do you remember", "will you remember", "your memory", "soc 2", "soc2", "gdpr", "hipaa",
+        "скрін", "скрин", "знімк", "знімок", "екран",
+        "запам'ятов", "запамятов", "памʼятаєш", "пам'ятаєш", "памятаєш", "запам'ятаєш", "запамятаєш",
+        "зберіга", "збереж", "видалит", "видален", "приватн", "шифр", "безпек",
+        "храни", "удали", "запомина", "запомнишь"
+    ]
+
+    static func asksAboutNod(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        return aboutNodPhrases.contains { lowered.contains($0) }
+    }
+
     static func isQuestion(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else { return false }

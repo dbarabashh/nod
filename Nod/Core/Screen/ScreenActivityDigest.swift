@@ -35,10 +35,16 @@ struct ScreenActivityDigest: Equatable {
     /// Apps beyond this are a long tail of glances — a Finder window, a
     /// notification — and each one costs prompt room a real one could use.
     static let maximumApps = 6
-    static let maximumWindowsPerApp = 4
-    /// Per window, not per app: enough for a Jira ticket's body or a Slack
-    /// thread, short of a whole document.
-    static let maximumWindowCharacters = 700
+    /// Eight, not four. A day's browsing is one app: at four windows the
+    /// afternoon's reading collapsed into whichever tabs were open longest,
+    /// and a recap that named two of eight sites read as inattentive.
+    static let maximumWindowsPerApp = 8
+    /// Per window, not per app. At 700 this was the binding constraint on how
+    /// specific a recap could be: capture stores up to
+    /// `ScreenObservation.maximumCharacters`, and the digest was throwing away
+    /// most of it — a Slack channel arrived without its ticket numbers, a
+    /// LinkedIn page without its figures, a video without its title.
+    static let maximumWindowCharacters = 1_400
 
     /// How many of a window's screen states are worth fetching text for.
     ///
@@ -58,7 +64,7 @@ struct ScreenActivityDigest: Equatable {
 
         var apps: [ScreenActivityPlan.App] = []
         for (bundleID, groups) in byApp {
-            var folded = groups.values.compactMap(plannedWindow(from:))
+            var folded = groups.values.flatMap { visits(in: $0) }.compactMap(plannedWindow(from:))
             guard !folded.isEmpty else { continue }
             // By how long the window was up, exactly as apps are ranked below —
             // the two used to disagree, and that disagreement is what made a
@@ -75,7 +81,7 @@ struct ScreenActivityDigest: Equatable {
             let captures = groups.values.reduce(0) { $0 + $1.count }
             apps.append(ScreenActivityPlan.App(
                 bundleID: bundleID,
-                windows: Array(folded.prefix(maximumWindowsPerApp)),
+                windows: covering(folded, limit: maximumWindowsPerApp),
                 captures: captures
             ))
         }
@@ -93,20 +99,74 @@ struct ScreenActivityDigest: Equatable {
     /// than reported as an empty screen.
     static func build(plan: ScreenActivityPlan, bodies: [String: String]) -> ScreenActivityDigest {
         let apps: [App] = plan.apps.compactMap { app in
-            let windows: [Window] = app.windows.compactMap { window in
-                guard let fullest = fullestBody(among: window.candidateHashes, in: bodies) else { return nil }
-                return Window(
+            // Each app gets the same allowance. A day in a browser would
+            // otherwise fill the whole screen section on its own and push the
+            // Slack channel and the editor out of the answer entirely — and
+            // breadth is what a recap of a day is for.
+            var used = 0
+            var windows: [Window] = []
+            for window in app.windows {
+                guard let fullest = fullestBody(among: window.candidateHashes, in: bodies) else { continue }
+                // Past the allowance a window is kept at a glance rather than
+                // dropped. Spending the budget used to delete the rest of the
+                // app outright — a browser picked eight tabs for coverage and
+                // five of them vanished, title and all — and a tab's title is
+                // most of what it was: "Dimension — shutting down 20 May",
+                // "console1984 by Basecamp". Depth for the first few, presence
+                // for the rest, which is the shape a day actually has.
+                let limit = used < appBudget ? maximumWindowCharacters : glimpseCharacters
+                let content = String(fullest.prefix(limit))
+                used += content.count
+                windows.append(Window(
                     title: window.title,
-                    content: String(fullest.prefix(maximumWindowCharacters)),
+                    content: content,
                     firstSeen: window.firstSeen,
                     lastSeen: window.lastSeen,
                     captures: window.captures
-                )
+                ))
             }
             guard !windows.isEmpty else { return nil }
             return App(bundleID: app.bundleID, windows: windows, captures: app.captures)
         }
         return ScreenActivityDigest(apps: apps)
+    }
+
+    /// One app's share of full-depth windows — about two and a half of them.
+    /// The first is always admitted, however long, so an app is never present
+    /// as a name with nothing under it.
+    static let appBudget = 3_500
+
+    /// What a window past the allowance still gets. Enough for a tab to say
+    /// what it was, which is often the whole point of it.
+    static let glimpseCharacters = 220
+
+    /// The windows worth keeping for a *period*: the day's hours, each
+    /// represented, and the longest-held window inside each of them.
+    ///
+    /// Dwell alone answers "what am I doing", not "what was my day". Ranked by
+    /// time on screen, an afternoon of one long document buries every twenty
+    /// second thing the day was actually about — the pricing page, the
+    /// competitor's shutdown notice, the thread somebody linked — which is
+    /// exactly the detail that makes a recap read as observant rather than
+    /// vague. So each hour present gets its best window first, and only then
+    /// is the remaining room filled by dwell.
+    ///
+    /// `folded` arrives already ranked by dwell, and the result keeps that
+    /// order: coverage decides who is included, not who is listed first.
+    static func covering(_ folded: [ScreenActivityPlan.Window], limit: Int) -> [ScreenActivityPlan.Window] {
+        guard folded.count > limit else { return folded }
+        let calendar = Calendar.current
+        var seenHours = Set<Date>()
+        var chosen = Set<Int>()
+        for (index, window) in folded.enumerated() {
+            let hour = calendar.dateInterval(of: .hour, for: window.lastSeen)?.start ?? window.lastSeen
+            guard seenHours.insert(hour).inserted, chosen.count < limit else { continue }
+            chosen.insert(index)
+        }
+        for index in folded.indices where chosen.count < limit {
+            chosen.insert(index)
+        }
+        return folded.indices.filter { chosen.contains($0) }.map { folded[$0] }
     }
 
     /// The longest capture wins: the same window read twice differs by how much
@@ -123,13 +183,47 @@ struct ScreenActivityDigest: Equatable {
         return title.isEmpty ? entry.contentHash : title
     }
 
-    private static func plannedWindow(from group: [ScreenObservationIndex]) -> ScreenActivityPlan.Window? {
-        guard let first = group.min(by: { $0.observedAt < $1.observedAt }),
-              let last = group.max(by: { $0.observedAt < $1.observedAt })
-        else { return nil }
+    /// One window's captures split into the separate times you were in it.
+    ///
+    /// Folding on the title alone made a whole day in one app a single window.
+    /// Slack's title is `Nod, ops - Slack` from morning to night, so every
+    /// capture of it collapsed into one row and `fullestBody` kept one snapshot
+    /// of one moment — which is why a recap could say "you were in Slack" and
+    /// never which tickets were discussed. The same held for LinkedIn and for a
+    /// long ChatGPT conversation.
+    ///
+    /// Split on the gap rather than on the clock. A fixed two-hour bucket cuts
+    /// a window that was up from 13:55 to 14:05 into two visits at a boundary
+    /// that means nothing, while a window you left and came back to after lunch
+    /// is genuinely a second look — and only the gap can tell those apart.
+    static func visits(in group: [ScreenObservationIndex]) -> [[ScreenObservationIndex]] {
+        let ordered = group.sorted { $0.observedAt < $1.observedAt }
+        var runs: [[ScreenObservationIndex]] = []
+        for entry in ordered {
+            if let last = runs.last?.last, entry.observedAt.timeIntervalSince(last.observedAt) <= revisitGap {
+                runs[runs.count - 1].append(entry)
+            } else {
+                runs.append([entry])
+            }
+        }
+        return runs
+    }
+
+    /// Long enough that stepping away for coffee does not split an afternoon
+    /// in one document, short enough that coming back after lunch is a second
+    /// visit with its own contents.
+    static let revisitGap: TimeInterval = 45 * 60
+
+    /// `visit` arrives sorted oldest-first, from `visits(in:)`. Its ends are
+    /// therefore its first and last, and newest-first is just the reverse —
+    /// re-deriving both cost a sort and two scans on data that had just been
+    /// ordered one call up the stack, once per visit rather than once per
+    /// window group.
+    private static func plannedWindow(from visit: [ScreenObservationIndex]) -> ScreenActivityPlan.Window? {
+        guard let first = visit.first, let last = visit.last else { return nil }
         var seen = Set<String>()
-        let candidates = group
-            .sorted { $0.observedAt > $1.observedAt }
+        let candidates = visit
+            .reversed()
             .filter { seen.insert($0.contentHash).inserted }
             .prefix(maximumCandidatesPerWindow)
             .map(\.contentHash)
@@ -137,7 +231,7 @@ struct ScreenActivityDigest: Equatable {
             title: last.sourceTitle,
             firstSeen: first.observedAt,
             lastSeen: last.observedAt,
-            captures: group.count,
+            captures: visit.count,
             candidateHashes: candidates
         )
     }
