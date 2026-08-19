@@ -261,9 +261,14 @@ struct HomeSidebar: View {
         }
     }
 
-    /// Who a folder of yours is shared with, in the words of the menu that
-    /// shared it. Absent when nobody — most projects are nobody's but yours, and
-    /// a subtitle saying so on every row would be noise.
+    /// Who a folder is shared with, in the words of the menu that shared it —
+    /// or, for somebody else's, how it reached you.
+    ///
+    /// Both halves matter because two people in one organization routinely name
+    /// a project the same thing: a colleague's "Nod" and your own "Nod" sat in
+    /// the sidebar as two identical rows, and the only one you could share was
+    /// the one you had made. Absent when nobody — most projects are nobody's but
+    /// yours, and a subtitle saying so on every row would be noise.
     private func shareAudience(for label: SessionLabel) -> String? {
         let shares = labelStore.shares[label.id] ?? []
         guard !shares.isEmpty else { return nil }
@@ -277,7 +282,8 @@ struct HomeSidebar: View {
             return nil
         }
         guard !names.isEmpty else { return nil }
-        return "Shared with " + names.sorted().joined(separator: ", ")
+        let audience = names.sorted().joined(separator: ", ")
+        return labelStore.isOwn(label) ? "Shared with \(audience)" : "Shared via \(audience)"
     }
 
     private func projectRow(_ label: SessionLabel) -> some View {
@@ -318,6 +324,12 @@ struct HomeSidebar: View {
             if labelStore.isOwn(label) {
                 Button("Edit project…") { editingLabel = label }
                 shareMenu(for: label)
+            } else {
+                // A context menu with nothing in it does not open at all, so a
+                // right-click on a colleague's project answered nothing — which
+                // reads as a broken Share rather than as "not yours to share".
+                Button("Only its owner can share this") {}
+                    .disabled(true)
             }
         }
         .popover(isPresented: Binding(
