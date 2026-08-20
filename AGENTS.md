@@ -43,8 +43,15 @@ directories, with symlinks for Claude Code:
   directory natively; Claude Code loads them via per-skill symlinks in
   `.claude/skills/`. When adding a skill, put it in `.agents/skills/<name>/` and
   add a matching symlink in `.claude/skills/`.
+- `.agents/hooks/` — shared hook scripts. Claude Code calls them from
+  `.claude/settings.json`; Codex calls them from `.codex/hooks.json`. Keep both
+  adapters behaviorally equivalent when a shared hook changes.
 
-Claude-only config (`.claude/settings.json` hooks) stays in `.claude/`.
+Tool-specific adapters stay in `.claude/` and `.codex/`; required behavior must
+live in `AGENTS.md` or `.agents/`, never only in a plugin or one tool's config.
+Keep `.mcp.json` and `.codex/config.toml` aligned for shared project MCP servers.
+The ecosystem contract is documented in
+`../nod-playbook/context/agent-tooling.md`.
 `CONVENTIONS.md` is now an index that points into `.agents/rules/`.
 
 ## Nod knowledge contract
@@ -127,7 +134,10 @@ Documentation — use it instead of recalling API signatures) and **supabase**
 
 When writing or modifying code that integrates with Paddle:
 
-- Always check current Paddle documentation via the `paddle-docs` MCP server before suggesting code. The Paddle API and SDKs evolve frequently — do not rely on training data alone.
+- Always check current Paddle documentation before suggesting code. Prefer the
+  `paddle-docs` MCP server when available; otherwise browse official Paddle
+  documentation. The Paddle API and SDKs evolve frequently — do not rely on
+  training data alone.
 - Use the official Paddle SDK for the language in use:
   - Node.js → `@paddle/paddle-node-sdk`
   - Python → `paddle-python-sdk` (imports as `paddle_billing`)
