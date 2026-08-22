@@ -1,6 +1,6 @@
 # Cookie Policy
 
-_Last updated: 2026-08-07_
+_Last updated: 2026-08-22_
 
 This policy explains the browser storage and measurement technologies used on
 `hellonod.app`. The Nod macOS and iOS apps do not use cookies.
@@ -20,10 +20,17 @@ download, sign-in, trial, or paid service.
 | `nod_visitor_id_v1` | Local storage | Random first-party ID used to join consented website events and, if you sign in from Nod, attribute a trial to a campaign. | Until you clear site data or withdraw consent. Server-side events are deleted on withdrawal or after 400 days. |
 | `nod_session_id_v1` | Session storage | Random ID used to count a browser session without storing the page URL or identity. | Until the browser tab or session ends, or you withdraw consent. |
 | `nod_campaign_v1` | Local storage | Keeps the most recent UTM and Google click campaign details for attribution during the visit and download/sign-in flow. | 90 days, until replaced, until you clear site data, or until you withdraw consent. Server-side events are deleted on withdrawal or after 400 days. |
+| `nod_booking_confirmation_event_v1` | Session storage | Reuses one random event ID so reloading a marked Calendly confirmation redirect cannot create duplicate first-party confirmation rows. It records only redirect arrival, not a verified booking. | Until the browser tab or session ends. |
 
 Supabase Auth may use browser storage on connector authorization pages to keep
 the security state required for sign-in and OAuth grants. Those private pages
 do not load marketing analytics.
+
+Token-bearing invite pages never load Google, GTM, or Vercel analytics. After
+consent, clicking Open or Download sends only a first-party Supabase event with
+the path forced to `/invite`; invite tokens, query values, referrers, campaign
+fields, and Google identifiers are omitted. The marked booking-confirmation
+page likewise sends only a first-party, explicitly unverified redirect event.
 
 ## Google Analytics and Google Ads
 
