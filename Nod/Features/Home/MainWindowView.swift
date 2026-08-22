@@ -70,7 +70,8 @@ struct MainWindowView: View {
         case trash
         case actionItems
         case settings
-        case dailyModes
+        case today
+        case demoDailyModes
     }
 
     var body: some View {
@@ -251,8 +252,11 @@ struct MainWindowView: View {
             .transition(.opacity)
         case .settings:
             settings.transition(.opacity)
-        case .dailyModes:
-            // Only reachable via the sidebar row HomeSidebar shows while a
+        case .today:
+            DailyBriefingView(onOpenMeeting: openMeeting, onOpenActions: { show(.actionItems) })
+                .transition(.opacity)
+        case .demoDailyModes:
+            // Only reachable from the sidebar row HomeSidebar shows while a
             // scenario is armed, so `armed` is never nil here in practice.
             if let scenario = demoPlayback.armed {
                 DemoDailyModesView(scenario: scenario)
@@ -264,12 +268,9 @@ struct MainWindowView: View {
     /// The cross-session chat, held to a reading width rather than stretched
     /// across the whole window — a composer 900pt wide is a worse composer.
     private var chatHome: some View {
-        KnowledgeChatView(
-            onOpenMeeting: openMeeting,
-            onOpenActions: { show(.actionItems) }
-        )
-        .frame(maxWidth: 780)
-        .frame(maxWidth: .infinity)
+        KnowledgeChatView(onOpenMeeting: openMeeting)
+            .frame(maxWidth: 780)
+            .frame(maxWidth: .infinity)
     }
 
     // MARK: - Context column (right)

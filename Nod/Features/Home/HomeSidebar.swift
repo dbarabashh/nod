@@ -50,7 +50,8 @@ struct HomeSidebar: View {
                     // primary action and a list of places are not peers.
                     Color.clear.frame(height: 20)
                     chatRow
-                    dailyModesRow
+                    todayRow
+                    demoDailyModesRow
                     SidebarNavRow(
                         title: "Sessions",
                         icon: "nc-layers-3",
@@ -207,17 +208,26 @@ struct HomeSidebar: View {
         )
     }
 
-    /// Only shown while a scripted scenario is armed (Settings → Demo) — the
-    /// seven scripted modes behind it have nothing to show a real account, so
-    /// the row itself must not outlive the thing it opens.
+    private var todayRow: some View {
+        SidebarNavRow(
+            title: "Today",
+            icon: "nc-window-chart-line",
+            isSelected: surface == .today,
+            action: { onSelect(.today) }
+        )
+    }
+
+    /// The scripted seven modes, and only while a scenario is armed
+    /// (Settings → Demo) — they have nothing to show a real account, so the row
+    /// must not outlive the thing it opens.
     @ViewBuilder
-    private var dailyModesRow: some View {
+    private var demoDailyModesRow: some View {
         if demoPlayback.armed != nil {
             SidebarNavRow(
-                title: "Today",
-                icon: "nc-window-chart-line",
-                isSelected: surface == .dailyModes,
-                action: { onSelect(.dailyModes) }
+                title: "Daily modes",
+                icon: "nc-sparkle-3",
+                isSelected: surface == .demoDailyModes,
+                action: { onSelect(.demoDailyModes) }
             )
         }
     }

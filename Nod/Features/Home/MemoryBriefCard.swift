@@ -3,9 +3,9 @@ import SwiftUI
 /// The quiet line under the home's focus block: what was captured, what got
 /// settled, and where you were last.
 ///
-/// Nothing here is actionable, and that is the division of labour — `TodayFocus`
-/// owns every number that leads somewhere, this owns the ones that are simply
-/// true. When both carried counts the home told you about your work twice.
+/// Nothing here is actionable, and that is the division of labour — Today owns
+/// every number that leads somewhere, this owns the ones that are simply true.
+/// When both carried counts the home told you about your work twice.
 struct MemoryBriefCard: View {
     @EnvironmentObject private var meetingStore: MeetingStore
 
@@ -47,6 +47,6 @@ struct MemoryBriefCard: View {
     }
 
     private func rebuild() {
-        brief = MemoryBrief.build(meetings: meetingStore.meetings, openCommitments: 0)
+        brief = MemoryBrief.build(meetings: meetingStore.meetings)
     }
 }

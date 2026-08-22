@@ -9,9 +9,6 @@ struct KnowledgeChatView: View {
     /// Navigate the host (the Meetings window's left column) to a session —
     /// used when a mention or source is clicked.
     let onOpenMeeting: (UUID) -> Void
-    /// Opens what needs the user — the memory brief under the openers is a
-    /// button, and this is where it goes.
-    let onOpenActions: () -> Void
 
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var profileStore: ProfileStore
@@ -226,11 +223,9 @@ struct KnowledgeChatView: View {
                 .foregroundStyle(Theme.Palette.ink)
                 .padding(.bottom, 14)
 
-            // What is waiting before what you could ask about it: the counts are
-            // the reason to open Nod, and underneath the openers they were the
-            // last thing on a screen that is mostly empty below them.
-            TodayFocus(onOpenActions: onOpenActions, onOpenMeeting: onOpenMeeting)
-                .padding(.bottom, 10)
+            // The counts used to sit here too. Today owns them now — and owns
+            // them as a briefing rather than as two numbers — so this screen is
+            // the composer again instead of a second door to the same list.
             MemoryBriefCard()
                 .padding(.bottom, 18)
 

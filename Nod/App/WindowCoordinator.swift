@@ -402,6 +402,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                     .environmentObject(services.knowledgeChat)
                     .environmentObject(services.knowledgeThreads)
                     .environmentObject(services.actionItemStore)
+                    .environmentObject(services.dailyBriefings)
                     .environmentObject(services.integrations)
                     .environmentObject(services.actionProposals)
                     .environmentObject(services.taskDrafts)

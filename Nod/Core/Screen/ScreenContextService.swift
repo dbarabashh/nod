@@ -67,7 +67,7 @@ final class ScreenContextService: ObservableObject {
     ///
     /// Stated in `privacy.md` § 3.10(b) — changing it changes a published
     /// claim, not just a constant.
-    private static let interval: TimeInterval = 5
+    static let interval: TimeInterval = 5
 
     /// Floor between two pixel reads. Recognition costs real CPU, and the apps
     /// that need it are the ones the user sits in all day — without this it
@@ -637,6 +637,25 @@ extension ScreenContextService {
         } catch {
             Log.screen.error("context: activity lookup failed — \(error.localizedDescription)")
             return ScreenActivityDigest(apps: [])
+        }
+    }
+
+    /// Which windows held the screen, without reading a word of what was on
+    /// them.
+    ///
+    /// `activity(in:)` follows the fold with `observationBodies`, which is the
+    /// expensive half — up to 288 rows of four thousand characters each. A
+    /// caller that only needs to name the windows must not pay for it, and must
+    /// not have the user's documents cross the wire to be discarded on arrival.
+    func windowsOnScreen(in window: DateInterval) async -> ScreenActivityPlan {
+        guard isEntitled, ScreenContextDefaults.isEnabled, let supabase else { return ScreenActivityPlan(apps: []) }
+        do {
+            let index = try await observationIndex(in: window, from: supabase)
+            guard !index.isEmpty else { return ScreenActivityPlan(apps: []) }
+            return ScreenActivityDigest.plan(from: index)
+        } catch {
+            Log.screen.error("context: window lookup failed — \(error.localizedDescription)")
+            return ScreenActivityPlan(apps: [])
         }
     }
 

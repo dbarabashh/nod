@@ -13,16 +13,31 @@ struct SettingsCard<Content: View>: View {
     }
 }
 
+/// How much a card wants to be looked at. `strong` is for the one card on a
+/// screen that leads — the same shape, a step further forward.
+enum SurfaceEmphasis {
+    case standard
+    case strong
+
+    var fill: Color {
+        self == .strong ? Theme.Palette.surfaceStrong : Theme.Palette.surface
+    }
+
+    var stroke: Color {
+        self == .strong ? Theme.Palette.borderStrong : Theme.Palette.border
+    }
+}
+
 /// The app's standard grouped-surface container: a translucent fill with a
 /// hairline border at the card radius. Shared by every settings card.
 extension View {
-    func surfaceCard() -> some View {
+    func surfaceCard(emphasis: SurfaceEmphasis = .standard) -> some View {
         background(
             RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
-                .fill(Theme.Palette.surface)
+                .fill(emphasis.fill)
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
-                        .stroke(Theme.Palette.border, lineWidth: 0.5)
+                        .stroke(emphasis.stroke, lineWidth: 0.5)
                 )
         )
     }

@@ -105,7 +105,11 @@ private struct DemoDailyModeDetail: View {
                     }
                 }
                 if let footerAction = content.footerAction {
-                    footer(footerAction)
+                    // No-op on purpose: every action here points at a Slack
+                    // thread, an inbox, a brief — surfaces the scripted demo
+                    // doesn't otherwise open. The button exists to show the
+                    // shape of the flow, not to complete it.
+                    GlassActionButton(title: footerAction) {}
                 }
             }
             .padding(24)
@@ -135,22 +139,6 @@ private struct DemoDailyModeDetail: View {
                 .foregroundStyle(Theme.Palette.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-
-    /// No-op on purpose: every action here points at a Slack thread, an
-    /// inbox, a brief — surfaces the scripted demo doesn't otherwise open.
-    /// The button exists to show the shape of the flow, not to complete it.
-    private func footer(_ label: String) -> some View {
-        HStack(spacing: 6) {
-            Text(label)
-                .font(.system(size: 12.5, weight: .semibold))
-            Image("nc-arrow-up-right")
-                .icon(9)
-        }
-        .foregroundStyle(Theme.GlassButton.text)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .glassButtonSurface(Capsule(style: .continuous))
     }
 }
 

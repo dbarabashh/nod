@@ -96,23 +96,6 @@ enum TodayDigest {
         return points
     }
 
-    /// Just how many there are. The home brief needs the number, and building
-    /// the full list to call `.count` copied a `Meeting` struct per bullet.
-    static func openPointCount(meetings: [Meeting], now: Date = Date()) -> Int {
-        var total = 0
-        for meeting in meetings
-            where meeting.deletedAt == nil && now.timeIntervalSince(meeting.startedAt) <= attentionWindow {
-            guard let sections = meeting.recap?.sections else { continue }
-            for section in sections where leavesSomethingOpen(section.title) {
-                for bullet in section.bullets
-                    where !bullet.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    total += 1
-                }
-            }
-        }
-        return total
-    }
-
     static func recentSessions(_ meetings: [Meeting], limit: Int = 5) -> [Meeting] {
         Array(meetings.liveNewestFirst().prefix(limit))
     }
