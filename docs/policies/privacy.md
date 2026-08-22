@@ -30,11 +30,9 @@ If you have questions about this policy or your data, contact
 
 ## 1. Who we are (data controller)
 
-Nod is operated by **Dima Barabash**. There is no incorporated company
-behind Nod — that's an honest disclosure, not a gap we're hiding.
-
-For the purposes of the EU/UK GDPR, the data controller is Dima Barabash
-personally. The contact point is **dmytro@hellonod.app**.
+For the purposes of the EU/UK GDPR, **Nod** is the data controller for the
+data described in this policy. The contact point is
+**dmytro@hellonod.app**.
 
 Paid subscriptions are sold through **Paddle.com Market Limited**, which
 acts as our Merchant of Record. Paddle is an independent controller of the
