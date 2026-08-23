@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-18_
+_Last updated: 2026-08-22_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -498,6 +498,18 @@ UTM campaign parameters, Google click identifiers when present, and the Google
 Analytics client ID. Invite tokens, OAuth data, checkout transaction query
 parameters, meeting content, and account identity are excluded. Sensitive
 routes do not load Google or Vercel analytics.
+
+With analytics consent, the token-bearing invite page may send Supabase only a
+bounded Open or Download interaction. Its recorded path is always `/invite`,
+and it omits the invite token, query values, referrer, campaign fields, and
+Google identifiers. Google Tag Manager, Google Analytics, Google Ads
+measurement, and Vercel Web Analytics remain disabled on that route.
+
+A marked redirect from Calendly may send Supabase a first-party
+`demo_booked` event. This means only that the browser reached the confirmation
+redirect; it is not verification that a booking exists and is not used to
+trigger automation. Reloads reuse a session-scoped event ID to prevent
+duplicate rows. Google and Vercel analytics remain disabled on that page.
 
 If you begin Google sign-in from the macOS app, the default browser briefly
 opens a Nod page. With analytics consent, that page links the browser visitor
