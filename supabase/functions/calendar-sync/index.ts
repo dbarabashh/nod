@@ -17,8 +17,9 @@
 // list is a wider grant for worse data.
 import { json } from "../_shared/http.ts";
 import { adminClient } from "../_shared/supabase.ts";
-import { proxy } from "../_shared/integrations/nango.ts";
-import type { Connection } from "../_shared/integrations/nango.ts";
+import { proxy } from "../_shared/integrations/pipedream.ts";
+import type { Connection } from "../_shared/integrations/pipedream.ts";
+import { apiBase } from "../_shared/integrations/registry.ts";
 import {
     CALENDAR_ID,
     type EventRow,
@@ -59,7 +60,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     const admin = adminClient();
     const { data: connections, error } = await admin
         .from("integration_connections")
-        .select("user_id, nango_connection_id")
+        .select("user_id, broker_account_id")
         .eq("provider", PROVIDER)
         .is("revoked_at", null)
         .limit(MAX_ACCOUNTS_PER_RUN);
@@ -92,7 +93,12 @@ Deno.serve(async (request: Request): Promise<Response> => {
                 return await syncAccount(
                     admin,
                     userId,
-                    { id: row.nango_connection_id as string, provider: PROVIDER },
+                    {
+                        id: row.broker_account_id as string,
+                        provider: PROVIDER,
+                        externalUserId: row.user_id as string,
+                        base: apiBase(PROVIDER) ?? "",
+                    },
                     from,
                     to,
                 );

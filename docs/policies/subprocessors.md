@@ -1,8 +1,8 @@
 # Subprocessors
 
-_Last updated: 2026-08-16_
+_Last updated: 2026-08-24_
 
-_Resend and Nango are listed under advance notice. The optional product-update, lifecycle,
+_Resend and Pipedream are listed under advance notice. The optional product-update, lifecycle,
 and founder-research workflow is not sending today and will not begin earlier
 than 30 days after this updated list is published._
 
@@ -45,9 +45,9 @@ entirely by Paddle as Merchant of Record.
 | Subprocessor | Planned purpose | Data shared | Location | Training on your data | DPA / basis |
 |---|---|---|---|---|---|
 | **Resend, Inc.** | Delivery of the three optional email topics you can switch on, plus narrow operational referral-status notices | Email address, language, selected topic and consent state, template identifier, and delivery / bounce / complaint / suppression / unsubscribe status. No meeting content. | EU sending region; global delivery | No | Resend DPA and Standard Contractual Clauses |
-| **Nango (Frontier Technologies, Inc.)** | Holding the authorization for tools you connect yourself, and passing our requests to them. Nothing is connected until you connect it, and each connection covers one product. | The access and refresh tokens for the account you authorized — we never receive or store them — plus the content of each request we make on your behalf. For a task filed in a tracker that is the title and description we generated from an action item, and the identifier of the colleague it is assigned to; for a team chat it is the channel name and the members being added; for a calendar it is the events we read back: titles, times, conferencing links and attendee email addresses. When an administrator connects a tool we also read its member list once — names, addresses and that tool's own identifiers — so that work can be assigned to the right colleague without everyone first having to be invited to Nod. | `api.nango.dev` | No | Nango DPA |
+| **Pipedream, Inc.** | Holding the authorization for tools you connect yourself, and passing our requests to them. Nothing is connected until you connect it, and each connection covers one product. | The access and refresh tokens for the account you authorized — we never receive or store them — plus the content of each request we make on your behalf. For a task filed in a tracker that is the title and description we generated from an action item, and the identifier of the colleague it is assigned to; for a team chat it is the channel name and the members being added; for a calendar it is the events we read back: titles, times, conferencing links and attendee email addresses. When an administrator connects a tool we also read its member list once — names, addresses and that tool's own identifiers — so that work can be assigned to the right colleague without everyone first having to be invited to Nod. | `api.pipedream.com` | No | Pipedream DPA |
 
-Connecting a tool is the only thing that puts Nango between us and it. An account
+Connecting a tool is the only thing that puts Pipedream between us and it. An account
 that connects nothing never reaches them, and disconnecting in the provider's own
 settings ends the authorization at the source rather than asking us to forget it.
 The point of routing through them is that the token stays theirs to hold: a copy
@@ -128,6 +128,7 @@ forwarded once and never written to durable storage anywhere in this chain.
 | 2026-08-11 | Gave advance notice of Resend for the three separately consented optional email topics and for operational referral-status notices. Nothing is sending under this workflow yet. |
 | 2026-08-15 | Disabled click tracking, clarified the separate trial-learning consent and cadence, preserved earlier choices for their original purposes, and restarted the 30-day notice period before any Resend contact sync or send. |
 | 2026-08-16 | Extended the advance notice for connected tools to a team chat and to assigning work to a named colleague. When an administrator connects a tool, its member list is read once so colleagues can be named without each being invited to Nod first; matching is by email address only. No new subprocessor: everything still passes through Nango. |
+| 2026-08-24 | Replaced Nango with Pipedream, Inc. as the integration provider for tools you connect yourself. Nothing changes about what is shared or why, and no connected tool ever reached production under the previous provider. The 30-day notice period for connected tools restarts from this date. |
 
 ---
 

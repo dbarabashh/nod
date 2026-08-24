@@ -12,6 +12,9 @@ import SwiftUI
 @MainActor
 struct NotchCardEnvironment {
     let integrations: IntegrationService
+    /// Where a connected product's mark comes from when no asset ships for it,
+    /// which is every product outside the adapted few — see `ProviderMark`.
+    let integrationCatalogue: IntegrationCatalogue
     let actionItems: ActionItemStore
     let drafts: TaskDraftComposer
     let meetingGrants: MeetingGrantStore
@@ -45,6 +48,7 @@ final class NotchController {
 
         let content = NotchView(model: model)
             .environmentObject(cards.integrations)
+            .environmentObject(cards.integrationCatalogue)
             .environmentObject(cards.actionItems)
             .environmentObject(cards.drafts)
             .environmentObject(cards.meetingGrants)

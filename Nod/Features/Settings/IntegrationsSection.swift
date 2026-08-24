@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Every product Nod can reach, as one list.
@@ -17,6 +18,8 @@ import SwiftUI
 /// and it is asked once, in the Tools table on the Organization page.
 struct IntegrationsSection: View {
     @ObservedObject var service: IntegrationService
+    /// Every other product the broker can authorize.
+    @ObservedObject var catalogue: IntegrationCatalogue
     /// Optional: teams only exist for someone in an organization, and the picker
     /// stays out of the way entirely for everyone else.
     var organizations: OrganizationService?
@@ -36,6 +39,10 @@ struct IntegrationsSection: View {
         }
     }
 
+    private var authorized: [CatalogueApp] {
+        catalogue.apps(for: service.linkedApps)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SettingsCard {
@@ -51,15 +58,21 @@ struct IntegrationsSection: View {
             SearchField(prompt: "Search tools", text: $search)
 
             SettingsCard {
-                if matches.isEmpty {
+                if matches.isEmpty, authorized.isEmpty {
                     SettingsEmptyRow("Nothing matches “\(search)”")
                 } else {
                     ForEach(Array(matches.enumerated()), id: \.element.id) { index, provider in
                         if index > 0 { SettingsRowDivider() }
                         providerRow(provider)
                     }
+                    ForEach(Array(authorized.enumerated()), id: \.element.id) { index, app in
+                        if index > 0 || !matches.isEmpty { SettingsRowDivider() }
+                        CatalogueRow(app: app)
+                    }
                 }
             }
+
+            requestSection
 
             if let error = service.lastError {
                 Text(error)
@@ -67,8 +80,17 @@ struct IntegrationsSection: View {
                     .foregroundColor(Theme.Palette.danger)
             }
         }
-        .task { await service.refresh() }
-        .onDisappear { service.cancelPending() }
+        .task {
+            await service.refresh()
+            await catalogue.resolve(service.linkedApps)
+        }
+        .onChange(of: service.linkedApps) { slugs in
+            Task { await catalogue.resolve(slugs) }
+        }
+        .onDisappear {
+            service.cancelPending()
+            catalogue.forgetMarks()
+        }
         .confirmationDialog(
             "Disconnect \(disconnecting?.displayName ?? "")?",
             isPresented: isConfirmingDisconnect,
@@ -94,6 +116,53 @@ struct IntegrationsSection: View {
         )
     }
 
+    /// The tools Nod does not support, which is all of them but these.
+    ///
+    /// A call rather than a form. A typed tool name says which product somebody
+    /// wants and nothing about the work they are trying to do with it — and the
+    /// second half is what decides which adapter is worth writing. Twenty
+    /// minutes with the person who would build it beats a hundred rows of
+    /// product names.
+    private var requestSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("Need an integration?")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink.opacity(0.75))
+                Text("Book a call with Vlad. He builds them.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.muted)
+            }
+            .padding(.horizontal, 2)
+
+            SettingsCard {
+                SettingsRow(
+                    icon: "nc-calendar",
+                    title: "Book a call with Vlad",
+                    subtitle: "Twenty minutes. Tell him which tool your team works in and what you'd want Nod to do in it."
+                ) {
+                    Button {
+                        NSWorkspace.shared.open(Self.bookingURL)
+                    } label: {
+                        Text("Book a time")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.GlassButton.text)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .glassButtonSurface(Capsule(style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .linkCursor()
+                }
+            }
+        }
+    }
+
+    /// The same booking link the site offers. Duplicated across repos rather
+    /// than fetched: a settings row that needs a round trip before it can draw
+    /// its own button is worse than a string two places have to agree on.
+    private static let bookingURL = URL(string: "https://calendly.com/meet-vlad-from-nod/30min")!
+
     /// What actually happens, in the terms of the provider being dropped.
     private static func consequence(_ provider: IntegrationProvider) -> String {
         switch provider {
@@ -103,6 +172,20 @@ struct IntegrationsSection: View {
             "Nod stops reading your calendar, and everything it has already read is deleted. Nothing in your calendar changes."
         case .slack:
             "Nod stops creating channels and adding people. Channels it already created stay, and everyone in them stays in them."
+        case .github:
+            "Nod stops reading your issues and pull requests. Nothing on GitHub changes — it never wrote anything."
+        case .jira:
+            "Nod stops filing action items in Jira. Issues already filed stay where they are."
+        case .notion:
+            "Nod stops reading your Notion pages. Nothing in Notion changes — it never wrote anything."
+        case .asana:
+            "Nod stops filing action items in Asana. Tasks already filed stay where they are."
+        case .hubspot:
+            "Nod stops reading your CRM. Nothing in HubSpot changes — it never wrote anything."
+        case .gmail:
+            "Nod stops reading your mail. Nothing is sent, deleted or marked read — it never could."
+        case .googleDrive:
+            "Nod stops finding your documents. Nothing in Drive changes — it only ever listed them."
         }
     }
 

@@ -188,6 +188,7 @@ struct ChatMentionPicker: View {
     let onDismiss: () -> Void
 
     @EnvironmentObject private var integrations: IntegrationService
+    @EnvironmentObject private var catalogue: IntegrationCatalogue
     @State private var search = ""
     @FocusState private var searchFocused: Bool
     @State private var escape: Any?
@@ -214,6 +215,19 @@ struct ChatMentionPicker: View {
         return IntegrationProvider.allCases.filter { $0.displayName.localizedCaseInsensitiveContains(search) }
     }
 
+    /// Products this account authorized that Nod has no actions for yet.
+    ///
+    /// Listed rather than hidden: somebody who has just connected one and does
+    /// not find it here concludes the connection failed. Listed as what it is,
+    /// though — it cannot be mentioned, because there is nothing behind the
+    /// mention.
+    private var matchingApps: [CatalogueApp] {
+        guard sources.tools else { return [] }
+        let apps = catalogue.apps(for: integrations.linkedApps)
+        guard !search.isEmpty else { return apps }
+        return apps.filter { $0.name.localizedCaseInsensitiveContains(search) }
+    }
+
     /// Names what is actually listed, so the panel never invites a search for
     /// something this chat cannot reach.
     private var searchPrompt: String {
@@ -233,12 +247,13 @@ struct ChatMentionPicker: View {
         let projects = matchingProjects
         let sessions = matchingSessions
         let tools = matchingTools
+        let apps = matchingApps
         return VStack(alignment: .leading, spacing: 0) {
             searchField
             Divider().overlay(Theme.Palette.border)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if projects.isEmpty, sessions.isEmpty, tools.isEmpty {
+                    if projects.isEmpty, sessions.isEmpty, tools.isEmpty, apps.isEmpty {
                         Text("Nothing matches “\(search)”")
                             .font(.system(size: 12))
                             .foregroundStyle(Theme.Palette.muted)
@@ -249,6 +264,7 @@ struct ChatMentionPicker: View {
                     section("Projects", items: projects, row: projectRow)
                     section("Sessions", items: sessions, row: sessionRow)
                     section("Tools", items: tools, row: toolRow)
+                    section("Connected", items: apps, row: appRow)
                 }
                 .padding(.bottom, 4)
             }
@@ -392,6 +408,28 @@ struct ChatMentionPicker: View {
         })
     }
 
+    /// An authorized product with nothing behind it yet. Not a button: there is
+    /// no mention to insert, and a row that answered a click by doing nothing
+    /// would be worse than one that plainly says why.
+    private func appRow(_ app: CatalogueApp) -> some View {
+        HStack(spacing: 8) {
+            CatalogueMark(slug: app.slug, size: 14)
+                .frame(width: 16)
+                .opacity(0.45)
+            Text(app.name)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(Theme.Palette.muted)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Text("No actions yet")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.Palette.muted)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+    }
+
     private func row(action: @escaping () -> Void, @ViewBuilder content: () -> some View) -> some View {
         Button(action: action) {
             HStack(spacing: 9) { content() }
@@ -412,9 +450,17 @@ struct ChatMentionPicker: View {
 /// them.
 struct ConnectedToolsRow: View {
     @EnvironmentObject private var integrations: IntegrationService
+    @EnvironmentObject private var catalogue: IntegrationCatalogue
 
     private var linked: [IntegrationProvider] {
         IntegrationProvider.allCases.filter(integrations.isUsable)
+    }
+
+    /// Authorized, but with no actions behind it. Dimmed rather than absent —
+    /// this row is what tells somebody a connection took, and a product missing
+    /// from it reads as a connection that failed.
+    private var authorized: [CatalogueApp] {
+        catalogue.apps(for: integrations.linkedApps)
     }
 
     var body: some View {
@@ -422,15 +468,30 @@ struct ConnectedToolsRow: View {
         // used to re-run the filter, on a row that re-renders with every word
         // of a streaming answer.
         let linked = linked
-        if !linked.isEmpty {
+        let authorized = authorized
+        if !linked.isEmpty || !authorized.isEmpty {
             HStack(spacing: 5) {
                 ForEach(linked) { provider in
                     ProviderMark(provider: provider, size: 13)
                         .help("\(provider.displayName) is connected — mention it with @")
                 }
+                ForEach(authorized) { app in
+                    CatalogueMark(slug: app.slug, size: 13)
+                        .opacity(0.45)
+                        .help("\(app.name) is connected — Nod can't act in it yet")
+                }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Connected tools: \(linked.map(\.displayName).joined(separator: ", "))")
+            .accessibilityLabel(
+                "Connected tools: \((linked.map(\.displayName) + authorized.map(\.name)).joined(separator: ", "))"
+            )
+            // Naming an authorized product needs the catalogue, and Settings is
+            // not the only place one shows up. Asked here rather than wired
+            // through the service: this is the surface that needs the answer,
+            // and `resolve` already skips what it holds.
+            .task(id: integrations.linkedApps) {
+                await catalogue.resolve(integrations.linkedApps)
+            }
         }
     }
 }

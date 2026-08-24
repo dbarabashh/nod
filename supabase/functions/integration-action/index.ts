@@ -15,8 +15,8 @@
 // the agent turn while a readable error lets it recover or ask.
 import { json } from "../_shared/http.ts";
 import { authenticate } from "../_shared/supabase.ts";
-import { ActionError, resolveConnection } from "../_shared/integrations/nango.ts";
-import { handlerFor, hasActions } from "../_shared/integrations/registry.ts";
+import { ActionError, resolveConnection } from "../_shared/integrations/pipedream.ts";
+import { apiBase, handlerFor, hasActions } from "../_shared/integrations/registry.ts";
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const connection = await resolveConnection(user.id, provider);
+    const connection = await resolveConnection(user.id, provider, apiBase(provider) ?? "");
     const result = await handler(connection, params, { userId: user.id });
     console.info(`integration action ok: ${provider}.${action}`);
     return json({ result }, 200);

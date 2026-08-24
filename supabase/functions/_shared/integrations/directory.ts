@@ -10,7 +10,7 @@
 // adapter answers `list_users` with `{ id, name, email }`, and adding Jira or
 // Teams is that one handler plus a row in the registry.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
-import { type Connection } from "./nango.ts";
+import { type Connection } from "./pipedream.ts";
 import { handlerFor } from "./registry.ts";
 
 export interface WorkspaceMember {

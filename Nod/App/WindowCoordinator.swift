@@ -190,6 +190,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         .environmentObject(services.modeStore)
         .environmentObject(services.emailPreferences)
         .environmentObject(services.integrations)
+        .environmentObject(services.integrationCatalogue)
 
         window.contentViewController = NSHostingController(rootView: root)
         window.makeKeyAndOrderFront(nil)
@@ -321,6 +322,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             ),
             cards: NotchCardEnvironment(
                 integrations: services.integrations,
+                integrationCatalogue: services.integrationCatalogue,
                 actionItems: services.actionItemStore,
                 drafts: services.taskDrafts,
                 meetingGrants: services.meetingGrants,
@@ -358,6 +360,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 accountExport: services.accountExport,
                 connections: services.connections,
                 integrations: services.integrations,
+                integrationCatalogue: services.integrationCatalogue,
                 organizations: services.organizations,
                 modeStore: services.modeStore,
                 referral: services.referral,
@@ -430,6 +433,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                     .environmentObject(services.actionItemStore)
                     .environmentObject(services.dailyBriefings)
                     .environmentObject(services.integrations)
+                    .environmentObject(services.integrationCatalogue)
                     .environmentObject(services.actionProposals)
                     .environmentObject(services.taskDrafts)
                     .environmentObject(services.llmClient)

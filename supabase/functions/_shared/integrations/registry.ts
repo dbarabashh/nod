@@ -1,7 +1,14 @@
 // The provider table. Adding an integration is one import and one entry here —
 // nothing in `integration-action` knows a provider name.
-import type { Connection } from "./nango.ts";
+import type { Connection } from "./pipedream.ts";
+import { ASANA_ACTIONS } from "./asana.ts";
+import { GITHUB_ACTIONS } from "./github.ts";
+import { GMAIL_ACTIONS } from "./gmail.ts";
+import { GOOGLE_DRIVE_ACTIONS } from "./googleDrive.ts";
+import { HUBSPOT_ACTIONS } from "./hubspot.ts";
 import { GOOGLE_CALENDAR_ACTIONS } from "./googleCalendar.ts";
+import { JIRA_ACTIONS } from "./jira.ts";
+import { NOTION_ACTIONS } from "./notion.ts";
 import { LINEAR_ACTIONS } from "./linear.ts";
 import { SLACK_ACTIONS } from "./slack.ts";
 
@@ -23,30 +30,111 @@ export type ActionHandler = (
 
 export type ActionHandlers = Record<string, ActionHandler>;
 
-// One list, mirroring `integration_connections`'s `provider` check. `null` means
-// a provider that can be connected but never acted in — the shape is kept for
-// the next such provider, and because `hasActions` is what stops a connection
-// being addressed as though it took commands.
+// One record per provider: what the broker calls it, which API it speaks, and
+// what Nod can do in it. One table rather than three — the broker module and
+// this file were keyed on the same string and had to agree, and a provider
+// present in one and missing from the other took every reconcile down with it.
 //
-// The calendar reads on a schedule with the service role and writes only here,
-// through one action a person confirmed on their own screen.
-const PROVIDERS: Record<string, ActionHandlers | null> = {
-    "linear": LINEAR_ACTIONS,
-    "google-calendar": GOOGLE_CALENDAR_ACTIONS,
-    "slack": SLACK_ACTIONS,
+// `actions: null` means a provider that can be connected but never acted in.
+// The calendar reads on a schedule with the service role and writes only through
+// one action a person confirmed on their own screen.
+interface Provider {
+    /// The broker's app slug. `slack` is Connect's legacy app; `slack_v2` is the
+    /// current one, which is why this is not simply our own name.
+    slug: string;
+    /// The provider's own API root. Every adapter path is relative to it.
+    base: string;
+    actions: ActionHandlers | null;
+}
+
+const PROVIDERS: Record<string, Provider> = {
+    "linear": {
+        slug: "linear",
+        base: "https://api.linear.app/",
+        actions: LINEAR_ACTIONS,
+    },
+    "google-calendar": {
+        slug: "google_calendar",
+        base: "https://www.googleapis.com/",
+        actions: GOOGLE_CALENDAR_ACTIONS,
+    },
+    "github": {
+        slug: "github",
+        base: "https://api.github.com/",
+        actions: GITHUB_ACTIONS,
+    },
+    "asana": {
+        slug: "asana",
+        base: "https://app.asana.com/",
+        actions: ASANA_ACTIONS,
+    },
+    "gmail": {
+        slug: "gmail",
+        base: "https://gmail.googleapis.com/",
+        actions: GMAIL_ACTIONS,
+    },
+    "google-drive": {
+        slug: "google_drive",
+        base: "https://www.googleapis.com/",
+        actions: GOOGLE_DRIVE_ACTIONS,
+    },
+    "hubspot": {
+        slug: "hubspot",
+        base: "https://api.hubapi.com/",
+        actions: HUBSPOT_ACTIONS,
+    },
+    "jira": {
+        slug: "jira",
+        // A 3LO app never addresses a customer's site directly; the adapter
+        // rewrites every path onto `api.atlassian.com/ex/jira/{cloudId}`.
+        base: "https://api.atlassian.com/",
+        actions: JIRA_ACTIONS,
+    },
+    "notion": {
+        slug: "notion",
+        base: "https://api.notion.com/",
+        actions: NOTION_ACTIONS,
+    },
+    "slack": {
+        slug: "slack_v2",
+        base: "https://slack.com/api/",
+        actions: SLACK_ACTIONS,
+    },
 };
 
 export function handlerFor(provider: string, action: string): ActionHandler | undefined {
-    return PROVIDERS[provider]?.[action];
+    return PROVIDERS[provider]?.actions?.[action];
 }
 
 export function isConnectableProvider(provider: string): boolean {
     return Object.hasOwn(PROVIDERS, provider);
 }
 
+export function connectableProviders(): string[] {
+    return Object.keys(PROVIDERS);
+}
+
 /// `integration-action` asks this rather than `isConnectableProvider`, so a
 /// provider that only ever gets read cannot be addressed as though it took
 /// commands.
 export function hasActions(provider: string): boolean {
-    return PROVIDERS[provider] != null;
+    return PROVIDERS[provider]?.actions != null;
+}
+
+/// Which API a provider speaks. Handed to `proxy` by the caller that already
+/// knows the provider, so the broker module needs no table of its own.
+export function apiBase(provider: string): string | undefined {
+    return PROVIDERS[provider]?.base;
+}
+
+export function appSlug(provider: string): string | undefined {
+    return PROVIDERS[provider]?.slug;
+}
+
+/// Our provider name for a broker app slug, or undefined for an app somebody
+/// connected that we have no adapter for. Reconciliation asks this rather than
+/// trusting the slug, so an account for an app we never offered cannot land in
+/// `integration_connections` and be addressed later.
+export function providerForSlug(slug: string): string | undefined {
+    return connectableProviders().find((provider) => PROVIDERS[provider].slug === slug);
 }

@@ -13,9 +13,10 @@
 // Still no updating and no deleting. A tool that could delete would be a model
 // one misunderstanding away from removing somebody's week.
 
-import { ActionError, type Connection, proxy } from "./nango.ts";
+import { ActionError, proxy } from "./pipedream.ts";
 import { adminClient } from "../supabase.ts";
 import type { ActionContext, ActionHandlers } from "./registry.ts";
+import { requireString } from "./params.ts";
 
 const EVENTS_PATH = "calendar/v3/calendars/primary/events";
 const MAX_ATTENDEES = 20;
@@ -117,13 +118,6 @@ export interface GoogleEvent {
     conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
 }
 
-function requireString(params: Record<string, unknown>, key: string): string {
-    const value = params[key];
-    if (typeof value !== "string" || value.trim() === "") {
-        throw new ActionError("invalid_params", `\`${key}\` is required.`);
-    }
-    return value.trim();
-}
 
 /// An RFC3339 instant. The client sends absolute times — it holds the user's
 /// clock and their calendar's timezone, and a server guessing either would put

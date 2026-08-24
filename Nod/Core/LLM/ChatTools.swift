@@ -135,8 +135,216 @@ enum ChatTools {
         case .linear: linearTools
         case .googleCalendar: calendarTools
         case .slack: slackTools
+        case .github: githubTools
+        case .jira: jiraTools
+        case .notion: notionTools
+        case .asana: asanaTools
+        case .hubspot: hubspotTools
+        case .gmail: gmailTools
+        case .googleDrive: driveTools
         }
     }
+
+    private static let asanaTools: [ChatTool] = [
+        ChatTool(
+            provider: .asana,
+            name: "asana_search_tasks",
+            description: "Search the user's Asana tasks. On a free workspace Asana forbids searching, and this falls back to their own open tasks — the reply says which it did.",
+            parameters: ChatToolSchema(
+                properties: ["query": .init(description: "Keywords to search for.")],
+                required: ["query"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .asana,
+            name: "asana_create_task",
+            description: "File a new Asana task, assigned to the user. Only after searching, and only when they asked for it.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "title": .init(description: "One line, in the meeting's own wording."),
+                    "notes": .init(description: "Optional detail.")
+                ],
+                required: ["title"]
+            ),
+            mutating: true
+        ),
+        ChatTool(
+            provider: .asana,
+            name: "asana_update_task",
+            description: "Complete or reopen an Asana task.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "id": .init(description: "Task id from a search result."),
+                    "completed": .init(description: "`true` to complete, `false` to reopen.")
+                ],
+                required: ["id", "completed"]
+            ),
+            mutating: true
+        )
+    ]
+
+    private static let hubspotTools: [ChatTool] = [
+        ChatTool(
+            provider: .hubspot,
+            name: "hubspot_find_company",
+            description: "Look up a company in the CRM. Use before saying whether the team has dealt with them.",
+            parameters: ChatToolSchema(
+                properties: ["name": .init(description: "Company name or domain.")],
+                required: ["name"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .hubspot,
+            name: "hubspot_find_contact",
+            description: "Look up a person in the CRM by name or email.",
+            parameters: ChatToolSchema(
+                properties: ["query": .init(description: "Name or email address.")],
+                required: ["query"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .hubspot,
+            name: "hubspot_find_deals",
+            description: "Find deals by name. `stage` comes back as the pipeline's own id, not a label.",
+            parameters: ChatToolSchema(
+                properties: ["query": .init(description: "Deal or company name.")],
+                required: ["query"]
+            ),
+            mutating: false
+        )
+    ]
+
+    private static let gmailTools: [ChatTool] = [
+        ChatTool(
+            provider: .gmail,
+            name: "gmail_search_messages",
+            description: "Search the user's mail. Accepts Gmail syntax (from:, subject:, newer_than:7d). Returns subjects and previews, not full text.",
+            parameters: ChatToolSchema(
+                properties: ["query": .init(description: "Gmail search query.")],
+                required: ["query"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .gmail,
+            name: "gmail_read_message",
+            description: "Read one message in full. Use after a search, when the preview does not answer the question.",
+            parameters: ChatToolSchema(
+                properties: ["message_id": .init(description: "Message id from a search result.")],
+                required: ["message_id"]
+            ),
+            mutating: false
+        )
+    ]
+
+    private static let driveTools: [ChatTool] = [
+        ChatTool(
+            provider: .googleDrive,
+            name: "google_drive_search_files",
+            description: "Find a document in Drive by name or contents, including shared drives. Returns links, not the documents' text.",
+            parameters: ChatToolSchema(
+                properties: ["query": .init(description: "Words in the file's name or body.")],
+                required: ["query"]
+            ),
+            mutating: false
+        )
+    ]
+
+    private static let jiraTools: [ChatTool] = [
+        ChatTool(
+            provider: .jira,
+            name: "jira_search_issues",
+            description: "Search the user's Jira issues by keyword. Use before claiming a task does or doesn't exist.",
+            parameters: ChatToolSchema(
+                properties: ["query": .init(description: "Keywords to search for.")],
+                required: ["query"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .jira,
+            name: "jira_create_issue",
+            description: "File a new Jira issue. Only after searching, and only when the user asked for it.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "project": .init(description: "Project key, e.g. `NOD`."),
+                    "title": .init(description: "One line, in the meeting's own wording."),
+                    "description": .init(description: "Optional detail.")
+                ],
+                required: ["project", "title"]
+            ),
+            mutating: true
+        ),
+        ChatTool(
+            provider: .jira,
+            name: "jira_update_issue",
+            description: "Close or reopen a Jira issue. Reopening lands it in the workflow's first open state, not the one it left.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "key": .init(description: "Issue key, e.g. `NOD-31`."),
+                    "closed": .init(description: "`true` to close, `false` to reopen.")
+                ],
+                required: ["key", "closed"]
+            ),
+            mutating: true
+        )
+    ]
+
+    private static let notionTools: [ChatTool] = [
+        ChatTool(
+            provider: .notion,
+            name: "notion_search_pages",
+            description: "Search the user's Notion pages. Matches page titles, not their contents — search for what a page is called.",
+            parameters: ChatToolSchema(
+                properties: ["query": .init(description: "Words likely to be in the page's title.")],
+                required: ["query"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .notion,
+            name: "notion_read_page",
+            description: "Read one Notion page's text. Use after a search, to quote what was written rather than guess.",
+            parameters: ChatToolSchema(
+                properties: ["page_id": .init(description: "The page id from a search result.")],
+                required: ["page_id"]
+            ),
+            mutating: false
+        )
+    ]
+
+    private static let githubTools: [ChatTool] = [
+        ChatTool(
+            provider: .github,
+            name: "github_search_issues",
+            description: "Search GitHub issues and pull requests. Accepts GitHub search syntax (repo:owner/name, is:open, author:). Use before claiming something is or isn't tracked.",
+            parameters: ChatToolSchema(
+                properties: ["query": .init(description: "GitHub search query, e.g. `repo:acme/api is:open auth`.")],
+                required: ["query"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .github,
+            name: "github_read_issue",
+            description: "Read one issue or pull request in full, with its last comments. Use when a specific one is named and its state or discussion matters.",
+            parameters: ChatToolSchema(
+                properties: ["reference": .init(description: "owner/repo#123")],
+                required: ["reference"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .github,
+            name: "github_list_repositories",
+            description: "List the repositories this account works in. Use to turn a spoken name like \"the api repo\" into one a search can filter on.",
+            parameters: ChatToolSchema(properties: [:], required: []),
+            mutating: false
+        )
+    ]
 
     // Descriptions are terse on purpose: they live in the prefix of every chat
     // this user ever has. One sentence of intent plus when NOT to use it beats a

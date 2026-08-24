@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-22_
+_Last updated: 2026-08-24_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -421,7 +421,7 @@ the data goes. Neither is on by default and neither implies the other.
 | | |
 |---|---|
 | **Default** | **Off.** You connect it yourself, in onboarding or in Settings → Integrations. It is never connected by an app update. |
-| **What it is** | **A connected account.** Google's own authorization page opens in your browser and you grant Nod access to your calendar. Google's screen describes that access as managing your calendars — see **Writing** below for what Nod actually does with it, and why the permission is wider than today's behaviour. Your Google password never reaches Nod. The access and refresh tokens are held by **Nango**, our integration provider (see the Subprocessors list) — Nod never receives or stores them. |
+| **What it is** | **A connected account.** Google's own authorization page opens in your browser and you grant Nod access to your calendar. Google's screen describes that access as managing your calendars — see **Writing** below for what Nod actually does with it, and why the permission is wider than today's behaviour. Your Google password never reaches Nod. The access and refresh tokens are held by **Pipedream**, our integration provider (see the Subprocessors list) — Nod never receives or stores them. |
 | **When it reads** | On a schedule on our servers, about every ten minutes, for as long as the connection exists — including while your Mac is asleep. |
 | **What it reads** | Your **primary** calendar only, and only a moving window around now: from two hours ago to seven days ahead. Within that window: the title, start and end times, the video-call link, the organizer's address, and **who is invited** — each attendee's email address and whether they accepted. Meeting rooms and equipment are skipped, and all-day entries are ignored entirely. Nothing else about an event is read, and no other calendar is read. |
 | **What it stores** | This one **does** keep a record, which is the difference from (b). The fields listed above are stored on our servers so the app can answer "what is starting next" without your Mac being awake. An event leaves our database when it leaves the window, and in any case within **seven days** of the meeting ending. |

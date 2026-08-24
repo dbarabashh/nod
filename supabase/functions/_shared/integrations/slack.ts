@@ -15,8 +15,9 @@
 // Reading a public channel means joining it, because Slack gives a bot no other
 // way in. That is the one read here that leaves a trace, and the trace is a
 // "Nod joined" line the whole channel can see.
-import { ActionError, type Connection, proxy } from "./nango.ts";
+import { ActionError, type Connection, proxy } from "./pipedream.ts";
 import type { ActionHandlers } from "./registry.ts";
+import { requireString } from "./params.ts";
 
 /// Slack answers 200 with `{ ok: false, error: "…" }`, so the transport being
 /// fine says nothing about the call.
@@ -68,13 +69,6 @@ function messageFor(error: string): string {
     }
 }
 
-function requireString(params: Record<string, unknown>, key: string): string {
-    const value = params[key];
-    if (typeof value !== "string" || value.trim().length === 0) {
-        throw new ActionError("invalid_params", `\`${key}\` is required.`);
-    }
-    return value.trim();
-}
 
 /// Slack channel names: lowercase, no spaces or dots, 80 characters.
 ///

@@ -17,6 +17,7 @@ struct SettingsView: View {
     private let accountExport: AccountExportService?
     private let connections: ConnectionService?
     private let integrations: IntegrationService?
+    private let integrationCatalogue: IntegrationCatalogue?
     private let organizations: OrganizationService?
     private let modeStore: ModeStore?
     private let referral: ReferralService?
@@ -44,6 +45,7 @@ struct SettingsView: View {
         accountExport: AccountExportService? = nil,
         connections: ConnectionService? = nil,
         integrations: IntegrationService? = nil,
+        integrationCatalogue: IntegrationCatalogue? = nil,
         organizations: OrganizationService? = nil,
         modeStore: ModeStore? = nil,
         referral: ReferralService? = nil,
@@ -72,6 +74,7 @@ struct SettingsView: View {
         self.accountExport = accountExport
         self.connections = connections
         self.integrations = integrations
+        self.integrationCatalogue = integrationCatalogue
         self.organizations = organizations
         self.modeStore = modeStore
         self.referral = referral
@@ -399,8 +402,12 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var integrationsPane: some View {
-        if let integrations {
-            IntegrationsSection(service: integrations, organizations: organizations)
+        if let integrations, let integrationCatalogue {
+            IntegrationsSection(
+                service: integrations,
+                catalogue: integrationCatalogue,
+                organizations: organizations
+            )
         } else {
             Text("Sign in to connect Nod to your tools.")
                 .font(.system(size: 12.5))

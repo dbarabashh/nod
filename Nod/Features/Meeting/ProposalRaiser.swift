@@ -42,7 +42,7 @@ final class ProposalRaiser {
         // makes two tickets for one piece of work, and choosing between them is
         // a decision for the person rather than for a finalize running after
         // they closed the laptop.
-        guard let provider = integrations.providers(serving: .tasks).first else { return }
+        guard let provider = integrations.taskTargets.first else { return }
         guard meeting.kind.extractsActionItems else { return }
 
         let drafts = await ProposalDrafting.drafts(

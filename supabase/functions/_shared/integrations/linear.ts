@@ -4,8 +4,9 @@
 // nothing more. Tool *results* — not tool definitions — are where an agent loop
 // actually spends its tokens: definitions are sent once into a cached prefix,
 // while every result is fresh input on every subsequent turn.
-import { ActionError, type Connection, proxy } from "./nango.ts";
+import { ActionError, type Connection, proxy } from "./pipedream.ts";
 import type { ActionHandlers } from "./registry.ts";
+import { requireBoolean, requireString } from "./params.ts";
 
 const SEARCH_LIMIT = 10;
 const STATUS_LIMIT = 50;
@@ -84,21 +85,7 @@ async function stateOfType(connection: Connection, teamID: string, type: string)
     return state.id;
 }
 
-function requireBoolean(params: Record<string, unknown>, key: string): boolean {
-    const value = params[key];
-    if (typeof value === "boolean") return value;
-    if (value === "true") return true;
-    if (value === "false") return false;
-    throw new ActionError("invalid_params", `\`${key}\` must be true or false.`);
-}
 
-function requireString(params: Record<string, unknown>, key: string): string {
-    const value = params[key];
-    if (typeof value !== "string" || value.trim().length === 0) {
-        throw new ActionError("invalid_params", `\`${key}\` is required.`);
-    }
-    return value.trim();
-}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

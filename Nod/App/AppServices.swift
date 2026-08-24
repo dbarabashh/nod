@@ -55,6 +55,7 @@ struct AppServices {
     let accountExport: AccountExportService
     let connections: ConnectionService
     let integrations: IntegrationService
+    let integrationCatalogue: IntegrationCatalogue
     let actionProposals: ActionProposalStore
     let rooms: RoomListenerService
     let organizations: OrganizationService
@@ -134,6 +135,7 @@ struct AppServices {
         // device-conflict), while the token is still valid.
         let transcriptStore = TranscriptStore(client: llmClient)
         let integrations = IntegrationService(supabase: supabase)
+        let integrationCatalogue = IntegrationCatalogue(supabase: supabase)
         let rooms = RoomListenerService(supabase: supabase, llm: llmClient)
         let consent = ConsentPreference(
             supabase: supabase,
@@ -273,6 +275,7 @@ struct AppServices {
             accountExport: AccountExportService(supabase: supabase),
             connections: ConnectionService(supabase: supabase),
             integrations: integrations,
+            integrationCatalogue: integrationCatalogue,
             actionProposals: actionProposals,
             rooms: rooms,
             organizations: organizations,

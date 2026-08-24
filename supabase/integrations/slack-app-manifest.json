@@ -12,7 +12,7 @@
   },
   "oauth_config": {
     "redirect_urls": [
-      "https://api.nango.dev/oauth/callback"
+      "https://api.pipedream.com/connect/oauth/callback"
     ],
     "scopes": {
       "bot": [

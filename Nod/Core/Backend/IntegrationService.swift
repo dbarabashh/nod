@@ -6,13 +6,23 @@ import Supabase
 /// authorization when they haven't.
 ///
 /// Authorization runs in the browser, not in the app — `integration-connect`
-/// mints a Nango Connect session and we open the link it returns. The result
-/// comes back out of band, through Nango's webhook into
-/// `integration_connections`, so after opening the browser the only way to learn
-/// the outcome is to watch the table.
+/// mints a Connect token and we open the link it returns. The result comes back
+/// out of band: the broker signs nothing, so `integration-reconcile` is what
+/// reads the outcome from the broker and writes `integration_connections`. After
+/// opening the browser the only way to learn the outcome is to ask it and watch
+/// the table.
 @MainActor
 final class IntegrationService: ObservableObject {
     @Published private(set) var linked: Set<IntegrationProvider> = []
+    /// Products authorized from the catalogue that Nod has no adapters for,
+    /// by the broker's own slug.
+    ///
+    /// A separate set rather than more cases on `IntegrationProvider`: that type
+    /// carries a bundled mark, capability copy and the actions a chat may offer,
+    /// none of which exist for a product nobody has written an adapter for. What
+    /// these have is a grant, and the only things that can be done with one are
+    /// to show it and to end it.
+    @Published private(set) var linkedApps: Set<String> = []
     /// The products a task can be filed in right now — connected, and able to
     /// take one. Stored rather than computed: it is read from a view body once
     /// per action-item row, and changes only when `linked` does.
@@ -80,12 +90,13 @@ final class IntegrationService: ObservableObject {
                 .execute()
                 .value
             linked = Set(rows.compactMap { IntegrationProvider(rawValue: $0.provider) })
+            linkedApps = Set(rows.map(\.provider).filter { IntegrationProvider(rawValue: $0) == nil })
             teamByProvider = rows.reduce(into: [:]) { table, row in
                 guard let provider = IntegrationProvider(rawValue: row.provider), let teamID = row.teamID else { return }
                 table[provider] = teamID
             }
             blockedByOrganization = await loadBlockedProviders()
-            taskTargets = providers(serving: .tasks)
+            taskTargets = filingTargets()
             hasLoaded = true
             lastError = nil
             Log.ui.info("integrations linked=\(linked.map(\.rawValue).sorted().joined(separator: ","))")
@@ -110,6 +121,18 @@ final class IntegrationService: ObservableObject {
     /// where to talk about this" — rather than "is Slack connected". A company
     /// on Teams or Telegram answers the same question with a different product,
     /// and nothing above this line should have to know which.
+    /// Where an action item can actually be filed.
+    ///
+    /// Asked of `taskActions`, not of the `.tasks` capability: a tracker Nod can
+    /// only read serves that capability and has nowhere to put anything. The
+    /// disconnect path already derived it this way, and the two answers
+    /// disagreed the moment a read-only tracker existed.
+    private func filingTargets() -> [IntegrationProvider] {
+        linked
+            .filter { isUsable($0) && $0.taskActions != nil }
+            .sorted { $0.rawValue < $1.rawValue }
+    }
+
     func providers(serving capability: IntegrationCapability) -> [IntegrationProvider] {
         IntegrationProvider.all(serving: capability).filter(isUsable)
     }
@@ -174,7 +197,7 @@ final class IntegrationService: ObservableObject {
             } else {
                 blockedByOrganization.insert(provider)
             }
-            taskTargets = providers(serving: .tasks)
+            taskTargets = filingTargets()
             lastError = nil
             Log.ui.info("integration policy provider=\(provider.rawValue) allowed=\(allowed)")
         } catch {
@@ -289,9 +312,7 @@ final class IntegrationService: ObservableObject {
             )
             linked.remove(provider)
             teamByProvider[provider] = nil
-            taskTargets = linked
-                .filter { $0.taskActions != nil }
-                .sorted { $0.rawValue < $1.rawValue }
+            taskTargets = filingTargets()
             lastError = nil
             Log.ui.info("integration disconnected \(provider.rawValue)")
             return true
@@ -567,9 +588,14 @@ final class IntegrationService: ObservableObject {
     }
 
     /// Polls until the provider shows up or the session's own lifetime is spent.
-    /// Nango connect links expire in 30 minutes, but a user who wandered off is
-    /// better served by the row appearing on the next `refresh()` than by us
-    /// polling for half an hour.
+    /// A connect link is short-lived, but a user who wandered off is better
+    /// served by the row appearing on the next `refresh()` than by us polling
+    /// for half an hour.
+    ///
+    /// Reconciles before each read rather than waiting to be told. The broker's
+    /// connection webhook carries no signature, so it can never be the thing we
+    /// trust — and a flow that waited for it would leave the person staring at
+    /// "Connecting…" whenever it was slow or dropped.
     private func watchForConnection(_ provider: IntegrationProvider) {
         watch?.cancel()
         watch = Task { [weak self] in
@@ -577,6 +603,7 @@ final class IntegrationService: ObservableObject {
                 try? await Task.sleep(nanoseconds: Self.watchInterval)
                 if Task.isCancelled { return }
                 guard let self else { return }
+                await reconcile()
                 await refresh()
                 if linked.contains(provider) {
                     pending = nil
@@ -584,6 +611,20 @@ final class IntegrationService: ObservableObject {
                 }
             }
             self?.pending = nil
+        }
+    }
+
+    /// Asks the server to re-read what the broker holds for this account.
+    ///
+    /// Silent on failure by design: it runs on a timer beside `refresh()`, and a
+    /// broker that did not answer this second is not something to tell the user
+    /// about — the next tick asks again.
+    private func reconcile() async {
+        guard let supabase else { return }
+        do {
+            try await supabase.functions.invoke("integration-reconcile")
+        } catch {
+            Log.ui.debug("integration reconcile failed: \(error.localizedDescription)")
         }
     }
 

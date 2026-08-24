@@ -343,10 +343,8 @@ final class LLMProxyClient: ObservableObject {
         cachePrompt: Bool = true
     ) async throws -> String {
         Log.llm.info("→ multi-turn chat via proxy model=\(chatModel) system.len=\(system.count) turns=\(history.count)")
-        var messages: [ChatRequest.Message] = [.init(role: "system", content: system)]
-        messages += history.map { .init(role: $0.role.rawValue, content: $0.content) }
         return try await send(
-            messages: messages,
+            messages: Self.messages(system: system, history: history),
             jsonMode: false,
             temperature: temperature,
             primaryModel: chatModel,
@@ -585,6 +583,27 @@ final class LLMProxyClient: ObservableObject {
         ))
     }
 
+    /// The wire messages for a system prompt and a history.
+    ///
+    /// One mapping for the streamed and the one-shot path alike. They had two,
+    /// and the one-shot copy dropped `tool_calls` and `tool_call_id` and sent
+    /// `""` where the assistant turn needs no content at all — so replaying a
+    /// finished tool round through it produced `tool` results answering nothing,
+    /// which every provider rejects. It only ran when a question exhausted its
+    /// tool rounds, which is why it survived.
+    private static func messages(system: String, history: [ChatTurn]) -> [ChatRequest.Message] {
+        var messages: [ChatRequest.Message] = [.init(role: "system", content: system)]
+        messages += history.map { turn in
+            ChatRequest.Message(
+                role: turn.role.rawValue,
+                content: turn.content.isEmpty ? nil : turn.content,
+                tool_calls: turn.toolCalls.isEmpty ? nil : turn.toolCalls,
+                tool_call_id: turn.toolCallID
+            )
+        }
+        return messages
+    }
+
     /// Streaming turn that may end in tool calls instead of prose. Content
     /// arrives as it always did; if the model asked for tools, a single
     /// `.toolCalls` event lands last and no text was produced.
@@ -596,17 +615,8 @@ final class LLMProxyClient: ObservableObject {
         cachePrompt: Bool = true
     ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         Log.llm.info("→ streaming chat model=\(chatModel) turns=\(history.count) tools=\(tools.count)")
-        var messages: [ChatRequest.Message] = [.init(role: "system", content: system)]
-        messages += history.map { turn in
-            ChatRequest.Message(
-                role: turn.role.rawValue,
-                content: turn.content.isEmpty ? nil : turn.content,
-                tool_calls: turn.toolCalls.isEmpty ? nil : turn.toolCalls,
-                tool_call_id: turn.toolCallID
-            )
-        }
         return stream(
-            messages: messages,
+            messages: Self.messages(system: system, history: history),
             tools: tools.map(ChatToolPayload.init),
             jsonMode: false,
             temperature: temperature,

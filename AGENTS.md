@@ -99,6 +99,7 @@ Full build, lint/format, git-hook, and CI-pin details: `docs/build-setup.md`.
 | Build, VAD setup, lint/format/CI pins, logs | `docs/build-setup.md` |
 | Audio pipeline, panel, permissions, entry flow, config, in-flight changes | `docs/architecture.md` |
 | Supabase CLI, sandbox/prod branching, PAT gotchas | `docs/supabase.md` |
+| Integration broker (Pipedream Connect), app manifests, environments | `supabase/integrations/README.md` |
 | Sibling repos and cross-repo invariants | `docs/ecosystem.md` |
 | Which policy to update when code changes | `docs/policy-bindings.md` |
 | Release pipeline (Sparkle, notarization, appcast) | `docs/release.md` |

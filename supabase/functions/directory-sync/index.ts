@@ -1,6 +1,6 @@
 // directory-sync — re-read a connected workspace's member list on request.
 //
-// Connecting a tool imports its roster once (`nango-webhook`), which is what
+// Connecting a tool imports its roster once (`integration-reconcile`), which is what
 // makes a company usable the minute it is set up. This is the same import, asked
 // for again: somebody joined the workspace last week, or the connection was made
 // before the organization existed, and nobody should have to disconnect and
@@ -10,7 +10,8 @@
 // Response: { "seen": 42, "linked": 38 } or { "error": { code, message } }
 import { json } from "../_shared/http.ts";
 import { adminClient, authenticate } from "../_shared/supabase.ts";
-import { ActionError, resolveConnection } from "../_shared/integrations/nango.ts";
+import { ActionError, resolveConnection } from "../_shared/integrations/pipedream.ts";
+import { apiBase } from "../_shared/integrations/registry.ts";
 import { directoryTargetOrg, importDirectory, isDirectorySource } from "../_shared/integrations/directory.ts";
 
 Deno.serve(async (req) => {
@@ -43,7 +44,7 @@ Deno.serve(async (req) => {
     }
 
     try {
-        const connection = await resolveConnection(user.id, provider);
+        const connection = await resolveConnection(user.id, provider, apiBase(provider) ?? "");
         const outcome = await importDirectory(admin, connection, orgId);
         return json(outcome, 200);
     } catch (error) {

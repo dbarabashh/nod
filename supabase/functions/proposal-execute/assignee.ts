@@ -10,7 +10,7 @@
 // made before the organization existed, and somebody who joined the workspace
 // since. Reading it again costs one call and answers for everybody at once.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
-import { ActionError, type Connection } from "../_shared/integrations/nango.ts";
+import { ActionError, type Connection } from "../_shared/integrations/pipedream.ts";
 import { importDirectory } from "../_shared/integrations/directory.ts";
 
 interface Proposal {

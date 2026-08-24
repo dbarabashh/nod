@@ -389,10 +389,15 @@ verify_jwt = false
 [functions.sync-google-ads]
 verify_jwt = false
 
-# Nango posts the OAuth result here, so there is no Supabase JWT. The gate is
-# the HMAC Nango signs each delivery with, verified against the webhook signing
-# key in the function.
-[functions.nango-webhook]
+# Pipedream posts the connection result here and signs nothing, so there is no
+# Supabase JWT to verify. The function treats every unauthenticated delivery as a
+# hint and writes only what Connect reports for that person — see its header.
+[functions.integration-reconcile]
+verify_jwt = false
+
+# Serves app marks over GET with no session, so the platform gate has to be off;
+# the search half authenticates itself. See the function's header.
+[functions.integration-catalogue]
 verify_jwt = false
 
 [analytics]

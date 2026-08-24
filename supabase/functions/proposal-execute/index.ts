@@ -17,8 +17,8 @@
 // same message so the card can say why without a second round trip.
 import { json } from "../_shared/http.ts";
 import { adminClient, authenticate } from "../_shared/supabase.ts";
-import { ActionError, resolveConnection } from "../_shared/integrations/nango.ts";
-import { handlerFor } from "../_shared/integrations/registry.ts";
+import { ActionError, resolveConnection } from "../_shared/integrations/pipedream.ts";
+import { apiBase, handlerFor } from "../_shared/integrations/registry.ts";
 import { resolveAssignee } from "./assignee.ts";
 
 interface Proposal {
@@ -119,7 +119,7 @@ Deno.serve(async (req) => {
     }
 
     try {
-        const connection = await resolveConnection(user.id, providerName);
+        const connection = await resolveConnection(user.id, providerName, apiBase(providerName) ?? "");
         const parameters = { ...proposal.parameters };
         // Resolved here and nowhere else. The client sends a `people.id`; what
         // reaches Linear is a Linear account, and the translation between them
