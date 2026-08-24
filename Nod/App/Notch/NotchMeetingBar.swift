@@ -21,6 +21,9 @@ struct NotchMeetingBar: View {
     /// A plain reference: nothing in this bar reads it, only the mic and
     /// input-device buttons it hands it to.
     let audioCapture: AudioCaptureService
+    /// Handed to the system-audio warning, which routes to System Settings
+    /// when Screen Recording is what's missing.
+    let permissions: PermissionManager
     /// Read/write, unlike the pre-meeting confirm's binding: the header is the
     /// only place left to fix a wrong language pick once recording has
     /// started, mirroring the language chip the old floating panel kept in
@@ -98,6 +101,11 @@ struct NotchMeetingBar: View {
         HStack(spacing: 4) {
             Spacer(minLength: 0)
             NotchMicControl(session: session, audioCapture: audioCapture)
+            NotchSystemAudioAlert(
+                kind: session.selectedKind,
+                audioCapture: audioCapture,
+                permissions: permissions
+            )
             NotchLanguageMenuButton(language: language)
             NotchShareVisibilityButton(preference: panelSharing)
             NotchGlyphButton(icon: "nc-window-pointer", help: "Open Nod window", action: onOpenLibrary)

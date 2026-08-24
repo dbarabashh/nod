@@ -45,6 +45,7 @@ struct NotchStateResolver {
         case .language: return .languageConfirm
         case .consent: return .consent
         case .allowance: return .alert(.allowance)
+        case .systemAudioAccess: return .systemAudioAccess
         case nil: break
         }
 

@@ -13,6 +13,35 @@ enum CaptureState: Equatable {
     case paused
 }
 
+/// Why the system-audio stream isn't delivering.
+///
+/// Typed rather than a free-form string because the two audiences want
+/// different halves of it: the log and analytics want the detail, and the UI
+/// wants to know whether this is the user's to fix (`accessDenied`) or ours to
+/// retry. Deriving that downstream from `PermissionManager` was answering a
+/// question this type had already answered and thrown away.
+enum SystemAudioFailure: Equatable {
+    case accessDenied
+    case noDisplay
+    case stalled
+    case streamFailed(String)
+
+    var message: String {
+        switch self {
+        case .accessDenied: "Screen Recording access is off"
+        case .noDisplay: "No display available for system audio capture"
+        case .stalled: "System audio capture stalled; restarting…"
+        case let .streamFailed(reason): "System audio capture failed: \(reason)"
+        }
+    }
+
+    /// Whether the user can do anything about it. Everything else is the
+    /// service's own problem and is already being retried.
+    var isUserFixable: Bool {
+        self == .accessDenied
+    }
+}
+
 @MainActor
 final class AudioCaptureService: NSObject, ObservableObject {
     @Published private(set) var state: CaptureState = .idle
@@ -28,13 +57,13 @@ final class AudioCaptureService: NSObject, ObservableObject {
     /// (which the watchdog and the device listener trigger routinely) either
     /// wiped a live system-audio failure or left a fixed mic reading broken.
     @Published private(set) var micError: String?
-    @Published private(set) var systemAudioError: String?
+    @Published private(set) var systemAudioError: SystemAudioFailure?
     /// Whichever of the two slots belongs to a path this session actually asked
     /// for. Callers ask this rather than reading both: a voice note captures no
     /// system audio, so a stale `systemAudioError` says nothing about whether
     /// it started.
     var activeCaptureError: String? {
-        (captureMic ? micError : nil) ?? (captureSystem ? systemAudioError : nil)
+        (captureMic ? micError : nil) ?? (captureSystem ? systemAudioError?.message : nil)
     }
 
     /// Every microphone the machine currently offers, republished whenever the
@@ -125,7 +154,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
         outputHandler.onError = { [weak self] message in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                systemAudioError = message
+                systemAudioError = .streamFailed(message)
                 Log.audio.error("\(message)")
             }
         }
@@ -593,7 +622,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             guard let display = content.displays.first else {
-                systemAudioError = "No display available for system audio capture"
+                systemAudioError = .noDisplay
                 return
             }
 
@@ -619,7 +648,13 @@ final class AudioCaptureService: NSObject, ObservableObject {
             lastSystemFrameAt = Date()
             Log.audio.info("system audio started (SCStream)")
         } catch {
-            systemAudioError = "System audio capture failed: \(error.localizedDescription)"
+            // ScreenCaptureKit reports a missing grant as an ordinary stream
+            // error, so the cause has to be read off TCC rather than the throw.
+            // Everything downstream needs the distinction: one of these the
+            // user can fix, the other is ours to retry.
+            systemAudioError = CGPreflightScreenCaptureAccess()
+                ? .streamFailed(error.localizedDescription)
+                : .accessDenied
             Log.audio.error("system audio failed: \(error.localizedDescription)")
         }
     }
@@ -653,7 +688,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
 
         systemRestartInFlight = true
         Log.audio.error("system audio stalled — no buffers for \(String(format: "%.1f", elapsed))s; restarting SCStream")
-        systemAudioError = "System audio capture stalled; restarting…"
+        systemAudioError = .stalled
 
         let stream = scStream
         scStream = nil

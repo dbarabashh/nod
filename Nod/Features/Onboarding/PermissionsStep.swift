@@ -66,25 +66,17 @@ struct PermissionsStep: View {
             }
 
             if needsRelaunch {
-                VStack(alignment: .leading, spacing: 6) {
-                    RelaunchCard(
-                        hint: strings.actionRelaunchHint,
-                        actionLabel: strings.actionRelaunch,
-                        onRelaunch: {
-                            Task {
-                                await telemetry.relaunchClicked()
-                                permissions.relaunch()
-                            }
+                RelaunchCard(
+                    hint: strings.actionRelaunchHint,
+                    actionLabel: strings.actionRelaunch,
+                    failure: permissions.lastRelaunchError,
+                    onRelaunch: {
+                        Task {
+                            await telemetry.relaunchClicked()
+                            permissions.relaunch()
                         }
-                    )
-                    if let relaunchError = permissions.lastRelaunchError {
-                        Text("Couldn't relaunch automatically (\(relaunchError)). Please quit Nod and reopen it manually.")
-                            .font(.system(size: 11.5, weight: .regular))
-                            .foregroundStyle(Theme.Palette.warning)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 2)
                     }
-                }
+                )
                 .padding(.top, 16)
             }
 
@@ -198,46 +190,5 @@ private struct ContinueButton: View {
                 .shadow(color: isPrimary ? Color.black.opacity(0.22) : .clear, radius: 14, x: 0, y: 8)
         }
         .buttonStyle(.plain)
-    }
-}
-
-private struct RelaunchCard: View {
-    let hint: String
-    let actionLabel: String
-    let onRelaunch: () -> Void
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image("nc-refresh-2")
-                .icon(15)
-                .foregroundStyle(Theme.Palette.cyan)
-
-            Text(hint)
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Theme.GlassButton.text.opacity(0.9))
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 0)
-
-            Button(action: onRelaunch) {
-                Text(actionLabel)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
-                .fill(Theme.Palette.cyan.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
-                        .stroke(Theme.Palette.cyan.opacity(0.4), lineWidth: 0.6)
-                )
-        )
     }
 }

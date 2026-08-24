@@ -304,11 +304,17 @@ struct GeneralSettingsPane: View {
     let demoPlayback: DemoPlayback?
     let captureSurface: CaptureSurfacePreference?
     let audioCapture: AudioCaptureService?
+    let permissions: PermissionManager?
     @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting = MeetingLanguagePromptDefaults.defaultValue
     @AppStorage(UISound.defaultsKey) private var soundsEnabled = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // First: every other switch on this pane is a preference, and this
+            // is the one card that decides whether recording works at all.
+            if let permissions {
+                RecordingPermissionsSection(permissions: permissions)
+            }
             if let meetingDetection {
                 MeetingDetectionSection(preference: meetingDetection)
             }
