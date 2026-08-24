@@ -133,7 +133,7 @@ final class RemoteCalendar: ObservableObject {
                 // which keeps the record honest about who was asked.
                 attendees: (attendees ?? [])
                     .filter { $0.response != "declined" }
-                    .map { CalendarAttendee(display: $0.name, isSelf: $0.email.lowercased() == mine) },
+                    .map { CalendarAttendee(display: $0.name, isSelf: $0.email.lowercased() == mine, email: $0.email) },
                 externalID: ical_uid,
                 conferenceURL: url
             )

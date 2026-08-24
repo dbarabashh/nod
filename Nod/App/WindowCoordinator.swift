@@ -243,7 +243,31 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 organizations: services.organizations,
                 meetings: services.meetingStore
             ),
-            rooms: services.rooms
+            rooms: services.rooms,
+            lookup: { [services] scope, sessionLabel in
+                MeetingLookup(
+                    llm: services.llmClient,
+                    integrations: services.integrations,
+                    language: services.languagePreference,
+                    scope: scope,
+                    sessionLabel: sessionLabel
+                )
+            },
+            colleagues: { [weak organizations = services.organizations] in
+                RoomComposition.colleagueAddresses(organizations?.people.map(\.email) ?? [])
+            },
+            scope: { [weak labels = services.labelStore, weak meetings = services.meetingStore] id, icalUID in
+                LookupScope.of(
+                    meetingID: id,
+                    icalUID: icalUID,
+                    assignments: labels?.assignments ?? [:],
+                    labelNames: Dictionary(
+                        (labels?.labels ?? []).map { ($0.id, $0.name) },
+                        uniquingKeysWith: { first, _ in first }
+                    ),
+                    meetings: meetings?.meetings ?? []
+                )
+            }
         )
 
         // The detector belongs to the session it can act on, and the notch

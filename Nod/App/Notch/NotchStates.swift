@@ -278,6 +278,91 @@ struct NotchRecall: View {
     }
 }
 
+/// What a connected tool answered, because somebody asked out loud.
+///
+/// Reads differently from `NotchRecall` on purpose. That card interrupts, so it
+/// leads with why it was worth interrupting for. This one was summoned, so it
+/// leads with the answer and puts the provenance underneath — the asker already
+/// knows why it is there, and the only thing they do not know is whether to
+/// trust it. Hence the mark and the clock: which product said this, and how long
+/// ago, on the one card here whose contents can go stale while it is on screen.
+struct NotchLookup: View {
+    let lookup: LiveLookup
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            leading
+            VStack(alignment: .leading, spacing: 3) {
+                Text(lookup.request)
+                    .font(.system(size: 9.5, weight: .bold))
+                    .kerning(0.6)
+                    .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+                    .lineLimit(1)
+                body(for: lookup.state)
+            }
+            Spacer(minLength: 0)
+            NotchGlyphButton(icon: "nc-xmark", help: "Dismiss", action: onDismiss)
+        }
+    }
+
+    @ViewBuilder private var leading: some View {
+        if case let .answered(answer) = lookup.state, let provider = answer.provider {
+            ProviderMark(provider: provider, size: 13)
+        } else if case .answered = lookup.state {
+            // Answered out of the user's own earlier sessions. The same mark
+            // `NotchRecall` uses, because it is the same claim: this came from
+            // your memory rather than from a product.
+            Image("nc-sparkle-3")
+                .icon(12)
+                .foregroundStyle(Theme.Palette.violet)
+        } else {
+            Image("nc-magnifier")
+                .icon(12)
+                .foregroundStyle(Theme.Palette.violet)
+        }
+    }
+
+    @ViewBuilder
+    private func body(for state: LiveLookup.State) -> some View {
+        switch state {
+        case .resolving:
+            HStack(spacing: 6) {
+                ThreeBalls(diameter: 3.5)
+                Text("Looking")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.muted)
+            }
+        case let .answered(answer):
+            Text(answer.text)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(Theme.Palette.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            if let subject = answer.subject {
+                Text(subject)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .lineLimit(1)
+            }
+        // Drawn, not swallowed. The request was spoken in front of other
+        // people, and silence after it reads as Nod not working.
+        case .empty:
+            line("Nothing there to answer that")
+        case .failed:
+            line("Couldn\u{2019}t reach it")
+        case let .refused(why):
+            line(why.label)
+        }
+    }
+
+    private func line(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12.5, weight: .semibold))
+            .foregroundStyle(Theme.Palette.muted)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 // MARK: - Live input level
 
 /// The live microphone level, as five bars that move with what Nod is hearing.

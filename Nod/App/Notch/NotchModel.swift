@@ -225,7 +225,7 @@ final class NotchModel: ObservableObject {
         // dismissing it either. Its own close glyph is the only way out.
         // The room card is the same: it arrived on its own, and it has its own
         // "Not now".
-        case .updateRequired, .dormant, .tucked, .offer, .liveRoom, .noticed, .recalled, .recap,
+        case .updateRequired, .dormant, .tucked, .offer, .liveRoom, .noticed, .recalled, .lookedUp, .recap,
              .languageConfirm, .consent, .alert, .demo: false
         }
     }
@@ -268,6 +268,13 @@ final class NotchModel: ObservableObject {
 
     func dismissRecall() {
         session.analyst.dismissRecall()
+    }
+
+    /// Takes the answer down. Its own method rather than the analyst's, so the
+    /// card behaves like every other one here: the surface asks, the analyst
+    /// forgets.
+    func dismissLookup() {
+        session.analyst.dismissLookup()
     }
 
     /// Opens the session the recall came from. Takes the card down first: it
@@ -538,6 +545,7 @@ final class NotchModel: ObservableObject {
             offers.$current.map { _ in () }.eraseToAnyPublisher(),
             session.analyst.$notice.map { _ in () }.eraseToAnyPublisher(),
             session.analyst.$recall.map { _ in () }.eraseToAnyPublisher(),
+            session.analyst.$lookup.map { _ in () }.eraseToAnyPublisher(),
             session.$justEndedMeetingID.map { _ in () }.eraseToAnyPublisher(),
             meetingStore.$meetings.map { _ in () }.eraseToAnyPublisher(),
             meetingStore.$generatingSummaryIDs.map { _ in () }.eraseToAnyPublisher(),

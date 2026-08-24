@@ -369,7 +369,7 @@ final class CalendarService: ObservableObject {
     /// speaker than the recording holds. Anyone who declined is dropped for the
     /// same reason — they are on the invitation and not in the room.
     private static func people(among invited: [EKParticipant]) -> [CalendarAttendee] {
-        invited.compactMap { participant in
+        invited.compactMap { participant -> CalendarAttendee? in
             guard participant.participantType == .person,
                   participant.participantStatus != .declined,
                   let name = participant.name?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -377,9 +377,24 @@ final class CalendarService: ObservableObject {
             else { return nil }
             return CalendarAttendee(
                 display: CalendarAttendee.display(from: name),
-                isSelf: participant.isCurrentUser
+                isSelf: participant.isCurrentUser,
+                // `url` is a `mailto:` for a person, and the only address
+                // EventKit offers. Absent for an entry that names somebody
+                // without one, which is ordinary on a local calendar.
+                email: Self.address(of: participant.url)
             )
         }
+    }
+
+    /// The address behind a participant, when the entry carries one.
+    ///
+    /// `EKParticipant.url` is a `mailto:` for a person and something else
+    /// entirely for a room or a resource, so the scheme is what decides whether
+    /// there is an address here at all.
+    private static func address(of url: URL) -> String? {
+        guard url.scheme?.lowercased() == "mailto" else { return nil }
+        let address = url.absoluteString.dropFirst("mailto:".count)
+        return address.isEmpty ? nil : String(address)
     }
 
     /// `nonisolated` so the launch path can pay the first, expensive read off

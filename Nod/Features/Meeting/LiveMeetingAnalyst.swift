@@ -52,6 +52,23 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// user is not in.
     @Published private(set) var recall: LiveRecall?
 
+    /// What a connected tool answered, because somebody said it out loud.
+    ///
+    /// A third slot rather than a third kind of `notice`, because it is the
+    /// only one here the user asked for. The other two interrupt; this one was
+    /// summoned, and the whole priority argument that keeps `notice` rare runs
+    /// the other way for it.
+    @Published private(set) var lookup: LiveLookup?
+
+    /// Runs a spoken request against the read-only tools. Injected and optional
+    /// for the same reason `mirrorFindings` is: an account with nothing
+    /// connected has no lookups, and no test needs one.
+    var meetingLookup: MeetingLookup?
+    /// Who is in the room, asked at the moment of the request rather than held.
+    /// The analyst has no business owning the calendar or the directory, and
+    /// the answer changes as people join.
+    var roomComposition: (() -> RoomComposition)?
+
     /// The meeting in progress, so a search for what was said *before* can
     /// exclude what is being said now. Set by `MeetingSession` at start.
     var currentMeetingID: UUID?
@@ -90,6 +107,17 @@ final class LiveMeetingAnalyst: ObservableObject {
     private var lastNoticeAt: Date?
     private var noticeExpiry: Task<Void, Never>?
     private var analyzedLines = 0
+
+    /// The wake-phrase scan, driven by the transcript rather than by a timer —
+    /// see `startListeningForWake`. Not folded into `tick`: a pass is gated to
+    /// fire every half-minute because it costs a model call, and this costs a
+    /// string comparison.
+    /// Not `private`: `+Lookup.swift` drives all of it, from its own file, the
+    /// same way `+Assist.swift` reads `llm` and `store`.
+    var wakeSubscription: AnyCancellable?
+    var lookupTask: Task<Void, Never>?
+    var lookupExpiry: Task<Void, Never>?
+    var scannedLines = 0
 
     /// How often the trigger is checked. Not how often a pass runs — see
     /// `ProactivityPreference.Level.minNewLines` / `.minInterval`, which are
@@ -208,6 +236,48 @@ final class LiveMeetingAnalyst: ObservableObject {
         guard notice != nil else { return }
         notice = nil
     }
+
+    /// Put a request on screen before it has an answer. The card exists from
+    /// the moment somebody speaks, because the alternative is a second of
+    /// nothing after saying Nod's name out loud in front of other people.
+    ///
+    /// Here rather than in `+Lookup.swift` for the reason `raise(_:)` is: the
+    /// published properties are settable only in the file that declares them,
+    /// so mutation stays here and the decision lives next door.
+    func startLookup(_ started: LiveLookup) {
+        lookupExpiry?.cancel()
+        lookupExpiry = nil
+        lookup = started
+    }
+
+    /// Settle the card in flight, and begin its expiry from now — a slow tool
+    /// must not eat the time somebody has to read what it returned.
+    func settleLookup(_ state: LiveLookup.State) {
+        guard var settled = lookup else { return }
+        settled.state = state
+        lookup = settled
+        lookupExpiry?.cancel()
+        lookupExpiry = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.lookupLifetime * 1_000_000_000))
+            guard let self, !Task.isCancelled, lookup?.id == settled.id else { return }
+            lookup = nil
+        }
+    }
+
+    func dismissLookup() {
+        lookupExpiry?.cancel()
+        lookupExpiry = nil
+        lookupTask?.cancel()
+        lookupTask = nil
+        guard lookup != nil else { return }
+        lookup = nil
+    }
+
+    /// Longer than a notice's twelve seconds. A notice is a fact about what was
+    /// just said, and the reader already has the context; this is an answer
+    /// pulled out of another product, and reading it means taking in a number
+    /// and where it came from.
+    static let lookupLifetime: TimeInterval = 25
 
     private func tick() {
         guard pass == nil else { return }

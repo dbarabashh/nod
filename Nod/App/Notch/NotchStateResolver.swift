@@ -97,6 +97,17 @@ struct NotchStateResolver {
         // expanded panel, though: Ask/Notes are open because the user opened
         // them, and taking that away to say something they did not ask for is
         // the difference between proactive and rude.
+        // Above both of the below, and past the guard both of them respect.
+        //
+        // A notice and a recall are Nod deciding to speak, so they are kept rare
+        // and they yield to a panel the user opened — taking away what somebody
+        // just opened, to say something they did not ask for, is the difference
+        // between proactive and rude. None of that reasoning survives contact
+        // with a lookup: they asked, out loud, in front of other people, and
+        // then watched nothing happen. Answering is not an interruption.
+        if let lookup = session.analyst.lookup {
+            return .lookedUp(lookup)
+        }
         if let notice = session.analyst.notice {
             if meetingBarPanel.expansion == .passive {
                 Log.ui.debug("notch: showing notice kind=\(notice.kind.rawValue) hidden=\(isMeetingBarHidden)")

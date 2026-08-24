@@ -290,6 +290,19 @@ final class MeetingSession: ObservableObject {
     /// `recapGenerator` — and because the finalize below needs what it found.
     let analyst: LiveMeetingAnalyst
 
+    /// Builds the answering side once the session can say which earlier
+    /// sessions count and how to name them.
+    private let makeLookup: (@escaping () -> LookupScope, @escaping (UUID) -> String?) -> MeetingLookup
+    /// Which earlier sessions "what did we say about this" should search, given
+    /// the recording in progress and the calendar entry behind it.
+    private let scope: (UUID?, String?) -> LookupScope
+    /// Every address the organization knows, read at the moment a request is
+    /// made rather than held: people join a call after it starts, and the
+    /// directory loads after the notch is built. Injected as a closure for the
+    /// same reason `analyst.recallSourceLabel` is — a recording session has no
+    /// business owning the roster.
+    private let colleagues: () -> Set<String>
+
     init(
         audioCapture: AudioCaptureService,
         store: TranscriptStore,
@@ -308,7 +321,10 @@ final class MeetingSession: ObservableObject {
         calendar: CalendarService,
         analytics: ProductAnalytics,
         proposalRaiser: ProposalRaiser,
-        rooms: RoomListenerService
+        rooms: RoomListenerService,
+        lookup: @escaping (@escaping () -> LookupScope, @escaping (UUID) -> String?) -> MeetingLookup,
+        colleagues: @escaping () -> Set<String>,
+        scope: @escaping (UUID?, String?) -> LookupScope
     ) {
         self.audioCapture = audioCapture
         self.store = store
@@ -325,6 +341,9 @@ final class MeetingSession: ObservableObject {
         self.analytics = analytics
         self.proposalRaiser = proposalRaiser
         self.rooms = rooms
+        makeLookup = lookup
+        self.colleagues = colleagues
+        self.scope = scope
         recapGenerator = RecapGenerator(llm: llm)
         rosterSampler = MeetingRosterSampler(exclusions: screenExclusions)
         enrichment = MeetingEnrichment(
@@ -608,7 +627,36 @@ final class MeetingSession: ObservableObject {
             guard rooms?.listeners.isEmpty == false else { return }
             Task { await meetingStore?.mirrorLiveFindings(findings) }
         }
-        if selectedKind.extractsActionItems { analyst.start() }
+        analyst.meetingLookup = makeLookup(
+            { [weak self] in
+                guard let self else { return .everything }
+                return scope(recordingDraft?.id, recordingDraft?.icalUID)
+            },
+            { [weak meetingStore] id in
+                guard let meeting = meetingStore?.meetings.first(where: { $0.id == id }) else { return nil }
+                return meeting.displayTitle(dateFormatter: Meeting.listDateFormatter)
+            }
+        )
+        // Read fresh on every request. `RoomComposition` treats every way of
+        // not knowing as an outsider being present, so an unsynced calendar or
+        // an unloaded directory closes the gate rather than opening it.
+        analyst.roomComposition = { [weak self] in
+            guard let self else { return .outsidersPresent }
+            let now = Date()
+            return RoomComposition.of(
+                attendees: calendar.meetings(overlapping: DateInterval(start: now, duration: 1))
+                    .first?.attendees ?? [],
+                colleagues: colleagues(),
+                // Anything on the system-audio stream is a voice that is not in
+                // this room — a call is running, whether or not Nod was invited
+                // to it.
+                hasRemoteVoice: store.entries.contains { $0.source == .them }
+            )
+        }
+        if selectedKind.extractsActionItems {
+            analyst.start()
+            analyst.startListeningForWake()
+        }
         knowledgeStore.isCapturing = true
         elapsed = 0
         clearAutoEndPrompt()
@@ -812,6 +860,7 @@ final class MeetingSession: ObservableObject {
         // Stopped, not reset: the finalize still has to write down what it
         // found, and that runs after the surface is back at rest.
         analyst.stop()
+        analyst.stopListeningForWake()
         audioTeardown = Task { await audioCapture.stop() }
         let meetingLeaseID = detachActiveMeetingLease()
         streamTask?.cancel()
@@ -1306,10 +1355,14 @@ final class MeetingSession: ObservableObject {
             audioCapture.pause()
             // A paused recording hears nothing, so it must cost nothing.
             analyst.stop()
+            analyst.stopListeningForWake()
         case .paused:
             Log.ui.info("Resume")
             meeting = .recording
-            if selectedKind.extractsActionItems { analyst.start() }
+            if selectedKind.extractsActionItems {
+                analyst.start()
+                analyst.startListeningForWake()
+            }
             // Measure post-resume silence from now, not from the last pre-pause
             // speech, so resuming doesn't instantly trip the inactivity prompt.
             autoEnd.noteActivity(at: Date())
