@@ -45,7 +45,7 @@ struct NotchStateContent: View {
         switch model.presentation {
         case .tucked, .meetingBar: true
         case .updateRequired, .dormant, .offer, .noticed, .recap, .launch,
-             .languageConfirm, .consent, .alert, .demo: false
+             .languageConfirm, .consent, .systemAudioAccess, .alert, .demo: false
         }
     }
 
@@ -83,6 +83,7 @@ struct NotchStateContent: View {
                 panel: panel,
                 session: model.session,
                 audioCapture: model.audioCapture,
+                permissions: model.permissions,
                 language: model.language,
                 onToggleAsk: model.toggleAsk,
                 onToggleNotes: model.toggleNotes,
@@ -114,6 +115,14 @@ struct NotchStateContent: View {
                 strings: .english,
                 onCancel: model.cancelGate,
                 onAcknowledge: model.acknowledgeConsent
+            )
+        case .systemAudioAccess:
+            SystemAudioAccessPrompt(
+                permissions: model.permissions,
+                kind: model.session.selectedKind,
+                onEnable: model.enableSystemAudioAccess,
+                onRecordAnyway: model.recordWithoutSystemAudio,
+                onCancel: model.cancelGate
             )
         case let .alert(alert):
             alertBody(alert)

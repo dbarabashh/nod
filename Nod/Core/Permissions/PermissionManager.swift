@@ -28,6 +28,15 @@ final class PermissionManager: ObservableObject {
 
     private static let screenPromptedKey = "permissions.screenRecording.prompted"
 
+    /// The relaunch copy, here rather than in each surface: three cards now say
+    /// it, and they had already drifted into three slightly different
+    /// sentences about the same macOS behaviour.
+    static let relaunchHint = "macOS only applies Screen Recording after Nod restarts."
+
+    static func relaunchFailureMessage(_ error: String) -> String {
+        "Relaunch failed: \(error). Quit and reopen Nod yourself."
+    }
+
     init() {
         refresh()
         NotificationCenter.default.addObserver(
@@ -106,6 +115,16 @@ final class PermissionManager: ObservableObject {
     /// so this — not `requestScreenRecording()` — is the button the user
     /// presses; without the flag they grant access in System Settings, come
     /// back, and are never told a restart is what's still missing.
+    /// Whether asking again can still produce the TCC prompt.
+    ///
+    /// `CGRequestScreenCaptureAccess` shows its dialog once per install, so
+    /// once we've been refused the only honest next step is System Settings.
+    /// Both the button's label and the button's action need this answer, and
+    /// they were deciding it separately.
+    var canPromptForScreenRecording: Bool {
+        screenRecording != .denied
+    }
+
     func openScreenRecordingSettings() {
         requestedScreenRecordingThisSession = true
         SystemSettings.open(privacyPane: "Privacy_ScreenCapture")

@@ -401,6 +401,50 @@ struct NotchMicControl: View {
     }
 }
 
+/// The other half of "is this recording actually working" — the half nothing
+/// used to show.
+///
+/// `NotchMicControl` has always warned about the microphone; a system-audio
+/// failure only ever reached `Log.audio` and an analytics event, so a call
+/// recorded with the far side missing looked exactly like a healthy one.
+/// Present only while it is actually broken: a warning glyph that lives on the
+/// row permanently would stop meaning anything.
+struct NotchSystemAudioAlert: View {
+    /// The kind being recorded, not the session: a voice note captures no
+    /// system audio, so a stale failure from the previous meeting says nothing
+    /// about this one.
+    let kind: SessionKind
+    @ObservedObject var audioCapture: AudioCaptureService
+    let permissions: PermissionManager
+
+    var body: some View {
+        if let failure, kind.capturesSystem {
+            // A button only where pressing it can achieve something. The other
+            // failures are already being retried, and a control that opens a
+            // settings pane which has nothing to do with the problem is worse
+            // than no control.
+            if failure.isUserFixable {
+                NotchGlyphButton(
+                    icon: "nc-triangle-warning",
+                    help: "Nod isn't hearing the other side. Click to allow Screen Recording.",
+                    tint: Theme.Palette.warning,
+                    action: permissions.openScreenRecordingSettings
+                )
+            } else {
+                Image("nc-triangle-warning")
+                    .icon(9)
+                    .foregroundColor(Theme.Palette.warning)
+                    .notchGlyphChrome()
+                    .glyphTooltip("Nod isn't hearing the other side. Reconnecting.")
+            }
+        }
+    }
+
+    private var failure: SystemAudioFailure? {
+        audioCapture.systemAudioError
+    }
+}
+
 // MARK: - Start
 
 /// The idle opened state.

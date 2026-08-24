@@ -282,7 +282,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 consent: services.consent,
                 entitlements: services.entitlements,
                 billing: services.billing,
-                meetingStore: services.meetingStore
+                meetingStore: services.meetingStore,
+                permissions: services.permissions
             ),
             sharing: services.panelSharing.sharingType
         )
@@ -324,7 +325,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 calendar: services.calendar,
                 demoPlayback: services.demoPlayback,
                 captureSurface: services.captureSurface,
-                audioCapture: services.audioCapture
+                audioCapture: services.audioCapture,
+                permissions: services.permissions
             )
         )
     }

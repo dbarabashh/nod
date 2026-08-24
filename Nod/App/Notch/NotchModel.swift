@@ -45,6 +45,9 @@ final class NotchModel: ObservableObject {
     let updateGate: UpdateGate
     /// Owned by the allowance gate: it sells the top-up in place.
     let billing: BillingService
+    /// Owned by the system-audio gate, which reads its status and drives its
+    /// request/relaunch pair in place.
+    let permissions: PermissionManager
 
     /// Resolves `session.justEndedMeetingID` into a `RecapState` — the same
     /// generating/finished state `MeetingDetailView` already reads, just
@@ -105,6 +108,10 @@ final class NotchModel: ObservableObject {
         /// The plan is healthy but this period's hours are gone — offer a top-up
         /// or Pro, never the full paywall.
         case allowance
+        /// The recording wants system audio and macOS hasn't granted Screen
+        /// Recording. Blocking on purpose: starting anyway keeps only the
+        /// user's own microphone, and nothing on screen would have said so.
+        case systemAudioAccess
     }
 
     init(
@@ -122,6 +129,7 @@ final class NotchModel: ObservableObject {
         entitlements: EntitlementService,
         billing: BillingService,
         meetingStore: MeetingStore,
+        permissions: PermissionManager,
         defaults: UserDefaults = .standard
     ) {
         self.session = session
@@ -138,6 +146,7 @@ final class NotchModel: ObservableObject {
         self.entitlements = entitlements
         self.billing = billing
         self.meetingStore = meetingStore
+        self.permissions = permissions
         self.defaults = defaults
         askLanguageEachTime = defaults.object(forKey: MeetingLanguagePromptDefaults.defaultsKey) as? Bool
             ?? MeetingLanguagePromptDefaults.defaultValue
@@ -202,7 +211,7 @@ final class NotchModel: ObservableObject {
         // user opened the surface, so a stray click elsewhere isn't them
         // dismissing it either. Its own close glyph is the only way out.
         case .updateRequired, .dormant, .tucked, .offer, .noticed, .recap,
-             .languageConfirm, .consent, .alert, .demo: false
+             .languageConfirm, .consent, .systemAudioAccess, .alert, .demo: false
         }
     }
 
@@ -298,7 +307,7 @@ final class NotchModel: ObservableObject {
 
     func acknowledgeConsent(persistGate: Bool) {
         consent.acknowledge(persistGate: persistGate)
-        beginRecording()
+        proceedPastConsent()
     }
 
     func cancelGate() {
@@ -329,6 +338,46 @@ final class NotchModel: ObservableObject {
             enter(.consent)
             return
         }
+        proceedPastConsent()
+    }
+
+    private func proceedPastConsent() {
+        // Asked here rather than left to `AudioCaptureService`: without Screen
+        // Recording, `SCShareableContent` throws and the capture carries on
+        // with the microphone alone. That is a meeting recorded half-deaf, and
+        // the only thing that used to say so was an analytics event.
+        guard session.selectedKind.capturesSystem else {
+            beginRecording()
+            return
+        }
+        permissions.refresh()
+        guard permissions.screenRecording == .authorized else {
+            enter(.systemAudioAccess)
+            return
+        }
+        beginRecording()
+    }
+
+    /// The gate's primary action: the TCC prompt on a first ask, System
+    /// Settings once macOS has stopped showing it. Recording starts by itself
+    /// if the grant lands in this process; otherwise the card stays up and
+    /// grows its relaunch hint.
+    func enableSystemAudioAccess() {
+        guard permissions.canPromptForScreenRecording else {
+            permissions.openScreenRecordingSettings()
+            return
+        }
+        Task { @MainActor in
+            if await permissions.requestScreenRecording() == .authorized {
+                beginRecording()
+            }
+        }
+    }
+
+    /// Recording the user alone, knowingly. The capture is the same one that
+    /// used to start silently — the difference is that this time they chose it.
+    func recordWithoutSystemAudio() {
+        Log.ui.info("notch: starting capture without screen recording access")
         beginRecording()
     }
 
@@ -577,6 +626,7 @@ final class NotchModel: ObservableObject {
         case .language: return .languageConfirm
         case .consent: return .consent
         case .allowance: return .alert(.allowance)
+        case .systemAudioAccess: return .systemAudioAccess
         case nil: break
         }
 

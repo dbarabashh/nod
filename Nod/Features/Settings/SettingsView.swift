@@ -27,6 +27,7 @@ struct SettingsView: View {
     private let demoPlayback: DemoPlayback?
     private let captureSurface: CaptureSurfacePreference?
     private let audioCapture: AudioCaptureService?
+    private let permissions: PermissionManager?
 
     init(
         hotkey: HotkeyManager,
@@ -51,6 +52,7 @@ struct SettingsView: View {
         demoPlayback: DemoPlayback? = nil,
         captureSurface: CaptureSurfacePreference? = nil,
         audioCapture: AudioCaptureService? = nil,
+        permissions: PermissionManager? = nil,
         focusSubscription: Bool = false,
         focusModes: Bool = false
     ) {
@@ -76,6 +78,7 @@ struct SettingsView: View {
         self.demoPlayback = demoPlayback
         self.captureSurface = captureSurface
         self.audioCapture = audioCapture
+        self.permissions = permissions
         _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .general))
     }
 
@@ -271,7 +274,8 @@ struct SettingsView: View {
             granolaImporter: granolaImporter,
             demoPlayback: demoPlayback,
             captureSurface: captureSurface,
-            audioCapture: audioCapture
+            audioCapture: audioCapture,
+            permissions: permissions
         )
     }
 

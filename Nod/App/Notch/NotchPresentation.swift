@@ -42,6 +42,10 @@ enum NotchPresentation: Equatable {
     case languageConfirm
     /// The recording disclaimer, before the first capture ever runs.
     case consent
+    /// Screen Recording is missing and the recording about to start wants
+    /// system audio. Asked before capture rather than reported after it, which
+    /// is what a silent `systemAudioError` amounted to.
+    case systemAudioAccess
     /// Something that needs an answer and then goes away again.
     case alert(NotchAlert)
     /// A frame of the scripted demo. Routed through the same enum as everything
@@ -153,6 +157,7 @@ extension NotchPresentation {
         case .launch: "launch"
         case .languageConfirm: "languageConfirm"
         case .consent: "consent"
+        case .systemAudioAccess: "systemAudioAccess"
         case .alert(.autoEnd): "alert.autoEnd"
         case .alert(.saveFailed): "alert.saveFailed"
         case .alert(.allowance): "alert.allowance"
@@ -174,7 +179,8 @@ extension NotchPresentation {
     var isOpen: Bool {
         switch self {
         case .dormant, .tucked: false
-        case .updateRequired, .offer, .noticed, .meetingBar, .recap, .launch, .languageConfirm, .consent, .alert: true
+        case .updateRequired, .offer, .noticed, .meetingBar, .recap, .launch, .languageConfirm, .consent,
+             .systemAudioAccess, .alert: true
         case let .demo(stage): stage.form != .resting
         }
     }
@@ -196,6 +202,7 @@ extension NotchPresentation {
         case .launch: return 384
         case .languageConfirm: return 340
         case .consent: return 380
+        case .systemAudioAccess: return 400
         case .alert: return 396
         case .dormant:
             return geometry.hasCutout ? geometry.collapsedSize.width + flare : nil
@@ -229,7 +236,7 @@ extension NotchPresentation {
         case .dormant, .tucked:
             geometry.collapsedSize.height
         case .updateRequired, .offer, .noticed, .meetingBar, .recap, .launch,
-             .languageConfirm, .consent, .alert:
+             .languageConfirm, .consent, .systemAudioAccess, .alert:
             nil
         case let .demo(stage):
             stage.form == .resting ? geometry.collapsedSize.height : nil
