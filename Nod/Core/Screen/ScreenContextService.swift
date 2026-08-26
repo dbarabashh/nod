@@ -640,25 +640,6 @@ extension ScreenContextService {
         }
     }
 
-    /// Which windows held the screen, without reading a word of what was on
-    /// them.
-    ///
-    /// `activity(in:)` follows the fold with `observationBodies`, which is the
-    /// expensive half — up to 288 rows of four thousand characters each. A
-    /// caller that only needs to name the windows must not pay for it, and must
-    /// not have the user's documents cross the wire to be discarded on arrival.
-    func windowsOnScreen(in window: DateInterval) async -> ScreenActivityPlan {
-        guard isEntitled, ScreenContextDefaults.isEnabled, let supabase else { return ScreenActivityPlan(apps: []) }
-        do {
-            let index = try await observationIndex(in: window, from: supabase)
-            guard !index.isEmpty else { return ScreenActivityPlan(apps: []) }
-            return ScreenActivityDigest.plan(from: index)
-        } catch {
-            Log.screen.error("context: window lookup failed — \(error.localizedDescription)")
-            return ScreenActivityPlan(apps: [])
-        }
-    }
-
     /// Every observation in the window, text excluded.
     ///
     /// Paged rather than one big `limit`: PostgREST trims a response to its

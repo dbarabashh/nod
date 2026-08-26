@@ -86,15 +86,41 @@ struct ChatToolCall: Equatable, Identifiable, Codable {
     /// a bool still yields a usable value; anything nested is dropped, which is
     /// why the schema only advertises strings.
     var arguments: [String: String] {
-        guard let data = function.arguments.data(using: .utf8),
+        ToolArguments.decode(function.arguments)
+    }
+}
+
+/// What a model may put in a tool argument, flattened to what the wire carries.
+///
+/// One definition rather than one per caller. The chat and the meeting lookup
+/// both decode a model's argument object, and while they each had their own the
+/// two disagreed: bridging a JSON `true` through `NSNumber` yields `"1"`, which
+/// every adapter's `requireBoolean` rejects, so asking the chat for a private
+/// Slack channel quietly made a public one.
+enum ToolArguments {
+    /// A JSON object as a string — the wire format — read into strings.
+    static func decode(_ json: String) -> [String: String] {
+        guard let data = json.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return [:] }
-        return object.compactMapValues { value in
-            switch value {
-            case let string as String: string
-            case let number as NSNumber: number.stringValue
-            default: nil
-            }
+        return object.compactMapValues(scalar)
+    }
+
+    /// One value, or nil for anything a tool argument cannot carry.
+    ///
+    /// `nil` for null as well as for objects and arrays: an argument the model
+    /// chose to leave out must not reach a provider as the four-letter string,
+    /// and a nested value's description is worse than its absence.
+    static func scalar(_ value: Any) -> String? {
+        switch value {
+        case let string as String: string
+        // Asked by exact type rather than with `as? Bool`, which is true for
+        // any NSNumber representable as one — `"limit": 1` would arrive as
+        // "true". JSONSerialization gives booleans a CFBoolean and nothing
+        // else, so this is the only reading that separates the two.
+        case let number as NSNumber where CFGetTypeID(number) == CFBooleanGetTypeID(): String(number.boolValue)
+        case let number as NSNumber: number.stringValue
+        default: nil
         }
     }
 }
@@ -244,7 +270,7 @@ enum ChatTools {
     private static let driveTools: [ChatTool] = [
         ChatTool(
             provider: .googleDrive,
-            name: "google_drive_search_files",
+            name: "google-drive_search_files",
             description: "Find a document in Drive by name or contents, including shared drives. Returns links, not the documents' text.",
             parameters: ChatToolSchema(
                 properties: ["query": .init(description: "Words in the file's name or body.")],
@@ -366,9 +392,17 @@ enum ChatTools {
         ChatTool(
             provider: .github,
             name: "github_search_issues",
-            description: "Search GitHub issues and pull requests. Accepts GitHub search syntax (repo:owner/name, is:open, author:). Use before claiming something is or isn't tracked.",
+            description: """
+            Search GitHub issues and pull requests, in GitHub's own search syntax. Use before claiming \
+            something is or isn't tracked. A question about the user's own work — "my open PRs", "what am \
+            I reviewing" — must be scoped with author:@me, assignee:@me or review-requested:@me, and a \
+            question about one project with repo:owner/name. An unscoped query searches all of GitHub and \
+            comes back with strangers' work.
+            """,
             parameters: ChatToolSchema(
-                properties: ["query": .init(description: "GitHub search query, e.g. `repo:acme/api is:open auth`.")],
+                properties: [
+                    "query": .init(description: "GitHub search query, e.g. `is:pr is:open author:@me` or `repo:acme/api is:open auth`.")
+                ],
                 required: ["query"]
             ),
             mutating: false
@@ -438,7 +472,9 @@ enum ChatTools {
             name: "slack_list_channels",
             description: """
             List the Slack channels Nod can reach — every public one, plus private ones it was invited to. \
-            Use to find a channel's id before reading it; the user names channels by topic, not by id.
+            Use to find a channel's id before reading it; the user names channels by topic, not by id. \
+            This matches channel names and topics only, never message text or people — searching for what \
+            somebody said is slack_search_messages.
             """,
             parameters: ChatToolSchema(
                 properties: ["query": .init(description: "Optional words to narrow the list, e.g. pricing.")],
@@ -448,12 +484,36 @@ enum ChatTools {
         ),
         ChatTool(
             provider: .slack,
+            name: "slack_search_messages",
+            description: """
+            Search Slack for what somebody said, across every conversation at once. Use this first for any \
+            question naming a person, a day or a phrase rather than a channel — "what did Vlad send today", \
+            "did anyone mention the invoice". Covers every channel the user is in, private ones included, \
+            without needing the channel named first. Direct messages are never searched. Give whichever \
+            filters the question supports; at least one is required.
+            """,
+            parameters: ChatToolSchema(
+                properties: [
+                    "text": .init(description: "Words to look for in the message. Omit when the question is only about who or when."),
+                    "from": .init(description: "Who sent it — a first name, full name, @handle or email. Resolved against the workspace."),
+                    "in": .init(description: "Restrict to one channel by name, e.g. pricing."),
+                    "on": .init(description: "A single day, as 2026-08-26."),
+                    "after": .init(description: "Only messages after this day, as 2026-08-26."),
+                    "before": .init(description: "Only messages before this day, as 2026-08-26.")
+                ],
+                required: []
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .slack,
             name: "slack_read_channel",
             description: """
-            Read recent messages in one Slack channel. Use when the answer is what the team said there, \
-            not what a meeting recorded. Needs a channel id from slack_list_channels. Nod joins a public \
-            channel it isn't in yet, which the channel sees — so read the one that was asked about, not \
-            every one that might mention it.
+            Read recent messages in one Slack channel, newest first. Needs a channel id from \
+            slack_list_channels. Replies to the most recently discussed messages come back with them, \
+            under `thread_messages`, so a question whose answer is inside a thread is answered from this \
+            one call. Nod joins a public channel it isn't in yet, which the channel sees — so read the one \
+            that was asked about, not every one that might mention it.
             """,
             parameters: ChatToolSchema(
                 properties: [
@@ -467,7 +527,11 @@ enum ChatTools {
         ChatTool(
             provider: .slack,
             name: "slack_read_thread",
-            description: "Read one thread's replies. Use only when a message from slack_read_channel says it has replies and those replies are the answer.",
+            description: """
+            Read one thread's replies in full. slack_read_channel already returns the replies to the \
+            messages discussed most recently, so use this only for an older thread it did not carry, or \
+            when more replies are needed than it returned.
+            """,
             parameters: ChatToolSchema(
                 properties: [
                     "channel": .init(description: "Channel id the thread is in."),
@@ -479,12 +543,34 @@ enum ChatTools {
         ),
         ChatTool(
             provider: .slack,
+            name: "slack_invite_users",
+            description: """
+            Add people to a Slack channel that already exists. Needs the channel id from \
+            slack_list_channels; name the people however the request did, by first name or address, and \
+            they are matched against the workspace. A name that matches nobody fails rather than being \
+            quietly dropped.
+            """,
+            parameters: ChatToolSchema(
+                properties: [
+                    "channel_id": .init(description: "Channel id from slack_list_channels."),
+                    "invite_people": .init(
+                        description: "Comma-separated people, by first name, full name, @handle or email — whichever the request gave."
+                    )
+                ],
+                required: ["channel_id", "invite_people"]
+            ),
+            mutating: true
+        ),
+        ChatTool(
+            provider: .slack,
             name: "slack_create_channel",
             description: "Create a Slack channel and optionally invite people by email. Use when the user asks for a place to discuss something.",
             parameters: ChatToolSchema(
                 properties: [
                     "channel_name": .init(description: "Short kebab-case name, e.g. auth-migration."),
-                    "invite_emails": .init(description: "Comma-separated email addresses to add. Omit to create it empty."),
+                    "invite_people": .init(
+                        description: "Comma-separated people to add, by first name, full name, @handle or email. Omit to create it empty."
+                    ),
                     "is_private": .init(description: "\"true\" for a private channel. Defaults to public.")
                 ],
                 required: ["channel_name"]

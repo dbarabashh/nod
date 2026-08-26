@@ -148,7 +148,12 @@ struct NotchListeningBar: View {
             panel: panel,
             findings: rooms.findings,
             onSubmit: onSubmitAsk,
-            onSummarize: onSummarize
+            onSummarize: onSummarize,
+            // A listener has no lookup and so nothing that could ask to write.
+            // Answered rather than defaulted, so the day one appears here the
+            // buttons are wired rather than silently inert.
+            onApprove: {},
+            onDeny: {}
         )
     }
 }

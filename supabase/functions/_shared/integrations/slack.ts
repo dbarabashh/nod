@@ -25,7 +25,10 @@ async function call(
     connection: Connection,
     method: string,
     body: Record<string, unknown>,
-    options: { method?: "GET" | "POST"; query?: Record<string, string | undefined> } = {},
+    options: {
+        method?: "GET" | "POST";
+        query?: Record<string, string | undefined>;
+    } = {},
 ): Promise<Record<string, unknown>> {
     const payload = await proxy(connection, method, body, options) as
         | { ok?: boolean; error?: string }
@@ -33,42 +36,59 @@ async function call(
 
     if (!payload?.ok) {
         const detail = payload?.error ?? "unknown_error";
-        throw new ActionError(SLACK_ERRORS[detail] ?? "provider_error", messageFor(detail), 502, detail);
+        throw new ActionError(
+            SLACK_ERRORS[detail] ?? "provider_error",
+            messageFor(detail),
+            502,
+            detail,
+        );
     }
     return payload as Record<string, unknown>;
 }
 
 /// Slack's error strings, mapped to codes a caller can act on. Anything absent
 /// stays `provider_error`, which the review card renders as a plain failure.
-const SLACK_ERRORS: Record<string, string> = {
+export const SLACK_ERRORS: Record<string, string> = {
     name_taken: "name_taken",
     invalid_name_specials: "invalid_params",
     invalid_name_maxlength: "invalid_params",
-    missing_scope: "reauthorize",
+    // Not `reauthorize`, however much it looks like an auth problem. The
+    // connection is alive — every other call on it works — and the app simply
+    // never asked for this permission. Reconnecting runs the same app through
+    // the same consent screen and grants the same scopes, so telling somebody
+    // to reconnect sends them to do a thing that cannot work, and they come
+    // back believing the integration is broken. One person disconnected Slack
+    // over this message.
+    missing_scope: "not_permitted",
+    // Slack's word for "this endpoint needs a user token and you sent a bot
+    // one". Not a scope the user can grant by reconnecting either.
+    not_allowed_token_type: "not_permitted",
     not_authed: "reauthorize",
     invalid_auth: "reauthorize",
     account_inactive: "reauthorize",
     restricted_action: "not_permitted",
 };
 
-function messageFor(error: string): string {
+export function messageFor(error: string): string {
     switch (error) {
         case "name_taken":
             return "A Slack channel with that name already exists.";
         case "missing_scope":
+            return "Nod's Slack app has no permission for this. Reconnecting won't add it — the app's scopes have to be updated.";
         case "not_authed":
         case "invalid_auth":
         case "account_inactive":
             return "Nod's Slack access needs to be reconnected in Settings → Integrations.";
         case "restricted_action":
             return "This Slack workspace does not allow that.";
+        case "not_allowed_token_type":
+            return "Searching Slack needs a user-level connection; this workspace is connected as an app.";
         case "cant_invite_self":
             return "Nod cannot invite itself to a channel.";
         default:
             return `Slack rejected the request: ${error}.`;
     }
 }
-
 
 /// Slack channel names: lowercase, no spaces or dots, 80 characters.
 ///
@@ -85,7 +105,10 @@ function channelName(raw: string): string {
         .replace(/^-|-$/g, "")
         .slice(0, 80);
     if (!name) {
-        throw new ActionError("invalid_params", `"${raw}" leaves no usable Slack channel name.`);
+        throw new ActionError(
+            "invalid_params",
+            `"${raw}" leaves no usable Slack channel name.`,
+        );
     }
     return name;
 }
@@ -100,14 +123,20 @@ function memberIDs(params: Record<string, unknown>, key: string): string[] {
         ? raw.map((entry) => String(entry).trim()).filter(Boolean)
         : [];
     if (list.length > MAX_INVITES) {
-        throw new ActionError("invalid_params", `At most ${MAX_INVITES} people per invitation.`);
+        throw new ActionError(
+            "invalid_params",
+            `At most ${MAX_INVITES} people per invitation.`,
+        );
     }
     // Member ids, never names or addresses. Anything else reaching this point
     // means the executor failed to resolve somebody and the call must not go
     // ahead with a string Slack would either reject or, worse, match loosely.
     for (const id of list) {
         if (!/^[UW][A-Z0-9]{2,}$/.test(id)) {
-            throw new ActionError("unresolved_person", `"${id}" is not a Slack member id.`);
+            throw new ActionError(
+                "unresolved_person",
+                `"${id}" is not a Slack member id.`,
+            );
         }
     }
     return list;
@@ -117,35 +146,30 @@ function memberIDs(params: Record<string, unknown>, key: string): string[] {
 ///
 /// Two ways in, because there are two callers and they know different things. A
 /// proposal raised from a meeting carries `people` rows, already resolved to
-/// member ids by the executor. The chat carries addresses — it has the
-/// organization directory in its prompt and no way to learn a Slack id — exactly
-/// as `google-calendar.create_event` already takes addresses for its guests.
+/// member ids by the executor. The chat and the meeting box carry addresses —
+/// they have the organization directory in their prompt and no way to learn a
+/// Slack id — exactly as `google-calendar.create_event` already takes addresses
+/// for its guests.
 ///
 /// Both end in member ids before anything is invited. An address that matches
 /// nobody in the workspace is an error and not a silent omission: "add Anna,
 /// Alex and John" that quietly adds two of them is worse than one that fails.
 async function invitees(connection: Connection, params: Record<string, unknown>): Promise<string[]> {
     const ids = memberIDs(params, "invite_member_ids");
-    const emails = list(params, "invite_emails");
-    if (emails.length === 0) return ids;
-    if (ids.length + emails.length > MAX_INVITES) {
+    // `invite_emails` is the older name and still arrives from the chat.
+    const named = [...list(params, "invite_people"), ...list(params, "invite_emails")];
+    if (named.length === 0) return ids;
+    if (ids.length + named.length > MAX_INVITES) {
         throw new ActionError("invalid_params", `At most ${MAX_INVITES} people per invitation.`);
     }
 
     const resolved: string[] = [];
-    for (const email of emails) {
-        if (!email.includes("@")) {
-            throw new ActionError("invalid_params", `"${email}" is not an email address.`);
+    for (const person of named) {
+        const member = await memberFor(connection, person);
+        if (!member.id) {
+            throw new ActionError("unresolved_person", `"${person}" has no Slack account to invite.`);
         }
-        const payload = await call(connection, "users.lookupByEmail", {}, {
-            method: "GET",
-            query: { email },
-        }).catch(() => null);
-        const user = payload?.user as { id?: string } | undefined;
-        if (!user?.id) {
-            throw new ActionError("unresolved_person", `Nobody in this Slack workspace uses ${email}.`);
-        }
-        resolved.push(user.id);
+        resolved.push(member.id);
     }
     return [...new Set([...ids, ...resolved])];
 }
@@ -178,10 +202,78 @@ async function history(
     try {
         return await read();
     } catch (error) {
-        if (!(error instanceof ActionError) || error.providerCode !== "not_in_channel") throw error;
+        if (
+            !(error instanceof ActionError) || error.providerCode !== "not_in_channel"
+        ) throw error;
         await call(connection, "conversations.join", { channel });
         return await read();
     }
+}
+
+/// One message as the model reads it, wherever it came from.
+interface SlackSaid {
+    user?: string;
+    /// A search match carries a name where a history read carries only an id.
+    username?: string;
+    bot_id?: string;
+    text?: string;
+    ts?: string;
+    thread_ts?: string;
+    reply_count?: number;
+}
+
+/// Bot posts are dropped — deploy notifications are not what anybody means by
+/// "what did we say" — and so is anything with no text to read.
+export function worthReading(message: SlackSaid): boolean {
+    return !message.bot_id && (message.text ?? "").trim().length > 0;
+}
+
+/// One thread's replies, without the parent: `conversations.replies` answers
+/// with the message the thread hangs off, and it is already in the channel read
+/// that pointed here.
+async function replies(
+    connection: Connection,
+    channel: string,
+    thread: string,
+    limit: number,
+): Promise<SlackSaid[]> {
+    const payload = await call(connection, "conversations.replies", {}, {
+        method: "GET",
+        query: { channel, ts: thread, limit: String(limit) },
+    });
+    const messages = (payload.messages as SlackSaid[] | undefined) ?? [];
+    return messages.filter((message) => message.ts !== thread).filter(
+        worthReading,
+    );
+}
+
+/// How much of a conversation's replies ride along with the channel read.
+///
+/// They ride along rather than waiting to be asked for, because a caller that
+/// has to ask cannot: the thread's id only exists in the result it would be
+/// asking about, and the surfaces reading this get two calls in total. A
+/// channel whose answer is six replies deep was unanswerable until this.
+///
+/// Bounded because a busy channel is fifty messages of which twenty have
+/// replies, and reading all of them is a minute of API calls for two sentences.
+/// Newest first, since a question asked now is almost always about the newest.
+export const THREADS_PER_READ = 3;
+export const REPLIES_PER_THREAD = 20;
+
+/// One said thing as the model reads it.
+///
+/// The one projection: three copies of these three fields is how the workspace
+/// search came to spell the author fallback differently from the two handlers
+/// beside it.
+export function readable(
+    names: Record<string, string>,
+    message: SlackSaid,
+): { author: string; text: string; at: string } {
+    return {
+        author: names[message.user ?? ""] ?? message.username ?? message.user ?? "someone",
+        text: message.text ?? "",
+        at: slackTimestamp(message.ts),
+    };
 }
 
 /// Slack stamps a message with a unix time and a sequence, as `1723989000.123`.
@@ -195,6 +287,9 @@ function slackTimestamp(ts: string | undefined): string {
 /// One member of the workspace, as both readers of `users.list` need them.
 interface SlackMember {
     id: string;
+    /// The `@handle`, which is what search's `from:` modifier matches on —
+    /// distinct from every other name a member carries.
+    name?: string;
     deleted?: boolean;
     is_bot?: boolean;
     real_name?: string;
@@ -211,7 +306,9 @@ interface SlackMember {
 const rosters = new Map<string, { members: SlackMember[]; until: number }>();
 const ROSTER_TTL_MS = 60_000;
 
-async function workspaceMembers(connection: Connection): Promise<SlackMember[]> {
+async function workspaceMembers(
+    connection: Connection,
+): Promise<SlackMember[]> {
     const cached = rosters.get(connection.id);
     if (cached && cached.until > Date.now()) return cached.members;
 
@@ -239,10 +336,193 @@ async function displayNames(
     const names: Record<string, string> = {};
     for (const member of members) {
         if (!wanted.has(member.id)) continue;
-        names[member.id] = member.profile?.display_name || member.profile?.real_name || member.real_name || member.id;
+        names[member.id] = member.profile?.display_name ||
+            member.profile?.real_name || member.real_name || member.id;
     }
     return names;
 }
+
+/// A person named the way somebody says it out loud, matched to their Slack
+/// handle.
+///
+/// Search's `from:` matches on the handle, and nobody asking a question knows
+/// it — they say "Vlad", or they know the address. Both are resolved here
+/// against the roster we already fetch, so the caller never has to.
+///
+/// An unmatched name is an error rather than a dropped filter: a search for
+/// what Vlad said that quietly returns what everybody said is worse than one
+/// that says it could not find Vlad.
+async function handleFor(connection: Connection, person: string): Promise<string> {
+    const member = await memberFor(connection, person);
+    if (!member.name) {
+        throw new ActionError("unresolved_person", `"${person}" has no Slack handle to search by.`);
+    }
+    return member.name;
+}
+
+/// Cyrillic written the way a Latin workspace writes it.
+///
+/// The request is in the language the person speaks and the workspace is in
+/// English: "запроси Влада" against a profile that says "Vlad Kampov" matched
+/// nothing, so the invitation failed on a colleague who was right there. Both
+/// sides are folded through this before they are compared, so it does not
+/// matter which alphabet either was written in.
+///
+/// Ukrainian's romanisation, which differs from Russian's where they disagree
+/// (`г` is `h`, `и` is `y`); the few Russian-only letters are mapped to what
+/// they sound like rather than left to fail.
+const ROMAN: Record<string, string> = {
+    а: "a",
+    б: "b",
+    в: "v",
+    г: "h",
+    ґ: "g",
+    д: "d",
+    е: "e",
+    є: "ie",
+    ж: "zh",
+    з: "z",
+    и: "y",
+    і: "i",
+    ї: "i",
+    й: "i",
+    к: "k",
+    л: "l",
+    м: "m",
+    н: "n",
+    о: "o",
+    п: "p",
+    р: "r",
+    с: "s",
+    т: "t",
+    у: "u",
+    ф: "f",
+    х: "kh",
+    ц: "ts",
+    ч: "ch",
+    ш: "sh",
+    щ: "shch",
+    ь: "",
+    ю: "iu",
+    я: "ia",
+    ы: "y",
+    э: "e",
+    ё: "e",
+    ъ: "",
+};
+
+export function latinise(text: string): string {
+    return [...text.toLowerCase()].map((letter) => ROMAN[letter] ?? letter).join("");
+}
+
+/// The workspace member somebody means, however they said it.
+///
+/// One resolver for both callers. Search matches on a handle and an invitation
+/// takes a member id, but neither is a thing a person says: they say "Vlad", or
+/// they know the address. Resolving that here is what lets a tool schema ask
+/// for what the asker actually has.
+async function memberFor(connection: Connection, person: string): Promise<SlackMember> {
+    const wanted = person.trim().toLowerCase().replace(/^@/, "");
+    if (!wanted) throw new ActionError("invalid_params", "`from` was empty.");
+
+    const members = await workspaceMembers(connection);
+    const alive = members.filter((member) => !member.deleted && !member.is_bot);
+    const roman = latinise(wanted);
+    const names = (member: SlackMember) =>
+        [member.name, member.profile?.display_name, member.profile?.real_name, member.real_name]
+            .filter((name): name is string => Boolean(name))
+            .map((name) => name.toLowerCase());
+
+    const candidates = [
+        (member: SlackMember) => member.profile?.email?.toLowerCase() === wanted,
+        (member: SlackMember) => names(member).includes(wanted),
+        // The same names read in one alphabet, so "Влад" reaches "Vlad" and
+        // "Vlad" reaches "Влад".
+        (member: SlackMember) => names(member).map(latinise).includes(roman),
+        // Last, and only on a first name: "Vlad" should find "Vlad Petrenko",
+        // and it is worth an ambiguous match here because the alternative is
+        // telling the user their colleague does not exist.
+        (member: SlackMember) => names(member).map((name) => latinise(name).split(" ")[0]).includes(roman),
+    ];
+
+    for (const matches of candidates) {
+        const found = alive.find(matches);
+        if (found) return found;
+    }
+    throw new ActionError(
+        "unresolved_person",
+        `Nobody in this Slack workspace matches "${person}".`,
+    );
+}
+
+/// A date as Slack's search modifiers take it, or nothing.
+function searchDate(
+    params: Record<string, unknown>,
+    key: string,
+): string | null {
+    const raw = params?.[key];
+    if (typeof raw !== "string" || !raw.trim()) return null;
+    const day = raw.trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        throw new ActionError(
+            "invalid_params",
+            `\`${key}\` must be a date like 2026-08-26.`,
+        );
+    }
+    return day;
+}
+
+/// Whether a search hit came out of a direct or group message.
+///
+/// Both the flags Slack sets and the id prefix it uses, because either alone
+/// has failed somebody: a hit with no channel object at all must not be assumed
+/// to be a channel, and `D…` is what a direct message id has always looked
+/// like. Anything unrecognised counts as direct — the safe answer when the
+/// question is whether we are allowed to read something.
+export function isDirect(
+    channel: { id?: string; is_im?: boolean; is_mpim?: boolean } | undefined,
+): boolean {
+    if (!channel) return true;
+    if (channel.is_im === true || channel.is_mpim === true) return true;
+    const id = channel.id ?? "";
+    // No id and no flags identifies nothing. Dropping a channel hit loses an
+    // answer; keeping a direct one breaks a published promise, so it fails
+    // closed.
+    if (!id) return true;
+    return id.startsWith("D");
+}
+
+/// The structured filters, assembled into the one string Slack's search takes.
+///
+/// Structured on the way in and a query string only here, because a model fills
+/// named parameters reliably and invents a query DSL unreliably — and a
+/// malformed modifier does not fail, it silently searches for its own text.
+export function searchQuery(
+    params: Record<string, unknown>,
+    handle: string | null,
+): string {
+    const text = typeof params?.text === "string" ? params.text.trim() : "";
+    const channel = typeof params?.in === "string" ? params.in.trim().replace(/^#/, "") : "";
+
+    const modifiers: string[] = [];
+    if (handle) modifiers.push(`from:@${handle}`);
+    if (channel) modifiers.push(`in:#${channel}`);
+    for (const key of ["on", "after", "before"] as const) {
+        const day = searchDate(params, key);
+        if (day) modifiers.push(`${key}:${day}`);
+    }
+
+    const query = [text, ...modifiers].filter(Boolean).join(" ");
+    if (!query) {
+        throw new ActionError(
+            "invalid_params",
+            "Give at least one of `text`, `from`, `in`, `on`.",
+        );
+    }
+    return query;
+}
+
+const SEARCH_LIMIT = 30;
 
 export const SLACK_ACTIONS: ActionHandlers = {
     /// Every channel Nod can reach: all public ones, plus the private channels
@@ -300,31 +580,58 @@ export const SLACK_ACTIONS: ActionHandlers = {
     read_channel: async (connection, params) => {
         const channel = requireString(params, "channel");
         const limit = Math.min(Math.max(Number(params?.limit ?? 50), 1), 200);
-        const payload = await history(connection, channel, limit);
-        const messages = (payload.messages as {
-            type?: string;
-            subtype?: string;
-            user?: string;
-            bot_id?: string;
-            text?: string;
-            ts?: string;
-            thread_ts?: string;
-            reply_count?: number;
-        }[] | undefined) ?? [];
+        // The roster needs nothing from the messages. Fetched alongside them
+        // rather than after, so a cold cache — every fresh isolate has one —
+        // does not add its own round trip to every channel read.
+        const [payload] = await Promise.all([
+            history(connection, channel, limit),
+            workspaceMembers(connection).catch(() => [] as SlackMember[]),
+        ]);
+        const messages = (payload.messages as
+            | (SlackSaid & { type?: string; subtype?: string })[]
+            | undefined) ?? [];
 
-        const said = messages.filter((message) =>
-            message.type === "message" && !message.bot_id && !message.subtype && (message.text ?? "").trim()
-        );
-        const names = await displayNames(connection, said.map((message) => message.user));
+        const said = messages.filter((message) => message.type === "message" && !message.subtype).filter(worthReading);
 
-        return {
-            messages: said.map((message) => ({
-                author: names[message.user ?? ""] ?? message.user ?? "someone",
-                text: message.text ?? "",
-                at: slackTimestamp(message.ts),
-                thread: message.thread_ts && message.reply_count ? message.thread_ts : undefined,
-                replies: message.reply_count ?? 0,
+        // The newest conversations, read in one go rather than one after
+        // another: they have nothing to say to each other, and the surfaces
+        // waiting on this are watching a spinner.
+        const discussed = said.filter((message) => message.thread_ts && (message.reply_count ?? 0) > 0)
+            .slice(0, THREADS_PER_READ);
+        const threads = await Promise.all(
+            discussed.map(async (message) => ({
+                ts: message.ts,
+                // A thread that cannot be read is not a channel read that
+                // failed. The messages above it are still the answer.
+                replies: await replies(
+                    connection,
+                    channel,
+                    message.thread_ts ?? "",
+                    REPLIES_PER_THREAD,
+                )
+                    .catch(() => [] as SlackSaid[]),
             })),
+        );
+        const byParent = new Map(
+            threads.map((thread) => [thread.ts, thread.replies]),
+        );
+
+        const names = await displayNames(
+            connection,
+            [...said, ...threads.flatMap((thread) => thread.replies)].map((message) => message.user),
+        );
+        return {
+            messages: said.map((message) => {
+                const replied = byParent.get(message.ts) ?? [];
+                return {
+                    ...readable(names, message),
+                    thread: message.thread_ts && message.reply_count ? message.thread_ts : undefined,
+                    replies: message.reply_count ?? 0,
+                    // Absent rather than empty when there is nothing: an empty
+                    // array reads as "the thread was read and was empty".
+                    thread_messages: replied.length > 0 ? replied.map((reply) => readable(names, reply)) : undefined,
+                };
+            }),
         };
     },
 
@@ -333,25 +640,71 @@ export const SLACK_ACTIONS: ActionHandlers = {
     read_thread: async (connection, params) => {
         const channel = requireString(params, "channel");
         const thread = requireString(params, "thread");
-        const payload = await call(connection, "conversations.replies", {}, {
-            method: "GET",
-            query: { channel, ts: thread, limit: "100" },
-        });
-        const messages = (payload.messages as {
-            user?: string;
-            bot_id?: string;
-            text?: string;
-            ts?: string;
-        }[] | undefined) ?? [];
+        const said = await replies(connection, channel, thread, 100);
+        const names = await displayNames(
+            connection,
+            said.map((message) => message.user),
+        );
 
-        const said = messages.filter((message) => !message.bot_id && (message.text ?? "").trim());
-        const names = await displayNames(connection, said.map((message) => message.user));
+        return { messages: said.map((message) => readable(names, message)) };
+    },
+
+    /// What was said anywhere in the workspace, by whoever, on whatever day.
+    ///
+    /// One call rather than a walk through channels: "did Vlad send anything
+    /// today" has no channel in it, and listing every conversation to read each
+    /// one would spend a question's worth of latency to answer half of it.
+    ///
+    /// Slack's search reaches everything the connected account can see, which
+    /// includes their direct messages. Those are dropped here, by what the
+    /// conversation *is* rather than by what the query asked for: `privacy.md`
+    /// § 3.16 promises DMs are never read, and a promise kept by phrasing the
+    /// query carefully is not kept at all. This filter is the enforcement.
+    search_messages: async (connection, params) => {
+        // Validated before the roster is touched: resolving a name downloads
+        // up to 500 members, and a call with no filters at all — which is what
+        // an under-constrained model produces — is rejected either way.
+        searchQuery(params, null);
+        const person = typeof params?.from === "string" ? params.from.trim() : "";
+        const query = searchQuery(
+            params,
+            person ? await handleFor(connection, person) : null,
+        );
+
+        const payload = await call(connection, "search.messages", {}, {
+            method: "GET",
+            query: {
+                query,
+                count: String(SEARCH_LIMIT),
+                sort: "timestamp",
+                sort_dir: "desc",
+            },
+        });
+        const matches = ((payload.messages as { matches?: unknown[] } | undefined)?.matches ??
+            []) as (SlackSaid & {
+                channel?: {
+                    id?: string;
+                    name?: string;
+                    is_im?: boolean;
+                    is_mpim?: boolean;
+                };
+                permalink?: string;
+            })[];
+
+        // Same filter the channel read uses: a bot post dropped from one and
+        // kept by the other is two answers to "what did we say".
+        const said = matches.filter(worthReading).filter((match) => !isDirect(match.channel));
+        const names = await displayNames(
+            connection,
+            said.map((match) => match.user),
+        );
 
         return {
-            messages: said.map((message) => ({
-                author: names[message.user ?? ""] ?? message.user ?? "someone",
-                text: message.text ?? "",
-                at: slackTimestamp(message.ts),
+            query,
+            messages: said.map((match) => ({
+                ...readable(names, match),
+                channel: match.channel?.name ?? match.channel?.id ?? "",
+                url: match.permalink ?? "",
             })),
         };
     },
@@ -380,20 +733,27 @@ export const SLACK_ACTIONS: ActionHandlers = {
     /// week later — the quieter default is the one that loses information.
     create_channel: async (connection, params) => {
         const name = channelName(requireString(params, "channel_name"));
-        const isPrivate = params.is_private === true || params.is_private === "true";
+        const isPrivate = params.is_private === true ||
+            params.is_private === "true";
 
         const payload = await call(connection, "conversations.create", {
             name,
             is_private: isPrivate,
         });
-        const channel = payload.channel as { id?: string; name?: string } | undefined;
+        const channel = payload.channel as
+            | { id?: string; name?: string }
+            | undefined;
         if (!channel?.id) {
-            throw new ActionError("provider_error", "Slack did not create the channel.", 502);
+            throw new ActionError(
+                "provider_error",
+                "Slack did not create the channel.",
+                502,
+            );
         }
 
         // Invitations ride along when the proposal carried them, so "create a
         // channel and add the three of us" is one approval rather than two.
-        const invites = memberIDs(params, "invite_member_ids");
+        const invites = await invitees(connection, params);
         if (invites.length > 0) {
             await call(connection, "conversations.invite", {
                 channel: channel.id,
@@ -415,14 +775,22 @@ export const SLACK_ACTIONS: ActionHandlers = {
         };
     },
 
+    /// Adds people to a channel that already exists.
+    ///
+    /// Takes addresses as well as member ids, for the reason `create_channel`
+    /// does: whoever asks knows an email, and a Slack id is not something a
+    /// person says out loud.
     invite_users: async (connection, params) => {
         const channel = requireString(params, "channel_id");
-        const users = memberIDs(params, "invite_member_ids");
+        const users = await invitees(connection, params);
         if (users.length === 0) {
-            throw new ActionError("invalid_params", "`invite_member_ids` is required.");
+            throw new ActionError("invalid_params", "Give at least one person to invite.");
         }
 
-        await call(connection, "conversations.invite", { channel, users: users.join(",") });
+        await call(connection, "conversations.invite", {
+            channel,
+            users: users.join(","),
+        });
         return { key: channel, invited: users.length };
     },
 };

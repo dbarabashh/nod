@@ -292,7 +292,12 @@ final class MeetingSession: ObservableObject {
 
     /// Builds the answering side once the session can say which earlier
     /// sessions count and how to name them.
-    private let makeLookup: (@escaping () -> LookupScope, @escaping (UUID) -> String?) -> MeetingLookup
+    private let makeLookup: (
+        ChatToolGate,
+        @escaping () -> RoomComposition,
+        @escaping () -> LookupScope,
+        @escaping (UUID) -> String?
+    ) -> MeetingLookup
     /// Which earlier sessions "what did we say about this" should search, given
     /// the recording in progress and the calendar entry behind it.
     private let scope: (UUID?, String?) -> LookupScope
@@ -322,7 +327,12 @@ final class MeetingSession: ObservableObject {
         analytics: ProductAnalytics,
         proposalRaiser: ProposalRaiser,
         rooms: RoomListenerService,
-        lookup: @escaping (@escaping () -> LookupScope, @escaping (UUID) -> String?) -> MeetingLookup,
+        lookup: @escaping (
+            ChatToolGate,
+            @escaping () -> RoomComposition,
+            @escaping () -> LookupScope,
+            @escaping (UUID) -> String?
+        ) -> MeetingLookup,
         colleagues: @escaping () -> Set<String>,
         scope: @escaping (UUID?, String?) -> LookupScope
     ) {
@@ -627,20 +637,10 @@ final class MeetingSession: ObservableObject {
             guard rooms?.listeners.isEmpty == false else { return }
             Task { await meetingStore?.mirrorLiveFindings(findings) }
         }
-        analyst.meetingLookup = makeLookup(
-            { [weak self] in
-                guard let self else { return .everything }
-                return scope(recordingDraft?.id, recordingDraft?.icalUID)
-            },
-            { [weak meetingStore] id in
-                guard let meeting = meetingStore?.meetings.first(where: { $0.id == id }) else { return nil }
-                return meeting.displayTitle(dateFormatter: Meeting.listDateFormatter)
-            }
-        )
         // Read fresh on every request. `RoomComposition` treats every way of
         // not knowing as an outsider being present, so an unsynced calendar or
         // an unloaded directory closes the gate rather than opening it.
-        analyst.roomComposition = { [weak self] in
+        let room: () -> RoomComposition = { [weak self] in
             guard let self else { return .outsidersPresent }
             let now = Date()
             return RoomComposition.of(
@@ -653,9 +653,21 @@ final class MeetingSession: ObservableObject {
                 hasRemoteVoice: store.entries.contains { $0.source == .them }
             )
         }
+        analyst.roomComposition = room
+        analyst.meetingLookup = makeLookup(
+            analyst.askToolGate,
+            room,
+            { [weak self] in
+                guard let self else { return .everything }
+                return scope(recordingDraft?.id, recordingDraft?.icalUID)
+            },
+            { [weak meetingStore] id in
+                guard let meeting = meetingStore?.meetings.first(where: { $0.id == id }) else { return nil }
+                return meeting.displayTitle(dateFormatter: Meeting.listDateFormatter)
+            }
+        )
         if selectedKind.extractsActionItems {
             analyst.start()
-            analyst.startListeningForWake()
         }
         knowledgeStore.isCapturing = true
         elapsed = 0
@@ -860,7 +872,6 @@ final class MeetingSession: ObservableObject {
         // Stopped, not reset: the finalize still has to write down what it
         // found, and that runs after the surface is back at rest.
         analyst.stop()
-        analyst.stopListeningForWake()
         audioTeardown = Task { await audioCapture.stop() }
         let meetingLeaseID = detachActiveMeetingLease()
         streamTask?.cancel()
@@ -1355,13 +1366,11 @@ final class MeetingSession: ObservableObject {
             audioCapture.pause()
             // A paused recording hears nothing, so it must cost nothing.
             analyst.stop()
-            analyst.stopListeningForWake()
         case .paused:
             Log.ui.info("Resume")
             meeting = .recording
             if selectedKind.extractsActionItems {
                 analyst.start()
-                analyst.startListeningForWake()
             }
             // Measure post-resume silence from now, not from the last pre-pause
             // speech, so resuming doesn't instantly trip the inactivity prompt.

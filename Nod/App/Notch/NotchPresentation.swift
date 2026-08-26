@@ -32,7 +32,6 @@ enum NotchPresentation: Equatable {
     /// Capturing, and somebody in the room asked Nod something out loud. The
     /// only state here the user requested, which is why it outranks both of the
     /// ones above it: they interrupt, this one answers.
-    case lookedUp(LiveLookup)
     /// The meeting bar, tucked away into the hardware cut-out — a pulse and the
     /// elapsed clock, nothing else. Only reachable on a notched display, and
     /// only by the user's own swipe-up over the notch (`NotchModel`'s gesture
@@ -132,6 +131,13 @@ struct MeetingBarPanel: Equatable {
     }
 
     var expansion: Expansion = .passive
+    /// A write the Ask box wants to make, waiting on the person.
+    ///
+    /// On the panel rather than reached for by the view, for the same reason
+    /// the findings are: the bar is drawn from one value, and a card that
+    /// appeared from somewhere else would be the one piece of it a snapshot
+    /// could not reproduce.
+    var approval: ChatToolGate.Pending?
     /// Typing → asking → answered, kept across every expansion change until the
     /// next recording starts.
     var ask: AskPhase = .composing
@@ -155,6 +161,14 @@ struct MeetingBarPanel: Equatable {
     /// happens to be showing meanwhile.
     var isAnswering: Bool {
         ask == .loading
+    }
+
+    /// A question waiting on the person rather than on a product. Worth telling
+    /// apart from `isAnswering`: one is a spinner, the other is a decision
+    /// nobody has made yet, and folding the panel away while it stands leaves
+    /// the meeting's work unfinished.
+    var isAwaitingApproval: Bool {
+        approval != nil
     }
 
     /// A question is on its way. Nothing has been missed yet.
@@ -259,7 +273,6 @@ extension NotchPresentation {
         case let .liveRoom(room, _): "liveRoom.\(room.hostName)"
         case let .noticed(finding): "noticed.\(finding.id.uuidString)"
         case let .recalled(recall): "recalled.\(recall.id.uuidString)"
-        case let .lookedUp(lookup): "lookedUp.\(lookup.id.uuidString)"
         case let .tucked(role): "tucked.\(role.contentID)"
         case let .meetingBar(role, panel): "meetingBar.\(role.contentID).\(panel.contentID)"
         case let .recap(state): "recap.\(state.contentID)"
@@ -288,7 +301,7 @@ extension NotchPresentation {
     var isOpen: Bool {
         switch self {
         case .dormant, .tucked: false
-        case .updateRequired, .offer, .liveRoom, .noticed, .recalled, .lookedUp, .meetingBar, .recap, .launch,
+        case .updateRequired, .offer, .liveRoom, .noticed, .recalled, .meetingBar, .recap, .launch,
              .languageConfirm, .consent, .systemAudioAccess, .alert: true
         case let .demo(stage): stage.form != .resting
         }
@@ -307,7 +320,7 @@ extension NotchPresentation {
         case .updateRequired: return 400
         case .offer: return 384
         case .liveRoom: return 396
-        case .noticed, .recalled, .lookedUp, .recap: return 360
+        case .noticed, .recalled, .recap: return 360
         case let .meetingBar(_, panel): return panel.surfaceWidth
         case .launch: return 384
         case .languageConfirm: return 340
@@ -345,7 +358,7 @@ extension NotchPresentation {
         switch self {
         case .dormant, .tucked:
             geometry.collapsedSize.height
-        case .updateRequired, .offer, .liveRoom, .noticed, .recalled, .lookedUp, .meetingBar, .recap, .launch,
+        case .updateRequired, .offer, .liveRoom, .noticed, .recalled, .meetingBar, .recap, .launch,
              .languageConfirm, .consent, .systemAudioAccess, .alert:
             nil
         case let .demo(stage):

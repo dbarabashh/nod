@@ -92,6 +92,8 @@ struct MeetingBarExpansion: View {
     let findings: [LiveFinding]
     let onSubmit: (String) -> Void
     let onSummarize: () -> Void
+    let onApprove: () -> Void
+    let onDeny: () -> Void
 
     var body: some View {
         switch panel.expansion {
@@ -100,7 +102,14 @@ struct MeetingBarExpansion: View {
         case .notes:
             MeetingNotesPanel(findings: findings)
         case .ask:
-            MeetingAskPanel(phase: panel.ask, onSubmit: onSubmit, onSummarize: onSummarize)
+            MeetingAskPanel(
+                phase: panel.ask,
+                approval: panel.approval,
+                onSubmit: onSubmit,
+                onSummarize: onSummarize,
+                onApprove: onApprove,
+                onDeny: onDeny
+            )
         }
     }
 }

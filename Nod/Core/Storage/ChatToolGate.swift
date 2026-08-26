@@ -71,9 +71,28 @@ final class ChatToolGate: ObservableObject {
         onApproved: () -> Void = {}
     ) async -> Outcome {
         Log.ui.info("awaiting approval for \(calls.count) \(provider.rawValue) call(s)")
+        // A question asked while an older card still stands supersedes it. The
+        // slot holds one continuation: overwriting it used to strand the first
+        // task suspended for the rest of the meeting, because cancelling that
+        // task does not resume a `withCheckedContinuation`.
+        cancelPending()
         pending = Pending(provider: provider, calls: calls, tools: tools)
-        let allowed = await withCheckedContinuation { continuation in
-            approval = continuation
+        let allowed = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                // Cancelled before the continuation was stored — resume it at
+                // once rather than leave a task waiting on a card nobody will
+                // ever see.
+                if Task.isCancelled {
+                    continuation.resume(returning: false)
+                } else {
+                    approval = continuation
+                }
+            }
+        } onCancel: {
+            // Whoever asked has gone. A card with nobody behind it is not a
+            // question, and leaving it standing is how a write ends up waiting
+            // on an answer that can no longer arrive.
+            Task { @MainActor [weak self] in self?.cancelPending() }
         }
         pending = nil
 

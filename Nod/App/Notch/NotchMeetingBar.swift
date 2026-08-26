@@ -33,6 +33,8 @@ struct NotchMeetingBar: View {
     let onToggleNotes: () -> Void
     let onSubmitAsk: (String) -> Void
     let onSummarize: () -> Void
+    let onApproveAsk: () -> Void
+    let onDenyAsk: () -> Void
     let onOpenLibrary: () -> Void
     /// The click-driven way to fold the bar away. The trackpad swipe over the
     /// cut-out is the same action, but it only exists on a notched display, so
@@ -195,7 +197,9 @@ struct NotchMeetingBar: View {
             panel: panel,
             findings: session.analyst.findings,
             onSubmit: onSubmitAsk,
-            onSummarize: onSummarize
+            onSummarize: onSummarize,
+            onApprove: onApproveAsk,
+            onDeny: onDenyAsk
         )
     }
 }
@@ -475,8 +479,13 @@ struct MeetingNotesPanel: View {
 /// conversation rather than a result screen you have to back out of.
 struct MeetingAskPanel: View {
     let phase: AskPhase
+    /// A write waiting on the person. Shown instead of the spinner: the
+    /// question is not "still thinking", it is theirs to answer.
+    var approval: ChatToolGate.Pending?
     let onSubmit: (String) -> Void
     let onSummarize: () -> Void
+    let onApprove: () -> Void
+    let onDeny: () -> Void
 
     @State private var draft = ""
     @FocusState private var focused: Bool
@@ -485,7 +494,7 @@ struct MeetingAskPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             result
             inputRow
-            if case .composing = phase {
+            if case .composing = phase, approval == nil {
                 suggestions
             }
         }
@@ -494,6 +503,15 @@ struct MeetingAskPanel: View {
 
     @ViewBuilder
     private var result: some View {
+        if let approval {
+            ToolApprovalCard(approval: approval, onApprove: onApprove, onDeny: onDeny)
+        } else {
+            answerSoFar
+        }
+    }
+
+    @ViewBuilder
+    private var answerSoFar: some View {
         switch phase {
         case .composing:
             EmptyView()

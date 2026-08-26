@@ -33,31 +33,12 @@ struct MainWindowView: View {
     /// Active project filter on the sessions list; nil shows every session.
     @State private var filterLabelID: UUID?
     @State private var undoToastID: UUID = .init()
-    /// What's open *over* the current surface. One value rather than a pair of
-    /// optionals: exclusivity is then a property of the type, instead of a
-    /// `= nil` that every navigation path has to remember.
-    @State private var focus: Focus?
+    /// The session open *over* the current surface. The surface underneath is
+    /// remembered, so closing returns to it.
+    @State private var focus: Meeting?
     @State private var confirmingClearChat = false
     @StateObject private var contextWidth = ContextColumnWidth()
     @State private var windowWidth: CGFloat = 1180
-
-    /// A session or a single task, opened on top of whichever surface is
-    /// active. The surface underneath is remembered, so closing returns to it.
-    private enum Focus: Equatable {
-        case session(Meeting)
-        case action(TodayDigest.OpenAction)
-
-        var session: Meeting? {
-            if case let .session(meeting) = self { meeting } else { nil }
-        }
-
-        var id: UUID {
-            switch self {
-            case let .session(meeting): meeting.id
-            case let .action(action): action.id
-            }
-        }
-    }
 
     /// What the centre column is showing when nothing is focused over it.
     enum Surface: String {
@@ -70,12 +51,11 @@ struct MainWindowView: View {
         case trash
         case actionItems
         case settings
-        case today
         case demoDailyModes
     }
 
     var body: some View {
-        let contextW = contextWidth.width(for: openSession?.id, totalWidth: windowWidth)
+        let contextW = contextWidth.width(for: focus?.id, totalWidth: windowWidth)
         ZStack(alignment: .leading) {
             HStack(spacing: 0) {
                 HomeSidebar(
@@ -100,10 +80,10 @@ struct MainWindowView: View {
                     committedWidth: contextW,
                     windowWidth: windowWidth,
                     onCommit: { newWidth in
-                        contextWidth.setWidth(newWidth, for: openSession?.id, totalWidth: windowWidth)
+                        contextWidth.setWidth(newWidth, for: focus?.id, totalWidth: windowWidth)
                         contextWidth.commit()
                     },
-                    onReset: { contextWidth.resetWidth(for: openSession?.id) }
+                    onReset: { contextWidth.resetWidth(for: focus?.id) }
                 )
             }
         }
@@ -182,11 +162,7 @@ struct MainWindowView: View {
     /// whatever you were doing — a memory workspace with a permanent list of
     /// outstanding work down its side is an inbox wearing a chat.
     private var showsContextColumn: Bool {
-        openSession != nil
-    }
-
-    private var openSession: Meeting? {
-        focus?.session
+        focus != nil
     }
 
     // MARK: - Centre column
@@ -195,22 +171,12 @@ struct MainWindowView: View {
     /// reading, where the detail replaces the list rather than floating over it.
     private var centreColumn: some View {
         ZStack(alignment: .bottom) {
-            switch focus {
-            case let .session(meeting):
+            if let meeting = focus {
                 MeetingDetailView(meeting: meeting, onClose: closeFocus)
                     .id(meeting.id)
                     .transition(.opacity)
                     .onExitCommand(perform: closeFocus)
-            case let .action(action):
-                ActionDetailView(
-                    item: action.item,
-                    meeting: action.meeting,
-                    onClose: closeFocus,
-                    onOpenSession: openMeeting
-                )
-                .id(action.id)
-                .transition(.opacity)
-            case nil:
+            } else {
                 surfaceContent
             }
             if let pending = meetingStore.pendingUndo {
@@ -237,7 +203,7 @@ struct MainWindowView: View {
             SessionsListView(
                 mode: surface == .trash ? .trash : .all,
                 filterLabelID: $filterLabelID,
-                onOpen: { focus = .session($0) },
+                onOpen: { focus = $0 },
                 onStartCapture: capture,
                 onAskAboutProject: askAboutProject,
                 panelShortcut: hotkeys.combo(for: .togglePanel).displayString
@@ -252,9 +218,6 @@ struct MainWindowView: View {
             .transition(.opacity)
         case .settings:
             settings.transition(.opacity)
-        case .today:
-            DailyBriefingView(onOpenMeeting: openMeeting, onOpenActions: { show(.actionItems) })
-                .transition(.opacity)
         case .demoDailyModes:
             // Only reachable from the sidebar row HomeSidebar shows while a
             // scenario is armed, so `armed` is never nil here in practice.
@@ -278,7 +241,7 @@ struct MainWindowView: View {
     /// The open session's chat, beside the session itself — the question you'd
     /// ask about what's on screen, in the same place every time.
     @ViewBuilder private func contextColumn(width: CGFloat) -> some View {
-        if let meeting = openSession {
+        if let meeting = focus {
             VStack(spacing: 0) {
                 sessionChatHeader(meeting)
                 Divider().overlay(Theme.Palette.border)
@@ -357,7 +320,7 @@ struct MainWindowView: View {
     /// follows it to that session's chat.
     private func openMeeting(_ id: UUID) {
         guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else { return }
-        focus = .session(meeting)
+        focus = meeting
     }
 
     private func closeFocus() {
@@ -414,7 +377,7 @@ struct MainWindowView: View {
             Log.ui.info("MainWindowView.focus skipped — meeting not in cache: \(id.uuidString)")
             return
         }
-        focus = .session(meeting)
+        focus = meeting
     }
 }
 

@@ -177,6 +177,21 @@ export interface ProxyOptions {
 /// `path` stays provider-relative, as it was under the previous broker: the base
 /// comes from `APPS` rather than from a dashboard, so an adapter reads the same
 /// whichever broker is underneath.
+/// The workspace's own OAuth client for one provider, when there is one.
+///
+/// Per-provider and read at call time rather than a table in code, because
+/// which providers we bring our own client for is an operational fact — it
+/// changes when somebody creates a client in Connect, not when we ship. Absent
+/// means Pipedream's own client, which is what every connection has used so
+/// far.
+///
+/// Named `PIPEDREAM_OAUTH_APP_<PROVIDER>`, e.g. `PIPEDREAM_OAUTH_APP_SLACK`,
+/// `PIPEDREAM_OAUTH_APP_GOOGLE_CALENDAR`.
+export function customOAuthAppID(provider: string): string | null {
+    const key = `PIPEDREAM_OAUTH_APP_${provider.toUpperCase().replace(/-/g, "_")}`;
+    return Deno.env.get(key)?.trim() || null;
+}
+
 export async function proxy(
     connection: Connection,
     path: string,

@@ -103,6 +103,40 @@ enum PromptLibrary {
         sessionDateFormatter.string(from: date)
     }
 
+    /// An instant in the shape a tool argument takes it, in the user's own
+    /// offset — the same thing the calendar tool's schema shows as an example.
+    static func rfc3339String(_ date: Date) -> String {
+        rfc3339Formatter.string(from: date)
+    }
+
+    private static let rfc3339Formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssXXXXX"
+        return formatter
+    }()
+
+    /// What "now" is, for a call that has to turn a spoken date into a tool
+    /// argument.
+    ///
+    /// Its own block rather than one line, because a model with no clock does
+    /// not decline to fill in `starts_at` — it writes a plausible date, gets an
+    /// empty result for a day nobody asked about, and reports that nothing was
+    /// scheduled. Three different wrong months came back this way before this
+    /// existed, each read out as "there were no meetings".
+    static func nowBlock(_ now: Date = Date()) -> String {
+        let calendar = Calendar.current
+        let midnight = calendar.startOfDay(for: now)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: midnight) ?? midnight
+        return """
+        [NOW]
+        - It is \(localTimeString(now)) for the user, and today is \(sessionDateString(now)).
+        - As a tool argument, this instant is \(rfc3339String(now)).
+        - Today runs from \(rfc3339String(midnight)) to \(rfc3339String(tomorrow)). Count every other date the user names from there.
+        - Never write a date you did not derive from those lines. A recalled date lands on a day nobody asked about, and the empty result reads as "nothing was scheduled".
+        """
+    }
+
     private static let sessionDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

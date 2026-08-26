@@ -12,7 +12,8 @@
   },
   "oauth_config": {
     "redirect_urls": [
-      "https://api.pipedream.com/connect/oauth/callback"
+      "https://api.pipedream.com/connect/oauth/callback",
+      "https://api.pipedream.com/connect/oauth/oa_mLiBb2/callback"
     ],
     "scopes": {
       "bot": [
@@ -27,6 +28,13 @@
         "groups:write.invites",
         "users:read",
         "users:read.email"
+      ],
+      "user": [
+        "channels:read",
+        "channels:history",
+        "groups:read",
+        "groups:history",
+        "search:read"
       ]
     }
   },

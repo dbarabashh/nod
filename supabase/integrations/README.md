@@ -17,6 +17,13 @@ the OAuth dance and holds the credentials, which is why the redirect url is
 theirs: Slack refuses to return anybody to an address that isn't listed in the
 manifest.
 
+**A custom OAuth client has its own callback, keyed by the client id** —
+`https://api.pipedream.com/connect/oauth/<oauthAppId>/callback`, not the shared
+one. Both are listed: the shared address is what Pipedream's own client returns
+to, and dropping it would break every connection made before we brought our own.
+Creating a second custom client means adding its callback here too, or the
+consent screen ends at "redirect_uri did not match any configured URIs".
+
 **This app is not the one people currently authorize.** Connect defaults to
 Pipedream's own OAuth client for every app in its catalogue, and that is what
 every live connection has used so far — `oauth_app_id` is null on all of them.
@@ -27,9 +34,13 @@ The manifest is the ceiling we would ask for; right now nothing asks it.
 The manifest is the exact shape Slack accepts — no comments, no extra keys, or
 `apps.manifest.update` rejects the whole file with `invalid_manifest`.
 
-**Applying a change.** An app configuration token comes from
+**Applying a change.** Either edit the scopes under *OAuth & Permissions* in
+the Slack app and mirror them into this file, or push this file with the API.
+The API needs an app configuration token from
 [api.slack.com/apps](https://api.slack.com/apps) → *Your App Configuration
-Tokens* → Generate. It expires in 12 hours.
+Tokens* → Generate — a 12-hour key for `apps.manifest.*` and nothing else. It is
+not stored and not reused, so every change needs a fresh one; that is the only
+reason it keeps coming up.
 
 ```sh
 curl -s https://slack.com/api/apps.manifest.update \
@@ -50,21 +61,44 @@ steps are fine), and it is per-app work rather than something the catalogue
 gives us. Worth doing for the products we adapt and name in `privacy.md`; not
 worth doing for three thousand.
 
-Create one at Connect → OAuth Clients → New OAuth Client, or with
-`pd oauth-client create`. Changing scopes afterwards makes everyone reconnect.
+Create one in the Connect UI, on the app itself: **Connect → Apps → Slack →
+Custom OAuth client**, where the Slack app's `client_id` and `client_secret` go.
+There is no CLI for this — `pd oauth-client create` is a different thing
+entirely: it mints credentials for calling *Pipedream's own* API, which is what
+`PIPEDREAM_CLIENT_ID` / `PIPEDREAM_CLIENT_SECRET` hold, and it takes only a
+name. Changing scopes afterwards makes everyone reconnect.
 
 **What the scopes are for.**
 
 | Scopes | Why |
 |---|---|
-| `channels:read`, `channels:history`, `channels:join`, `groups:read`, `groups:history` | Reading channels — `list_channels`, `read_channel`, `read_thread` in `functions/_shared/integrations/slack.ts`. `channels:join` is what lets Nod read a public channel nobody invited it to: Slack gives a bot no other way in, so the choice is between joining — which the channel sees — and not answering |
+| **bot** `channels:read`, `channels:history`, `channels:join`, `groups:read`, `groups:history` | Reading channels — `list_channels`, `read_channel`, `read_thread` in `functions/_shared/integrations/slack.ts`. `channels:join` is what lets Nod read a public channel nobody invited it to: Slack gives a bot no other way in, so the choice is between joining — which the channel sees — and not answering |
+| **user** `channels:read`, `channels:history`, `groups:read`, `groups:history` | The same reads, as the person who connected. The bot scopes above reach a private channel only where somebody invited the bot, which is not where the user's own work happens — "what did we decide in the private channel I'm in" was unanswerable with bot scopes alone, whatever the question |
+| **user** `search:read` | `search_messages`. A question naming a person or a day and no channel — "what did Vlad send today" — has nowhere to start otherwise, and walking every channel to answer it spends the whole latency budget. Slack offers this endpoint to user tokens only |
 | `channels:manage`, `channels:write.invites`, `groups:write`, `groups:write.invites` | Opening a channel for what a meeting decided, and adding the people in it |
 | `users:read`, `users:read.email` | Matching a colleague to their Slack account by address, for the organization directory |
 
-Deliberately absent: `im:history`, `mpim:history` (direct messages), `files:*`,
-`users:write`, `team.billing:read`, and `incoming-webhook` — the last one is
-what made Slack demand a channel during installation for a webhook Nod never
-uses.
+Deliberately absent: `im:read`, `im:history`, `mpim:read`, `mpim:history`
+(direct messages), `files:*`, `users:write`, `team.billing:read`, and
+`incoming-webhook` — the last one is what made Slack demand a channel during
+installation for a webhook Nod never uses.
+
+**The user scopes need a custom OAuth client to be asked for at all.** Connect
+runs Pipedream's own client by default, so the consent screen asks Pipedream's
+scopes and this table is a ceiling nobody reaches — `search_messages` fails with
+`missing_scope` on a connection that is otherwise healthy. Updating the manifest
+does not change that on its own; the custom client above is what makes these the
+scopes a person is actually asked for. Whether Connect's proxy then presents the
+**user** token rather than the bot one is unverified: if it does not,
+`search.messages` answers `not_allowed_token_type` even with the scope granted.
+
+**`search:read` is the one scope wider than what it is used for.** Slack does
+not divide search by conversation type, so a token that can search channels can
+search direct messages too. `privacy.md` § 3.16 promises those are never read,
+and with this scope granted that promise can no longer rest on the scope list —
+it rests on `isDirect()` in `slack.ts`, which drops every direct and group
+match, and treats a conversation it cannot positively identify as a channel as
+direct. Anything that weakens that function breaks a published claim.
 
 **Scopes are declared twice.** Here, which is the ceiling of what the app may
 ever ask for, and in whichever OAuth client actually runs the flow, which is

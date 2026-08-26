@@ -1,13 +1,24 @@
 import Foundation
 
-/// Answers one spoken request out of the tools the user has connected.
+/// Answers one request out of the tools the user has connected, and carries out
+/// the ones they confirm.
 ///
-/// Read-only, and that is a property of this type rather than of a policy
-/// somewhere: it filters to `!tool.mutating` before the model ever sees the
-/// catalogue, so there is no prompt to talk round and no round trip that could
-/// write. Every call the chat makes is confirmed by hand first; this one is not
-/// confirmed by anybody, and the only reason that is safe is that it cannot
-/// change anything.
+/// Two kinds of call, told apart by `ChatTool.mutating` and never by a prompt:
+///
+/// A **read** runs unasked, because it changes nothing and a question typed
+/// mid-meeting cannot wait on a dialog. A **write** runs only through
+/// `ChatToolGate` — the same gate both chats use, showing the same card with
+/// the arguments on it. Nothing reaches a connected product from here without
+/// somebody having read what it would do and said yes.
+///
+/// The follow-up call is offered the same catalogue as the first, and gets the
+/// same treatment: a write there raises its own card. It was read-only at
+/// first, on the reasoning that one confirmation must not license a second call
+/// nobody saw — which confused "a second call" with "an *unconfirmed* second
+/// call". Nothing here is unconfirmed, and the restriction made a whole class
+/// of request unanswerable: "invite Vlad to that channel" spends its one
+/// routing choice finding the channel's id, and could then never invite
+/// anybody.
 ///
 /// Its own type rather than more of `LiveMeetingAnalyst`, for the reason
 /// `ProposalRaiser` is its own type: the analyst is about what the room said,
@@ -19,6 +30,17 @@ struct MeetingLookup {
     let llm: LLMProxyClient
     let integrations: IntegrationService
     let language: LanguagePreference
+    /// Asks before a mutating call goes out. Without one this stays read-only:
+    /// a write nobody can confirm is not a write we make.
+    let gate: ChatToolGate?
+    /// Who is in the room, asked at the moment of the call.
+    ///
+    /// A dependency rather than a check the caller makes, because the caller
+    /// cannot make it for the follow-up read: that one is chosen inside this
+    /// type, after the caller has stopped looking. A gate at one call site is a
+    /// gate a new path walks around, and this one guards a tracker's contents
+    /// reaching a screen somebody may be sharing.
+    let room: () -> RoomComposition
     /// Which earlier sessions to search, asked at the moment of the request —
     /// a meeting can be filed into a project while it is still running.
     let scope: () -> LookupScope
@@ -27,69 +49,203 @@ struct MeetingLookup {
     /// an answer from memory that cannot be placed is one nobody can check.
     let sessionLabel: (UUID) -> String?
 
-    func answer(_ request: String) async -> LiveLookup.State {
-        // Both, at once. A tool call and a vector search have nothing to say to
-        // each other, so running them in sequence would spend the slower one's
-        // latency twice — and this is the surface where a second of silence is
-        // the whole cost.
-        async let tooling = runTool(for: request)
-        async let remembered = recall(request)
-        let (ran, memory) = await (tooling, remembered)
+    /// A read-only tool that would serve this request, chosen but not yet run.
+    ///
+    /// Routing is its own step because the caller has to answer two questions
+    /// between choosing a tool and running it — whether this is a question for
+    /// a tool at all, and whether the room may see what comes back. Routing a
+    /// second time to get there would spend that model call twice.
+    struct Routed {
+        let tool: ChatTool
+        let arguments: String
 
-        // Nothing to work from at all. Distinguished from "found nothing" so
-        // the card can say which, because they mean different things to somebody
-        // deciding whether to connect a tool.
-        if ran == nil, memory.isEmpty {
-            return await integrations.chatTools().isEmpty ? .refused(.noProvider) : .empty
+        var provider: IntegrationProvider {
+            tool.provider
         }
-        if case .failed? = ran, memory.isEmpty { return .failed }
 
-        guard let written = await phrase(request, ran: ran, memory: memory.map(\.text)) else { return .failed }
+        /// Whether this would redo a call already made. The hop exists to reach
+        /// past a result, and re-running the call that produced it spends the
+        /// one extra read on the same answer — which is what a model does when
+        /// a call failed and it cannot tell why.
+        func repeats(_ other: Routed) -> Bool {
+            tool.name == other.tool.name && arguments == other.arguments
+        }
+    }
+
+    func routing(for request: String, thread: AskThread = AskThread()) async -> Routed? {
+        let offered = await offeredTools()
+        guard !offered.isEmpty else { return nil }
+        return await route(request, among: offered, thread: thread)
+    }
+
+    /// Whether this request's reads may leave at all.
+    ///
+    /// A write discloses nothing to the room and carries its own confirmation,
+    /// so it is not asked about. Refusing one because a customer is on the call
+    /// would shut the box in the meetings it gets opened in most.
+    func mayRun(_ routed: Routed) -> Bool {
+        routed.tool.mutating || room().mayReadFreely
+    }
+
+    /// What either call may choose from. Read-only without a gate, because a
+    /// write nobody can confirm is not a write we make.
+    private func offeredTools() async -> [ChatTool] {
+        let all = await integrations.chatTools()
+        return gate == nil ? all.filter { !$0.mutating } : all
+    }
+
+    /// Run a routing the caller has already accepted, and phrase what comes
+    /// back together with what earlier sessions said about the same question.
+    ///
+    /// Both at once. A tool call and a vector search have nothing to say to
+    /// each other, so running them in sequence would spend the slower one's
+    /// latency twice, and this is a surface where somebody is watching a
+    /// spinner.
+    func answer(_ request: String, running routed: Routed, thread: AskThread = AskThread()) async -> LiveLookup.State {
+        // Memory is skipped for a write: what earlier sessions said cannot bear
+        // on whether to create something, and on a refusal it is thrown away
+        // unread — a billed embedding and vector search for nothing.
+        async let running = run(routed)
+        async let remembered = routed.tool.mutating ? [] : recall(request)
+        let (first, memory) = await (running, remembered)
+
+        // Both end it where they stand. Answering anyway out of memory would
+        // read as if the thing had been done, or as if the room had been asked.
+        if case .declined = first { return .refused(.declined) }
+        if case .refusedByRoom = first { return .refused(.outsidersPresent) }
+        if case let .failed(_, failure) = first, memory.isEmpty { return .failed(failure) }
+
+        var runs = [first]
+        // Offered only when there is a result to reach past. The catalogue is a
+        // thousand tokens, and a hop is "I now have the id, read the thing" —
+        // with nothing in hand there is no id and nothing to ask for.
+        let mayHop = first.report != nil
+        // A tool that answered and a phrasing pass that then failed is our
+        // fault, not the product's. Blaming the product sends somebody to
+        // reconnect an integration that is working.
+        guard var written = await phrase(request, ran: runs, memory: memory, thread: thread, mayHop: mayHop) else {
+            return .failed(first.failure ?? .nod(Self.couldNotPhrase))
+        }
+
+        // The one follow-up read, taken only when the model asked for it and
+        // named something the catalogue actually holds. Not offered again on
+        // the way back, which is what makes this a hop rather than a loop.
+        if let next = written.next, let hop = await follow(next), !hop.repeats(routed) {
+            Log.llm.info("live: lookup hop \(routed.tool.name) → \(hop.tool.name)")
+            await runs.append(run(hop))
+            // Falling back to what the first pass wrote rather than failing: the
+            // hop is an attempt to do better, and a hedge is still better than
+            // nothing when it doesn't come off.
+            if let closed = await phrase(request, ran: runs, memory: memory, thread: thread, mayHop: false) {
+                written = closed
+            }
+        }
+
         let text = written.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return .empty }
+        guard !text.isEmpty else {
+            // A call that failed is not a product that had nothing. Reported as
+            // the second, it reads as an answer about the user's Slack rather
+            // than about ours.
+            if let failed = runs.compactMap(\.failure).first { return .failed(failed) }
+            return .empty
+        }
 
-        // The mark follows what the answer actually used, not what was fetched.
-        let usedTool = written.usedTool ?? (ran?.tool != nil)
+        // The mark follows what the answer actually used, not what was fetched,
+        // and names the read it came out of — the hop, when there was one.
+        let usedTool = written.usedTool ?? runs.contains { $0.report != nil }
         return .answered(
             LiveLookup.Answer(
                 text: text,
-                provider: usedTool ? ran?.tool?.provider : nil,
+                provider: usedTool ? runs.compactMap(\.report).last.map { _ in routed.provider } : nil,
                 subject: written.subject?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
-                    ?? (usedTool ? nil : memory.first?.source),
-                readAt: Date()
+                    ?? (usedTool ? nil : memory.first?.source)
             )
         )
     }
 
-    /// What a tool run came back with. `nil` means no tool was chosen at all,
-    /// which is not a failure — plenty of questions are answered from memory.
+    /// Said when the tools answered and we could not turn it into a sentence.
+    /// Distinct from anything a provider says, because it is not about them.
+    static let couldNotPhrase = "Nod couldn't put that into an answer"
+
+    /// A follow-up read the model asked for, checked back against the same
+    /// read-only catalogue the first choice came from. The model answers with a
+    /// string; a string that is not in the list it was given is not a tool,
+    /// whatever it looks like.
+    private func follow(_ choice: PromptLibrary.LookupChoice) async -> Routed? {
+        await Self.routed(choice, among: offeredTools())
+    }
+
+    /// What a tool run came back with.
     private enum ToolRun {
         case succeeded(ChatTool, String)
-        case failed
+        /// Reached and refused, or not reached at all. Carries the tool so the
+        /// answering pass can name what failed — a report headed by a
+        /// placeholder tells the model nothing it can act on.
+        case failed(ChatTool, LiveLookup.Failure)
+        /// The card was shown and the answer was no.
+        case declined
+        /// Somebody in the room is not on the invitation. Never attempted.
+        case refusedByRoom
 
         var tool: ChatTool? {
-            if case let .succeeded(tool, _) = self { tool } else { nil }
+            switch self {
+            case let .succeeded(tool, _), let .failed(tool, _): tool
+            case .declined, .refusedByRoom: nil
+            }
         }
 
-        var result: String? {
-            if case let .succeeded(_, result) = self { result } else { nil }
+        /// What the answering model is shown for a call that worked.
+        var report: (tool: String, body: String)? {
+            if case let .succeeded(tool, result) = self { (tool.name, result) } else { nil }
+        }
+
+        /// What it is shown for a call that did not, named by the tool that
+        /// was asked.
+        var breakage: (tool: String, message: String)? {
+            guard case let .failed(tool, failure) = self else { return nil }
+            return (tool.name, failure.label)
+        }
+
+        var failure: LiveLookup.Failure? {
+            if case let .failed(_, failure) = self { failure } else { nil }
         }
     }
 
-    private func runTool(for request: String) async -> ToolRun? {
-        // The gate, before the catalogue is built rather than after: a mutating
-        // tool is never named to the model, so it can never be chosen.
-        let readable = await integrations.chatTools().filter { !$0.mutating }
-        guard !readable.isEmpty else { return nil }
-        guard let (tool, arguments) = await route(request, among: readable) else { return nil }
+    private func run(_ routed: Routed) async -> ToolRun {
+        // Every read, not only the first: the follow-up is chosen in here, long
+        // after any caller stopped looking, and what it returns lands on the
+        // same possibly-shared screen.
+        guard mayRun(routed) else { return .refusedByRoom }
 
         let call = ChatToolCall(
             id: UUID().uuidString,
             type: "function",
-            function: ChatToolCall.Function(name: tool.name, arguments: arguments)
+            function: ChatToolCall.Function(name: routed.tool.name, arguments: routed.arguments)
         )
-        let result = await integrations.run(call, tool: tool)
-        guard !result.isEmpty, !result.contains("\"error\"") else { return .failed }
+        if routed.tool.mutating {
+            guard let gate else { return .failed(routed.tool, .provider(routed.provider, nil)) }
+            return await confirm(call, routed: routed, through: gate)
+        }
+        return await Self.settle(routed.tool, integrations.run(call, tool: routed.tool))
+    }
+
+    /// A write, put to the person before it goes anywhere.
+    ///
+    /// `ChatToolGate` shows the card, waits, and runs it, so the waiting is not
+    /// reimplemented here and cannot drift from what the chats do. A refusal is
+    /// its own outcome rather than an error: nothing went wrong, somebody said
+    /// no, and the answer should say that instead of offering to retry.
+    private func confirm(_ call: ChatToolCall, routed: Routed, through gate: ChatToolGate) async -> ToolRun {
+        let outcome = await gate.run([call], tools: [routed.tool], provider: routed.provider, using: integrations)
+        if outcome.steps.first?.outcome == .declined { return .declined }
+        return Self.settle(routed.tool, outcome.turns.last?.content ?? "")
+    }
+
+    private static func settle(_ tool: ChatTool, _ result: String) -> ToolRun {
+        if let message = IntegrationService.failure(in: result) {
+            return .failed(tool, .provider(tool.provider, message))
+        }
+        guard !result.isEmpty else { return .failed(tool, .provider(tool.provider, nil)) }
         return .succeeded(tool, result)
     }
 
@@ -126,45 +282,61 @@ struct MeetingLookup {
     /// short. The recall pass uses six to pick one; this reads all of them.
     private static let memoryMatches = 4
 
-    /// Which provider a request would reach, before running anything — so a
-    /// card can name what it is waiting on while it waits.
-    func provider(for request: String) async -> IntegrationProvider? {
-        let readable = await integrations.chatTools().filter { !$0.mutating }
-        return await route(request, among: readable)?.0.provider
-    }
-
-    private func route(_ request: String, among tools: [ChatTool]) async -> (ChatTool, String)? {
-        let (system, user) = PromptLibrary.buildLookupRouting(request: request, tools: tools)
-        let choice: PromptLibrary.LookupChoice
+    private func route(_ request: String, among tools: [ChatTool], thread: AskThread) async -> Routed? {
+        let (system, user) = PromptLibrary.buildLookupRouting(request: request, tools: tools, thread: thread)
         do {
-            choice = try await llm.completeJSON(
+            let choice = try await llm.completeJSON(
                 system: system,
                 user: user,
                 as: PromptLibrary.LookupChoice.self,
                 primaryModel: llm.utilityModel
             )
+            return Self.routed(choice, among: tools)
         } catch {
             Log.llm.error("lookup routing failed: \(error.localizedDescription)")
             return nil
         }
-        guard let name = choice.tool, let tool = tools.first(where: { $0.name == name }) else { return nil }
-        // Re-checked against the catalogue this call was built from. The model
-        // is asked for a name and answers with a string; a name that is not in
-        // the list it was given is not a tool, whatever it looks like.
-        guard let arguments = Self.encode(choice.arguments ?? [:]) else { return nil }
-        return (tool, arguments)
+    }
+
+    /// A named choice turned into something runnable, or nil. The one place a
+    /// model-supplied tool name is checked against the catalogue, so the first
+    /// choice and the follow-up cannot disagree about what counts as a tool.
+    private static func routed(_ choice: PromptLibrary.LookupChoice, among tools: [ChatTool]) -> Routed? {
+        guard let name = choice.tool,
+              let tool = tools.first(where: { $0.name == name })
+        else { return nil }
+
+        // A call the schema says cannot be made. Refused here rather than sent,
+        // because a provider's own complaint about it — "`query` is required" —
+        // reaches the person as their Linear being unreachable, which it is
+        // not. Nothing chosen is a better answer than something malformed: the
+        // question falls back to the transcript, which for a follow-up like
+        // "and the previous one?" is where the answer was all along.
+        let given = choice.arguments?.filter { !$0.value.isEmpty } ?? [:]
+        let missing = tool.parameters.required.filter { given[$0] == nil }
+        guard missing.isEmpty else {
+            Log.llm.info("lookup: \(tool.name) not run — missing \(missing.joined(separator: ", "))")
+            return nil
+        }
+
+        guard let arguments = encode(given) else { return nil }
+        return Routed(tool: tool, arguments: arguments)
     }
 
     private func phrase(
         _ request: String,
-        ran: ToolRun?,
-        memory: [String]
+        ran: [ToolRun],
+        memory: [Remembered],
+        thread: AskThread,
+        mayHop: Bool
     ) async -> PromptLibrary.LookupAnswer? {
-        let (system, user) = PromptLibrary.buildLookupAnswer(
+        let (system, user) = await PromptLibrary.buildLookupAnswer(
             request: request,
-            toolName: ran?.tool?.name,
-            result: ran?.result,
-            memory: memory,
+            results: ran.compactMap(\.report),
+            failures: ran.compactMap(\.breakage),
+            memory: memory.map(\.text),
+            thread: thread,
+            hopTools: mayHop ? offeredTools() : [],
             language: language.current
         )
         do {

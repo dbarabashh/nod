@@ -104,6 +104,13 @@ final class NotchModel: ObservableObject {
     /// — can stop it rather than let it finish and be billed for an answer
     /// nobody will read.
     private var askTask: Task<Void, Never>?
+    /// Everything the Ask box has already asked and been told, this bar.
+    ///
+    /// Kept beside `askTask` rather than inside `MeetingBarPanel` because the
+    /// panel is what is drawn and this is never drawn: the box shows one
+    /// exchange, and these turns exist only to be read back into the next
+    /// question's prompts so a follow-up resolves against them.
+    private var askThread = AskThread()
     /// The session's once-a-second tick: the elapsed clock, and the silence
     /// watchdog that raises the forgot-to-stop countdown. Owned here rather than
     /// by a view's `.task` — it has to run for the whole session, and a view
@@ -234,7 +241,7 @@ final class NotchModel: ObservableObject {
         // dismissing it either. Its own close glyph is the only way out.
         // The room card is the same: it arrived on its own, and it has its own
         // "Not now".
-        case .updateRequired, .dormant, .tucked, .offer, .liveRoom, .noticed, .recalled, .lookedUp, .recap,
+        case .updateRequired, .dormant, .tucked, .offer, .liveRoom, .noticed, .recalled, .recap,
              .languageConfirm, .consent, .systemAudioAccess, .alert, .demo: false
         }
     }
@@ -277,13 +284,6 @@ final class NotchModel: ObservableObject {
 
     func dismissRecall() {
         session.analyst.dismissRecall()
-    }
-
-    /// Takes the answer down. Its own method rather than the analyst's, so the
-    /// card behaves like every other one here: the surface asks, the analyst
-    /// forgets.
-    func dismissLookup() {
-        session.analyst.dismissLookup()
     }
 
     /// Opens the session the recall came from. Takes the card down first: it
@@ -594,7 +594,10 @@ final class NotchModel: ObservableObject {
             offers.$current.map { _ in () }.eraseToAnyPublisher(),
             session.analyst.$notice.map { _ in () }.eraseToAnyPublisher(),
             session.analyst.$recall.map { _ in () }.eraseToAnyPublisher(),
-            session.analyst.$lookup.map { _ in () }.eraseToAnyPublisher(),
+            // The Ask box's approval card. Published rather than polled: the
+            // gate resolves on a person's click, and the bar has to redraw the
+            // moment it does or the card outlives the decision.
+            session.analyst.askToolGate.$pending.map { _ in () }.eraseToAnyPublisher(),
             session.$justEndedMeetingID.map { _ in () }.eraseToAnyPublisher(),
             meetingStore.$meetings.map { _ in () }.eraseToAnyPublisher(),
             meetingStore.$generatingSummaryIDs.map { _ in () }.eraseToAnyPublisher(),
@@ -610,6 +613,18 @@ final class NotchModel: ObservableObject {
     }
 
     private func refresh() {
+        // Mirrored rather than reached for from the view: the bar is drawn from
+        // one value, and the gate is the one thing about it that changes from
+        // outside this class.
+        meetingBarPanel.approval = session.analyst.askToolGate.pending
+        // A card is only drawn inside the Ask panel, so one that arrives while
+        // the bar is tucked away or Notes is open has no buttons anywhere and
+        // the write waits for the rest of the meeting. Showing it is not an
+        // interruption: it is the answer to something this person just typed.
+        if meetingBarPanel.isAwaitingApproval, !meetingBarPanel.isAsk {
+            meetingBarHidden = false
+            meetingBarPanel.expand(.ask)
+        }
         let next = derived()
         guard next != (pendingTarget ?? presentation) else { return }
         apply(next)
@@ -713,6 +728,19 @@ extension NotchModel {
         refresh()
     }
 
+    /// The Ask box's approval card, answered.
+    ///
+    /// Straight through to the gate rather than held here: the waiting belongs
+    /// to whoever asked for the call, and a second copy of "was it allowed"
+    /// would be one more thing to keep in step with it.
+    func approveAskTool() {
+        session.analyst.askToolGate.approve()
+    }
+
+    func denyAskTool() {
+        session.analyst.askToolGate.deny()
+    }
+
     /// The Notes row's own button — same toggle shape as `toggleAsk`.
     func toggleNotes() {
         meetingBarPanel.expand(meetingBarPanel.isNotes ? .passive : .notes)
@@ -722,8 +750,13 @@ extension NotchModel {
     /// Hands the bar to a new meeting: nothing the last one was showing, and no
     /// question still on its way to it, belongs to the next.
     private func resetMeetingBar() {
+        // A card nobody answered has to be released, or the task waiting on it
+        // never finishes — and it releases as a refusal, so a meeting that
+        // ended mid-approval sends nothing on its way out.
+        session.analyst.askToolGate.cancelPending()
         askTask?.cancel()
         meetingBarPanel = MeetingBarPanel()
+        askThread = AskThread()
     }
 
     /// The Ask box's own free-text question. Blank input is a no-op rather
@@ -731,10 +764,10 @@ extension NotchModel {
     func submitAsk(_ question: String) {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        runAsk(question: trimmed) {
+        runAsk(question: trimmed) { thread in
             self.isListening
-                ? try await self.rooms.ask(trimmed, language: self.language.current)
-                : try await self.session.analyst.ask(trimmed, language: self.language.current)
+                ? try await self.rooms.ask(trimmed, thread: thread, language: self.language.current)
+                : try await self.session.analyst.ask(trimmed, thread: thread, language: self.language.current)
         }
     }
 
@@ -763,7 +796,7 @@ extension NotchModel {
     /// prompt (tuned for exactly this) rather than through `ask` with the
     /// literal word "Summarize" as the question.
     func askSummarize() {
-        runAsk(question: "Summarize") {
+        runAsk(question: "Summarize") { _ in
             self.isListening
                 ? try await self.rooms.catchMeUp(language: self.language.current)
                 : try await self.session.analyst.catchUp(language: self.language.current)
@@ -776,15 +809,19 @@ extension NotchModel {
     /// happens to be showing when the answer arrives does not, so a panel the
     /// user folded away mid-flight still has the answer waiting in it when they
     /// come back.
-    private func runAsk(question: String, call: @escaping () async throws -> String) {
+    private func runAsk(question: String, call: @escaping (AskThread) async throws -> String) {
         askTask?.cancel()
         meetingBarPanel.startAsking()
         refresh()
+        // Read before the call and appended after it, so a question never sees
+        // itself in its own history.
+        let thread = askThread
         askTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let answer = try await call()
+                let answer = try await call(thread)
                 guard !Task.isCancelled else { return }
+                askThread.append(question: question, answer: answer)
                 meetingBarPanel.land(.answered(question: question, answer: answer))
             } catch {
                 guard !Task.isCancelled else { return }

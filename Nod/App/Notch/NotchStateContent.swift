@@ -46,7 +46,7 @@ struct NotchStateContent: View {
         // The swipe folds a listening bar away exactly as it folds a recording
         // one — same gesture, same flag, same resting shape.
         case .tucked, .meetingBar: true
-        case .updateRequired, .dormant, .offer, .liveRoom, .noticed, .recalled, .lookedUp, .recap, .launch,
+        case .updateRequired, .dormant, .offer, .liveRoom, .noticed, .recalled, .recap, .launch,
              .languageConfirm, .consent, .systemAudioAccess, .alert, .demo: false
         }
     }
@@ -82,8 +82,6 @@ struct NotchStateContent: View {
             )
         case let .noticed(finding):
             NotchNotice(finding: finding, onDismiss: model.rejectNotice)
-        case let .lookedUp(lookup):
-            NotchLookup(lookup: lookup, onDismiss: model.dismissLookup)
         case let .recalled(recall):
             NotchRecall(
                 recall: recall,
@@ -129,6 +127,8 @@ struct NotchStateContent: View {
                     onToggleNotes: model.toggleNotes,
                     onSubmitAsk: model.submitAsk,
                     onSummarize: model.askSummarize,
+                    onApproveAsk: model.approveAskTool,
+                    onDenyAsk: model.denyAskTool,
                     onOpenLibrary: model.openLibrary,
                     onCollapse: { model.hideMeetingBar() },
                     panelSharing: model.panelSharing,

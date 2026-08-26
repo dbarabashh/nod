@@ -37,7 +37,6 @@ struct AppServices {
     let actionItemStore: ActionItemStore
     /// The day's briefing — the calendar still ahead, the commitments still
     /// open, and the questions recent sessions left hanging.
-    let dailyBriefings: DailyBriefingStore
     let knowledgeStore: KnowledgeStore
     /// The cross-session "Ask Nod" thread. One instance app-wide, so the
     /// Library dock and the launcher panel are two views onto one conversation.
@@ -238,16 +237,6 @@ struct AppServices {
             reachability: NetworkReachability(),
             entityStore: entityStore,
             actionItemStore: actionItemStore,
-            dailyBriefings: DailyBriefingStore(
-                llm: llmClient,
-                meetings: meetingStore,
-                actionItems: actionItemStore,
-                entitlements: entitlements,
-                profiles: profileStore,
-                language: languagePreference,
-                calendar: calendar,
-                screen: screenContext
-            ),
             knowledgeStore: knowledgeStore,
             knowledgeChat: KnowledgeChatStore(
                 llm: llmClient,

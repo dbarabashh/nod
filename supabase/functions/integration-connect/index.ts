@@ -12,7 +12,7 @@
 import { json } from "../_shared/http.ts";
 import { authenticate } from "../_shared/supabase.ts";
 import { appSlug, isConnectableProvider } from "../_shared/integrations/registry.ts";
-import { connectHeaders, connectURL, isConfigured } from "../_shared/integrations/pipedream.ts";
+import { connectHeaders, connectURL, customOAuthAppID, isConfigured } from "../_shared/integrations/pipedream.ts";
 
 const WEBHOOK_URL = Deno.env.get("INTEGRATION_WEBHOOK_URL") ?? "";
 
@@ -57,8 +57,16 @@ Deno.serve(async (req) => {
 
   // The app is chosen on the link rather than in the token, so one token can
   // never be walked into authorizing a product the user did not pick.
-  const connectLink = `${link}${link.includes("?") ? "&" : "?"}app=${encodeURIComponent(slug)}`;
+  const params = new URLSearchParams({ app: slug });
+  // Without this, Connect runs Pipedream's own OAuth client and asks for
+  // Pipedream's scopes — whatever our app manifest says. A custom client that
+  // is created but never named here is a client nobody ever authorizes, and the
+  // symptom is a healthy connection whose calls fail with `missing_scope`.
+  const oauthAppID = customOAuthAppID(provider);
+  if (oauthAppID) params.set("oauthAppId", oauthAppID);
 
-  console.info(`connect token created: ${provider}`);
+  const connectLink = `${link}${link.includes("?") ? "&" : "?"}${params}`;
+
+  console.info(`connect token created: ${provider}${oauthAppID ? " (custom oauth client)" : ""}`);
   return json({ connectLink, expiresAt: session?.expires_at ?? null }, 200);
 });

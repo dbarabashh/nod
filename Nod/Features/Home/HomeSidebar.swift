@@ -50,7 +50,6 @@ struct HomeSidebar: View {
                     // primary action and a list of places are not peers.
                     Color.clear.frame(height: 20)
                     chatRow
-                    todayRow
                     demoDailyModesRow
                     SidebarNavRow(
                         title: "Sessions",
@@ -205,15 +204,6 @@ struct HomeSidebar: View {
             icon: "nc-sparkle-3",
             isSelected: surface == .chat && chat.threadID == nil,
             action: onNewChat
-        )
-    }
-
-    private var todayRow: some View {
-        SidebarNavRow(
-            title: "Today",
-            icon: "nc-window-chart-line",
-            isSelected: surface == .today,
-            action: { onSelect(.today) }
         )
     }
 

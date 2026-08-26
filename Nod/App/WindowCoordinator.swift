@@ -245,11 +245,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 meetings: services.meetingStore
             ),
             rooms: services.rooms,
-            lookup: { [services] scope, sessionLabel in
+            lookup: { [services] gate, room, scope, sessionLabel in
                 MeetingLookup(
                     llm: services.llmClient,
                     integrations: services.integrations,
                     language: services.languagePreference,
+                    gate: gate,
+                    room: room,
                     scope: scope,
                     sessionLabel: sessionLabel
                 )
@@ -431,7 +433,6 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                     .environmentObject(services.knowledgeChat)
                     .environmentObject(services.knowledgeThreads)
                     .environmentObject(services.actionItemStore)
-                    .environmentObject(services.dailyBriefings)
                     .environmentObject(services.integrations)
                     .environmentObject(services.integrationCatalogue)
                     .environmentObject(services.actionProposals)

@@ -167,12 +167,13 @@ final class RoomListenerService: ObservableObject {
     /// `chat_messages` belongs to the host's meeting — putting it there would
     /// mean everyone in the room reading each other's questions, which nobody
     /// asked for and which the host cannot switch off.
-    func ask(_ question: String, language: AppLanguage) async throws -> String {
+    func ask(_ question: String, thread: AskThread = AskThread(), language: AppLanguage) async throws -> String {
         guard let llm else { throw AskUnavailable() }
         let prompt = PromptLibrary.buildAsk(
             question: question,
             transcript: recentTranscript,
             known: LiveFinding.notes(from: findings),
+            thread: thread,
             language: language
         )
         let result = try await llm.completeJSON(
