@@ -142,6 +142,7 @@ enum ChatTools {
         case .hubspot: hubspotTools
         case .gmail: gmailTools
         case .googleDrive: driveTools
+        case .googleAds: adsTools
         }
     }
 
@@ -248,6 +249,51 @@ enum ChatTools {
             parameters: ChatToolSchema(
                 properties: ["query": .init(description: "Words in the file's name or body.")],
                 required: ["query"]
+            ),
+            mutating: false
+        )
+    ]
+
+    /// Reading spend, and only that.
+    ///
+    /// Nothing here writes, and nothing here should: a bid, a budget and a
+    /// campaign's status are money moving per hour, and an approval card is a
+    /// thin thing to put between a model and somebody's ad account.
+    private static let adsTools: [ChatTool] = [
+        ChatTool(
+            provider: .googleAds,
+            name: "google-ads_list_accounts",
+            description: "List the ad accounts this login can see. Call first — the other ads tools need the `account` value this returns, and it is not something the user says out loud.",
+            parameters: ChatToolSchema(properties: [:], required: []),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .googleAds,
+            name: "google-ads_campaign_performance",
+            description: "What an ad account spent over a window and what it got back, with the biggest-spending campaigns. Use for any question about ad results or budget.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "account": .init(description: "The `account` value from google-ads_list_accounts."),
+                    "range": .init(
+                        description: "TODAY, YESTERDAY, LAST_7_DAYS, LAST_14_DAYS, LAST_30_DAYS, THIS_MONTH or LAST_MONTH. Defaults to LAST_30_DAYS."
+                    )
+                ],
+                required: ["account"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .googleAds,
+            name: "google-ads_keyword_performance",
+            description: "The keywords that spent the most over a window. Use when the question is which words the money went to, not how the account did overall.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "account": .init(description: "The `account` value from google-ads_list_accounts."),
+                    "range": .init(
+                        description: "TODAY, YESTERDAY, LAST_7_DAYS, LAST_14_DAYS, LAST_30_DAYS, THIS_MONTH or LAST_MONTH. Defaults to LAST_30_DAYS."
+                    )
+                ],
+                required: ["account"]
             ),
             mutating: false
         )

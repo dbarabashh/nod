@@ -54,6 +54,8 @@ enum IntegrationCapability: String, CaseIterable, Identifiable {
     case email
     /// Who the customer is: companies, contacts, deals.
     case customers
+    /// Where money is spent to be seen: campaigns, keywords, what they cost.
+    case advertising
 
     var id: String {
         rawValue
@@ -69,6 +71,7 @@ enum IntegrationCapability: String, CaseIterable, Identifiable {
         case .documents: "Docs"
         case .email: "Email"
         case .customers: "CRM"
+        case .advertising: "Ads"
         }
     }
 }
@@ -117,6 +120,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     case hubspot
     case gmail
     case googleDrive = "google-drive"
+    case googleAds = "google-ads"
 
     var id: String {
         rawValue
@@ -134,6 +138,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         case .hubspot: "HubSpot"
         case .gmail: "Gmail"
         case .googleDrive: "Google Drive"
+        case .googleAds: "Google Ads"
         }
     }
 
@@ -149,6 +154,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         case .notion, .googleDrive: [.documents]
         case .gmail: [.email]
         case .hubspot: [.customers]
+        case .googleAds: [.advertising]
         }
     }
 
@@ -162,7 +168,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     var role: IntegrationRole {
         switch self {
         case .linear, .slack, .jira, .asana: .actsIn
-        case .googleCalendar, .github, .notion, .hubspot, .gmail, .googleDrive: .readsFrom
+        case .googleCalendar, .github, .notion, .hubspot, .gmail, .googleDrive, .googleAds: .readsFrom
         }
     }
 
@@ -184,7 +190,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
                 search: "search_tasks",
                 update: "update_task"
             )
-        case .googleCalendar, .slack, .github, .notion, .hubspot, .gmail, .googleDrive: nil
+        case .googleCalendar, .slack, .github, .notion, .hubspot, .gmail, .googleDrive, .googleAds: nil
         }
     }
 
@@ -196,7 +202,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
                 listUsers: "list_users"
             )
         case .linear, .googleCalendar, .github, .jira, .notion,
-             .asana, .hubspot, .gmail, .googleDrive: nil
+             .asana, .hubspot, .gmail, .googleDrive, .googleAds: nil
         }
     }
 
@@ -213,7 +219,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     var isDirectorySource: Bool {
         switch self {
         case .linear, .slack: true
-        case .googleCalendar, .github, .jira, .notion, .asana, .hubspot, .gmail, .googleDrive: false
+        case .googleCalendar, .github, .jira, .notion, .asana, .hubspot, .gmail, .googleDrive, .googleAds: false
         }
     }
 
@@ -232,6 +238,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         case .hubspot: "Know whether you've talked to this company before, and where it got to."
         case .gmail: "Find what somebody actually wrote back, without leaving the meeting."
         case .googleDrive: "Find the document somebody just named out loud."
+        case .googleAds: "Know what the campaigns did before you talk about what to change."
         }
     }
 
@@ -307,6 +314,12 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
                 "Hand back the link, so you can open the thing itself.",
                 "Read-only, and only the file list — Nod does not open your documents' contents."
             ]
+        case .googleAds:
+            [
+                "Say what an account spent, and what it got for it, over any recent window.",
+                "Name the campaigns and keywords the money went to, biggest first.",
+                "Read-only, and firmly so — Nod never changes a budget, a bid or a campaign's status."
+            ]
         }
     }
 
@@ -330,6 +343,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         case .hubspot: "nc-users"
         case .gmail: "nc-inbox-arrow-down"
         case .googleDrive: "nc-folder"
+        case .googleAds: "nc-bullhorn"
         }
     }
 
@@ -357,6 +371,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         case .slack: "slack_v2"
         case .googleCalendar: "google_calendar"
         case .googleDrive: "google_drive"
+        case .googleAds: "google_ads"
         case .linear, .github, .jira, .notion, .asana, .hubspot, .gmail: rawValue
         }
     }
@@ -375,6 +390,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         case .hubspot: "hubspot.com"
         case .gmail: "mail.google.com"
         case .googleDrive: "drive.google.com"
+        case .googleAds: "ads.google.com"
         }
     }
 

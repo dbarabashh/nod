@@ -186,6 +186,8 @@ struct IntegrationsSection: View {
             "Nod stops reading your mail. Nothing is sent, deleted or marked read — it never could."
         case .googleDrive:
             "Nod stops finding your documents. Nothing in Drive changes — it only ever listed them."
+        case .googleAds:
+            "Nod stops reading your campaigns. Nothing in Google Ads changes — it never spent anything."
         }
     }
 

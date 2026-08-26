@@ -6,6 +6,7 @@ import { GITHUB_ACTIONS } from "./github.ts";
 import { GMAIL_ACTIONS } from "./gmail.ts";
 import { GOOGLE_DRIVE_ACTIONS } from "./googleDrive.ts";
 import { HUBSPOT_ACTIONS } from "./hubspot.ts";
+import { GOOGLE_ADS_ACTIONS } from "./googleAds.ts";
 import { GOOGLE_CALENDAR_ACTIONS } from "./googleCalendar.ts";
 import { JIRA_ACTIONS } from "./jira.ts";
 import { NOTION_ACTIONS } from "./notion.ts";
@@ -94,6 +95,15 @@ const PROVIDERS: Record<string, Provider> = {
         slug: "notion",
         base: "https://api.notion.com/",
         actions: NOTION_ACTIONS,
+    },
+    "google-ads": {
+        slug: "google_ads",
+        // Not Google's API root. Google Ads refuses a request without a
+        // developer token, which is issued to an application and which the
+        // broker holds; its proxy adds one and takes the real request nested in
+        // the body. See `googleAds.ts`.
+        base: "https://googleads.m.pipedream.net/",
+        actions: GOOGLE_ADS_ACTIONS,
     },
     "slack": {
         slug: "slack_v2",
