@@ -6,8 +6,6 @@ struct SidebarNavRow: View {
     let title: String
     let icon: String
     let isSelected: Bool
-    /// How much is waiting behind this destination. Nil, or zero, draws nothing.
-    var badge: Int?
     let action: () -> Void
 
     var body: some View {
@@ -21,11 +19,6 @@ struct SidebarNavRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.9)
                 Spacer(minLength: 0)
-                if let badge, badge > 0 {
-                    Text("\(badge)")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.muted)
-                }
             }
             .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.72))
             .padding(.horizontal, 9)

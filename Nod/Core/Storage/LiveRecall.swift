@@ -39,6 +39,24 @@ struct LiveRecall: Identifiable, Equatable {
         }
     }
 
+    /// Where the claim came from, because the two are believable in different
+    /// ways and the card has to say which it is.
+    ///
+    /// A memory recall is a model's reading of an earlier session's summary: it
+    /// can be a paraphrase, and it can be wrong about what the session meant. An
+    /// open loop is a row that has been sitting in the user's own list since the
+    /// day it was raised, and how long it has sat is the most interesting thing
+    /// about it — "you promised this" and "you promised this seventeen days ago"
+    /// are not the same sentence.
+    enum Origin: Equatable {
+        case memory
+        case openLoop(days: Int)
+
+        var isOpenLoop: Bool {
+            self != .memory
+        }
+    }
+
     let id: UUID
     let kind: Kind
     /// One sentence, in the user's own terms — not a quote from the transcript
@@ -48,6 +66,7 @@ struct LiveRecall: Identifiable, Equatable {
     /// "Product Sync · Aug 8" — rendered under the text so the claim is
     /// traceable without opening anything.
     let sourceLabel: String
+    let origin: Origin
     let foundAt: Date
 
     init(
@@ -55,6 +74,7 @@ struct LiveRecall: Identifiable, Equatable {
         text: String,
         sourceMeetingID: UUID,
         sourceLabel: String,
+        origin: Origin = .memory,
         foundAt: Date = Date()
     ) {
         id = UUID()
@@ -62,6 +82,15 @@ struct LiveRecall: Identifiable, Equatable {
         self.text = text
         self.sourceMeetingID = sourceMeetingID
         self.sourceLabel = sourceLabel
+        self.origin = origin
         self.foundAt = foundAt
+    }
+
+    /// How long it has been open, as the card says it. Nil for anything that is
+    /// not a loop, and for a loop raised today: "0 days open" reads as a bug,
+    /// and a promise made this morning is not yet a finding.
+    var ageLabel: String? {
+        guard case let .openLoop(days) = origin, days >= 1 else { return nil }
+        return days == 1 ? "1 day open" : "\(days) days open"
     }
 }

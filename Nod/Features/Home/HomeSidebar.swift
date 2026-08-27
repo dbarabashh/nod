@@ -57,14 +57,6 @@ struct HomeSidebar: View {
                         isSelected: surface == .sessions,
                         action: { onSelect(.sessions) }
                     )
-                    // A place of its own: what Nod extracted is one of the
-                    // things the main window is for, and the only route in used
-                    // to be a header inside the attention list — which left the
-                    // full list reachable but unfindable.
-                    ActionsSidebarRow(
-                        isSelected: surface == .actionItems,
-                        onSelect: { onSelect(.actionItems) }
-                    )
                     // A destination beside Sessions rather than a segment above
                     // it: restoring and destroying are not things you do to a
                     // live session, so this is a different place to be, and it

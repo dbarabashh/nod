@@ -748,7 +748,7 @@ extension ScreenContextService {
     /// drift apart on the length floor or the stopword list — they feed the same
     /// `textSearch` query.
     private static func searchable(_ text: String) -> [String] {
-        TextTokens.words(in: text).filter { $0.count >= 4 && !stopWords.contains($0) }
+        TextTokens.contentWords(in: text, longerThan: 4, excluding: stopWords)
     }
 
     /// Terms per query. Past a handful they stop narrowing and start matching

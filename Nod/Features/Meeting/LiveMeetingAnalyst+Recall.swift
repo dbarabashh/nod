@@ -29,6 +29,15 @@ extension LiveMeetingAnalyst {
         guard let session = currentMeetingID else { return }
 
         lastRecallAt = Date()
+
+        // Before the memory search, and it takes the whole budget when it fires.
+        // A promise the user made and has not kept outranks a fact from a
+        // summary: one is owed to somebody in this conversation, the other is
+        // merely true. It is also the cheaper question — the candidates are
+        // picked locally, with no embedding call, so the common case of "no open
+        // loop resembles this" costs nothing.
+        if await surfaceOpenLoop(window: window, meetingID: session) { return }
+
         do {
             // Excludes the meeting in progress: what was said ten minutes ago is
             // not a recall, and the live pass already owns it.

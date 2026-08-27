@@ -203,17 +203,11 @@ struct NotchNotice: View {
                 .foregroundStyle(Theme.Palette.brand)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Text(style.lead.uppercased())
-                        .font(.system(size: 9.5, weight: .bold))
-                        .kerning(0.6)
-                        .foregroundStyle(Theme.Palette.muted.opacity(0.9))
-                    if let spokenAt = finding.spokenAt {
-                        Text(Self.relativeLabel(spokenAt))
-                            .font(.system(size: 9.5, weight: .regular))
-                            .foregroundStyle(Theme.Palette.muted.opacity(0.65))
-                    }
-                }
+                SectionLabel(
+                    style.lead,
+                    size: .compact,
+                    trailing: finding.spokenAt.map(Self.relativeLabel)
+                )
                 Text(finding.text)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
@@ -243,17 +237,26 @@ struct NotchRecall: View {
     let onOpenSource: () -> Void
     let onDismiss: () -> Void
 
+    /// A loop reads as its own kind of moment, not as a recall that happens to
+    /// be about a task. It is the one thing on this surface that is *owed* —
+    /// still true, still unpaid, and dated — so it carries the app's own accent
+    /// rather than memory's violet, and says how long it has been waiting.
+    private var isOpenLoop: Bool {
+        recall.origin.isOpenLoop
+    }
+
+    private var tint: Color {
+        isOpenLoop ? Theme.Palette.brand : Theme.Palette.violet
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image("nc-sparkle-3")
+            Image(isOpenLoop ? "nc-arrow-dotted-rotate-anticlockwise" : "nc-sparkle-3")
                 .icon(12)
-                .foregroundStyle(Theme.Palette.violet)
+                .foregroundStyle(tint)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(recall.kind.label.uppercased())
-                    .font(.system(size: 9.5, weight: .bold))
-                    .kerning(0.6)
-                    .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+                eyebrow
                 Text(recall.text)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
@@ -266,7 +269,7 @@ struct NotchRecall: View {
                     Button("View context", action: onOpenSource)
                         .buttonStyle(.plain)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.violet)
+                        .foregroundStyle(tint)
                         .linkCursor()
                 }
                 .padding(.top, 1)
@@ -275,6 +278,13 @@ struct NotchRecall: View {
             Spacer(minLength: 0)
             NotchGlyphButton(icon: "nc-xmark", help: "Dismiss", action: onDismiss)
         }
+    }
+
+    /// The age sits beside the label rather than down with the source: on a
+    /// promise nobody has kept, how long it has been open is not metadata — it
+    /// is the reason the card is on screen at all.
+    private var eyebrow: some View {
+        SectionLabel(recall.kind.label, size: .compact, trailing: recall.ageLabel)
     }
 }
 

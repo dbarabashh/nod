@@ -60,6 +60,13 @@ struct LiveFinding: Identifiable, Equatable {
     /// by a line — which is a wrong neighbour, not a dangling pointer, and is
     /// why this is the index and not the entry's id (a dedup swap reissues ids).
     let evidenceIdx: Int?
+    /// The sentence this was read from, in the room's own words, already checked
+    /// against the transcript by the pass that produced it.
+    ///
+    /// Carried beside `evidenceIdx` rather than instead of it, because the two
+    /// fail differently: an index points at the line and moves when a meeting is
+    /// re-transcribed, and a quote survives that but cannot say who said it.
+    let quote: String?
     /// When the evidence line was actually said, as opposed to `foundAt` (when
     /// the pass noticed it) — the gap between the two is what makes a notice
     /// read as stale once the conversation has moved on, so the UI shows this,
@@ -117,6 +124,7 @@ struct LiveFinding: Identifiable, Equatable {
         tier: Tier = .strict,
         deadline: String? = nil,
         evidenceIdx: Int? = nil,
+        quote: String? = nil,
         spokenAt: Date? = nil,
         revisionOf: UUID? = nil,
         foundAt: Date = Date(),
@@ -129,6 +137,7 @@ struct LiveFinding: Identifiable, Equatable {
         self.tier = tier
         self.deadline = deadline
         self.evidenceIdx = evidenceIdx
+        self.quote = quote
         self.spokenAt = spokenAt
         self.revisionOf = revisionOf
         self.foundAt = foundAt

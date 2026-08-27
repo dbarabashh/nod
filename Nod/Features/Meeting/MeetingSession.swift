@@ -249,6 +249,17 @@ final class MeetingSession: ObservableObject {
     private let store: TranscriptStore
     private let llm: LLMProxyClient
     let meetingStore: MeetingStore
+    /// Held, not only forwarded to enrichment: the live pass asks it what is
+    /// still open so a promise can be raised at the moment the room stands on it.
+    private let actionItemStore: ActionItemStore
+    /// Held for the same reason `actionItemStore` is: the live pass walks its
+    /// edges to find which open loops a conversation is standing on.
+    private let entityStore: EntityStore
+    /// Built once per recording rather than read per pass: the edges are written
+    /// at finalize, so nothing can change them while one runs. Dropped when a
+    /// recording starts, because the meeting just before it wrote edges of its
+    /// own and a stale graph cannot see them.
+    private var loopGraphIndex: LoopGraph.Index?
     private let knowledgeStore: KnowledgeStore
     private let language: LanguagePreference
     private let proactivity: ProactivityPreference
@@ -284,7 +295,6 @@ final class MeetingSession: ObservableObject {
     private let enrichment: MeetingEnrichment
     /// What the meeting is offering to do in the tools the user connected.
     private let proposalRaiser: ProposalRaiser
-
     /// What Nod hears while the meeting is still running. Built here rather than
     /// injected because its life is exactly this session's — like
     /// `recapGenerator` — and because the finalize below needs what it found.
@@ -340,6 +350,8 @@ final class MeetingSession: ObservableObject {
         self.store = store
         self.llm = llm
         self.meetingStore = meetingStore
+        self.actionItemStore = actionItemStore
+        self.entityStore = entityStore
         self.knowledgeStore = knowledgeStore
         self.language = language
         self.proactivity = proactivity
@@ -365,6 +377,20 @@ final class MeetingSession: ObservableObject {
         )
         analyst = LiveMeetingAnalyst(llm: llm, store: store, proactivity: proactivity)
         observeSleep()
+    }
+
+    /// The entity edges the live pass and the post-meeting resolver both walk.
+    ///
+    /// An index built from a failed read is not cached: both fetches answer an
+    /// error with an empty result, so caching one would silently turn the graph
+    /// off for the rest of the launch.
+    func loopGraph() async -> LoopGraph.Index {
+        if let loopGraphIndex { return loopGraphIndex }
+        async let entities = entityStore.allEntities()
+        async let links = entityStore.allLinks()
+        let built = await LoopGraph.Index(entities: entities, byMeeting: links)
+        if !built.isEmpty { loopGraphIndex = built }
+        return built
     }
 
     deinit {
@@ -625,6 +651,15 @@ final class MeetingSession: ObservableObject {
             guard let meeting = meetingStore?.meetings.first(where: { $0.id == id }) else { return nil }
             return meeting.displayTitle(dateFormatter: Meeting.listDateFormatter)
         }
+        // Refreshed by the closure rather than at start: a meeting can begin
+        // with no window ever opened, and the store loads lazily from whichever
+        // screen mounts first. `refresh` returns at once once it has loaded, so
+        // this costs one fetch per launch and nothing after.
+        analyst.openLoops = { [weak actionItemStore] in
+            await actionItemStore?.openLoops() ?? []
+        }
+        loopGraphIndex = nil
+        analyst.loopGraph = { [weak self] in await self?.loopGraph() ?? .empty }
         // Only while somebody is actually listening. The live pass is promised
         // to keep what it finds in memory, and a recording nobody joined has no
         // reason to put any of it on a server — a solo voice note least of all.
@@ -1203,6 +1238,13 @@ final class MeetingSession: ObservableObject {
                 // the row it came from, and offering to file something the user
                 // cannot yet see in their checklist is an offer about nothing.
                 await proposalRaiser.raise(from: saved, recap: recap, for: updated)
+                // Last, and on purpose: this reads *earlier* meetings' loops
+                // against what was just said, so it wants this meeting's own
+                // rows already written and excluded. Failing here loses nothing
+                // that was not already lost — the loops stay open, which is
+                // where they were.
+                await LoopResolver(llm: llm, items: actionItemStore)
+                    .resolve(after: updated, transcript: context, graph: loopGraph())
             }
         } catch {
             // Summary failed, but the transcript is real work. Complete the

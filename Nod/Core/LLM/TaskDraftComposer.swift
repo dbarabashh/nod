@@ -85,10 +85,7 @@ final class TaskDraftComposer: ObservableObject {
             let names = meetings.meetings.first { $0.id == item.meetingID }?.speakerNames ?? [:]
             return window
                 .sorted { $0.idx < $1.idx }
-                .map { record in
-                    let who = record.speaker.flatMap { names[String($0)] ?? "Speaker \($0)" } ?? "Me"
-                    return "\(who): \(record.text)"
-                }
+                .map { "\($0.speakerName(from: names)): \($0.text)" }
                 .joined(separator: "\n")
         } catch {
             Log.llm.error("TaskDraftComposer excerpt failed: \(error.localizedDescription)")

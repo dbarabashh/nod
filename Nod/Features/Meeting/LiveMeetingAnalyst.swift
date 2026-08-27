@@ -52,6 +52,14 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// user is not in.
     @Published private(set) var recall: LiveRecall?
 
+    /// Every open loop raised during this meeting, kept after its card has gone.
+    ///
+    /// A proactive card says its piece and gets out of the way, which is right
+    /// for an interruption and wrong for a record: a promise raised while
+    /// somebody was mid-sentence is exactly the one they were too busy to read.
+    /// Notes is where they look afterwards, so it has to still be there.
+    @Published private(set) var surfacedLoops: [LiveRecall] = []
+
     /// Runs a typed question against the connected tools. Injected and optional
     /// for the same reason `mirrorFindings` is: an account with nothing
     /// connected has no lookups, and no test needs one.
@@ -76,6 +84,17 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// looked up: the analyst has no business holding the meeting list, and a
     /// recall with no readable source is one we refuse to show.
     var recallSourceLabel: ((UUID) -> String?)?
+    /// The user's still-open loops, asked for at the moment of the pass.
+    ///
+    /// Injected and `async` for the same reason `roomComposition` is asked
+    /// rather than held: the list changes while the meeting runs, and the
+    /// closure is the only thing that can make sure it has been loaded at all —
+    /// a meeting can start with no window ever having been opened.
+    var openLoops: (() async -> [ActionItem])?
+    /// The entity edges the candidate filter walks before it falls back to
+    /// counting shared words. Empty is an account whose sessions have not been
+    /// through extraction, and the filter degrades to what it did before.
+    var loopGraph: (() async -> LoopGraph.Index)?
     /// Where findings go so that somebody listening to this meeting sees the
     /// same Notes as the person recording it. Injected for the same reason
     /// `recallSourceLabel` is — the analyst has no business holding the meeting
@@ -197,6 +216,7 @@ final class LiveMeetingAnalyst: ObservableObject {
         analyzedLines = 0
         lastRecallAt = nil
         recallsUsed = 0
+        surfacedLoops = []
         dismissNotice()
         dismissRecall()
         findings = []
@@ -342,6 +362,9 @@ final class LiveMeetingAnalyst: ObservableObject {
     func raise(_ recalled: LiveRecall) {
         recallExpiry?.cancel()
         recall = recalled
+        if recalled.origin.isOpenLoop {
+            surfacedLoops.append(recalled)
+        }
         recallExpiry = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.noticeLifetime * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
@@ -399,6 +422,7 @@ final class LiveMeetingAnalyst: ObservableObject {
             tier: tier,
             deadline: item.deadline?.trimmingCharacters(in: .whitespacesAndNewlines).nilWhenEmpty,
             evidenceIdx: evidenceIdx,
+            quote: quote,
             spokenAt: evidenceIdx.map { store.entries[$0].timestamp },
             revisionOf: revisionOf
         )

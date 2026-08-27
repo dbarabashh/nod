@@ -17,12 +17,9 @@ final class ActionItemStore: ObservableObject {
     /// first and revert if the write fails, so the UI stays instant without any
     /// screen owning rollback.
     @Published private(set) var items: [ActionItem] = []
-    /// Bumped with every change to `items`, as a cheap key for the derivations
-    /// that shouldn't re-run on an unrelated render.
-    @Published private(set) var revision = 0
-
     private let supabase: SupabaseClient
     private static let tableName = "action_items"
+    private static let transitionsTable = "action_item_transitions"
     private var didLoad = false
     private var loading: Task<Void, Never>?
     private let mirrorCompletion: ((ProviderLinkItem, Bool) async -> Void)?
@@ -37,10 +34,6 @@ final class ActionItemStore: ObservableObject {
     ) {
         self.supabase = supabase
         self.mirrorCompletion = mirrorCompletion
-    }
-
-    private func didMutate() {
-        revision &+= 1
     }
 
     // MARK: - Cache
@@ -59,7 +52,6 @@ final class ActionItemStore: ObservableObject {
                 let rows = try await allItems()
                 items = rows
                 didLoad = true
-                didMutate()
             } catch {
                 Log.ui.error("ActionItemStore.refresh failed: \(error.localizedDescription)")
             }
@@ -73,10 +65,6 @@ final class ActionItemStore: ObservableObject {
         items
             .filter { $0.meetingID == meetingID }
             .sorted { $0.order < $1.order }
-    }
-
-    var openItems: [ActionItem] {
-        items.filter(\.isOpen)
     }
 
     /// Promote recap actions for meetings that never got theirs — a finalize
@@ -103,7 +91,6 @@ final class ActionItemStore: ObservableObject {
     func clear() {
         items = []
         didLoad = false
-        didMutate()
     }
 
     /// Persist a freshly-finalized meeting's extracted actions as rows. Called
@@ -240,7 +227,8 @@ final class ActionItemStore: ObservableObject {
                 status: finding.resolvedStatus,
                 source: .live,
                 revisionOf: finding.revisionOf,
-                evidenceIdx: finding.evidenceIdx
+                evidenceIdx: finding.evidenceIdx,
+                evidenceQuote: finding.quote
             )
             rows[finding.id] = row
         }
@@ -349,52 +337,203 @@ final class ActionItemStore: ObservableObject {
     func softDelete(itemID: UUID) async {
         guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
         let removed = items.remove(at: index)
-        didMutate()
         do {
             try await persistSoftDelete(itemID: itemID)
         } catch {
             items.insert(removed, at: min(index, items.count))
-            didMutate()
             Log.ui.error("ActionItemStore.softDelete failed: \(error.localizedDescription)")
         }
     }
 
-    /// Rename a task — the inline edit of an extracted or user-added item.
-    func updateText(_ text: String, itemID: UUID) async {
-        guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
-        let previous = items[index]
-        items[index] = previous.renamed(text)
-        didMutate()
+    /// The checkbox. Routed through `move` rather than writing `done` on its own,
+    /// so the one thing a person actually asserts about a loop leaves a record
+    /// like every other move does — and so `confirmed` has a caller at all.
+    func setDone(_ done: Bool, itemID: UUID) async {
+        guard let loop = items.first(where: { $0.id == itemID }) else { return }
+        await move(loop, to: done ? .confirmed : .open, actor: .user, mirroring: true)
+    }
+
+    /// Which rule moved a loop, so a rule that turns out to close things
+    /// wrongly can be found and answered for afterwards.
+    static let trackerResolver = "tracker-state/1"
+
+    /// Everything still open across every meeting, of every kind that can be
+    /// owed — not just tasks.
+    ///
+    /// Its own fetch rather than a slice of `items`, and the two must not be
+    /// merged. `items` is the user's to-do list: it feeds the checklist, the
+    /// recap card's filed count and the open-commitments number, and a decision
+    /// or an unanswered question landing in any of those is wrong. A loop is the
+    /// other question — what has this conversation left hanging — and a decision
+    /// nobody carried out is exactly that.
+    ///
+    /// `superseded` and `dropped` are excluded through `status`, and closed
+    /// states through `loop_state`, so what comes back is what the index at
+    /// `action_items_open_loops_idx` is shaped to return.
+    func openLoops() async -> [ActionItem] {
+        #if DEBUG
+            if DemoMode.isEnabled { return DemoData.allActionItems() }
+        #endif
         do {
-            try await persistText(text, itemID: itemID)
+            return try await supabase
+                .from(Self.tableName)
+                .select()
+                .is("deleted_at", value: nil)
+                .eq("status", value: ActionItem.Status.confirmed.rawValue)
+                .in("loop_state", values: ActionItem.LoopState.allCases.filter(\.isOpen).map(\.rawValue))
+                .order("created_at", ascending: true)
+                .limit(2000)
+                .execute()
+                .value
         } catch {
-            restore(previous)
-            Log.ui.error("ActionItemStore.updateText failed: \(error.localizedDescription)")
+            Log.ui.error("loops: open loops not loaded — \(error.localizedDescription)")
+            return []
         }
     }
 
-    /// Check / uncheck a task, stamping `done_at`.
-    func setDone(_ done: Bool, itemID: UUID) async {
-        await markDone(done, itemID: itemID, mirroring: true)
+    /// The latest move behind each of these loops, when it was not the person's
+    /// own. Their tick needs no caption, and a row explaining what the reader
+    /// just did is noise.
+    ///
+    /// Asked for the rows that are about to be drawn rather than for the
+    /// account: one meeting shows a handful, and reading five hundred to caption
+    /// five is five hundred rows decoded and discarded.
+    func reasons(for itemIDs: [UUID]) async -> [UUID: ActionItemTransition] {
+        #if DEBUG
+            if DemoMode.isEnabled { return [:] }
+        #endif
+        guard !itemIDs.isEmpty else { return [:] }
+        do {
+            let rows: [ActionItemTransition] = try await supabase
+                .from(Self.transitionsTable)
+                .select()
+                .in("action_item_id", values: itemIDs.map(\.uuidString))
+                .neq("actor", value: ActionItemTransition.Actor.user.rawValue)
+                .order("at", ascending: false)
+                .execute()
+                .value
+            // Newest first, so the first one seen for an item is the one to keep.
+            var latest: [UUID: ActionItemTransition] = [:]
+            for row in rows where latest[row.actionItemID] == nil {
+                latest[row.actionItemID] = row
+            }
+            return latest
+        } catch {
+            Log.ui.error("loops: reasons not loaded — \(error.localizedDescription)")
+            return [:]
+        }
     }
 
-    /// `mirroring` is false only when the tick *came* from the other side —
-    /// telling a tracker what it just told us is a wasted call, and on a
-    /// reconnect it would be a whole list of them.
-    private func markDone(_ done: Bool, itemID: UUID, mirroring: Bool) async {
-        guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
-        let previous = items[index]
-        items[index] = previous.marked(done: done, at: done ? Date() : nil)
-        didMutate()
+    /// Loops from *earlier* meetings that this one moved.
+    ///
+    /// Matched on the evidence the resolver wrote, not on when the row landed:
+    /// a transition is stamped when it is applied, and a finalize that ran
+    /// offline applies hours later. The evidence names the meeting that caused
+    /// the move, which is the only thing that stays true.
+    func movesMade(inMeeting meetingID: UUID) async -> [ActionItemTransition] {
+        #if DEBUG
+            if DemoMode.isEnabled { return [] }
+        #endif
         do {
-            try await persistDone(done, itemID: itemID)
+            return try await supabase
+                .from(Self.transitionsTable)
+                .select()
+                .contains("evidence", value: "[{\"meetingID\":\"\(meetingID.uuidString)\"}]")
+                .order("at", ascending: false)
+                .execute()
+                .value
         } catch {
-            restore(previous)
-            Log.ui.error("ActionItemStore.setDone failed: \(error.localizedDescription)")
+            Log.ui.error("loops: moves not loaded — \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    /// Moves a loop and records why, in that order and never one without the
+    /// other: a state with no transition beside it is a claim nobody can check.
+    ///
+    /// Inference may not reach the states that need a person — see `LoopClosure`.
+    /// The guard is here rather than in the callers because a new caller is
+    /// exactly the thing that would forget it.
+    func move(
+        _ loop: ActionItem,
+        to state: ActionItem.LoopState,
+        actor: ActionItemTransition.Actor,
+        reason: String? = nil,
+        evidence: [ActionItemTransition.Evidence] = [],
+        confidence: Double? = nil,
+        resolver: String? = nil,
+        mirroring: Bool = false
+    ) async {
+        guard loop.loopState != state else { return }
+        guard actor == .user || LoopClosure.mayInfer(state) else {
+            Log.ui.info("loop: refused inferred \(state.rawValue) for \(loop.id)")
             return
         }
-        if mirroring, let reference = previous.filed {
-            await mirrorCompletion?(reference, done)
+
+        var moved = loop
+        moved.loopState = state
+        moved.done = state == .confirmed
+        moved.doneAt = moved.done ? (loop.doneAt ?? Date()) : nil
+
+        // Takes the loop rather than looking it up, because `items` holds only
+        // the task list: a decision nobody carried out is a loop and is not a
+        // task, so it is never in there. The cache is updated when the loop does
+        // happen to be in it, and the write does not depend on that.
+        let cached = items.firstIndex(where: { $0.id == loop.id })
+        if let cached { items[cached] = moved }
+
+        do {
+            try await persistLoopState(state, itemID: loop.id)
+        } catch {
+            if cached != nil { restore(loop) }
+            Log.ui.error("ActionItemStore.move failed: \(error.localizedDescription)")
+            return
+        }
+
+        // Only when the tick itself changed, and never when the tracker is the
+        // one that told us: telling it what it just said is a wasted call, and
+        // on a reconnect it would be a whole list of them.
+        if mirroring, moved.done != loop.done, let reference = loop.filed {
+            await mirrorCompletion?(reference, moved.done)
+        }
+
+        // After the move, and never instead of it. A transition recorded for a
+        // move that did not happen is worse than no record at all.
+        let transition = ActionItemTransition(
+            actionItemID: loop.id,
+            userID: loop.userID,
+            fromState: loop.loopState,
+            toState: state,
+            actor: actor,
+            reason: reason,
+            evidence: evidence,
+            confidence: confidence,
+            resolver: resolver
+        )
+        await record(transition)
+    }
+
+    private func persistLoopState(_ state: ActionItem.LoopState, itemID: UUID) async throws {
+        struct Body: Encodable {
+            let loop_state: String
+            let updated_at: Date
+        }
+        try await patch(Body(loop_state: state.rawValue, updated_at: Date()), itemID: itemID)
+    }
+
+    /// A transition that fails to write does not undo the move.
+    ///
+    /// The move is what the person sees and it already succeeded; rolling it
+    /// back to keep a log tidy would be the log deciding what the product does.
+    /// A gap in the history is the smaller loss, and it is logged.
+    private func record(_ transition: ActionItemTransition) async {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+        do {
+            try await supabase.from(Self.transitionsTable).insert(transition).execute()
+        } catch {
+            Log.ui.error("loop: transition not recorded — \(error.localizedDescription)")
         }
     }
 
@@ -403,10 +542,35 @@ final class ActionItemStore: ObservableObject {
     /// Writes only the ones that disagree, so a pass where nothing moved — which
     /// is nearly every pass — costs nothing. One write each rather than a batch:
     /// an item crosses this line once or twice in its life.
+    ///
+    /// A closed tracker issue lands on `probablyDone`, never on done. It used to
+    /// tick the box outright, which meant a Linear issue somebody closed for
+    /// their own reasons silently retired a promise nobody had looked at — and
+    /// left no trace of why it vanished. The work being finished and the person
+    /// who was owed it knowing are different facts, and only the second one
+    /// closes a loop.
     func applyRemoteCompletions(_ states: [UUID: Bool]) async {
         for (itemID, closed) in states {
-            guard let item = items.first(where: { $0.id == itemID }), item.done != closed else { continue }
-            await markDone(closed, itemID: itemID, mirroring: false)
+            guard let item = items.first(where: { $0.id == itemID }) else { continue }
+            let next = LoopClosure.state(forTrackerClosed: closed)
+            guard item.loopState != next, item.loopState.isOpen || closed == false else { continue }
+            await move(
+                item,
+                to: next,
+                actor: .external,
+                reason: item.externalKey.map { key in
+                    "\(key) is \(closed ? "closed" : "open") in \(item.externalProvider ?? "the tracker")"
+                },
+                evidence: [.init(
+                    provider: item.externalProvider,
+                    key: item.externalKey,
+                    url: item.externalURL,
+                    meetingID: nil,
+                    idx: nil
+                )],
+                confidence: 0.8,
+                resolver: Self.trackerResolver
+            )
         }
     }
 
@@ -419,7 +583,6 @@ final class ActionItemStore: ObservableObject {
         let previous = items[index]
         let filedAt = Date()
         items[index] = previous.filed(in: reference, at: filedAt)
-        didMutate()
 
         let body = FilingBody(
             external_provider: reference.provider.rawValue,
@@ -459,26 +622,10 @@ final class ActionItemStore: ObservableObject {
         let updated_at: Date
     }
 
-    /// Insert one user-added task under a meeting. Returns nil when the write
-    /// failed, so the caller can leave its field open instead of pretending.
-    @discardableResult
-    func add(text: String, meetingID: UUID, position: Int) async -> ActionItem? {
-        do {
-            let item = try await persistInsert(text: text, meetingID: meetingID, position: position)
-            items.append(item)
-            didMutate()
-            return item
-        } catch {
-            Log.ui.error("ActionItemStore.add failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
     /// Puts a row back where the id still is, after a failed write.
     private func restore(_ item: ActionItem) {
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[index] = item
-        didMutate()
     }
 
     private func persistSoftDelete(itemID: UUID) async throws {
@@ -488,41 +635,6 @@ final class ActionItemStore: ObservableObject {
         }
         let now = Date()
         try await patch(Body(deleted_at: now, updated_at: now), itemID: itemID)
-    }
-
-    private func persistText(_ text: String, itemID: UUID) async throws {
-        struct Body: Encodable {
-            let text: String
-            let updated_at: Date
-        }
-        try await patch(Body(text: text, updated_at: Date()), itemID: itemID)
-    }
-
-    /// The owner is resolved from the current session so the view needn't thread
-    /// it through; RLS still checks `auth.uid() = user_id` on insert.
-    private func persistInsert(text: String, meetingID: UUID, position: Int) async throws -> ActionItem {
-        #if DEBUG
-            if DemoMode.isEnabled {
-                return ActionItem.new(
-                    meetingID: meetingID,
-                    userID: UUID(),
-                    text: text,
-                    deadline: nil,
-                    position: position
-                )
-            }
-        #endif
-        let userID = try await supabase.auth.session.user.id
-        let item = ActionItem.new(
-            meetingID: meetingID,
-            userID: userID,
-            text: text,
-            deadline: nil,
-            position: position,
-            source: .user
-        )
-        try await supabase.from(Self.tableName).insert(item).execute()
-        return item
     }
 
     /// The one update path: every mutation here is the same
@@ -537,19 +649,9 @@ final class ActionItemStore: ObservableObject {
             .eq("id", value: itemID.uuidString)
             .execute()
     }
-
-    private func persistDone(_ done: Bool, itemID: UUID) async throws {
-        struct Body: Encodable {
-            let done: Bool
-            let done_at: Date?
-            let updated_at: Date
-        }
-        let now = Date()
-        try await patch(Body(done: done, done_at: done ? now : nil, updated_at: now), itemID: itemID)
-    }
 }
 
-private extension String {
+extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
     }

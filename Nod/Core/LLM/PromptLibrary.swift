@@ -175,12 +175,7 @@ enum PromptLibrary {
     /// what "yesterday" means: they are read side by side in one answer, and two
     /// copies of this arithmetic is how one instant ends up dated twice.
     static func daysBack(to date: Date, from now: Date) -> Int {
-        let calendar = Calendar.current
-        return calendar.dateComponents(
-            [.day],
-            from: calendar.startOfDay(for: date),
-            to: calendar.startOfDay(for: now)
-        ).day ?? 0
+        DayCount.between(date, and: now)
     }
 
     /// The same stamp over a range. Collapses the day when a window was on

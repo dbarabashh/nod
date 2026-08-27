@@ -90,10 +90,7 @@ struct NotchRecapCard: View {
                     let filed = actionItemStore.items(forMeeting: meeting.id).filter(\.isOpen)
                     if !filed.isEmpty {
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("ACTION ITEMS")
-                                .font(.system(size: 9.5, weight: .bold))
-                                .kerning(0.6)
-                                .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+                            SectionLabel("Action items", size: .compact)
                             VStack(alignment: .leading, spacing: 3) {
                                 ForEach(filed) { item in
                                     actionRow(item)
@@ -107,10 +104,7 @@ struct NotchRecapCard: View {
                         // can't be filed from here until there is a row to point
                         // the reference at.
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("ACTION ITEMS")
-                                .font(.system(size: 9.5, weight: .bold))
-                                .kerning(0.6)
-                                .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+                            SectionLabel("Action items", size: .compact)
                             VStack(alignment: .leading, spacing: 3) {
                                 ForEach(items, id: \.text) { item in
                                     pendingRow(item.text, deadline: item.deadline)

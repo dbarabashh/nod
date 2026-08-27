@@ -90,6 +90,7 @@ struct MeetingBarCaption: View {
 struct MeetingBarExpansion: View {
     let panel: MeetingBarPanel
     let findings: [LiveFinding]
+    let loops: [LiveRecall]
     let onSubmit: (String) -> Void
     let onSummarize: () -> Void
     let onApprove: () -> Void
@@ -100,7 +101,7 @@ struct MeetingBarExpansion: View {
         case .passive:
             EmptyView()
         case .notes:
-            MeetingNotesPanel(findings: findings)
+            MeetingNotesPanel(findings: findings, loops: loops)
         case .ask:
             MeetingAskPanel(
                 phase: panel.ask,

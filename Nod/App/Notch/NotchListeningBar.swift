@@ -147,6 +147,10 @@ struct NotchListeningBar: View {
         MeetingBarExpansion(
             panel: panel,
             findings: rooms.findings,
+            // Findings are the meeting's and get mirrored; open loops are the
+            // host's own list, and a listener seeing what somebody else still
+            // owes is the account boundary this product does not cross.
+            loops: [],
             onSubmit: onSubmitAsk,
             onSummarize: onSummarize,
             // A listener has no lookup and so nothing that could ask to write.

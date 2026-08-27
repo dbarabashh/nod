@@ -19,6 +19,18 @@ struct TranscriptRecord: Codable, Identifiable, Equatable {
     /// is a single known speaker and is never clustered.
     var speaker: Int?
 
+    /// Who said this, as a person reads it. `speakerNames` is sparse — only the
+    /// clusters somebody has actually named are in it — so an unnamed cluster
+    /// keeps its number rather than becoming "Unknown", which would collapse
+    /// two different voices into one label.
+    ///
+    /// No speaker at all is the user: the `me` stream is a single known voice
+    /// and is never clustered.
+    func speakerName(from speakerNames: [String: String]) -> String {
+        guard let speaker else { return "Me" }
+        return speakerNames[String(speaker)] ?? "Speaker \(speaker)"
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case meetingID = "meeting_id"

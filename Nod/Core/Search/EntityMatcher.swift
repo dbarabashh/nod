@@ -1,12 +1,23 @@
 import Foundation
 
-/// Finds the people and projects a question names.
+/// Finds the people and projects a piece of text names.
 ///
 /// Vector search can't do this: the transcript labels speakers `[Me]`/`[Them]`,
 /// so a name the user asks about often appears nowhere in the text that would
 /// have to match it. But the name IS on the session, through `meeting_entities`
 /// — so the question can be scoped the same deterministic way a date is,
 /// instead of hoping the embedding stumbles onto the right meeting.
+///
+/// Two ways to ask, and the difference is a decision rather than an accident, so
+/// they live beside each other:
+///
+/// - `matched(names:in:)` wants the name as a phrase, whole-word. Right for a
+///   question somebody typed, where "Anna Kovalenko" was typed on purpose and
+///   scoping to the wrong Anna is the failure to avoid.
+/// - `names(_:spokenIn:)` wants every content word present, in any order. Right
+///   for a transcript, where a project gets declined, inverted and split across
+///   a clause, and "the companion app for mobile" is the same subject as
+///   "Mobile Companion".
 enum EntityMatcher {
     /// Below this a "name" matches too much — initials, "AI", a two-letter
     /// project code that appears inside ordinary words.
@@ -22,6 +33,16 @@ enum EntityMatcher {
         return names
             .filter { $0.count >= minimumNameLength && contains(normalized($0), in: haystack) }
             .sorted { $0.count > $1.count }
+    }
+
+    /// Whether the words of a name are all present in what was said.
+    ///
+    /// An empty `tokens` never matches: a name that survives normalisation as
+    /// nothing — an acronym, a two-letter code — would otherwise be present in
+    /// every sentence, which is the same trap `minimumNameLength` closes for the
+    /// phrase form.
+    static func names(_ tokens: Set<String>, spokenIn said: Set<String>) -> Bool {
+        !tokens.isEmpty && tokens.isSubset(of: said)
     }
 
     private static func normalized(_ text: String) -> String {

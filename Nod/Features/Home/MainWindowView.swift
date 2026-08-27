@@ -49,7 +49,6 @@ struct MainWindowView: View {
         /// — is not what you can do to a live one, so it is a different place,
         /// not a lens on the same one.
         case trash
-        case actionItems
         case settings
         case demoDailyModes
     }
@@ -117,9 +116,13 @@ struct MainWindowView: View {
             focus = nil
             surface = .chat
         }
+        // `nod://action-items` outlives the screen it was named for. Released
+        // builds, emails and the menu bar still send it, so it keeps working and
+        // lands where the items now live: a meeting shows what it produced under
+        // its own summary, and there is no longer a list of everything.
         .onReceive(NotificationCenter.default.publisher(for: .nodOpenActionItems)) { _ in
             focus = nil
-            surface = .actionItems
+            surface = .sessions
         }
         .onReceive(NotificationCenter.default.publisher(for: .nodOpenMeetingDetail)) { note in
             if let id = note.userInfo?[Notification.nodMeetingIDKey] as? UUID {
@@ -207,13 +210,6 @@ struct MainWindowView: View {
                 onStartCapture: capture,
                 onAskAboutProject: askAboutProject,
                 panelShortcut: hotkeys.combo(for: .togglePanel).displayString
-            )
-            .transition(.opacity)
-        case .actionItems:
-            ActionItemsAggregateView(
-                meetings: meetingStore.meetings,
-                onOpenMeeting: openMeeting,
-                onBack: { show(.chat) }
             )
             .transition(.opacity)
         case .settings:

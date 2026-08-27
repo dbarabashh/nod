@@ -1,17 +1,13 @@
 import Foundation
 
-/// Whether two action items say the same thing — across meetings as a hint to
-/// the user (`flag`), and within one meeting as the recap's check against what
-/// the live pass already wrote (`same`).
+/// Whether two action items say the same thing — the check `saveExtracted` makes
+/// when deciding whether the recap has restated something the live pass already
+/// wrote down.
 ///
-/// Client-side, flag-only duplicate detection for action items across meetings.
-/// Single-user product with modest data, so this stays deliberately simple: no
-/// embeddings, no backend — normalized token-overlap (Jaccard) between items
-/// from *different* meetings. It never merges or deletes; it only surfaces a
-/// "possible duplicate" hint the user resolves manually (delete one, or dismiss
-/// the flag). Conservative by design: a missed near-paraphrase is fine, a
-/// false flag is annoying, so the threshold + shared-token floor err toward
-/// under-flagging.
+/// Client-side and deliberately simple: no embeddings, no backend, just
+/// normalized token overlap. Conservative on purpose — a false match silently
+/// loses one of the recap's actions, so the threshold and shared-token floor
+/// err toward saying no.
 enum ActionItemDedup {
     /// Words shorter than this are dropped as low-signal ("to", "a", and most
     /// inflectional noise) before comparing.
@@ -28,41 +24,12 @@ enum ActionItemDedup {
     /// against two short tasks scoring high on a single shared word.
     private static let minSharedTokens = 2
 
-    /// Maps each flagged item id to the id of its strongest cross-meeting match.
-    /// Both members of a flagged pair appear as keys. `dismissed` holds pair
-    /// keys (see `pairKey`) the user marked "not a duplicate" — those are
-    /// skipped. Items already flagged keep their highest-similarity partner.
-    static func flag(
-        _ items: [ActionItem],
-        threshold: Double = 0.5,
-        dismissed: Set<String> = []
-    ) -> [UUID: UUID] {
-        let tokenized = items.map { (item: $0, tokens: tokens($0.text)) }
-        var best: [UUID: (other: UUID, score: Double)] = [:]
-
-        for i in 0 ..< tokenized.count {
-            for j in (i + 1) ..< tokenized.count {
-                let a = tokenized[i], b = tokenized[j]
-                guard a.item.meetingID != b.item.meetingID else { continue }
-                guard !dismissed.contains(pairKey(a.item.id, b.item.id)) else { continue }
-                let shared = a.tokens.intersection(b.tokens)
-                guard shared.count >= minSharedTokens else { continue }
-                let score = jaccard(a.tokens, b.tokens)
-                guard score >= threshold else { continue }
-                record(&best, id: a.item.id, other: b.item.id, score: score)
-                record(&best, id: b.item.id, other: a.item.id, score: score)
-            }
-        }
-        return best.mapValues(\.other)
-    }
-
     /// Whether two texts describe the same task *within one meeting* — the
     /// question `saveExtracted` asks when deciding whether the recap has just
     /// restated something the live pass already wrote down.
     ///
-    /// Stricter than `flag`, and asymmetric in what it tolerates: a false match
-    /// here silently loses one of the recap's actions, where a false match in
-    /// `flag` only shows a hint the user can dismiss. Identical wording is the
+    /// Asymmetric in what it tolerates: a false match here silently loses one of
+    /// the recap's actions, where a miss only costs a duplicate row. Identical wording is the
     /// common case — the same sentence read twice — so it is checked outright,
     /// below the token floor that would otherwise reject a two-word task.
     static func same(_ a: String, _ b: String) -> Bool {
@@ -92,14 +59,6 @@ enum ActionItemDedup {
     /// the evidence pointer.
     private static let sameThreshold = 0.6
 
-    /// Stable key for a pair of ids, order-independent — used to persist
-    /// dismissed ("not a duplicate") pairs.
-    static func pairKey(_ a: UUID, _ b: UUID) -> String {
-        let lo = min(a.uuidString, b.uuidString)
-        let hi = max(a.uuidString, b.uuidString)
-        return "\(lo)|\(hi)"
-    }
-
     /// Case- and whitespace-insensitive, and nothing else — this is the check
     /// for the same sentence read twice, not for two sentences that mean the
     /// same thing. That is what `jaccard` below is for.
@@ -118,10 +77,5 @@ enum ActionItemDedup {
         let inter = a.intersection(b).count
         let union = a.union(b).count
         return union == 0 ? 0 : Double(inter) / Double(union)
-    }
-
-    private static func record(_ best: inout [UUID: (other: UUID, score: Double)], id: UUID, other: UUID, score: Double) {
-        if let existing = best[id], existing.score >= score { return }
-        best[id] = (other, score)
     }
 }

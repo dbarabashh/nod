@@ -103,6 +103,34 @@ final class EntityStore: ObservableObject {
         }
     }
 
+    /// Every meeting-to-entity edge this user has, as a lookup.
+    ///
+    /// One read of the whole table rather than a query per question: it is
+    /// per-user and in the low thousands, and the thing that reads it runs
+    /// during a live meeting where a round trip per pass is a round trip too
+    /// many.
+    func allLinks() async -> [UUID: Set<UUID>] {
+        do {
+            struct Link: Decodable {
+                let meeting_id: UUID
+                let entity_id: UUID
+            }
+            let rows: [Link] = try await supabase
+                .from(Self.linksTable)
+                .select("meeting_id, entity_id")
+                .execute()
+                .value
+            var byMeeting: [UUID: Set<UUID>] = [:]
+            for row in rows {
+                byMeeting[row.meeting_id, default: []].insert(row.entity_id)
+            }
+            return byMeeting
+        } catch {
+            Log.ui.error("EntityStore.allLinks failed: \(error.localizedDescription)")
+            return [:]
+        }
+    }
+
     /// The sessions these entities appear in, newest first is left to the
     /// caller — this is just the link table.
     func meetingIDs(forEntities entityIDs: [UUID]) async -> [UUID] {

@@ -196,6 +196,7 @@ struct NotchMeetingBar: View {
         MeetingBarExpansion(
             panel: panel,
             findings: session.analyst.findings,
+            loops: session.analyst.surfacedLoops,
             onSubmit: onSubmitAsk,
             onSummarize: onSummarize,
             onApprove: onApproveAsk,
@@ -415,6 +416,12 @@ private struct MeetingBarEndButton: View {
 /// just read here instead of only at the end of the meeting.
 struct MeetingNotesPanel: View {
     let findings: [LiveFinding]
+    /// What this room stood on that was already owed. Kept apart from the
+    /// findings above and below them on purpose: those are things this
+    /// conversation produced, and these are things it walked into. Merging the
+    /// two would make a promise from three weeks ago read as something just
+    /// said, which is the one thing that would make both halves untrustworthy.
+    let loops: [LiveRecall]
 
     private var standing: [LiveFinding] {
         findings.filter { $0.state == .standing }
@@ -430,10 +437,7 @@ struct MeetingNotesPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("LIVE NOTES")
-                .font(.system(size: 9.5, weight: .bold))
-                .kerning(0.6)
-                .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+            SectionLabel("Live notes", size: .compact)
 
             if standing.isEmpty {
                 Text("Nothing flagged yet.")
@@ -466,6 +470,41 @@ struct MeetingNotesPanel: View {
                 }
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(Theme.Palette.muted)
+            }
+
+            if !loops.isEmpty {
+                alreadyOpen
+            }
+        }
+    }
+
+    /// The loops this conversation touched, in the order they came up.
+    ///
+    /// Each keeps its age, which is the whole reason it is worth showing: "you
+    /// promised this" is a note, and "you promised this twenty-three days ago"
+    /// is a decision to make before the call ends.
+    private var alreadyOpen: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+                .overlay(Theme.Palette.border)
+            SectionLabel("Already open", size: .compact)
+            ForEach(loops) { loop in
+                HStack(alignment: .top, spacing: 7) {
+                    Image("nc-arrow-dotted-rotate-anticlockwise")
+                        .icon(9)
+                        .foregroundStyle(Theme.Palette.brand)
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(loop.text)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(Theme.Palette.graphite)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text([loop.ageLabel, loop.sourceLabel].compactMap { $0 }.joined(separator: " · "))
+                            .font(.system(size: 10.5, weight: .regular))
+                            .foregroundStyle(Theme.Palette.muted)
+                            .lineLimit(1)
+                    }
+                }
             }
         }
     }
