@@ -39,3 +39,8 @@ sparkle_private_key*
 !.agents/
 !.claude/
 
+
+# Pipedream Connect credentials, written by `pd init connect`. The real secrets
+# live in Supabase edge-function secrets, per branch — never in the repo.
+.env
+*-oauth-credentials.txt
