@@ -28,7 +28,7 @@ final class AuthService: NSObject, ObservableObject {
     private let client: SupabaseClient
     private var stateTask: Task<Void, Never>?
     private var authSession: ASWebAuthenticationSession?
-    private var pendingAttributionRelayID: UUID?
+    private let relays = AttributionRelayStore()
 
     /// The SDK's most-recent cached session — updated by the SDK
     /// synchronously as soon as a token refreshes or sign-in lands,
@@ -59,6 +59,13 @@ final class AuthService: NSObject, ObservableObject {
                     self.session = expired ? nil : change.session
                     Log.auth.info("event=\(change.event) hasSession=\(change.session != nil) expired=\(expired)")
                 }
+                // Here rather than only in the callback, because the callback is
+                // not the only way a session arrives. A sign-in begun before a
+                // quit lands on the next launch as `.initialSession`, and that
+                // is precisely the case the relay is now kept on disk for.
+                if change.session?.isExpired == false {
+                    await claimPendingAttribution()
+                }
             }
         }
     }
@@ -80,13 +87,17 @@ final class AuthService: NSObject, ObservableObject {
             #if DEBUG
                 startAuthSession(url: url)
             #else
-                let relayID = UUID()
-                guard let startURL = attributionStartURL(oauthURL: url, relayID: relayID),
+                let relay = AttributionRelay(id: UUID(), startedAt: Date())
+                guard let startURL = attributionStartURL(oauthURL: url, relayID: relay.id),
                       NSWorkspace.shared.open(startURL) else {
                     startAuthSession(url: url)
                     return
                 }
-                pendingAttributionRelayID = relayID
+                // Written before the browser is handed the relay, not after the
+                // callback comes back: everything between those two points
+                // happens in another application, and this one need not survive
+                // it.
+                relays.store(relay)
             #endif
         } catch {
             Log.auth.error("getOAuthSignInURL failed: \(error.localizedDescription)")
@@ -160,6 +171,10 @@ final class AuthService: NSObject, ObservableObject {
 
         if client.auth.currentSession != nil {
             Log.auth.info("callback received but already signed in - ignoring")
+            // The session is not news, but the relay might be: a sign-in that
+            // completed while the token was still good leaves the state stream
+            // silent, and the campaign would go unclaimed for want of an event.
+            await claimPendingAttribution()
             isSigningIn = false
             return
         }
@@ -186,14 +201,20 @@ final class AuthService: NSObject, ObservableObject {
         return components?.url
     }
 
+    /// Redeems the relay against the account that just signed in.
+    ///
+    /// Cleared only once the server has taken it, so a claim that fails on a
+    /// flaky network is retried the next time a session appears rather than
+    /// thrown away. Claiming twice is safe by construction: the row records the
+    /// first user and refuses a different one.
     private func claimPendingAttribution() async {
-        guard let relayID = pendingAttributionRelayID else { return }
-        pendingAttributionRelayID = nil
+        guard let relay = relays.pending() else { return }
         struct Params: Encodable { let p_relay_id: UUID }
         do {
             try await client
-                .rpc("claim_acquisition_flow", params: Params(p_relay_id: relayID))
+                .rpc("claim_acquisition_flow", params: Params(p_relay_id: relay.id))
                 .execute()
+            relays.clear()
             Log.auth.info("acquisition relay claimed")
         } catch {
             Log.auth.error("acquisition relay claim failed: \(error.localizedDescription)")
