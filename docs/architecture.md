@@ -241,6 +241,21 @@ Clients without MCP Apps render the text fallback. Transcript pages contain 100
 segments by default, accept at most 250, stop at 100,000 characters, and return
 `nextCursor` when more content remains.
 
+The private founder analytics MCP is a separate Edge Function at
+`supabase/functions/founder-mcp/`, proxied through the founder dashboard's
+`/mcp` route. It never adds analytics tools to the customer meeting MCP. Access
+requires the independent `founder_analytics:read` permission, the exact founder
+resource audience and configured OAuth client, and one of the two approved
+founder email addresses. The function rejects other accounts before MCP server
+initialization, so ineligible users cannot discover the tool catalog.
+
+The founder function uses the caller's OAuth token and can execute only three
+read-only gateway RPCs. The `mcp_connector` role retains no table access and the
+function has no service-role credential. Signup lists are pseudonymous unless
+identity is explicitly requested; revoked or unavailable attribution is never
+reconstructed. Responses and identity-search text are not persisted. Audit
+events contain only actor, client, tool, status, and duration metadata.
+
 Legacy `nod_pat_` credentials continue through `/mcp/<token>` and `connect`
 during the migration window. Those responses carry deprecation, sunset, and
 migration-link headers; after `LEGACY_MCP_PAT_DISABLE_AFTER`, they return

@@ -66,6 +66,49 @@ then set `official_connectors_enabled` and a 90-day
 public. Rollback is disabling OAuth and the function switch while leaving the
 legacy path available until its configured sunset.
 
+### Private founder analytics MCP
+
+`founder-mcp` is a separate tool-only Edge Function. It never registers tools
+on the customer meeting MCP and has its own `FOUNDER_MCP_ENABLED` kill switch,
+resource audience, protected-resource metadata, and dashboard-hosted `/mcp`
+proxy. The custom token hook grants `founder_analytics:read` only when the email
+is Vlad or Dmytro and `client_id` equals the environment's configured private
+client. Viktoriia remains a dashboard founder but is not on this allowlist.
+
+For a Supabase Preview branch and matching Vercel Preview deployment, set:
+
+```text
+private.connector_oauth_config.founder_resource_uri = https://<dashboard-preview>/mcp
+private.connector_oauth_config.founder_client_id = <preview-private-oauth-client-uuid>
+
+FOUNDER_MCP_ENABLED=false
+FOUNDER_MCP_RESOURCE_URI=https://<dashboard-preview>/mcp
+FOUNDER_MCP_RESOURCE_METADATA_URI=https://<dashboard-preview>/.well-known/oauth-protected-resource
+MCP_AUTHORIZATION_SERVER=https://<preview-ref>.supabase.co/auth/v1
+
+Vercel FOUNDER_MCP_UPSTREAM=https://<preview-ref>.supabase.co/functions/v1/founder-mcp
+Vercel FOUNDER_MCP_AUTHORIZATION_SERVER=https://<preview-ref>.supabase.co/auth/v1
+```
+
+Apply the additive migration and deploy `founder-mcp` to Preview first. Verify
+anonymous, wrong-audience, wrong-client, wrong-permission, Viktoriia, and other
+accounts cannot discover tools. Then verify pseudonymous signup defaults,
+explicit identity lookup, bounded output, and all eight aggregate report names.
+
+Production rollout stays dark in this order:
+
+1. Deploy the concise OAuth consent and authorized-app disclosure plus the
+   dashboard protected-resource metadata.
+2. Configure the exact production `founder_client_id` and resource URI while
+   keeping `FOUNDER_MCP_ENABLED=false`.
+3. Vlad and Dmytro revoke any existing grant for that client.
+4. Enable the function, reconnect both accounts, and verify with MCP Inspector
+   and ChatGPT Developer Mode. Keep the connection unlisted and do not submit
+   it to the public directory.
+
+Rollback sets `FOUNDER_MCP_ENABLED=false` or clears `founder_client_id`. Neither
+action changes dashboard access or the customer meeting connector.
+
 ## Branches — sandbox (`develop`) vs production (`main`)
 
 We use [Supabase
