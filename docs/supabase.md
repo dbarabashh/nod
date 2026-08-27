@@ -71,43 +71,62 @@ legacy path available until its configured sunset.
 `founder-mcp` is a separate tool-only Edge Function. It never registers tools
 on the customer meeting MCP and has its own `FOUNDER_MCP_ENABLED` kill switch,
 resource audience, protected-resource metadata, and dashboard-hosted `/mcp`
-proxy. The custom token hook grants `founder_analytics:read` only when the email
-is Vlad or Dmytro and `client_id` equals the environment's configured private
-client. Viktoriia remains a dashboard founder but is not on this allowlist.
+proxy. It is private, unpublished, and used only through ChatGPT Developer Mode.
+The custom token hook grants `founder_analytics:read` only for an exact
+`(auth user UUID, DCR client ID)` row in
+`private.founder_mcp_client_access`, with the database gate enabled. Each
+founder's personal Developer Mode connection has its own generated client ID.
+Viktoriia remains a dashboard founder but has no founder-MCP binding.
 
 For a Supabase Preview branch and matching Vercel Preview deployment, set:
 
 ```text
-private.connector_oauth_config.founder_resource_uri = https://<dashboard-preview>/mcp
-private.connector_oauth_config.founder_client_id = <preview-private-oauth-client-uuid>
+private.connector_oauth_config.founder_mcp_enabled = false
+private.founder_mcp_client_access = exact user UUID, generated DCR client ID,
+                                    https://<dashboard-preview>/mcp
 
 FOUNDER_MCP_ENABLED=false
 FOUNDER_MCP_RESOURCE_URI=https://<dashboard-preview>/mcp
-FOUNDER_MCP_RESOURCE_METADATA_URI=https://<dashboard-preview>/.well-known/oauth-protected-resource
 MCP_AUTHORIZATION_SERVER=https://<preview-ref>.supabase.co/auth/v1
+FOUNDER_MCP_ALLOWED_ORIGINS=<comma-separated exact HTTPS browser origins, if needed>
 
 Vercel FOUNDER_MCP_UPSTREAM=https://<preview-ref>.supabase.co/functions/v1/founder-mcp
 Vercel FOUNDER_MCP_AUTHORIZATION_SERVER=https://<preview-ref>.supabase.co/auth/v1
 ```
 
-Apply the additive migration and deploy `founder-mcp` to Preview first. Verify
-anonymous, wrong-audience, wrong-client, wrong-permission, Viktoriia, and other
-accounts cannot discover tools. Then verify pseudonymous signup defaults,
-explicit identity lookup, bounded output, and all eight aggregate report names.
+The protected-resource metadata URI is derived from
+`FOUNDER_MCP_RESOURCE_URI`; do not configure a second copy. The OAuth server
+continues to advertise only `openid email`. `founder_analytics:read` is a custom
+JWT permission enforced by the token hook and database, not an OAuth scope.
+
+Apply the migration and deploy `founder-mcp` to Preview first with both gates
+off. Verify anonymous, wrong-audience, wrong-client, wrong-permission,
+Viktoriia, and other accounts cannot discover tools. The only data-bearing
+grant for `mcp_connector` is `founder_mcp_gateway`; it atomically validates
+arguments, applies rate/output bounds, and writes non-content audit metadata.
+Then verify pseudonymous signup defaults, explicit identity lookup, `unknown`
+legacy attribution, bounded output, and all eight aggregate report names.
 
 Production rollout stays dark in this order:
 
-1. Deploy the concise OAuth consent and authorized-app disclosure plus the
-   dashboard protected-resource metadata.
-2. Configure the exact production `founder_client_id` and resource URI while
-   keeping `FOUNDER_MCP_ENABLED=false`.
-3. Vlad and Dmytro revoke any existing grant for that client.
-4. Enable the function, reconnect both accounts, and verify with MCP Inspector
-   and ChatGPT Developer Mode. Keep the connection unlisted and do not submit
-   it to the public directory.
+1. Deploy the Edge Function and dashboard proxy with the Edge and database
+   gates disabled.
+2. Start each founder's Developer Mode connection once to obtain its generated
+   DCR client ID. The unmapped attempt fails closed at founder tool discovery.
+3. Bind each generated client ID to that founder's auth user UUID and exact
+   resource URI in `private.founder_mcp_client_access`. Revoke the bootstrap
+   OAuth grant before reconnecting so a token issued while the client was
+   unmapped is not retained as a meeting-connector grant.
+4. Enable `private.connector_oauth_config.founder_mcp_enabled`, then set
+   `FOUNDER_MCP_ENABLED=true`. Reconnect both accounts and verify with MCP
+   Inspector and ChatGPT Developer Mode.
 
-Rollback sets `FOUNDER_MCP_ENABLED=false` or clears `founder_client_id`. Neither
-action changes dashboard access or the customer meeting connector.
+Rollback disables both the database gate and `FOUNDER_MCP_ENABLED`; mappings
+may remain for later recovery or be revoked independently. Neither action
+changes dashboard access or the customer meeting connector. Nod retains only
+actor/client/tool/status, identity-inclusion, query-length, and returned-row
+count audit metadata for 90 days. It does not store MCP responses or search
+text; retention by connected ChatGPT accounts is outside Nod's control.
 
 ## Branches — sandbox (`develop`) vs production (`main`)
 

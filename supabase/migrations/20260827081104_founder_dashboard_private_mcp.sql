@@ -1,19 +1,184 @@
 alter table private.connector_oauth_config
-    add column founder_resource_uri text not null
-        default 'https://nod-founder-dashboard.vercel.app/mcp'
-        check (founder_resource_uri ~ '^https://[^[:space:]]+/mcp$'),
-    add column founder_client_id uuid;
+    add column founder_mcp_enabled boolean not null default false;
 
 alter table public.user_acquisition
-    add column consent_revoked_at timestamptz;
+    add column consent_revoked_at timestamptz,
+    add column claimed_visitor_id uuid;
 
-create or replace function public._founder_mcp_emails()
-returns text[]
-language sql
-immutable
+create index user_acquisition_claimed_visitor_idx
+    on public.user_acquisition (claimed_visitor_id)
+    where claimed_visitor_id is not null;
+
+create function private.mark_user_acquisition_consent_revoked()
+returns trigger
+language plpgsql
+security definer
 set search_path = ''
 as $$
-    select array['dmytro@hellonod.app', 'vlad@hellonod.app'];
+begin
+    update public.user_acquisition as acquisition
+       set first_touch_id = null,
+           last_touch_id = null,
+           coverage_status = 'no_eligible_touch',
+           consent_revoked_at = new.revoked_at
+     where acquisition.claimed_visitor_id = new.visitor_id;
+    return new;
+end;
+$$;
+
+create trigger mark_user_acquisition_consent_revoked
+after insert or update of revoked_at on public.acquisition_consent_revocations
+for each row execute function private.mark_user_acquisition_consent_revoked();
+
+revoke all on function private.mark_user_acquisition_consent_revoked() from public, anon, authenticated, mcp_connector;
+
+create function private.backfill_user_acquisition_consent_revocations()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+    v_updated integer;
+begin
+    update public.user_acquisition as acquisition
+       set claimed_visitor_id = coalesce(
+           (
+               select touch.visitor_id
+                 from public.acquisition_touches as touch
+                where touch.id = acquisition.last_touch_id
+           ),
+           (
+               select touch.visitor_id
+                 from public.acquisition_touches as touch
+                where touch.id = acquisition.first_touch_id
+           ),
+           (
+               select flow.visitor_id
+                 from public.acquisition_auth_flows as flow
+                where flow.claimed_by = acquisition.user_id
+                  and flow.claimed_at = acquisition.claimed_at
+                order by flow.relay_id
+                limit 1
+           )
+       )
+     where acquisition.claimed_visitor_id is null;
+
+    with revoked_users as (
+        select acquisition.user_id,
+               revocation.revoked_at
+          from public.user_acquisition as acquisition
+          join public.acquisition_consent_revocations as revocation
+            on revocation.visitor_id = acquisition.claimed_visitor_id
+         where acquisition.consent_revoked_at is null
+    )
+    update public.user_acquisition as acquisition
+       set first_touch_id = null,
+           last_touch_id = null,
+           coverage_status = 'no_eligible_touch',
+           consent_revoked_at = revoked.revoked_at
+      from revoked_users as revoked
+     where acquisition.user_id = revoked.user_id
+       and acquisition.consent_revoked_at is null;
+    get diagnostics v_updated = row_count;
+    return v_updated;
+end;
+$$;
+
+select private.backfill_user_acquisition_consent_revocations();
+
+drop function private.backfill_user_acquisition_consent_revocations();
+
+create table private.founder_mcp_client_access (
+    user_id uuid not null references auth.users(id) on delete cascade,
+    client_id text not null check (client_id <> '' and length(client_id) <= 2048),
+    resource_uri text not null check (resource_uri ~ '^https://[^[:space:]]+/mcp$'),
+    primary key (user_id, client_id),
+    granted_at timestamptz not null default now()
+);
+
+alter table private.founder_mcp_client_access enable row level security;
+
+create policy founder_mcp_client_access_auth_hook
+    on private.founder_mcp_client_access
+    for select
+    to supabase_auth_admin
+    using (true);
+
+revoke all on table private.founder_mcp_client_access from public, anon, authenticated, mcp_connector;
+grant select on table private.founder_mcp_client_access to supabase_auth_admin;
+
+create function public.connector_founder_analytics_client_access(p_client_ids text[])
+returns table (
+    client_id text,
+    is_founder_client boolean,
+    eligible boolean
+)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+    if auth.uid() is null then
+        raise exception 'authentication required' using errcode = '42501';
+    end if;
+    if p_client_ids is null
+       or cardinality(p_client_ids) > 100
+       or array_position(p_client_ids, null) is not null then
+        raise exception 'client ids must be a non-null array of at most 100 values' using errcode = '22023';
+    end if;
+
+    return query
+    select candidate.client_id,
+           exists (
+               select 1
+                 from private.founder_mcp_client_access as access
+                where access.client_id = candidate.client_id
+           ),
+           exists (
+               select 1
+                 from private.founder_mcp_client_access as access
+                where access.user_id = auth.uid()
+                  and access.client_id = candidate.client_id
+                  and exists (
+                      select 1
+                        from private.connector_oauth_config as config
+                       where config.singleton
+                         and config.founder_mcp_enabled
+                  )
+           )
+      from unnest(p_client_ids) with ordinality as candidate(client_id, ordinality)
+     order by candidate.ordinality;
+end;
+$$;
+
+create or replace function public.connector_founder_analytics_eligible_clients(p_client_ids text[])
+returns text[]
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+    v_result text[];
+begin
+    if auth.uid() is null then
+        raise exception 'authentication required' using errcode = '42501';
+    end if;
+    if p_client_ids is null
+       or cardinality(p_client_ids) > 100
+       or array_position(p_client_ids, null) is not null then
+        raise exception 'client ids must be a non-null array of at most 100 values' using errcode = '22023';
+    end if;
+
+    select coalesce(array_agg(access.client_id), '{}'::text[])
+      into v_result
+      from public.connector_founder_analytics_client_access(p_client_ids) as access
+     where access.eligible;
+
+    return v_result;
+end;
 $$;
 
 create or replace function public.connector_founder_analytics_eligibility(p_client_id uuid)
@@ -23,13 +188,47 @@ stable
 security definer
 set search_path = ''
 as $$
-    select lower(coalesce(auth.jwt() ->> 'email', '')) = any(public._founder_mcp_emails())
-       and exists (
-           select 1
-             from private.connector_oauth_config as config
-            where config.singleton
-              and config.founder_client_id = p_client_id
+    select p_client_id is not null
+       and p_client_id::text = any(
+           public.connector_founder_analytics_eligible_clients(array[p_client_id::text])
        );
+$$;
+
+create function public.connector_founder_analytics_client_eligibility(p_client_id text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+    select coalesce(
+        auth.uid() is not null
+        and p_client_id is not null
+        and p_client_id = auth.jwt() ->> 'client_id'
+        and auth.jwt() ->> 'role' = 'mcp_connector'
+        and auth.jwt() ->> 'sub' = auth.uid()::text
+        and jsonb_typeof(auth.jwt() -> 'nod_permissions') = 'array'
+        and (auth.jwt() -> 'nod_permissions') ? 'founder_analytics:read'
+        and exists (
+            select 1
+              from private.founder_mcp_client_access as access
+             where access.user_id = auth.uid()
+               and access.client_id = p_client_id
+               and (
+                   (jsonb_typeof(auth.jwt() -> 'aud') = 'string'
+                       and auth.jwt() ->> 'aud' = access.resource_uri)
+                   or (jsonb_typeof(auth.jwt() -> 'aud') = 'array'
+                       and (auth.jwt() -> 'aud') ? access.resource_uri)
+               )
+        )
+        and exists (
+            select 1
+              from private.connector_oauth_config as config
+             where config.singleton
+               and config.founder_mcp_enabled
+        ),
+        false
+    );
 $$;
 
 create or replace function public.custom_access_token_hook(event jsonb)
@@ -40,33 +239,44 @@ set search_path = ''
 as $$
 declare
     claims jsonb := event -> 'claims';
+    subject_id uuid := coalesce(
+        nullif(event ->> 'user_id', ''),
+        nullif(event -> 'claims' ->> 'sub', '')
+    )::uuid;
     meeting_resource_uri text;
     founder_resource_uri text;
-    founder_client_id uuid;
-    permissions jsonb := '["meetings:read"]'::jsonb;
+    founder_mcp_enabled boolean;
+    permissions jsonb := '[]'::jsonb;
 begin
     if claims ->> 'client_id' is null then
         return event;
     end if;
 
-    select config.resource_uri, config.founder_resource_uri, config.founder_client_id
-      into strict meeting_resource_uri, founder_resource_uri, founder_client_id
+    select config.resource_uri, config.founder_mcp_enabled
+      into strict meeting_resource_uri, founder_mcp_enabled
       from private.connector_oauth_config as config
      where config.singleton;
 
-    if founder_client_id is not null
-       and founder_resource_uri is not null
-       and claims ->> 'client_id' = founder_client_id::text
-       and lower(coalesce(claims ->> 'email', '')) = any(public._founder_mcp_emails()) then
-        claims := jsonb_set(
-            claims,
-            '{aud}',
-            to_jsonb(founder_resource_uri),
-            true
-        );
-        permissions := '["founder_analytics:read"]'::jsonb;
+    select access.resource_uri
+      into founder_resource_uri
+      from private.founder_mcp_client_access as access
+     where access.user_id = subject_id
+       and access.client_id = claims ->> 'client_id';
+
+    if founder_resource_uri is not null then
+        claims := jsonb_set(claims, '{aud}', to_jsonb(founder_resource_uri), true);
+        if founder_mcp_enabled then
+            permissions := '["founder_analytics:read"]'::jsonb;
+        end if;
+    elsif exists (
+        select 1
+          from private.founder_mcp_client_access as access
+         where access.client_id = claims ->> 'client_id'
+    ) then
+        permissions := '[]'::jsonb;
     else
         claims := jsonb_set(claims, '{aud}', to_jsonb(meeting_resource_uri), true);
+        permissions := '["meetings:read"]'::jsonb;
     end if;
 
     claims := jsonb_set(claims, '{role}', '"mcp_connector"'::jsonb, true);
@@ -83,178 +293,228 @@ stable
 security definer
 set search_path = ''
 as $$
-declare
-    claims jsonb := auth.jwt();
-    founder_resource_uri text;
-    founder_client_id uuid;
-    audiences jsonb := claims -> 'aud';
 begin
-    select config.founder_resource_uri, config.founder_client_id
-      into strict founder_resource_uri, founder_client_id
-      from private.connector_oauth_config as config
-     where config.singleton;
-
-    if claims ->> 'role' <> 'mcp_connector'
-       or coalesce(claims ->> 'client_id', '') = ''
-       or founder_client_id is null
-       or claims ->> 'client_id' <> founder_client_id::text
-       or coalesce(claims ->> 'sub', '') = ''
-       or lower(coalesce(claims ->> 'email', '')) <> all(public._founder_mcp_emails())
-       or not coalesce((claims -> 'nod_permissions') ? 'founder_analytics:read', false)
-       or not (
-           (jsonb_typeof(audiences) = 'array' and audiences ? founder_resource_uri)
-           or (jsonb_typeof(audiences) = 'string' and claims ->> 'aud' = founder_resource_uri)
-       ) then
+    if not public.connector_founder_analytics_client_eligibility(auth.jwt() ->> 'client_id') then
         raise exception 'not authorized' using errcode = '42501';
     end if;
 end;
 $$;
 
-create or replace function public.revoke_acquisition_consent(p_visitor_id uuid)
-returns void
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-    insert into public.acquisition_consent_revocations (visitor_id, revoked_at)
-    values (p_visitor_id, now())
-    on conflict (visitor_id) do update set revoked_at = excluded.revoked_at;
+create table private.founder_mcp_rate_limits (
+    actor_id uuid not null references auth.users(id) on delete cascade,
+    client_id text not null,
+    bucket text not null check (bucket in ('request', 'tool')),
+    window_started_at timestamptz not null,
+    request_count integer not null check (request_count > 0),
+    primary key (actor_id, client_id, bucket)
+);
 
-    update public.google_conversion_outbox as conversion
-       set status = 'suppressed',
-           last_error = 'analytics consent withdrawn'
-      from public.acquisition_touches as touch
-     where conversion.touch_id = touch.id
-       and touch.visitor_id = p_visitor_id
-       and conversion.status in ('pending', 'failed');
+alter table private.founder_mcp_rate_limits enable row level security;
+revoke all on table private.founder_mcp_rate_limits from public, anon, authenticated, mcp_connector;
 
-    update public.user_acquisition as acquisition
-       set first_touch_id = null,
-           last_touch_id = null,
-           coverage_status = 'no_eligible_touch',
-           consent_revoked_at = now()
-     where exists (
-         select 1
-           from public.acquisition_touches as touch
-          where touch.visitor_id = p_visitor_id
-            and touch.id in (acquisition.first_touch_id, acquisition.last_touch_id)
-     );
-
-    delete from public.acquisition_touches
-     where visitor_id = p_visitor_id;
-end;
-$$;
-
-create or replace function public.claim_acquisition_flow(p_relay_id uuid)
+create function public.founder_mcp_take_rate_limit(p_bucket text)
 returns jsonb
 language plpgsql
+volatile
 security definer
 set search_path = ''
 as $$
 declare
-    v_user_id uuid := auth.uid();
-    v_visitor_id uuid;
-    v_signup_at timestamptz;
-    v_first_touch_id uuid;
-    v_last_touch_id uuid;
-    v_ga_client_id text;
+    v_actor_id uuid := auth.uid();
+    v_client_id text := auth.jwt() ->> 'client_id';
+    v_now timestamptz := clock_timestamp();
+    v_limit integer;
+    v_count integer;
+    v_window_started_at timestamptz;
 begin
-    if v_user_id is null then
-        raise exception 'authentication required' using errcode = '42501';
+    perform public._assert_founder_mcp();
+
+    if p_bucket = 'request' then
+        v_limit := 60;
+    elsif p_bucket = 'tool' then
+        v_limit := 30;
+    else
+        raise exception 'unknown rate-limit bucket' using errcode = '22023';
     end if;
 
-    select visitor_id
-      into v_visitor_id
-      from public.acquisition_auth_flows
-     where relay_id = p_relay_id
-       and expires_at > now()
-       and (claimed_by is null or claimed_by = v_user_id)
-     for update;
-
-    if v_visitor_id is null then
-        return jsonb_build_object('status', 'missing_or_expired');
-    end if;
-
-    select created_at into v_signup_at from auth.users where id = v_user_id;
-
-    select id
-      into v_first_touch_id
-      from public.acquisition_touches
-     where visitor_id = v_visitor_id
-       and not exists (
-           select 1 from public.acquisition_consent_revocations as revocation
-            where revocation.visitor_id = v_visitor_id
-       )
-       and occurred_at between v_signup_at - interval '90 days' and v_signup_at + interval '1 hour'
-     order by occurred_at asc
-     limit 1;
-
-    select id, ga_client_id
-      into v_last_touch_id, v_ga_client_id
-      from public.acquisition_touches
-     where visitor_id = v_visitor_id
-       and not exists (
-           select 1 from public.acquisition_consent_revocations as revocation
-            where revocation.visitor_id = v_visitor_id
-       )
-       and occurred_at between v_signup_at - interval '90 days' and v_signup_at + interval '1 hour'
-     order by (
-         utm_source is not null
-         or gclid is not null
-         or gbraid is not null
-         or wbraid is not null
-         or (referrer_host is not null and referrer_host <> 'hellonod.app')
-     ) desc, occurred_at desc
-     limit 1;
-
-    update public.acquisition_auth_flows
-       set claimed_by = v_user_id,
-           claimed_at = now()
-     where relay_id = p_relay_id;
-
-    insert into public.user_acquisition (
-        user_id,
-        first_touch_id,
-        last_touch_id,
-        coverage_status,
-        consent_revoked_at
+    insert into private.founder_mcp_rate_limits (
+        actor_id,
+        client_id,
+        bucket,
+        window_started_at,
+        request_count
     ) values (
-        v_user_id,
-        v_first_touch_id,
-        v_last_touch_id,
-        case when v_last_touch_id is null then 'no_eligible_touch' else 'attributed' end,
-        null
+        v_actor_id,
+        v_client_id,
+        p_bucket,
+        v_now,
+        1
     )
-    on conflict (user_id) do update
-        set first_touch_id = excluded.first_touch_id,
-            last_touch_id = excluded.last_touch_id,
-            coverage_status = excluded.coverage_status,
-            consent_revoked_at = null,
-            claimed_at = now();
-
-    if v_last_touch_id is not null then
-        insert into public.google_conversion_outbox (
-            user_id,
-            event,
-            occurred_at,
-            touch_id,
-            ga_client_id
-        ) values (
-            v_user_id,
-            'trial_started',
-            v_signup_at,
-            v_last_touch_id,
-            v_ga_client_id
-        )
-        on conflict (user_id, event) do nothing;
-    end if;
+    on conflict (actor_id, client_id, bucket) do update
+        set window_started_at = case
+                when private.founder_mcp_rate_limits.window_started_at <= v_now - interval '1 minute'
+                    then v_now
+                else private.founder_mcp_rate_limits.window_started_at
+            end,
+            request_count = case
+                when private.founder_mcp_rate_limits.window_started_at <= v_now - interval '1 minute'
+                    then 1
+                else private.founder_mcp_rate_limits.request_count + 1
+            end
+    returning request_count, window_started_at
+         into v_count, v_window_started_at;
 
     return jsonb_build_object(
-        'status', case when v_last_touch_id is null then 'no_eligible_touch' else 'attributed' end,
-        'first_touch_id', v_first_touch_id,
-        'last_touch_id', v_last_touch_id
+        'allowed', v_count <= v_limit,
+        'limit', v_limit,
+        'retry_after_seconds', case
+            when v_count <= v_limit then 0
+            else greatest(1, ceil(extract(epoch from (v_window_started_at + interval '1 minute' - v_now)))::integer)
+        end
     );
+end;
+$$;
+
+create function private.founder_recent_signups_data(
+    p_days integer,
+    p_limit integer,
+    p_attribution_status text
+)
+returns table (
+    user_id uuid,
+    email text,
+    display_name text,
+    created_at timestamptz,
+    plan text,
+    subscription_status text,
+    lifecycle_state text,
+    first_meeting_at timestamptz,
+    activated boolean,
+    attribution_status text,
+    source text,
+    medium text,
+    campaign_name text,
+    referrer_host text,
+    landing_path text
+)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+    if p_days is null
+       or p_limit is null
+       or p_days not between 1 and 365
+       or p_limit not between 1 and 100 then
+        raise exception 'days must be 1..365 and limit must be 1..100' using errcode = '22023';
+    end if;
+    if p_attribution_status is not null
+       and p_attribution_status not in ('attributed', 'unattributed') then
+        raise exception 'attribution status must be attributed, unattributed, or null' using errcode = '22023';
+    end if;
+
+    return query
+    with users as (
+        select account.id,
+               account.email::text,
+               profile.display_name,
+               account.created_at,
+               subscription.plan,
+               public._effective_sub_status(subscription.status, subscription.trial_ends_at) as subscription_status,
+               public._user_last_active(account.id) as last_active_at,
+               meeting_stats.first_completed_at,
+               meeting_stats.completed_count,
+               coalesce(meeting_stats.activated, false) as activated,
+               acquisition.user_id as acquisition_user_id,
+               acquisition.coverage_status,
+               acquisition.claimed_visitor_id,
+               acquisition.consent_revoked_at,
+               touch.id as touch_id,
+               touch.utm_source,
+               touch.utm_medium,
+               touch.utm_campaign,
+               touch.referrer_host,
+               touch.page_path,
+               touch.gclid,
+               touch.gbraid,
+               touch.wbraid
+          from auth.users as account
+          left join public.profiles as profile on profile.user_id = account.id
+          left join public.subscriptions as subscription on subscription.user_id = account.id
+          left join public.user_acquisition as acquisition on acquisition.user_id = account.id
+          left join public.acquisition_touches as touch on touch.id = acquisition.last_touch_id
+          left join lateral (
+              select completed.first_completed_at,
+                     completed.completed_count,
+                     exists (
+                         select 1
+                           from public.meetings as second_meeting
+                          where second_meeting.user_id = account.id
+                            and second_meeting.deleted_at is null
+                            and second_meeting.ended_at > second_meeting.started_at
+                            and second_meeting.ended_at > completed.first_completed_at
+                            and second_meeting.ended_at <= completed.first_completed_at + interval '3 days'
+                     ) as activated
+                from (
+                    select min(meeting.ended_at) as first_completed_at,
+                           count(*) as completed_count
+                      from public.meetings as meeting
+                     where meeting.user_id = account.id
+                       and meeting.deleted_at is null
+                       and meeting.ended_at > meeting.started_at
+                       and meeting.ended_at >= account.created_at
+                ) as completed
+          ) as meeting_stats on true
+         where lower(account.email) <> all(public._excluded_emails())
+           and account.created_at >= now() - make_interval(days => p_days)
+    ), classified as (
+        select users.*,
+               case
+                   when users.consent_revoked_at is not null then 'consent_revoked'
+                   when users.acquisition_user_id is not null and users.claimed_visitor_id is null then 'unknown'
+                   when users.coverage_status = 'attributed' and users.touch_id is not null then 'attributed'
+                   else 'no_eligible_touch'
+               end as resolved_attribution_status
+          from users
+    )
+    select classified.id,
+           classified.email,
+           classified.display_name,
+           classified.created_at,
+           classified.plan,
+           classified.subscription_status,
+           case
+               when classified.completed_count = 0 and classified.created_at > now() - interval '3 days' then 'new'
+               when classified.completed_count = 0 then 'blocked'
+               when classified.activated then 'activated'
+               when classified.last_active_at > now() - interval '7 days' then 'active'
+               else 'dormant'
+           end,
+           classified.first_completed_at,
+           classified.activated,
+           classified.resolved_attribution_status,
+           case when classified.resolved_attribution_status = 'attributed'
+               then coalesce(
+                   classified.utm_source,
+                   case when classified.gclid is not null or classified.gbraid is not null or classified.wbraid is not null then 'google' end,
+                   nullif(classified.referrer_host, 'hellonod.app')
+               ) end,
+           case when classified.resolved_attribution_status = 'attributed'
+               then coalesce(
+                   classified.utm_medium,
+                   case when classified.gclid is not null or classified.gbraid is not null or classified.wbraid is not null then 'cpc' end,
+                   case when classified.referrer_host is not null and classified.referrer_host <> 'hellonod.app' then 'referral' end
+               ) end,
+           case when classified.resolved_attribution_status = 'attributed' then classified.utm_campaign end,
+           case when classified.resolved_attribution_status = 'attributed' then nullif(classified.referrer_host, 'hellonod.app') end,
+           case when classified.resolved_attribution_status = 'attributed' then classified.page_path end
+      from classified
+     where p_attribution_status is null
+        or (p_attribution_status = 'attributed' and classified.resolved_attribution_status = 'attributed')
+        or (p_attribution_status = 'unattributed' and classified.resolved_attribution_status <> 'attributed')
+     order by classified.created_at desc
+     limit p_limit;
 end;
 $$;
 
@@ -286,96 +546,48 @@ set search_path = ''
 as $$
 begin
     perform public._assert_founder();
-
-    if p_days not between 1 and 365 or p_limit not between 1 and 100 then
-        raise exception 'days must be 1..365 and limit must be 1..100' using errcode = '22023';
-    end if;
-
-    return query
-    with users as (
-        select account.id,
-               account.email::text,
-               profile.display_name,
-               account.created_at,
-               subscription.plan,
-               public._effective_sub_status(subscription.status, subscription.trial_ends_at) as subscription_status,
-               public._user_last_active(account.id) as last_active_at,
-               (select min(meeting.started_at)
-                  from public.meetings as meeting
-                 where meeting.user_id = account.id and meeting.deleted_at is null) as first_meeting_at,
-               (select count(*) >= 2
-                  from public.meetings as meeting
-                 where meeting.user_id = account.id
-                   and meeting.deleted_at is null
-                   and meeting.ended_at is not null
-                   and meeting.created_at between account.created_at and account.created_at + interval '3 days') as activated,
-               (select count(*)
-                  from public.meetings as meeting
-                 where meeting.user_id = account.id and meeting.deleted_at is null) as meetings_count,
-               acquisition.coverage_status,
-               acquisition.consent_revoked_at,
-               touch.id as touch_id,
-               touch.utm_source,
-               touch.utm_medium,
-               touch.utm_campaign,
-               touch.referrer_host,
-               touch.page_path,
-               touch.gclid,
-               touch.gbraid,
-               touch.wbraid
-          from auth.users as account
-          left join public.profiles as profile on profile.user_id = account.id
-          left join public.subscriptions as subscription on subscription.user_id = account.id
-          left join public.user_acquisition as acquisition on acquisition.user_id = account.id
-          left join public.acquisition_touches as touch on touch.id = acquisition.last_touch_id
-         where lower(account.email) <> all(public._excluded_emails())
-           and account.created_at >= now() - make_interval(days => p_days)
-         order by account.created_at desc
-         limit p_limit
-    )
-    select users.id,
-           users.email,
-           users.display_name,
-           users.created_at,
-           users.plan,
-           users.subscription_status,
-           case
-               when users.meetings_count = 0 and users.created_at > now() - interval '3 days' then 'new'
-               when users.meetings_count = 0 then 'blocked'
-               when users.activated then 'activated'
-               when users.last_active_at > now() - interval '7 days' then 'active'
-               else 'dormant'
-           end,
-           users.first_meeting_at,
-           coalesce(users.activated, false),
-           case
-               when users.consent_revoked_at is not null then 'consent_revoked'
-               when users.coverage_status = 'attributed' and users.touch_id is not null then 'attributed'
-               else 'no_eligible_touch'
-           end,
-           case when users.coverage_status = 'attributed' and users.touch_id is not null and users.consent_revoked_at is null
-               then coalesce(
-                   users.utm_source,
-                   case when users.gclid is not null or users.gbraid is not null or users.wbraid is not null then 'google' end,
-                   nullif(users.referrer_host, 'hellonod.app')
-               ) end,
-           case when users.coverage_status = 'attributed' and users.touch_id is not null and users.consent_revoked_at is null
-               then coalesce(
-                   users.utm_medium,
-                   case when users.gclid is not null or users.gbraid is not null or users.wbraid is not null then 'cpc' end,
-                   case when users.referrer_host is not null and users.referrer_host <> 'hellonod.app' then 'referral' end
-               ) end,
-           case when users.coverage_status = 'attributed' and users.touch_id is not null and users.consent_revoked_at is null
-               then users.utm_campaign end,
-           case when users.coverage_status = 'attributed' and users.touch_id is not null and users.consent_revoked_at is null
-               then nullif(users.referrer_host, 'hellonod.app') end,
-           case when users.coverage_status = 'attributed' and users.touch_id is not null and users.consent_revoked_at is null
-               then users.page_path end
-      from users;
+    return query select * from private.founder_recent_signups_data(p_days, p_limit, null);
 end;
 $$;
 
-create or replace function public.founder_user_attribution()
+create function public.founder_recent_signups(
+    p_days integer,
+    p_limit integer,
+    p_attribution_status text
+)
+returns table (
+    user_id uuid,
+    email text,
+    display_name text,
+    created_at timestamptz,
+    plan text,
+    subscription_status text,
+    lifecycle_state text,
+    first_meeting_at timestamptz,
+    activated boolean,
+    attribution_status text,
+    source text,
+    medium text,
+    campaign_name text,
+    referrer_host text,
+    landing_path text
+)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+    perform public._assert_founder();
+    return query select * from private.founder_recent_signups_data(
+        p_days,
+        p_limit,
+        p_attribution_status
+    );
+end;
+$$;
+
+create function public.founder_user_attribution(p_user_ids uuid[])
 returns table (
     user_id uuid,
     attribution_status text,
@@ -393,39 +605,197 @@ as $$
 begin
     perform public._assert_founder();
 
+    if p_user_ids is null
+       or cardinality(p_user_ids) > 100
+       or array_position(p_user_ids, null) is not null then
+        raise exception 'user ids must be a non-null array of at most 100 values' using errcode = '22023';
+    end if;
+
     return query
     select account.id,
            case
                when acquisition.consent_revoked_at is not null then 'consent_revoked'
+               when acquisition.user_id is not null and acquisition.claimed_visitor_id is null then 'unknown'
                when acquisition.coverage_status = 'attributed' and touch.id is not null then 'attributed'
                else 'no_eligible_touch'
            end,
-           case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null
+           case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null and acquisition.claimed_visitor_id is not null
                then coalesce(
                    touch.utm_source,
                    case when touch.gclid is not null or touch.gbraid is not null or touch.wbraid is not null then 'google' end,
                    nullif(touch.referrer_host, 'hellonod.app')
                ) end,
-           case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null
+           case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null and acquisition.claimed_visitor_id is not null
                then coalesce(
                    touch.utm_medium,
                    case when touch.gclid is not null or touch.gbraid is not null or touch.wbraid is not null then 'cpc' end,
                    case when touch.referrer_host is not null and touch.referrer_host <> 'hellonod.app' then 'referral' end
                ) end,
-           case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null
+           case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null and acquisition.claimed_visitor_id is not null
                then touch.utm_campaign end,
-           case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null
+           case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null and acquisition.claimed_visitor_id is not null
                then nullif(touch.referrer_host, 'hellonod.app') end,
-           case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null
+           case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null and acquisition.claimed_visitor_id is not null
                then touch.page_path end
       from auth.users as account
       left join public.user_acquisition as acquisition on acquisition.user_id = account.id
       left join public.acquisition_touches as touch on touch.id = acquisition.last_touch_id
-     where lower(account.email) <> all(public._excluded_emails());
+     where account.id = any(p_user_ids)
+       and lower(account.email) <> all(public._excluded_emails());
 end;
 $$;
 
-create or replace function public.founder_mcp_report(
+create or replace function public.claim_acquisition_flow(p_relay_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+    v_user_id uuid := auth.uid();
+    v_visitor_id uuid;
+    v_signup_at timestamptz;
+    v_first_touch_id uuid;
+    v_last_touch_id uuid;
+    v_ga_client_id text;
+    v_visitor_revoked_at timestamptz;
+    v_effective_revoked_at timestamptz;
+    v_existing_claim boolean := false;
+begin
+    if v_user_id is null then
+        raise exception 'authentication required' using errcode = '42501';
+    end if;
+
+    select visitor_id
+      into v_visitor_id
+      from public.acquisition_auth_flows
+     where relay_id = p_relay_id
+       and expires_at > now()
+       and (claimed_by is null or claimed_by = v_user_id)
+     for update;
+
+    if v_visitor_id is null then
+        return jsonb_build_object('status', 'missing_or_expired');
+    end if;
+
+    select created_at into v_signup_at from auth.users where id = v_user_id;
+    select revocation.revoked_at
+      into v_visitor_revoked_at
+      from public.acquisition_consent_revocations as revocation
+     where revocation.visitor_id = v_visitor_id;
+
+    if v_visitor_revoked_at is null then
+        select id
+          into v_first_touch_id
+          from public.acquisition_touches
+         where visitor_id = v_visitor_id
+           and occurred_at between v_signup_at - interval '90 days' and v_signup_at + interval '1 hour'
+         order by occurred_at asc
+         limit 1;
+
+        select id, ga_client_id
+          into v_last_touch_id, v_ga_client_id
+          from public.acquisition_touches
+         where visitor_id = v_visitor_id
+           and occurred_at between v_signup_at - interval '90 days' and v_signup_at + interval '1 hour'
+         order by (
+             utm_source is not null
+             or gclid is not null
+             or gbraid is not null
+             or wbraid is not null
+             or (referrer_host is not null and referrer_host <> 'hellonod.app')
+         ) desc, occurred_at desc
+         limit 1;
+    end if;
+
+    update public.acquisition_auth_flows
+       set claimed_by = v_user_id,
+           claimed_at = now()
+     where relay_id = p_relay_id;
+
+    select true
+      into v_existing_claim
+      from public.user_acquisition
+     where user_id = v_user_id
+     for update;
+    v_existing_claim := coalesce(v_existing_claim, false);
+
+    insert into public.user_acquisition (
+        user_id,
+        claimed_visitor_id,
+        first_touch_id,
+        last_touch_id,
+        coverage_status,
+        consent_revoked_at
+    ) values (
+        v_user_id,
+        v_visitor_id,
+        v_first_touch_id,
+        v_last_touch_id,
+        case
+            when v_visitor_revoked_at is not null then 'no_eligible_touch'
+            when v_last_touch_id is null then 'no_eligible_touch'
+            else 'attributed'
+        end,
+        v_visitor_revoked_at
+    )
+    on conflict (user_id) do update
+        set first_touch_id = case
+                when public.user_acquisition.consent_revoked_at is not null
+                  or excluded.consent_revoked_at is not null then null
+                else public.user_acquisition.first_touch_id
+            end,
+            last_touch_id = case
+                when public.user_acquisition.consent_revoked_at is not null
+                  or excluded.consent_revoked_at is not null then null
+                else public.user_acquisition.last_touch_id
+            end,
+            coverage_status = case
+                when public.user_acquisition.consent_revoked_at is not null
+                  or excluded.consent_revoked_at is not null then 'no_eligible_touch'
+                else public.user_acquisition.coverage_status
+            end,
+            consent_revoked_at = coalesce(
+                public.user_acquisition.consent_revoked_at,
+                excluded.consent_revoked_at
+            ),
+            claimed_at = public.user_acquisition.claimed_at
+    returning first_touch_id, last_touch_id, consent_revoked_at
+         into v_first_touch_id, v_last_touch_id, v_effective_revoked_at;
+
+    if v_effective_revoked_at is not null then
+        v_first_touch_id := null;
+        v_last_touch_id := null;
+    elsif not v_existing_claim and v_last_touch_id is not null then
+        insert into public.google_conversion_outbox (
+            user_id,
+            event,
+            occurred_at,
+            touch_id,
+            ga_client_id
+        ) values (
+            v_user_id,
+            'trial_started',
+            v_signup_at,
+            v_last_touch_id,
+            v_ga_client_id
+        )
+        on conflict (user_id, event) do nothing;
+    end if;
+
+    return jsonb_build_object(
+        'status', case
+            when v_effective_revoked_at is not null then 'consent_revoked'
+            when v_last_touch_id is null then 'no_eligible_touch'
+            else 'attributed'
+        end,
+        'first_touch_id', v_first_touch_id,
+        'last_touch_id', v_last_touch_id
+    );
+end;
+$$;
+
+create function public.founder_mcp_report(
     p_report text,
     p_days integer default 30,
     p_platform text default null,
@@ -443,13 +813,16 @@ declare
 begin
     perform public._assert_founder_mcp();
 
-    if p_report not in (
+    if p_report is null or p_report not in (
         'overview', 'acquisition', 'activation', 'retention', 'monetization',
         'usage_cost', 'product_analytics', 'communications'
     ) then
         raise exception 'unknown report' using errcode = '22023';
     end if;
-    if p_days not between 1 and 365 or p_weeks not between 1 and 52 then
+    if p_days is null
+       or p_weeks is null
+       or p_days not between 1 and 365
+       or p_weeks not between 1 and 52 then
         raise exception 'days must be 1..365 and weeks must be 1..52' using errcode = '22023';
     end if;
     if p_platform is not null and p_platform not in ('macos', 'ios') then
@@ -537,7 +910,14 @@ begin
             v_result := v_result || jsonb_build_object('delivery_summary', v_rows);
     end case;
 
-    return v_result || jsonb_build_object('generated_at', now());
+    return v_result || jsonb_build_object(
+        'generated_at', now(),
+        'window_semantics', case
+            when p_report in ('acquisition', 'activation', 'product_analytics') then 'days'
+            when p_report = 'retention' then 'weeks'
+            else 'all_time'
+        end
+    );
 end;
 $$;
 
@@ -558,13 +938,6 @@ declare
 begin
     perform public._assert_founder_mcp();
 
-    if p_days not between 1 and 365 or p_limit not between 1 and 100 then
-        raise exception 'days must be 1..365 and limit must be 1..100' using errcode = '22023';
-    end if;
-    if p_attribution_status is not null and p_attribution_status not in ('attributed', 'unattributed') then
-        raise exception 'attribution status must be attributed, unattributed, or null' using errcode = '22023';
-    end if;
-
     select coalesce(jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
                'user_key', 'user_' || substring(md5(signup.user_id::text) from 1 for 12),
                'email', case when p_include_identity then signup.email end,
@@ -583,10 +956,11 @@ begin
                'landing_path', signup.landing_path
            )) order by signup.created_at desc), '[]'::jsonb)
       into v_result
-      from public.founder_recent_signups(p_days, p_limit) as signup
-     where p_attribution_status is null
-        or (p_attribution_status = 'attributed' and signup.attribution_status = 'attributed')
-        or (p_attribution_status = 'unattributed' and signup.attribution_status <> 'attributed');
+      from private.founder_recent_signups_data(
+          p_days,
+          p_limit,
+          p_attribution_status
+      ) as signup;
 
     return jsonb_build_object(
         'window_days', p_days,
@@ -606,12 +980,19 @@ set search_path = ''
 as $$
 declare
     v_query text := lower(trim(p_query));
+    v_is_email boolean;
+    v_is_uuid boolean;
     v_matches jsonb;
 begin
     perform public._assert_founder_mcp();
 
-    if v_query = '' or length(v_query) > 120 then
-        raise exception 'query must contain 1..120 characters' using errcode = '22023';
+    v_is_email := position('@' in v_query) > 1;
+    v_is_uuid := v_query ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
+    if v_query is null
+       or v_query = ''
+       or length(v_query) > 120
+       or (not v_is_email and not v_is_uuid and length(v_query) < 3) then
+        raise exception 'query must be an exact email, user UUID, or a name of 3..120 characters' using errcode = '22023';
     end if;
 
     select coalesce(jsonb_agg(to_jsonb(match) - 'exact_email' order by match.exact_email desc, match.created_at desc), '[]'::jsonb)
@@ -628,12 +1009,30 @@ begin
                  coalesce((select round(sum(event.audio_seconds) / 60.0, 1) from public.usage_events as event where event.user_id = account.id and event.kind = 'transcribe'), 0) as minutes_transcribed,
                  coalesce((select round(sum(event.cost_usd), 4) from public.usage_events as event where event.user_id = account.id), 0) as cost_usd,
                  coalesce((select count(*) from public.chat_messages as message where message.user_id = account.id and message.role = 'user'), 0) as chat_count,
-                 attribution.attribution_status,
-                 attribution.source,
-                 attribution.medium,
-                 attribution.campaign_name,
-                 attribution.referrer_host,
-                 attribution.landing_path,
+                 case
+                     when acquisition.consent_revoked_at is not null then 'consent_revoked'
+                     when acquisition.user_id is not null and acquisition.claimed_visitor_id is null then 'unknown'
+                     when acquisition.coverage_status = 'attributed' and touch.id is not null then 'attributed'
+                     else 'no_eligible_touch'
+                 end as attribution_status,
+                 case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null and acquisition.claimed_visitor_id is not null
+                     then coalesce(
+                         touch.utm_source,
+                         case when touch.gclid is not null or touch.gbraid is not null or touch.wbraid is not null then 'google' end,
+                         nullif(touch.referrer_host, 'hellonod.app')
+                     ) end as source,
+                 case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null and acquisition.claimed_visitor_id is not null
+                     then coalesce(
+                         touch.utm_medium,
+                         case when touch.gclid is not null or touch.gbraid is not null or touch.wbraid is not null then 'cpc' end,
+                         case when touch.referrer_host is not null and touch.referrer_host <> 'hellonod.app' then 'referral' end
+                     ) end as medium,
+                 case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null and acquisition.claimed_visitor_id is not null
+                     then touch.utm_campaign end as campaign_name,
+                 case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null and acquisition.claimed_visitor_id is not null
+                     then nullif(touch.referrer_host, 'hellonod.app') end as referrer_host,
+                 case when acquisition.coverage_status = 'attributed' and touch.id is not null and acquisition.consent_revoked_at is null and acquisition.claimed_visitor_id is not null
+                     then touch.page_path end as landing_path,
                  left(notes.who_they_are, 1000) as who_they_are,
                  left(notes.how_they_work, 1000) as how_they_work,
                  left(notes.why_chose, 1000) as why_chose,
@@ -643,14 +1042,18 @@ begin
             from auth.users as account
             left join public.profiles as profile on profile.user_id = account.id
             left join public.subscriptions as subscription on subscription.user_id = account.id
-            left join public.founder_user_attribution() as attribution on attribution.user_id = account.id
+            left join public.user_acquisition as acquisition on acquisition.user_id = account.id
+            left join public.acquisition_touches as touch on touch.id = acquisition.last_touch_id
             left join public.founder_user_notes as notes on notes.user_id = account.id
            where lower(account.email) <> all(public._excluded_emails())
              and (
-                 lower(account.email) = v_query
-                 or position(v_query in lower(account.email)) > 0
-                 or position(v_query in lower(coalesce(profile.display_name, ''))) > 0
-                 or account.id::text = v_query
+                 (v_is_email and lower(account.email) = v_query)
+                 or (v_is_uuid and account.id::text = v_query)
+                 or (
+                     not v_is_email
+                     and not v_is_uuid
+                     and position(v_query in lower(coalesce(profile.display_name, ''))) > 0
+                 )
              )
            order by exact_email desc, account.created_at desc
            limit 10
@@ -660,31 +1063,238 @@ begin
 end;
 $$;
 
+create table private.founder_mcp_audit_events (
+    id bigint generated always as identity primary key,
+    occurred_at timestamptz not null default now(),
+    actor_id uuid not null references auth.users(id) on delete cascade,
+    client_id text not null,
+    tool text not null check (tool in ('get_founder_report', 'list_recent_signups', 'find_user', 'unknown')),
+    status text not null check (status in ('ok', 'error', 'rate_limited')),
+    include_identity boolean,
+    identity_query_length smallint check (identity_query_length between 0 and 120),
+    returned_row_count integer not null check (returned_row_count >= 0)
+);
+
+alter table private.founder_mcp_audit_events enable row level security;
+revoke all on table private.founder_mcp_audit_events from public, anon, authenticated, mcp_connector;
+revoke all on sequence private.founder_mcp_audit_events_id_seq from public, anon, authenticated, mcp_connector;
+create index founder_mcp_audit_events_occurred_at_idx
+    on private.founder_mcp_audit_events (occurred_at);
+create index founder_mcp_audit_events_rate_limited_idx
+    on private.founder_mcp_audit_events (actor_id, client_id, occurred_at desc)
+    where status = 'rate_limited';
+
+create function public.founder_mcp_gateway(p_tool text, p_args jsonb)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+    v_actor_id uuid := auth.uid();
+    v_client_id text := auth.jwt() ->> 'client_id';
+    v_audit_tool text := case
+        when p_tool in ('get_founder_report', 'list_recent_signups', 'find_user') then p_tool
+        else 'unknown'
+    end;
+    v_rate jsonb;
+    v_result jsonb;
+    v_status text := 'ok';
+    v_include_identity boolean;
+    v_identity_query_length integer;
+    v_returned_row_count integer := 0;
+    v_truncated boolean := false;
+begin
+    perform public._assert_founder_mcp();
+
+    v_rate := public.founder_mcp_take_rate_limit('tool');
+    if not coalesce((v_rate ->> 'allowed')::boolean, false) then
+        v_status := 'rate_limited';
+        v_result := jsonb_build_object(
+            'error', 'rate_limited',
+            'retry_after_seconds', (v_rate ->> 'retry_after_seconds')::integer
+        );
+    elsif p_args is null or jsonb_typeof(p_args) <> 'object' then
+        v_status := 'error';
+        v_result := jsonb_build_object('error', 'invalid_arguments');
+    else
+        begin
+            case p_tool
+                    when 'get_founder_report' then
+                        if not p_args ? 'report'
+                           or jsonb_typeof(p_args -> 'report') <> 'string'
+                           or (p_args ? 'days' and (
+                               jsonb_typeof(p_args -> 'days') <> 'number'
+                               or p_args ->> 'days' !~ '^-?[0-9]+$'
+                           ))
+                           or (p_args ? 'weeks' and (
+                               jsonb_typeof(p_args -> 'weeks') <> 'number'
+                               or p_args ->> 'weeks' !~ '^-?[0-9]+$'
+                           ))
+                           or (p_args ? 'platform'
+                               and jsonb_typeof(p_args -> 'platform') not in ('string', 'null'))
+                           or p_args - array['report', 'days', 'platform', 'weeks'] <> '{}'::jsonb then
+                            raise exception 'invalid arguments' using errcode = '22023';
+                        end if;
+                        if ((p_args ->> 'report') in ('overview', 'monetization', 'usage_cost', 'communications')
+                                and p_args - 'report' <> '{}'::jsonb)
+                           or ((p_args ->> 'report') = 'acquisition'
+                                and p_args - array['report', 'days'] <> '{}'::jsonb)
+                           or ((p_args ->> 'report') in ('activation', 'product_analytics')
+                                and p_args - array['report', 'days', 'platform'] <> '{}'::jsonb)
+                           or ((p_args ->> 'report') = 'retention'
+                                and p_args - array['report', 'weeks'] <> '{}'::jsonb) then
+                            raise exception 'irrelevant report arguments' using errcode = '22023';
+                        end if;
+                        v_result := public.founder_mcp_report(
+                            p_args ->> 'report',
+                            coalesce((p_args ->> 'days')::integer, 30),
+                            nullif(p_args ->> 'platform', ''),
+                            coalesce((p_args ->> 'weeks')::integer, 8)
+                        );
+                        v_returned_row_count := 1;
+                    when 'list_recent_signups' then
+                        if (p_args ? 'days' and (
+                                jsonb_typeof(p_args -> 'days') <> 'number'
+                                or p_args ->> 'days' !~ '^-?[0-9]+$'
+                            ))
+                           or (p_args ? 'limit' and (
+                               jsonb_typeof(p_args -> 'limit') <> 'number'
+                               or p_args ->> 'limit' !~ '^-?[0-9]+$'
+                           ))
+                           or (p_args ? 'attribution_status'
+                               and jsonb_typeof(p_args -> 'attribution_status') not in ('string', 'null'))
+                           or (p_args ? 'include_identity'
+                               and jsonb_typeof(p_args -> 'include_identity') <> 'boolean')
+                           or p_args - array['days', 'limit', 'attribution_status', 'include_identity'] <> '{}'::jsonb then
+                            raise exception 'invalid arguments' using errcode = '22023';
+                        end if;
+                        v_include_identity := coalesce((p_args ->> 'include_identity')::boolean, false);
+                        v_result := public.founder_mcp_recent_signups(
+                            coalesce((p_args ->> 'days')::integer, 30),
+                            coalesce((p_args ->> 'limit')::integer, 50),
+                            nullif(p_args ->> 'attribution_status', ''),
+                            v_include_identity
+                        );
+                        v_returned_row_count := coalesce(jsonb_array_length(v_result -> 'signups'), 0);
+                    when 'find_user' then
+                        if not p_args ? 'query'
+                           or jsonb_typeof(p_args -> 'query') <> 'string'
+                           or p_args - array['query'] <> '{}'::jsonb then
+                            raise exception 'invalid arguments' using errcode = '22023';
+                        end if;
+                        v_identity_query_length := length(trim(p_args ->> 'query'));
+                        v_result := public.founder_mcp_find_user(p_args ->> 'query');
+                        v_returned_row_count := coalesce(jsonb_array_length(v_result -> 'matches'), 0);
+                    else
+                        raise exception 'unknown tool' using errcode = '22023';
+            end case;
+        exception
+            when others then
+                v_status := 'error';
+                v_result := jsonb_build_object('error', 'invalid_arguments');
+                v_include_identity := case when p_tool = 'list_recent_signups' then false end;
+                v_identity_query_length := case when p_tool = 'find_user' then 0 end;
+                v_returned_row_count := 0;
+        end;
+    end if;
+
+    if v_status = 'ok' and octet_length(v_result::text) > 54000 then
+        v_result := jsonb_build_object(
+            'message', 'The report exceeded the safe response size. Request a narrower window or report.'
+        );
+        v_truncated := true;
+    end if;
+
+    delete from private.founder_mcp_audit_events
+     where occurred_at < now() - interval '90 days';
+
+    insert into private.founder_mcp_audit_events (
+        actor_id,
+        client_id,
+        tool,
+        status,
+        include_identity,
+        identity_query_length,
+        returned_row_count
+    )
+    select
+        v_actor_id,
+        v_client_id,
+        v_audit_tool,
+        v_status,
+        case when v_audit_tool = 'list_recent_signups' then coalesce(v_include_identity, false) end,
+        case when v_audit_tool = 'find_user' then coalesce(v_identity_query_length, 0) end,
+        v_returned_row_count
+     where v_status <> 'rate_limited'
+        or not exists (
+            select 1
+              from private.founder_mcp_audit_events as audit
+             where audit.actor_id = v_actor_id
+               and audit.client_id = v_client_id
+               and audit.status = 'rate_limited'
+               and audit.occurred_at >= now() - interval '1 minute'
+        );
+
+    if v_status <> 'ok' then
+        return v_result;
+    end if;
+
+    return jsonb_build_object(
+        'result', v_result,
+        'truncated', v_truncated
+    );
+end;
+$$;
+
 grant usage on schema public to mcp_connector;
 
-revoke all on function public._founder_mcp_emails() from public, anon, authenticated, mcp_connector;
-grant execute on function public._founder_mcp_emails() to supabase_auth_admin;
-revoke all on function public._assert_founder_mcp() from public, anon, authenticated, mcp_connector;
-revoke all on function public.connector_founder_analytics_eligibility(uuid) from public, anon, mcp_connector;
-grant execute on function public.connector_founder_analytics_eligibility(uuid) to authenticated;
+revoke all on function public.connector_founder_analytics_client_access(text[]) from public, anon, mcp_connector;
+grant execute on function public.connector_founder_analytics_client_access(text[]) to authenticated;
+
+revoke all on function public.connector_founder_analytics_eligible_clients(text[]) from public, anon, mcp_connector;
+grant execute on function public.connector_founder_analytics_eligible_clients(text[]) to authenticated;
+
+revoke all on function public.connector_founder_analytics_eligibility(uuid) from public, anon;
+grant execute on function public.connector_founder_analytics_eligibility(uuid) to authenticated, mcp_connector;
+
+revoke all on function public.connector_founder_analytics_client_eligibility(text) from public, anon;
+grant execute on function public.connector_founder_analytics_client_eligibility(text) to authenticated, mcp_connector;
+
+revoke all on function public.founder_mcp_take_rate_limit(text) from public, anon, authenticated;
+grant execute on function public.founder_mcp_take_rate_limit(text) to mcp_connector;
+
+revoke all on function public.founder_mcp_gateway(text, jsonb) from public, anon, authenticated;
+grant execute on function public.founder_mcp_gateway(text, jsonb) to mcp_connector;
+
+revoke all on function public.founder_mcp_report(text, integer, text, integer) from public, anon, authenticated, mcp_connector;
+revoke all on function public.founder_mcp_recent_signups(integer, integer, text, boolean) from public, anon, authenticated, mcp_connector;
+revoke all on function public.founder_mcp_find_user(text) from public, anon, authenticated, mcp_connector;
+
+revoke all on function public.founder_user_attribution(uuid[]) from public, anon, mcp_connector;
+grant execute on function public.founder_user_attribution(uuid[]) to authenticated;
+
+revoke all on function public.founder_recent_signups(integer, integer, text) from public, anon, mcp_connector;
+grant execute on function public.founder_recent_signups(integer, integer, text) to authenticated;
 
 revoke all on function public.founder_recent_signups(integer, integer) from public, anon, mcp_connector;
-revoke all on function public.founder_user_attribution() from public, anon, mcp_connector;
 grant execute on function public.founder_recent_signups(integer, integer) to authenticated;
-grant execute on function public.founder_user_attribution() to authenticated;
 
-revoke all on function public.founder_mcp_report(text, integer, text, integer) from public, anon, authenticated;
-revoke all on function public.founder_mcp_recent_signups(integer, integer, text, boolean) from public, anon, authenticated;
-revoke all on function public.founder_mcp_find_user(text) from public, anon, authenticated;
-grant execute on function public.founder_mcp_report(text, integer, text, integer) to mcp_connector;
-grant execute on function public.founder_mcp_recent_signups(integer, integer, text, boolean) to mcp_connector;
-grant execute on function public.founder_mcp_find_user(text) to mcp_connector;
+revoke all on function private.founder_recent_signups_data(integer, integer, text) from public, anon, authenticated, mcp_connector;
 
 revoke all on function public.custom_access_token_hook(jsonb) from public, anon, authenticated, mcp_connector;
 grant execute on function public.custom_access_token_hook(jsonb) to supabase_auth_admin;
 
-comment on column private.connector_oauth_config.founder_resource_uri is
-'Exact audience for the private founder analytics MCP. Set per environment before enabling the function.';
+revoke all on function public._assert_founder_mcp() from public, anon, authenticated, mcp_connector;
 
-comment on column private.connector_oauth_config.founder_client_id is
-'Exact OAuth client allowed to receive founder analytics claims. Leave null until consent copy and policies are live.';
+drop function if exists public._founder_mcp_emails();
+
+comment on table private.founder_mcp_client_access is
+'Exact user UUID and OAuth client pairs allowed to receive and use the private founder analytics permission.';
+
+comment on table private.founder_mcp_audit_events is
+'Content-free founder MCP tool audit metadata retained for 90 days and pruned by gateway calls.';
+
+comment on column private.connector_oauth_config.founder_mcp_enabled is
+'Database kill switch for founder token issuance and gateway access. False is fail-closed.';

@@ -243,18 +243,25 @@ segments by default, accept at most 250, stop at 100,000 characters, and return
 
 The private founder analytics MCP is a separate Edge Function at
 `supabase/functions/founder-mcp/`, proxied through the founder dashboard's
-`/mcp` route. It never adds analytics tools to the customer meeting MCP. Access
-requires the independent `founder_analytics:read` permission, the exact founder
-resource audience and configured OAuth client, and one of the two approved
-founder email addresses. The function rejects other accounts before MCP server
-initialization, so ineligible users cannot discover the tool catalog.
+`/mcp` route. It is private, unpublished, and connected only through ChatGPT
+Developer Mode; it never adds analytics tools to the customer meeting MCP.
+Access requires the independent `founder_analytics:read` permission, the exact
+founder resource audience, an enabled database gate, and an exact user UUID plus
+per-connection DCR client ID binding in `private.founder_mcp_client_access`.
+The Edge Function has a second kill switch and rejects invalid or deleted
+bindings before MCP server initialization, so ineligible users cannot discover
+the tool catalog.
 
-The founder function uses the caller's OAuth token and can execute only three
-read-only gateway RPCs. The `mcp_connector` role retains no table access and the
-function has no service-role credential. Signup lists are pseudonymous unless
-identity is explicitly requested; revoked or unavailable attribution is never
-reconstructed. Responses and identity-search text are not persisted. Audit
-events contain only actor, client, tool, status, and duration metadata.
+The founder function uses the caller's OAuth token and sends every tool call
+through one bounded, rate-limited, read-only database gateway. The
+`mcp_connector` role retains no table access and cannot execute the underlying
+report functions. Signup lists are pseudonymous unless identity is explicitly
+requested. Revoked attribution is never reconstructed; legacy acquisition rows
+without durable visitor or consent evidence return `unknown` with no source
+fields. Nod does not persist MCP responses or identity-search text. Content-free
+audit metadata records actor, client, tool, status, identity inclusion, query
+length, and returned row count for 90 days. Retention by a founder's connected
+ChatGPT account is outside Nod's server-side control.
 
 Legacy `nod_pat_` credentials continue through `/mcp/<token>` and `connect`
 during the migration window. Those responses carry deprecation, sunset, and
