@@ -3,13 +3,16 @@ import {
   boundedMcpResult,
   founderAuditMetadata,
   founderCorsHeaders,
+  FounderMcpRequestTimeoutError,
   founderRequestOriginAllowed,
   loadFounderMcpConfig,
   normalizeFounderGatewayResult,
   withFounderMcpTimeout,
 } from "./founder-mcp.ts";
 
-function config(values: Record<string, string>): ReturnType<typeof loadFounderMcpConfig> {
+function config(
+  values: Record<string, string>,
+): ReturnType<typeof loadFounderMcpConfig> {
   return loadFounderMcpConfig((name) => values[name]);
 }
 
@@ -19,14 +22,26 @@ Deno.test("founder MCP configuration fails closed", () => {
     SUPABASE_URL: "https://project.supabase.co",
     SUPABASE_ANON_KEY: "anon-key",
   };
-  if (config(valid) === null) throw new Error("expected explicit configuration to load");
+  if (config(valid) === null) {
+    throw new Error("expected explicit configuration to load");
+  }
   if (config({ ...valid, FOUNDER_MCP_RESOURCE_URI: "" }) !== null) {
     throw new Error("missing resource URI must fail closed");
   }
-  if (config({ ...valid, FOUNDER_MCP_RESOURCE_URI: "http://founder.example/mcp" }) !== null) {
+  if (
+    config({
+      ...valid,
+      FOUNDER_MCP_RESOURCE_URI: "http://founder.example/mcp",
+    }) !== null
+  ) {
     throw new Error("insecure resource URI must fail closed");
   }
-  if (config({ ...valid, FOUNDER_MCP_RESOURCE_URI: "https://founder.example/other" }) !== null) {
+  if (
+    config({
+      ...valid,
+      FOUNDER_MCP_RESOURCE_URI: "https://founder.example/other",
+    }) !== null
+  ) {
     throw new Error("unexpected resource path must fail closed");
   }
   if (config({ ...valid, SUPABASE_ANON_KEY: "" }) !== null) {
@@ -39,14 +54,28 @@ Deno.test("founder MCP CORS uses an exact configured origin", () => {
     headers: { Origin: "https://chatgpt.com" },
   });
   const origins = ["https://chatgpt.com"];
-  if (!founderRequestOriginAllowed(req, origins)) throw new Error("configured origin was rejected");
-  if (founderCorsHeaders(req, origins)["Access-Control-Allow-Origin"] !== "https://chatgpt.com") {
+  if (!founderRequestOriginAllowed(req, origins)) {
+    throw new Error("configured origin was rejected");
+  }
+  if (
+    founderCorsHeaders(req, origins)["Access-Control-Allow-Origin"] !==
+      "https://chatgpt.com"
+  ) {
     throw new Error("configured origin was not echoed");
+  }
+  if (
+    !founderCorsHeaders(req, origins)["Access-Control-Expose-Headers"].includes(
+      "retry-after",
+    )
+  ) {
+    throw new Error("configured origin could not read retry timing");
   }
   const attacker = new Request("https://founder.example/mcp", {
     headers: { Origin: "https://attacker.example" },
   });
-  if (founderRequestOriginAllowed(attacker, origins)) throw new Error("unlisted HTTPS origin was accepted");
+  if (founderRequestOriginAllowed(attacker, origins)) {
+    throw new Error("unlisted HTTPS origin was accepted");
+  }
   if (Object.keys(founderCorsHeaders(attacker, origins)).length !== 0) {
     throw new Error("unlisted origin received CORS headers");
   }
@@ -68,10 +97,15 @@ Deno.test("founder MCP audit metadata never includes identity search text", () =
     { identityQueryLength: query.length },
   );
   const serialized = JSON.stringify(found);
-  if (found.identity_query_length !== query.length || found.returned_row_count !== 1) {
+  if (
+    found.identity_query_length !== query.length ||
+    found.returned_row_count !== 1
+  ) {
     throw new Error("identity-query audit metadata is incomplete");
   }
-  if (serialized.includes(query)) throw new Error("audit metadata retained the identity query");
+  if (serialized.includes(query)) {
+    throw new Error("audit metadata retained the identity query");
+  }
 });
 
 Deno.test("founder MCP results stay bounded", () => {
@@ -103,7 +137,9 @@ Deno.test("founder MCP preserves database truncation in the final envelope", () 
     result: { message: "narrow the report" },
     truncated: true,
   });
-  if (!modern.truncated || "result" in (modern.result as Record<string, unknown>)) {
+  if (
+    !modern.truncated || "result" in (modern.result as Record<string, unknown>)
+  ) {
     throw new Error("database envelope was double wrapped or lost truncation");
   }
   const legacy = normalizeFounderGatewayResult({
@@ -116,20 +152,28 @@ Deno.test("founder MCP preserves database truncation in the final envelope", () 
 });
 
 Deno.test("founder MCP bounds declared and chunked request bodies", async () => {
-  const accepted = await boundedFounderMcpRequest(new Request("https://founder.example/mcp", {
-    body: "1234",
-    method: "POST",
-  }), 4);
+  const accepted = await boundedFounderMcpRequest(
+    new Request("https://founder.example/mcp", {
+      body: "1234",
+      method: "POST",
+    }),
+    4,
+  );
   if (accepted === null || await accepted.text() !== "1234") {
     throw new Error("bounded request was not preserved");
   }
 
-  const declared = await boundedFounderMcpRequest(new Request("https://founder.example/mcp", {
-    body: "12345",
-    headers: { "Content-Length": "5" },
-    method: "POST",
-  }), 4);
-  if (declared !== null) throw new Error("oversized declared body was accepted");
+  const declared = await boundedFounderMcpRequest(
+    new Request("https://founder.example/mcp", {
+      body: "12345",
+      headers: { "Content-Length": "5" },
+      method: "POST",
+    }),
+    4,
+  );
+  if (declared !== null) {
+    throw new Error("oversized declared body was accepted");
+  }
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -138,11 +182,31 @@ Deno.test("founder MCP bounds declared and chunked request bodies", async () => 
       controller.close();
     },
   });
-  const chunked = await boundedFounderMcpRequest(new Request("https://founder.example/mcp", {
-    body: stream,
-    method: "POST",
-  }), 4);
+  const chunked = await boundedFounderMcpRequest(
+    new Request("https://founder.example/mcp", {
+      body: stream,
+      method: "POST",
+    }),
+    4,
+  );
   if (chunked !== null) throw new Error("oversized chunked body was accepted");
+
+  const stalled = new ReadableStream<Uint8Array>({
+    pull: () => new Promise(() => {}),
+  });
+  try {
+    await boundedFounderMcpRequest(
+      new Request("https://founder.example/mcp", {
+        body: stalled,
+        method: "POST",
+      }),
+      4,
+      1,
+    );
+    throw new Error("stalled body did not time out");
+  } catch (error) {
+    if (!(error instanceof FounderMcpRequestTimeoutError)) throw error;
+  }
 });
 
 Deno.test("founder MCP applies an execution timeout", async () => {
@@ -150,9 +214,15 @@ Deno.test("founder MCP applies an execution timeout", async () => {
   if (completed.timedOut || completed.value !== "ok") {
     throw new Error("completed work timed out");
   }
+  let aborted = false;
   const timedOut = await withFounderMcpTimeout(
     new Promise<string>(() => {}),
     1,
+    () => {
+      aborted = true;
+    },
   );
-  if (!timedOut.timedOut) throw new Error("stalled work did not time out");
+  if (!timedOut.timedOut || !aborted) {
+    throw new Error("stalled work did not time out and abort");
+  }
 });

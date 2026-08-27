@@ -109,21 +109,28 @@ legacy attribution, bounded output, and all eight aggregate report names.
 
 Production rollout stays dark in this order:
 
-1. Deploy the Edge Function and dashboard proxy with the Edge and database
-   gates disabled.
-2. Start each founder's Developer Mode connection once to obtain its generated
-   DCR client ID. The unmapped attempt fails closed at founder tool discovery.
-3. Bind each generated client ID to that founder's auth user UUID and exact
-   resource URI in `private.founder_mcp_client_access`. Revoke the bootstrap
-   OAuth grant before reconnecting so a token issued while the client was
-   unmapped is not retained as a meeting-connector grant.
-4. Enable `private.connector_oauth_config.founder_mcp_enabled`, then set
+1. Apply the migration and deploy the founder Edge Function, dashboard proxy,
+   protected-resource metadata, consent disclosure, and authorized-app
+   disclosure with both founder gates disabled.
+2. The committed `[auth.oauth_server]` setting is `enabled = false`. Explicitly
+   enable and push the Supabase OAuth server only after those surfaces are live;
+   leave both founder gates disabled during client registration.
+3. Start each founder's Developer Mode connection once. Resolve the generated
+   DCR client ID from the corresponding Supabase authorization record and bind
+   it to that founder's auth user UUID and exact resource URI in
+   `private.founder_mcp_client_access`. The unmapped attempt fails closed before
+   tool discovery.
+4. Revoke each bootstrap OAuth grant before reconnecting so a token issued while
+   its client was unmapped cannot be retained as a meeting-connector grant.
+5. Enable `private.connector_oauth_config.founder_mcp_enabled`, then set
    `FOUNDER_MCP_ENABLED=true`. Reconnect both accounts and verify with MCP
    Inspector and ChatGPT Developer Mode.
 
 Rollback disables both the database gate and `FOUNDER_MCP_ENABLED`; mappings
-may remain for later recovery or be revoked independently. Neither action
-changes dashboard access or the customer meeting connector. Nod retains only
+may remain for later recovery or be revoked independently. Keep the OAuth server
+enabled if another OAuth connector depends on it; otherwise it may be disabled
+after the founder grants are revoked. None of these actions changes dashboard
+access or adds founder tools to the customer meeting connector. Nod retains only
 actor/client/tool/status, identity-inclusion, query-length, and returned-row
 count audit metadata for 90 days. It does not store MCP responses or search
 text; retention by connected ChatGPT accounts is outside Nod's control.

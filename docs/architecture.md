@@ -258,7 +258,9 @@ through one bounded, rate-limited, read-only database gateway. The
 report functions. Signup lists are pseudonymous unless identity is explicitly
 requested. Revoked attribution is never reconstructed; legacy acquisition rows
 without durable visitor or consent evidence return `unknown` with no source
-fields. Nod does not persist MCP responses or identity-search text. Content-free
+fields. The dashboard reads per-user source through the bounded
+`founder_user_attribution(p_user_ids uuid[])` RPC for the current page only.
+Nod does not persist MCP responses or identity-search text. Content-free
 audit metadata records actor, client, tool, status, identity inclusion, query
 length, and returned row count for 90 days. Retention by a founder's connected
 ChatGPT account is outside Nod's server-side control.

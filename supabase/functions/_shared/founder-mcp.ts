@@ -30,6 +30,8 @@ export interface FounderAuditMetadata {
   returned_row_count: number;
 }
 
+export class FounderMcpRequestTimeoutError extends Error {}
+
 function parseHttpsUrl(value: string): URL | null {
   try {
     const url = new URL(value);
@@ -46,10 +48,13 @@ function parseHttpsUrl(value: string): URL | null {
 function parseSupabaseUrl(value: string): URL | null {
   try {
     const url = new URL(value);
-    const local = url.hostname === "localhost" || url.hostname === "127.0.0.1" ||
+    const local = url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
       url.hostname === "kong";
-    if ((url.protocol !== "https:" && !(local && url.protocol === "http:")) ||
-      url.username || url.password || url.search || url.hash) return null;
+    if (
+      (url.protocol !== "https:" && !(local && url.protocol === "http:")) ||
+      url.username || url.password || url.search || url.hash
+    ) return null;
     return url;
   } catch {
     return null;
@@ -64,11 +69,14 @@ export function loadFounderMcpConfig(
   const supabaseAnonKey = read("SUPABASE_ANON_KEY")?.trim() ?? "";
   const resource = parseHttpsUrl(resourceUri);
   const supabase = parseSupabaseUrl(supabaseUrlValue);
-  if (!resource || resource.pathname !== "/mcp" || !supabase || !supabaseAnonKey) {
+  if (
+    !resource || resource.pathname !== "/mcp" || !supabase || !supabaseAnonKey
+  ) {
     return null;
   }
 
-  const configuredAuthorizationServer = read("MCP_AUTHORIZATION_SERVER")?.trim();
+  const configuredAuthorizationServer = read("MCP_AUTHORIZATION_SERVER")
+    ?.trim();
   const authorizationServer = configuredAuthorizationServer
     ? parseHttpsUrl(configuredAuthorizationServer)
     : new URL("/auth/v1", supabase);
@@ -76,9 +84,14 @@ export function loadFounderMcpConfig(
 
   const allowedOriginsRaw = read("FOUNDER_MCP_ALLOWED_ORIGINS")?.trim() ?? "";
   const allowedOrigins: string[] = [];
-  for (const candidate of allowedOriginsRaw.split(",").map((item) => item.trim()).filter(Boolean)) {
+  for (
+    const candidate of allowedOriginsRaw.split(",").map((item) => item.trim())
+      .filter(Boolean)
+  ) {
     const origin = parseHttpsUrl(candidate);
-    if (!origin || origin.origin !== candidate || origin.pathname !== "/") return null;
+    if (!origin || origin.origin !== candidate || origin.pathname !== "/") {
+      return null;
+    }
     allowedOrigins.push(origin.origin);
   }
 
@@ -114,13 +127,16 @@ export function founderCorsHeaders(
     "Access-Control-Allow-Headers":
       "authorization, content-type, mcp-protocol-version, mcp-session-id",
     "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-    "Access-Control-Expose-Headers": "mcp-session-id, www-authenticate",
+    "Access-Control-Expose-Headers":
+      "mcp-session-id, retry-after, www-authenticate",
     "Vary": "Origin",
   };
 }
 
 function arrayLength(value: unknown, key: string): number {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return 0;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return 0;
+  }
   const rows = (value as Record<string, unknown>)[key];
   return Array.isArray(rows) ? rows.length : 0;
 }
@@ -202,13 +218,18 @@ export function normalizeFounderGatewayResult(
     if ("result" in record && typeof record.truncated === "boolean") {
       result = record.result;
       databaseTruncated = record.truncated;
-    } else if (record.truncated === true && typeof record.message === "string") {
+    } else if (
+      record.truncated === true && typeof record.message === "string"
+    ) {
       result = { message: record.message };
       databaseTruncated = true;
     }
   }
 
-  const bounded = boundedMcpResult(result, Math.max(1_000, maxCharacters - 1_000));
+  const bounded = boundedMcpResult(
+    result,
+    Math.max(1_000, maxCharacters - 1_000),
+  );
   const output = {
     result: bounded.value,
     truncated: databaseTruncated || bounded.truncated,
@@ -226,12 +247,16 @@ export function normalizeFounderGatewayResult(
 export async function boundedFounderMcpRequest(
   req: Request,
   maxBytes = 65_536,
+  timeoutMs = 5_000,
 ): Promise<Request | null> {
   if (req.body === null) return req;
   const declaredLength = req.headers.get("Content-Length");
   if (declaredLength !== null) {
     const parsedLength = Number(declaredLength);
-    if (!Number.isSafeInteger(parsedLength) || parsedLength < 0 || parsedLength > maxBytes) {
+    if (
+      !Number.isSafeInteger(parsedLength) || parsedLength < 0 ||
+      parsedLength > maxBytes
+    ) {
       return null;
     }
   }
@@ -239,15 +264,27 @@ export async function boundedFounderMcpRequest(
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      return null;
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel("request body timeout");
+  }, timeoutMs);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+  if (timedOut) {
+    throw new FounderMcpRequestTimeoutError("request body timed out");
   }
 
   const body = new Uint8Array(total);
@@ -267,10 +304,14 @@ export async function boundedFounderMcpRequest(
 export async function withFounderMcpTimeout<T>(
   operation: Promise<T>,
   timeoutMs: number,
+  onTimeout: () => void = () => {},
 ): Promise<{ timedOut: false; value: T } | { timedOut: true }> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<{ timedOut: true }>((resolve) => {
-    timeoutId = setTimeout(() => resolve({ timedOut: true }), timeoutMs);
+    timeoutId = setTimeout(() => {
+      resolve({ timedOut: true });
+      onTimeout();
+    }, timeoutMs);
   });
   const result = await Promise.race([
     operation.then((value) => ({ timedOut: false as const, value })),

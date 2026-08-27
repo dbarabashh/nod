@@ -87,7 +87,8 @@ $$;
 
 select private.backfill_user_acquisition_consent_revocations();
 
-drop function private.backfill_user_acquisition_consent_revocations();
+revoke all on function private.backfill_user_acquisition_consent_revocations()
+    from public, anon, authenticated, mcp_connector;
 
 create table private.founder_mcp_client_access (
     user_id uuid not null references auth.users(id) on delete cascade,
@@ -709,8 +710,8 @@ begin
     end if;
 
     update public.acquisition_auth_flows
-       set claimed_by = v_user_id,
-           claimed_at = now()
+       set claimed_by = coalesce(claimed_by, v_user_id),
+           claimed_at = coalesce(claimed_at, now())
      where relay_id = p_relay_id;
 
     select true
@@ -740,26 +741,7 @@ begin
         v_visitor_revoked_at
     )
     on conflict (user_id) do update
-        set first_touch_id = case
-                when public.user_acquisition.consent_revoked_at is not null
-                  or excluded.consent_revoked_at is not null then null
-                else public.user_acquisition.first_touch_id
-            end,
-            last_touch_id = case
-                when public.user_acquisition.consent_revoked_at is not null
-                  or excluded.consent_revoked_at is not null then null
-                else public.user_acquisition.last_touch_id
-            end,
-            coverage_status = case
-                when public.user_acquisition.consent_revoked_at is not null
-                  or excluded.consent_revoked_at is not null then 'no_eligible_touch'
-                else public.user_acquisition.coverage_status
-            end,
-            consent_revoked_at = coalesce(
-                public.user_acquisition.consent_revoked_at,
-                excluded.consent_revoked_at
-            ),
-            claimed_at = public.user_acquisition.claimed_at
+        set claimed_at = public.user_acquisition.claimed_at
     returning first_touch_id, last_touch_id, consent_revoked_at
          into v_first_touch_id, v_last_touch_id, v_effective_revoked_at;
 
@@ -792,6 +774,92 @@ begin
         'first_touch_id', v_first_touch_id,
         'last_touch_id', v_last_touch_id
     );
+end;
+$$;
+
+create or replace function public.founder_acquisition()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, auth
+as $$
+declare
+    v_result jsonb;
+    v_excluded_emails text[] := public._excluded_emails();
+    v_excluded_users uuid[] := public._excluded_user_ids();
+    v_total_users bigint;
+begin
+    perform public._assert_founder();
+    select count(*)
+      into v_total_users
+      from auth.users
+     where lower(email) <> all(v_excluded_emails);
+
+    select jsonb_build_object(
+        'total_users', v_total_users,
+        'new_users_7d', (
+            select count(*) from auth.users
+             where lower(email) <> all(v_excluded_emails)
+               and created_at > now() - interval '7 days'
+        ),
+        'new_users_30d', (
+            select count(*) from auth.users
+             where lower(email) <> all(v_excluded_emails)
+               and created_at > now() - interval '30 days'
+        ),
+        'new_users_prev_7d', (
+            select count(*) from auth.users
+             where lower(email) <> all(v_excluded_emails)
+               and created_at > now() - interval '14 days'
+               and created_at <= now() - interval '7 days'
+        ),
+        'referred_users', (
+            select count(distinct referral.referee_user_id)
+              from public.referrals as referral
+              join auth.users as account on account.id = referral.referee_user_id
+             where lower(account.email) <> all(v_excluded_emails)
+        ),
+        'organic_users', v_total_users - (
+            select count(distinct referral.referee_user_id)
+              from public.referrals as referral
+              join auth.users as account on account.id = referral.referee_user_id
+             where lower(account.email) <> all(v_excluded_emails)
+        ),
+        'users_with_meeting', (
+            select count(distinct meeting.user_id)
+              from public.meetings as meeting
+             where meeting.deleted_at is null
+               and meeting.ended_at > meeting.started_at
+               and meeting.user_id <> all(v_excluded_users)
+        ),
+        'signup_to_meeting_pct', case
+            when v_total_users = 0 then 0
+            else round((
+                select count(distinct meeting.user_id)
+                  from public.meetings as meeting
+                 where meeting.deleted_at is null
+                   and meeting.ended_at > meeting.started_at
+                   and meeting.user_id <> all(v_excluded_users)
+            ) * 100.0 / v_total_users, 1)
+        end,
+        'median_hours_to_first_meeting', (
+            select round(coalesce(percentile_cont(0.5) within group (order by first_meeting.hours), 0)::numeric, 1)
+              from (
+                  select extract(epoch from (min(meeting.started_at) - account.created_at)) / 3600.0 as hours
+                    from auth.users as account
+                    join public.meetings as meeting
+                      on meeting.user_id = account.id
+                     and meeting.deleted_at is null
+                     and meeting.ended_at > meeting.started_at
+                   where lower(account.email) <> all(v_excluded_emails)
+                   group by account.id, account.created_at
+                  having extract(epoch from (min(meeting.started_at) - account.created_at)) >= 0
+              ) as first_meeting
+        ),
+        'generated_at', now()
+    ) into v_result;
+    return v_result;
 end;
 $$;
 
@@ -831,25 +899,76 @@ begin
 
     case p_report
         when 'overview' then
+            v_rows := public.founder_onboarding_activation(30, null);
             v_result := jsonb_build_object(
                 'report', p_report,
-                'overview', public.founder_overview(2, 3),
-                'totals', public.founder_metrics()
+                'overview', public.founder_overview(2, 3) - array[
+                    'def_min_meetings',
+                    'def_window_days',
+                    'activation_rate',
+                    'activated_users',
+                    'eligible_users',
+                    'new_activated_7d',
+                    'median_meetings_per_active',
+                    'avg_meetings_per_active',
+                    'meetings_dist',
+                    'median_hours_to_first_meeting',
+                    'pct_first_meeting_24h',
+                    'never_recorded_count',
+                    'users_at_risk'
+                ],
+                'totals', public.founder_metrics(),
+                'activation', v_rows,
+                'section_windows', jsonb_build_object(
+                    'overview', jsonb_build_object(
+                        'semantics', 'field_defined',
+                        'description', 'Current and explicitly named 7-day and 30-day non-activation fields.'
+                    ),
+                    'totals', jsonb_build_object(
+                        'semantics', 'field_defined',
+                        'description', 'Current, lifetime, and explicitly named 7-day and 30-day fields.'
+                    ),
+                    'activation', jsonb_build_object(
+                        'semantics', 'days',
+                        'value', 30,
+                        'cohort', 'signups',
+                        'definition', 'First positive-duration meeting, then a second within three days of the first.'
+                    )
+                )
             );
         when 'acquisition' then
             v_result := jsonb_build_object(
                 'report', p_report,
                 'window_days', p_days,
                 'summary', public.founder_acquisition(),
-                'attribution', public.founder_acquisition_attribution(p_days)
+                'attribution', public.founder_acquisition_attribution(p_days),
+                'section_windows', jsonb_build_object(
+                    'summary', jsonb_build_object(
+                        'semantics', 'field_defined',
+                        'description', 'Lifetime totals plus explicitly named 7-day and 30-day fields.'
+                    ),
+                    'attribution', jsonb_build_object(
+                        'semantics', 'days',
+                        'value', p_days,
+                        'cohort', 'signups'
+                    )
+                )
             );
         when 'activation' then
+            v_rows := public.founder_onboarding_activation(p_days, p_platform);
             v_result := jsonb_build_object(
                 'report', p_report,
                 'window_days', p_days,
                 'platform', p_platform,
-                'summary', public.founder_activation(2, 3),
-                'onboarding', public.founder_onboarding_activation(p_days, p_platform)
+                'onboarding', v_rows,
+                'section_windows', jsonb_build_object(
+                    'onboarding', jsonb_build_object(
+                        'semantics', 'days',
+                        'value', p_days,
+                        'cohort', 'signups',
+                        'definition', 'First positive-duration meeting, then a second within three days of the first.'
+                    )
+                )
             );
         when 'retention' then
             select coalesce(jsonb_agg(to_jsonb(row_data)), '[]'::jsonb)
@@ -859,7 +978,14 @@ begin
                 'report', p_report,
                 'weeks', p_weeks,
                 'engagement', public.founder_engagement(),
-                'cohorts', v_rows
+                'cohorts', v_rows,
+                'section_windows', jsonb_build_object(
+                    'engagement', jsonb_build_object('semantics', 'field_defined'),
+                    'cohorts', jsonb_build_object(
+                        'semantics', 'weeks',
+                        'value', p_weeks
+                    )
+                )
             );
         when 'monetization' then
             select coalesce(jsonb_agg(to_jsonb(row_data)), '[]'::jsonb)
@@ -868,13 +994,24 @@ begin
             v_result := jsonb_build_object(
                 'report', p_report,
                 'summary', public.founder_monetization(),
-                'plans', v_rows
+                'plans', v_rows,
+                'section_windows', jsonb_build_object(
+                    'summary', jsonb_build_object('semantics', 'field_defined'),
+                    'plans', jsonb_build_object('semantics', 'current')
+                )
             );
         when 'usage_cost' then
             select coalesce(jsonb_agg(to_jsonb(row_data)), '[]'::jsonb)
               into v_rows
               from public.founder_usage_breakdown() as row_data;
-            v_result := jsonb_build_object('report', p_report, 'usage', v_rows);
+            v_result := jsonb_build_object(
+                'report', p_report,
+                'usage', v_rows,
+                'section_windows', jsonb_build_object(
+                    'usage', jsonb_build_object('semantics', 'field_defined'),
+                    'models', jsonb_build_object('semantics', 'field_defined')
+                )
+            );
             select coalesce(jsonb_agg(to_jsonb(row_data)), '[]'::jsonb)
               into v_rows
               from public.founder_model_breakdown() as row_data;
@@ -887,13 +1024,29 @@ begin
                 'onboarding', public.founder_onboarding_activation(p_days, p_platform),
                 'capture', public.founder_capture_reliability(p_days, p_platform),
                 'value', public.founder_value_adoption(p_days, p_platform),
-                'measurement_health', public.founder_measurement_health(least(p_days, 90))
+                'measurement_health', public.founder_measurement_health(least(p_days, 90)),
+                'section_windows', jsonb_build_object(
+                    'onboarding', jsonb_build_object('semantics', 'days', 'value', p_days),
+                    'capture', jsonb_build_object('semantics', 'days', 'value', p_days),
+                    'value', jsonb_build_object('semantics', 'days', 'value', p_days),
+                    'measurement_health', jsonb_build_object(
+                        'semantics', 'days',
+                        'value', least(p_days, 90)
+                    )
+                )
             );
         when 'communications' then
             select coalesce(jsonb_agg(to_jsonb(row_data)), '[]'::jsonb)
               into v_rows
               from public.founder_email_campaigns() as row_data;
-            v_result := jsonb_build_object('report', p_report, 'campaigns', v_rows);
+            v_result := jsonb_build_object(
+                'report', p_report,
+                'campaigns', v_rows,
+                'section_windows', jsonb_build_object(
+                    'campaigns', jsonb_build_object('semantics', 'field_defined'),
+                    'delivery_summary', jsonb_build_object('semantics', 'field_defined')
+                )
+            );
             select coalesce(jsonb_agg(to_jsonb(summary)), '[]'::jsonb)
               into v_rows
               from (
@@ -912,11 +1065,7 @@ begin
 
     return v_result || jsonb_build_object(
         'generated_at', now(),
-        'window_semantics', case
-            when p_report in ('acquisition', 'activation', 'product_analytics') then 'days'
-            when p_report = 'retention' then 'weeks'
-            else 'all_time'
-        end
+        'window_semantics', 'section_specific'
     );
 end;
 $$;
@@ -1005,7 +1154,16 @@ begin
                  subscription.plan,
                  public._effective_sub_status(subscription.status, subscription.trial_ends_at) as subscription_status,
                  public._user_last_active(account.id) as last_active_at,
-                 (select count(*) from public.meetings as meeting where meeting.user_id = account.id and meeting.deleted_at is null) as meetings_count,
+                 meeting_stats.first_completed_at as first_meeting_at,
+                 meeting_stats.activated,
+                 case
+                     when meeting_stats.completed_count = 0 and account.created_at > now() - interval '3 days' then 'new'
+                     when meeting_stats.completed_count = 0 then 'blocked'
+                     when meeting_stats.activated then 'activated'
+                     when public._user_last_active(account.id) > now() - interval '7 days' then 'active'
+                     else 'dormant'
+                 end as lifecycle_state,
+                 meeting_stats.completed_count as meetings_count,
                  coalesce((select round(sum(event.audio_seconds) / 60.0, 1) from public.usage_events as event where event.user_id = account.id and event.kind = 'transcribe'), 0) as minutes_transcribed,
                  coalesce((select round(sum(event.cost_usd), 4) from public.usage_events as event where event.user_id = account.id), 0) as cost_usd,
                  coalesce((select count(*) from public.chat_messages as message where message.user_id = account.id and message.role = 'user'), 0) as chat_count,
@@ -1044,6 +1202,28 @@ begin
             left join public.subscriptions as subscription on subscription.user_id = account.id
             left join public.user_acquisition as acquisition on acquisition.user_id = account.id
             left join public.acquisition_touches as touch on touch.id = acquisition.last_touch_id
+            left join lateral (
+                select completed.first_completed_at,
+                       completed.completed_count,
+                       exists (
+                           select 1
+                             from public.meetings as second_meeting
+                            where second_meeting.user_id = account.id
+                              and second_meeting.deleted_at is null
+                              and second_meeting.ended_at > second_meeting.started_at
+                              and second_meeting.ended_at > completed.first_completed_at
+                              and second_meeting.ended_at <= completed.first_completed_at + interval '3 days'
+                       ) as activated
+                  from (
+                      select min(meeting.ended_at) as first_completed_at,
+                             count(*) as completed_count
+                        from public.meetings as meeting
+                       where meeting.user_id = account.id
+                         and meeting.deleted_at is null
+                         and meeting.ended_at > meeting.started_at
+                         and meeting.ended_at >= account.created_at
+                  ) as completed
+            ) as meeting_stats on true
             left join public.founder_user_notes as notes on notes.user_id = account.id
            where lower(account.email) <> all(public._excluded_emails())
              and (
@@ -1084,6 +1264,36 @@ create index founder_mcp_audit_events_rate_limited_idx
     on private.founder_mcp_audit_events (actor_id, client_id, occurred_at desc)
     where status = 'rate_limited';
 
+create function private.purge_founder_mcp_audit_events()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+    v_deleted integer;
+begin
+    delete from private.founder_mcp_audit_events
+     where occurred_at < now() - interval '90 days';
+    get diagnostics v_deleted = row_count;
+    return v_deleted;
+end;
+$$;
+
+revoke all on function private.purge_founder_mcp_audit_events()
+    from public, anon, authenticated, mcp_connector;
+
+do $$
+begin
+    perform cron.schedule(
+        'purge-founder-mcp-audit-events',
+        '29 4 * * *',
+        'select private.purge_founder_mcp_audit_events()'
+    );
+exception when others then
+    raise notice 'founder MCP audit purge schedule unavailable: %', sqlerrm;
+end $$;
+
 create function public.founder_mcp_gateway(p_tool text, p_args jsonb)
 returns jsonb
 language plpgsql
@@ -1119,6 +1329,16 @@ begin
         v_status := 'error';
         v_result := jsonb_build_object('error', 'invalid_arguments');
     else
+        v_include_identity := case
+            when p_args ? 'include_identity'
+             and jsonb_typeof(p_args -> 'include_identity') = 'boolean'
+                then (p_args ->> 'include_identity')::boolean
+        end;
+        v_identity_query_length := case
+            when p_args ? 'query'
+             and jsonb_typeof(p_args -> 'query') = 'string'
+                then least(length(trim(p_args ->> 'query')), 120)
+        end;
         begin
             case p_tool
                     when 'get_founder_report' then
@@ -1184,7 +1404,7 @@ begin
                            or p_args - array['query'] <> '{}'::jsonb then
                             raise exception 'invalid arguments' using errcode = '22023';
                         end if;
-                        v_identity_query_length := length(trim(p_args ->> 'query'));
+                        v_identity_query_length := least(length(trim(p_args ->> 'query')), 120);
                         v_result := public.founder_mcp_find_user(p_args ->> 'query');
                         v_returned_row_count := coalesce(jsonb_array_length(v_result -> 'matches'), 0);
                     else
@@ -1194,8 +1414,6 @@ begin
             when others then
                 v_status := 'error';
                 v_result := jsonb_build_object('error', 'invalid_arguments');
-                v_include_identity := case when p_tool = 'list_recent_signups' then false end;
-                v_identity_query_length := case when p_tool = 'find_user' then 0 end;
                 v_returned_row_count := 0;
         end;
     end if;
@@ -1294,7 +1512,7 @@ comment on table private.founder_mcp_client_access is
 'Exact user UUID and OAuth client pairs allowed to receive and use the private founder analytics permission.';
 
 comment on table private.founder_mcp_audit_events is
-'Content-free founder MCP tool audit metadata retained for 90 days and pruned by gateway calls.';
+'Content-free founder MCP tool audit metadata retained for 90 days and pruned daily with a gateway fallback.';
 
 comment on column private.connector_oauth_config.founder_mcp_enabled is
 'Database kill switch for founder token issuance and gateway access. False is fail-closed.';

@@ -18,7 +18,18 @@ jobs:
         with:
           deno-version: v2.x
       - name: Test analytics edge functions
-        run: deno test supabase/functions/sync-google-measurement/payload_test.ts
+        run: |
+          deno fmt --check \
+            supabase/functions/_shared/founder-mcp.ts \
+            supabase/functions/_shared/founder-mcp.test.ts \
+            supabase/functions/_shared/founder-mcp-server.test.ts \
+            supabase/functions/founder-mcp/index.ts
+          deno check supabase/functions/founder-mcp/index.ts
+          deno test supabase/functions/sync-google-measurement/payload_test.ts
+          deno test --allow-env --allow-net \
+            supabase/functions/_shared/connector-auth.test.ts \
+            supabase/functions/_shared/founder-mcp.test.ts \
+            supabase/functions/_shared/founder-mcp-server.test.ts
       - uses: supabase/setup-cli@v1
         with:
           version: 2.111.0
