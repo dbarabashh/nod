@@ -16,7 +16,7 @@ the macOS repository.
 | `nod-landing` | Marketing site `hellonod.app` — incl. rendered `/policies/*` and `/invite/:token` | Bun + React + Tailwind, custom `build.ts`, prerendered, i18n via `src/locales` | Vercel |
 | `share-nod-ui-service` | Public share viewer — renders `/share/:token`, summary-only | React 19 + Vite 8 + shadcn/ui (`radix-nova`), pnpm | Vercel (`noindex`) |
 | `nod-founder-dashboard` | Internal analytics for the two founders; reads **prod** Supabase via founder-gated `SECURITY DEFINER` RPCs, email-OTP auth | React + Vite, pnpm | Vercel |
-| `nod-mobile` | iOS companion — voice notes + in-person capture, same account | SwiftUI, iOS 26, plain Xcode project (no XcodeGen yet) | not shipped |
+| `nod-ios` | iOS app — voice notes + in-person capture, same account | SwiftUI, iOS 26.5, plain Xcode project (synchronized groups, no XcodeGen) | not shipped |
 | `nod-playbook` | Canonical product context, feature records and durable decisions for humans and LLMs | Markdown + validation scripts | no runtime deploy |
 
 ## Cross-repo rules
@@ -47,7 +47,7 @@ the macOS repository.
 - **iOS is not a port.** The desktop's system-audio capture (`ScreenCaptureKit`),
   floating `NSPanel`, menu-bar item, and global hotkeys have **no iOS
   equivalent**. The mobile answer for those features is "not applicable", never
-  a half-working stub. See `../nod-mobile/AGENTS.md`.
+  a half-working stub. See `../nod-ios/AGENTS.md`.
 - **Port, don't rewrite.** Logic that already exists and is portable (LLM proxy
   client, stores, data models, recap parsing, dedup) moves over faithfully
   rather than being re-derived.
