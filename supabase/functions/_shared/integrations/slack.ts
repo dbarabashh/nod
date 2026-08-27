@@ -497,10 +497,55 @@ export function isDirect(
 /// Structured on the way in and a query string only here, because a model fills
 /// named parameters reliably and invents a query DSL unreliably — and a
 /// malformed modifier does not fail, it silently searches for its own text.
-export function searchQuery(
+/// One result from `assistant.search.context`. Nothing like `search.messages`
+/// answered with: the author's name and the channel's arrive resolved, so the
+/// roster lookup the old shape needed to turn `U0…` into a person is gone.
+export interface SearchHit {
+    author_name?: string;
+    author_user_id?: string;
+    channel_id?: string;
+    channel_name?: string;
+    message_ts?: string;
+    content?: string;
+    is_author_bot?: boolean;
+    permalink?: string;
+}
+
+/// Whether a hit is worth putting in front of the model — the same question
+/// `worthReading` answers for a channel read, asked of the shape search
+/// returns. `include_bots: false` already asks Slack for this; a filter that
+/// exists only in the request is one API default away from silently lapsing.
+export function worthQuoting(hit: SearchHit): boolean {
+    return hit.is_author_bot !== true && (hit.content ?? "").trim().length > 0;
+}
+
+/// Whether a hit came from a channel rather than a direct or group message.
+///
+/// `privacy.md` § 3.16 promises those are never read, and `channel_types` asks
+/// Slack for channels only — but that is a request, and this is the
+/// enforcement. A hit with no channel name is treated as direct: search names
+/// every channel it returns, so an unnamed conversation is one, and losing a
+/// result costs an answer where keeping a direct one breaks a promise.
+export function fromAChannel(hit: SearchHit): boolean {
+    if ((hit.channel_name ?? "").trim() === "") return false;
+    return !isDirect({ id: hit.channel_id });
+}
+
+/// The parts of a search, as the Real-time Search API wants them: the words to
+/// look for, and the filters that narrow where to look.
+///
+/// Separated rather than joined, because `assistant.search.context` takes them
+/// as two arguments. `query` is matched semantically; putting `from:@vlad` in
+/// there would have the search look for the *phrase*.
+export interface SearchTerms {
+    text: string;
+    modifiers: string;
+}
+
+export function searchTerms(
     params: Record<string, unknown>,
     handle: string | null,
-): string {
+): SearchTerms {
     const text = typeof params?.text === "string" ? params.text.trim() : "";
     const channel = typeof params?.in === "string" ? params.in.trim().replace(/^#/, "") : "";
 
@@ -512,17 +557,25 @@ export function searchQuery(
         if (day) modifiers.push(`${key}:${day}`);
     }
 
-    const query = [text, ...modifiers].filter(Boolean).join(" ");
-    if (!query) {
+    if (!text && modifiers.length === 0) {
         throw new ActionError(
             "invalid_params",
             "Give at least one of `text`, `from`, `in`, `on`.",
         );
     }
-    return query;
+    return { text, modifiers: modifiers.join(" ") };
 }
 
-const SEARCH_LIMIT = 30;
+/// What the search came down to, for the model to read back. Both parts as one
+/// line, which is also how a person would have typed it into Slack.
+export function searchQuery(terms: SearchTerms): string {
+    return [terms.text, terms.modifiers].filter(Boolean).join(" ");
+}
+
+// `assistant.search.context` caps a page at 20 and silently returns fewer
+// rather than refusing, so asking for more would quietly look like a thin
+// workspace instead of a truncated page.
+const SEARCH_LIMIT = 20;
 
 export const SLACK_ACTIONS: ActionHandlers = {
     /// Every channel Nod can reach: all public ones, plus the private channels
@@ -655,57 +708,57 @@ export const SLACK_ACTIONS: ActionHandlers = {
     /// today" has no channel in it, and listing every conversation to read each
     /// one would spend a question's worth of latency to answer half of it.
     ///
-    /// Slack's search reaches everything the connected account can see, which
-    /// includes their direct messages. Those are dropped here, by what the
-    /// conversation *is* rather than by what the query asked for: `privacy.md`
-    /// § 3.16 promises DMs are never read, and a promise kept by phrasing the
-    /// query carefully is not kept at all. This filter is the enforcement.
+    /// `assistant.search.context`, not `search.messages`. The older method is
+    /// the one Slack now calls legacy, and it takes only the undivided
+    /// `search:read` — a scope Slack has split up and which the broker's client
+    /// no longer obtains, so every call came back `missing_scope` naming a
+    /// permission nobody can grant any more. This method is what the granular
+    /// `search:read.public` / `search:read.private` were made for, and the
+    /// account already holds them.
+    ///
+    /// `channel_types` is the first line on direct messages, which `privacy.md`
+    /// § 3.16 promises are never read: `im` and `mpim` are simply not asked
+    /// for. The filter below is the second, because an argument is a request
+    /// and a promise kept only by asking nicely is not kept at all.
     search_messages: async (connection, params) => {
         // Validated before the roster is touched: resolving a name downloads
         // up to 500 members, and a call with no filters at all — which is what
         // an under-constrained model produces — is rejected either way.
-        searchQuery(params, null);
+        searchTerms(params, null);
         const person = typeof params?.from === "string" ? params.from.trim() : "";
-        const query = searchQuery(
+        const terms = searchTerms(
             params,
             person ? await handleFor(connection, person) : null,
         );
 
-        const payload = await call(connection, "search.messages", {}, {
-            method: "GET",
-            query: {
-                query,
-                count: String(SEARCH_LIMIT),
-                sort: "timestamp",
-                sort_dir: "desc",
-            },
+        const payload = await call(connection, "assistant.search.context", {
+            query: terms.text,
+            modifiers: terms.modifiers,
+            channel_types: ["public_channel", "private_channel"],
+            // The same messages `worthReading` drops from a channel read. Asked
+            // of Slack as well as filtered here, so a page of results is not
+            // spent on posts that will be thrown away.
+            include_bots: false,
+            sort: "timestamp",
+            sort_dir: "desc",
+            limit: SEARCH_LIMIT,
         });
-        const matches = ((payload.messages as { matches?: unknown[] } | undefined)?.matches ??
-            []) as (SlackSaid & {
-                channel?: {
-                    id?: string;
-                    name?: string;
-                    is_im?: boolean;
-                    is_mpim?: boolean;
-                };
-                permalink?: string;
-            })[];
 
-        // Same filter the channel read uses: a bot post dropped from one and
-        // kept by the other is two answers to "what did we say".
-        const said = matches.filter(worthReading).filter((match) => !isDirect(match.channel));
-        const names = await displayNames(
-            connection,
-            said.map((match) => match.user),
-        );
+        const found = ((payload.results as { messages?: unknown[] } | undefined)?.messages ??
+            []) as SearchHit[];
 
         return {
-            query,
-            messages: said.map((match) => ({
-                ...readable(names, match),
-                channel: match.channel?.name ?? match.channel?.id ?? "",
-                url: match.permalink ?? "",
-            })),
+            query: searchQuery(terms),
+            messages: found
+                .filter(worthQuoting)
+                .filter(fromAChannel)
+                .map((hit) => ({
+                    author: hit.author_name ?? hit.author_user_id ?? "someone",
+                    text: hit.content ?? "",
+                    at: slackTimestamp(hit.message_ts),
+                    channel: hit.channel_name ?? hit.channel_id ?? "",
+                    url: hit.permalink ?? "",
+                })),
         };
     },
 

@@ -1,12 +1,15 @@
 import { assertEquals, assertThrows } from "jsr:@std/assert";
 import {
+    fromAChannel,
     isDirect,
     latinise,
     messageFor,
     REPLIES_PER_THREAD,
     searchQuery,
+    searchTerms,
     SLACK_ERRORS,
     THREADS_PER_READ,
+    worthQuoting,
     worthReading,
 } from "./slack.ts";
 
@@ -35,24 +38,40 @@ Deno.test("a channel is left alone", () => {
     );
 });
 
-Deno.test("filters become Slack's modifiers", () => {
+// `assistant.search.context` matches `query` semantically and applies
+// `modifiers` as filters. Joined into one string — which is what the old
+// `search.messages` took — the search would look for the *words* "from:@vlad".
+Deno.test("filters are kept apart from the words to look for", () => {
     assertEquals(
-        searchQuery({ text: "invoice", in: "#pricing", on: "2026-08-26" }, "vlad"),
-        "invoice from:@vlad in:#pricing on:2026-08-26",
+        searchTerms({ text: "invoice", in: "#pricing", on: "2026-08-26" }, "vlad"),
+        { text: "invoice", modifiers: "from:@vlad in:#pricing on:2026-08-26" },
     );
 });
 
 Deno.test("a question about who and when needs no words to look for", () => {
     assertEquals(
-        searchQuery({ on: "2026-08-26" }, "vlad"),
-        "from:@vlad on:2026-08-26",
+        searchTerms({ on: "2026-08-26" }, "vlad"),
+        { text: "", modifiers: "from:@vlad on:2026-08-26" },
     );
 });
 
 Deno.test("a window is both ends", () => {
     assertEquals(
-        searchQuery({ after: "2026-08-25", before: "2026-08-27" }, null),
-        "after:2026-08-25 before:2026-08-27",
+        searchTerms({ after: "2026-08-25", before: "2026-08-27" }, null),
+        { text: "", modifiers: "after:2026-08-25 before:2026-08-27" },
+    );
+});
+
+// What the model reads back is one line, the way a person would have typed it
+// into Slack — the split is the API's business, not the answer's.
+Deno.test("the two parts read back as one line", () => {
+    assertEquals(
+        searchQuery(searchTerms({ text: "invoice", in: "#pricing" }, "vlad")),
+        "invoice from:@vlad in:#pricing",
+    );
+    assertEquals(
+        searchQuery(searchTerms({ on: "2026-08-26" }, null)),
+        "on:2026-08-26",
     );
 });
 
@@ -61,13 +80,13 @@ Deno.test("a window is both ends", () => {
 // search for the date itself and comes back empty — the exact failure that made
 // "no meetings today" believable.
 Deno.test("a date Slack would not parse is rejected", () => {
-    assertThrows(() => searchQuery({ on: "26/08/2026" }, null));
-    assertThrows(() => searchQuery({ after: "yesterday" }, null));
+    assertThrows(() => searchTerms({ on: "26/08/2026" }, null));
+    assertThrows(() => searchTerms({ after: "yesterday" }, null));
 });
 
 Deno.test("a search with no filter at all is rejected rather than run", () => {
-    assertThrows(() => searchQuery({}, null));
-    assertThrows(() => searchQuery({ text: "   " }, null));
+    assertThrows(() => searchTerms({}, null));
+    assertThrows(() => searchTerms({ text: "   " }, null));
 });
 
 // A live connection whose app was never granted a scope is not a broken
@@ -151,4 +170,49 @@ Deno.test("Latin passes through untouched, so both sides fold to one form", () =
 
 Deno.test("an address is left alone", () => {
     assertEquals(latinise("vlad@hellonod.app"), "vlad@hellonod.app");
+});
+
+// ── What a search result has to clear before the model sees it ──────────────
+
+Deno.test("a search hit from a channel is kept", () => {
+    assertEquals(
+        fromAChannel({ channel_id: "C0BQKG9N6EN", channel_name: "pricing" }),
+        true,
+    );
+});
+
+// The second line on the promise in `privacy.md` § 3.16. `channel_types` asks
+// Slack for channels only; if that argument were ever dropped or defaulted
+// away, this is what still keeps a direct message out of an answer.
+Deno.test("a search hit from a direct message is dropped", () => {
+    assertEquals(
+        fromAChannel({ channel_id: "D0123ABCD", channel_name: "dmytro" }),
+        false,
+    );
+});
+
+// Search names every channel it returns, so a nameless conversation is not one.
+Deno.test("a search hit with no channel name is treated as direct", () => {
+    assertEquals(fromAChannel({ channel_id: "C0BQKG9N6EN" }), false);
+    assertEquals(fromAChannel({ channel_id: "C0BQKG9N6EN", channel_name: "  " }), false);
+    assertEquals(fromAChannel({}), false);
+});
+
+Deno.test("a bot's search hit is dropped, as it is in a channel read", () => {
+    assertEquals(
+        worthQuoting({ content: "deploy finished", is_author_bot: true }),
+        false,
+    );
+});
+
+Deno.test("a search hit with nothing said is dropped", () => {
+    assertEquals(worthQuoting({ content: "   " }), false);
+    assertEquals(worthQuoting({}), false);
+});
+
+Deno.test("a person's search hit is kept", () => {
+    assertEquals(
+        worthQuoting({ content: "shipping tomorrow", is_author_bot: false }),
+        true,
+    );
 });
