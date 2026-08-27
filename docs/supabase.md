@@ -118,6 +118,62 @@ auth config:
   migrations from `main` into `develop` (or vice-versa) — that pushes one env's
   schema onto the other's sandbox, which then tries to apply it.
 
+## Model routing secrets — what to set at the next prod release
+
+`_shared/model-policy.ts` decides which model serves which task. Each task reads
+one secret (`SUMMARY_MODEL`, `TITLE_MODEL`, `UTILITY_MODEL`, `CHAT_MODEL`); an
+unset variable means "no policy" and the client's own default is used unchanged.
+`DISABLE_REASONING_TASKS` is a comma-separated task list whose reasoning the
+proxy forces off — the client can only do that for `utility`.
+
+**Production carries no model overrides today.** Every task runs the client
+default, which is why `usage_events` shows `requested_model = resolved_model` on
+every row.
+
+The order matters, because one step gates the others:
+
+1. **Ship the client fix first.** Until `290f08b` reaches `main` and a build
+   goes out, summary/recap/entity calls are all labelled `title`, so
+   `SUMMARY_MODEL` controls nothing and `TITLE_MODEL` controls four different
+   jobs at once. Verify by looking for `task = 'summary'` rows in prod
+   `usage_events`; there are none before that build.
+2. **Deploy `llm-proxy`** — a secret is injected at isolate boot, so a warm
+   instance keeps serving the old value until it cycles. Deploy during a quiet
+   window: `usage_events` shows live traffic, and a `utility` call every ~40s
+   means someone is mid-meeting.
+3. **Then set the secrets**, sandbox first, verified on real traffic:
+
+```sh
+SUPABASE_ACCESS_TOKEN=sbp_… supabase secrets set --project-ref <ref> \
+  UTILITY_MODEL=google/gemini-2.5-flash-lite
+```
+
+Verified on sandbox 2026-08-27: `utility` resolved to
+`google/gemini-2.5-flash-lite`, HTTP 200, 5 completion tokens, billed at list
+price with no failover. Roughly 11x cheaper than `claude-haiku-4.5` on the same
+prompts.
+
+Rollback is `supabase secrets unset --project-ref <ref> UTILITY_MODEL`; routing
+returns to the client default on the next isolate.
+
+### Why routing a task is safe to try
+
+Two independent nets, both already in the code:
+
+- Every `utility` call site catches and degrades — HyDE falls back to the raw
+  query, the session router to a corpus-wide search, the live analyst skips a
+  tick, loop resolution and lookup return empty. None of them can fail a
+  recording, a transcript or a summary.
+- `applyModelPolicy` keeps the client's chain behind the override, so the
+  payload carries `[<override>, claude-haiku-4.5, claude-sonnet-4.6]` and
+  OpenRouter retries down it on any upstream failure.
+
+One gap to watch: `providerPreference` is built from the *client's* model, so
+the `google-vertex` preference that exists to dodge AI Studio's shared free-tier
+429s is not applied to a server-routed `google/` model. Sandbox calls billed at
+the paid rate, so it is not currently biting; if 429s or failovers appear on a
+Gemini task, move that preference into `applyModelPolicy`.
+
 ## CLI gotcha — management commands need a PAT
 
 Management commands (`secrets set`, `branches …`) read a **Personal Access

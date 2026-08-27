@@ -43,6 +43,17 @@ function taskModelOverride(task: string): string | undefined {
     return policy ? Deno.env.get(policy.env) : undefined;
 }
 
+/// Tasks whose reasoning is forced off, as a comma-separated `task` list
+/// (`DISABLE_REASONING_TASKS=chat`). The client turns reasoning off for
+/// `utility` alone and cannot be changed without a desktop release, so this is
+/// the server-side lever for every other task. Measured on the sandbox chat
+/// key over 30 days: 529k of 650k completion tokens were reasoning nobody read.
+/// Unset is the "no policy" state, same as the model overrides above.
+export function reasoningDisabled(task: string): boolean {
+    const raw = Deno.env.get("DISABLE_REASONING_TASKS");
+    return raw ? raw.split(",").some((entry) => entry.trim() === task) : false;
+}
+
 const MAX_FALLBACK_CHAIN = 3;
 
 interface RoutedModel {

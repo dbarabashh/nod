@@ -1,5 +1,5 @@
 import { isObject, json } from "./http.ts";
-import { applyModelPolicy, ROUTING_VERSION, supportsExplicitPromptCache } from "./model-policy.ts";
+import { applyModelPolicy, reasoningDisabled, ROUTING_VERSION, supportsExplicitPromptCache } from "./model-policy.ts";
 import { recordUsage } from "./usage.ts";
 
 // Everything between the client's chat request and OpenRouter: prompt caching,
@@ -82,11 +82,16 @@ export async function forwardChat(rawPayload: unknown, userId: string): Promise<
         console.log(`routing user=${userId} task=${task} requested=${model} routed=${routed} policy=${ROUTING_VERSION}`);
     }
 
+    // Reasoning the reader never sees is still billed as output, at ~4x input.
+    // The client can only switch it off for `utility`, so this overrides
+    // whatever it sent for any task named in `DISABLE_REASONING_TASKS`.
+    const reasoned = reasoningDisabled(task) ? { ...routedPayload, reasoning: { enabled: false } } : routedPayload;
+
     // Apply prompt caching when the client opted in (`cache_prompt`), and strip
     // that internal flag before forwarding. Non-opted calls pass through
     // unchanged. The client still sends plain string message content; the
     // cache_control content-block rewrite happens here.
-    const payload = applyPromptCaching(routedPayload);
+    const payload = applyPromptCaching(reasoned);
 
     // Streaming path (used by "Suggest reply"): pass the upstream SSE through
     // verbatim so the client renders tokens as they arrive. Usage is captured

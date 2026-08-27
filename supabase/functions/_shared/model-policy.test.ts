@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert";
-import { applyModelPolicy, sttRoutingMode, supportsExplicitPromptCache } from "./model-policy.ts";
+import { applyModelPolicy, reasoningDisabled, sttRoutingMode, supportsExplicitPromptCache } from "./model-policy.ts";
 
 function withEnv(vars: Record<string, string>, body: () => void) {
     for (const [k, v] of Object.entries(vars)) Deno.env.set(k, v);
@@ -80,3 +80,19 @@ Deno.test("only anthropic and google take an explicit cache marker", () => {
     assertEquals(supportsExplicitPromptCache("openai/gpt-5.6-luna"), false);
     assertEquals(supportsExplicitPromptCache(undefined), false);
 });
+
+Deno.test("reasoning stays on unless the task is listed", () => {
+    if (reasoningDisabled("chat")) throw new Error("unset policy must leave reasoning alone");
+    withEnv({ DISABLE_REASONING_TASKS: "chat" }, () => {
+        assertEquals(reasoningDisabled("chat"), true);
+        assertEquals(reasoningDisabled("summary"), false);
+    });
+    withEnv({ DISABLE_REASONING_TASKS: " chat , summary " }, () => {
+        assertEquals(reasoningDisabled("chat"), true);
+        assertEquals(reasoningDisabled("summary"), true);
+        assertEquals(reasoningDisabled("utility"), false);
+    });
+    withEnv({ DISABLE_REASONING_TASKS: "" }, () => {
+        assertEquals(reasoningDisabled("chat"), false);
+    });
+})
