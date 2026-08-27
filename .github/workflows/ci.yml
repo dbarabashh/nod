@@ -20,6 +20,8 @@ jobs:
       - name: Test analytics edge functions
         run: |
           deno fmt --check \
+            supabase/functions/_shared/connector-auth.ts \
+            supabase/functions/_shared/connector-auth.test.ts \
             supabase/functions/_shared/founder-mcp.ts \
             supabase/functions/_shared/founder-mcp.test.ts \
             supabase/functions/_shared/founder-mcp-server.test.ts \
