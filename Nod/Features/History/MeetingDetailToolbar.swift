@@ -1,8 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The row of actions above a meeting's body: language, edit, copy, share,
-/// grant to a team, export.
+/// The row of actions above a meeting's body: edit, copy, share, grant to a
+/// team, export.
 ///
 /// It owns the three transient button states because nothing outside it reads
 /// them — the parent hands over the meeting as it stands on screen and the
@@ -44,8 +44,6 @@ struct MeetingDetailToolbar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                SubToolbarItem(icon: "nc-language", label: meeting.language.uppercased())
-                SubToolbarDivider()
                 if tab == .summary {
                     // Only where a line cannot be corrected in place. With a
                     // typed recap the rendered text is editable itself, and a
@@ -256,24 +254,6 @@ struct MeetingDetailToolbar: View {
 
 /// The chrome of the sub-toolbar above a meeting's body: a read-only fact, a
 /// tappable label, and the hairline between them.
-struct SubToolbarItem: View {
-    let icon: String
-    let label: String
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(icon)
-                .icon(11)
-                .foregroundStyle(Theme.Palette.muted)
-            Text(label)
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Theme.Palette.ink.opacity(0.92))
-                .lineLimit(1)
-        }
-        .fixedSize()
-    }
-}
-
 struct SubToolbarLabel: View {
     let icon: String
     let text: String
