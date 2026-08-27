@@ -75,7 +75,7 @@ struct HomeSidebar: View {
                 .padding(.bottom, 12)
             }
             Spacer(minLength: 0)
-            HomeSidebarFooter(surface: surface, onSelect: onSelect)
+            HomeSidebarFooter(surface: surface)
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity, alignment: .top)

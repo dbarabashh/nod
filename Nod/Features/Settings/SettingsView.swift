@@ -309,6 +309,9 @@ struct SettingsView: View {
     private var profilePane: some View {
         if let profileStore {
             VStack(alignment: .leading, spacing: 20) {
+                if let auth {
+                    ProfileIdentityCard(store: profileStore, auth: auth)
+                }
                 ProfileSettingsSection(store: profileStore)
                 if let emailPreferences {
                     EmailPreferencesSection(preferences: emailPreferences)

@@ -5,7 +5,6 @@ import SwiftUI
 /// long, and none of this depends on the lists it sits under.
 struct HomeSidebarFooter: View {
     let surface: MainWindowView.Surface
-    let onSelect: (MainWindowView.Surface) -> Void
 
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var entitlements: EntitlementService
@@ -27,11 +26,13 @@ struct HomeSidebarFooter: View {
                 isSelected: false,
                 action: { settingsFocus.open(.rewards) }
             )
+            // Named panes, not just the surface: landing on whichever pane was
+            // open last makes the same click go somewhere different each time.
             SidebarNavRow(
                 title: "Settings",
                 icon: "nc-gear-2",
                 isSelected: surface == .settings,
-                action: { onSelect(.settings) }
+                action: { settingsFocus.open(.general) }
             )
             accountRow
         }
@@ -39,8 +40,10 @@ struct HomeSidebarFooter: View {
         .padding(.bottom, 10)
     }
 
+    /// Goes to the profile, where the row above it goes to General. Two rows
+    /// that opened the same pane read as one of them being broken.
     private var accountRow: some View {
-        Button { onSelect(.settings) } label: {
+        Button { settingsFocus.open(.profile) } label: {
             HStack(spacing: 9) {
                 Image("nc-user")
                     .icon(15)
@@ -63,7 +66,7 @@ struct HomeSidebarFooter: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Account and plan")
+        .help("Your profile")
     }
 
     private var displayName: String {

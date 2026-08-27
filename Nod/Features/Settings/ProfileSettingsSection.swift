@@ -140,3 +140,52 @@ struct ProfileSettingsSection: View {
         }
     }
 }
+
+/// Who you are signed in as, above the fields that say what Nod remembers.
+///
+/// The address is stated, not offered as a field. It is the identity the
+/// account was created with and there is no flow in the app to change it, so a
+/// text box — even a disabled one — would invite an edit that cannot happen.
+struct ProfileIdentityCard: View {
+    @ObservedObject var store: ProfileStore
+    @ObservedObject var auth: AuthService
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image("nc-user")
+                .icon(18)
+                .foregroundStyle(Theme.Palette.muted)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Theme.Palette.surfaceStrong))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(displayName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                    .lineLimit(1)
+                if let email {
+                    Text(email)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .lineLimit(1)
+                        .textSelection(.enabled)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surfaceCard()
+    }
+
+    /// The saved name, not the one being typed in the field below — this states
+    /// the account as it stands.
+    private var displayName: String {
+        let name = store.profile?.displayName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? "Your account" : name
+    }
+
+    private var email: String? {
+        let address = auth.session?.user.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return address.isEmpty ? nil : address
+    }
+}
