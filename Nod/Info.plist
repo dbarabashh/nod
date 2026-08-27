@@ -15,7 +15,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>13.1.3</string>
+	<string>13.1.4</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -28,7 +28,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>68</string>
+	<string>69</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSCalendarsFullAccessUsageDescription</key>
