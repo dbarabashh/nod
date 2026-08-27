@@ -214,6 +214,24 @@ values
     ('10000000-0000-4000-8000-000000000102', 'dcr-dmytro', 'https://founder.example/mcp');
 update private.connector_oauth_config set founder_mcp_enabled = true where singleton;
 
+-- `founder_mcp_report` delegates to `founder_overview`, `founder_metrics` and
+-- `founder_acquisition`, each of which asserts `_assert_founder()` against the
+-- email allowlist. A binding whose user is not also on that list therefore
+-- issues a working token whose reports fail, and the gateway's catch-all
+-- reports that as `invalid_arguments`.
+do $$
+begin
+    if exists (
+        select 1
+          from private.founder_mcp_client_access as access
+          join auth.users as account on account.id = access.user_id
+         where lower(account.email) <> all(public._founder_emails())
+    ) then
+        raise exception 'founder MCP binding is not on the founder email allowlist';
+    end if;
+end;
+$$;
+
 do $$
 declare
     vlad jsonb;
@@ -221,17 +239,21 @@ declare
     wrong_pair jsonb;
     viktoriia jsonb;
     meeting jsonb;
+    plain_login jsonb;
 begin
     vlad := public.custom_access_token_hook(jsonb_build_object('user_id', '10000000-0000-4000-8000-000000000101', 'claims', jsonb_build_object('sub', '10000000-0000-4000-8000-000000000101', 'client_id', 'dcr-vlad', 'email', 'changed@example.invalid'))) -> 'claims';
     dmytro := public.custom_access_token_hook(jsonb_build_object('user_id', '10000000-0000-4000-8000-000000000102', 'claims', jsonb_build_object('sub', '10000000-0000-4000-8000-000000000102', 'client_id', 'dcr-dmytro'))) -> 'claims';
     wrong_pair := public.custom_access_token_hook(jsonb_build_object('user_id', '10000000-0000-4000-8000-000000000102', 'claims', jsonb_build_object('sub', '10000000-0000-4000-8000-000000000102', 'client_id', 'dcr-vlad'))) -> 'claims';
     viktoriia := public.custom_access_token_hook(jsonb_build_object('user_id', '10000000-0000-4000-8000-000000000103', 'claims', jsonb_build_object('sub', '10000000-0000-4000-8000-000000000103', 'client_id', 'dcr-dmytro'))) -> 'claims';
     meeting := public.custom_access_token_hook(jsonb_build_object('user_id', '10000000-0000-4000-8000-000000000111', 'claims', jsonb_build_object('sub', '10000000-0000-4000-8000-000000000111', 'client_id', 'meeting-dcr'))) -> 'claims';
+    plain_login := public.custom_access_token_hook(jsonb_build_object('user_id', '10000000-0000-4000-8000-000000000111', 'claims', jsonb_build_object('sub', '10000000-0000-4000-8000-000000000111')));
     if not (vlad -> 'nod_permissions' ? 'founder_analytics:read')
        or not (dmytro -> 'nod_permissions' ? 'founder_analytics:read')
        or wrong_pair -> 'nod_permissions' ? 'founder_analytics:read'
        or viktoriia -> 'nod_permissions' ? 'founder_analytics:read'
-       or not (meeting -> 'nod_permissions' ? 'meetings:read') then
+       or not (meeting -> 'nod_permissions' ? 'meetings:read')
+       or plain_login -> 'claims' ? 'role'
+       or plain_login -> 'claims' ? 'nod_permissions' then
         raise exception 'UUID/client token mapping or meeting regression failed';
     end if;
 end;
