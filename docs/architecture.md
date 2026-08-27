@@ -234,6 +234,14 @@ credentials while applying the authenticated `user_id` to every meeting and
 transcript query. This is the boundary that prevents a connector token from
 using PostgREST or reading another account.
 
+The consent screen is ours, not Supabase's: Supabase's OAuth 2.1 server hands
+the request to `nod-landing/src/pages/oauth-consent.tsx`, which signs the user in
+and then approves or denies the authorization. Google is the only sign-in method
+it offers publicly. Loading it with `?review=1` also reveals an email-and-password
+form, which exists so app-store reviewers can sign in without a Google account or
+a second factor; only accounts seeded with a password through the Auth admin API
+can use it, and email signup stays disabled so no one can create one.
+
 The server uses the official Model Context Protocol TypeScript SDK and MCP Apps
 extension. It exposes read-only `search`, `fetch`, `list_meetings`, and
 `get_transcript` tools plus the `ui://nod/meeting-browser.html` app resource.
