@@ -383,6 +383,9 @@ verify_jwt = false
 [functions.mcp]
 verify_jwt = false
 
+[functions.founder-mcp]
+verify_jwt = false
+
 [functions.sync-google-measurement]
 verify_jwt = false
 

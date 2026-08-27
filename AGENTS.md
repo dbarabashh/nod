@@ -26,6 +26,7 @@ directories, with symlinks for Claude Code:
   - `backward-compatibility.md` (always) — expand/migrate/contract, mixed-version tests, measured legacy retirement
   - `comments.md` (always) — don't write comments; the rare exception is a non-obvious WHY
   - `commits.md` (always) — lowercase, 4–5 words, no AI attribution trailer
+  - `loop-engineering.md` (always) — independent review/fix loops before material work is ready
   - `swift-architecture.md` (`*.swift`) — where code goes, layering, composition root, no singletons
   - `swift-concurrency.md` (`*.swift`) — `@MainActor` defaults, structured concurrency, the real-time audio-thread constraint
   - `swiftui.md` (`*.swift`) — state-property choice, body performance, no `@Observable` (macOS 13 target)
