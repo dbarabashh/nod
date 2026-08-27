@@ -42,7 +42,15 @@ enum MeetingMarkdownExport {
         if !transcript.isEmpty {
             out += "\n## Transcript\n\n"
             out += transcript
-                .map { line(for: $0, meetingStart: meeting.startedAt, names: meeting.speakerNames, host: host) }
+                .map {
+                    line(
+                        for: $0,
+                        meetingStart: meeting.startedAt,
+                        names: meeting.speakerNames,
+                        host: host,
+                        selfSpeaker: meeting.selfSpeaker
+                    )
+                }
                 .joined(separator: "\n")
             out += "\n"
         }
@@ -134,10 +142,12 @@ enum MeetingMarkdownExport {
         for record: TranscriptRecord,
         meetingStart: Date,
         names: [String: String]?,
-        host: String?
+        host: String?,
+        selfSpeaker: Int?
     ) -> String {
         let stamp = offsetLabel(from: meetingStart, to: record.ts)
-        return "[\(stamp)] **\(record.displayLabel(names: names, host: host))**: \(record.text)"
+        let label = record.displayLabel(names: names, host: host, selfSpeaker: selfSpeaker)
+        return "[\(stamp)] **\(label)**: \(record.text)"
     }
 
     /// `[MM:SS]` (or `[H:MM:SS]` past an hour) offset of a transcript line from

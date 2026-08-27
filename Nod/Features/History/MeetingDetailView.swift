@@ -248,6 +248,7 @@ struct MeetingDetailView: View {
                 isFinalizing: isFinalizing,
                 speakerNames: current.speakerNames,
                 hostName: hostName,
+                selfSpeaker: current.selfSpeaker,
                 isResolvingRemoteSpeakers: meetingStore.resolvingSpeakerIDs.contains(meeting.id),
                 people: correctablePeople,
                 canCorrectSpeakers: !meetingStore.isSharedWithMe(current),

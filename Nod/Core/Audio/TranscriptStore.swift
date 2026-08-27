@@ -5,11 +5,17 @@ import Foundation
 enum TranscriptSource: String {
     case me
     case them
+    /// The iOS companion's single microphone. Unlike `me` and `them` it is not
+    /// a routed stream: everyone in the room arrives on it, the person holding
+    /// the phone included, so the tag says nothing about who spoke — only
+    /// diarization does, and `Meeting.selfSpeaker` says which cluster is theirs.
+    case room
 
     var label: String {
         switch self {
         case .me: "Me"
         case .them: "Them"
+        case .room: "Speaker"
         }
     }
 
@@ -17,7 +23,15 @@ enum TranscriptSource: String {
         switch self {
         case .me: "🎙"
         case .them: "🔊"
+        case .room: "👥"
         }
+    }
+
+    /// Whether a line from this stream can carry a diarized cluster. A routed
+    /// mic is one known voice and is never clustered; a room is nothing but
+    /// clusters.
+    var isClustered: Bool {
+        self != .me
     }
 }
 

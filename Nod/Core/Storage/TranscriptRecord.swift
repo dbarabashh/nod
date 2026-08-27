@@ -26,8 +26,11 @@ struct TranscriptRecord: Codable, Identifiable, Equatable {
     ///
     /// No speaker at all is the user: the `me` stream is a single known voice
     /// and is never clustered.
-    func speakerName(from speakerNames: [String: String]) -> String {
-        guard let speaker else { return "Me" }
+    func speakerName(from speakerNames: [String: String], selfSpeaker: Int? = nil) -> String {
+        guard let speaker else {
+            return TranscriptSource(rawValue: source)?.label ?? source
+        }
+        if let selfSpeaker, speaker == selfSpeaker { return "Me" }
         return speakerNames[String(speaker)] ?? "Speaker \(speaker)"
     }
 
@@ -66,9 +69,17 @@ extension TranscriptRecord {
     /// `host` is whoever recorded the session, passed only when the reader is
     /// somebody else. It replaces `Me` for the same reason a name replaces
     /// `Them`: on screen the tag is not routing, it is who spoke.
-    func displayLabel(names: [String: String]? = nil, host: String? = nil) -> String {
-        guard let speaker = themSpeaker else { return host ?? sourceLabel }
-        return name(for: speaker, in: names) ?? "\(sourceLabel) · Speaker \(speaker)"
+    /// `selfSpeaker` is which cluster is the person who recorded it. It only
+    /// applies to a room recording: there the user is one voice among the
+    /// others on a single stream, and that number is the only thing that says
+    /// which. On `me`/`them` the routing already answers it.
+    func displayLabel(names: [String: String]? = nil, host: String? = nil, selfSpeaker: Int? = nil) -> String {
+        guard let speaker = clusteredSpeaker else { return host ?? sourceLabel }
+        if isSelf(speaker, selfSpeaker: selfSpeaker) { return host ?? "Me" }
+        if let named = name(for: speaker, in: names) { return named }
+        // A room line has no routing tag worth showing — "Speaker · Speaker 2"
+        // says the word twice and the stream nothing.
+        return isRoom ? "Speaker \(speaker)" : "\(sourceLabel) · Speaker \(speaker)"
     }
 
     /// The label a prompt sees. `[Me]` / `[Them]` are routing hints every
@@ -76,19 +87,39 @@ extension TranscriptRecord {
     /// instead of replacing it — dropping `Them` would silently disable those
     /// rules for exactly the meetings we managed to name. `host` narrows `Me`
     /// the same way, for the same reason.
-    func promptLabel(names: [String: String]? = nil, host: String? = nil) -> String {
-        let narrowed = themSpeaker.map { name(for: $0, in: names) ?? "Speaker \($0)" } ?? host
-        return narrowed.map { "\(sourceLabel) · \($0)" } ?? sourceLabel
+    /// A room line is mapped onto the same `[Me]` / `[Them]` vocabulary rather
+    /// than introducing a third tag: every grounding rule in `PromptLibrary`
+    /// keys on those two, and a tag they don't name is a rule that silently
+    /// stops applying to exactly the sessions the phone recorded.
+    func promptLabel(names: [String: String]? = nil, host: String? = nil, selfSpeaker: Int? = nil) -> String {
+        guard let speaker = clusteredSpeaker else {
+            return host.map { "\(sourceLabel) · \($0)" } ?? sourceLabel
+        }
+        if isSelf(speaker, selfSpeaker: selfSpeaker) {
+            return host.map { "\(TranscriptSource.me.label) · \($0)" } ?? TranscriptSource.me.label
+        }
+        let named = name(for: speaker, in: names) ?? "Speaker \(speaker)"
+        let tag = isRoom ? TranscriptSource.them.label : sourceLabel
+        return "\(tag) · \(named)"
     }
 
     private var sourceLabel: String {
         TranscriptSource(rawValue: source)?.label ?? source
     }
 
-    /// The clustered voice on the remote stream, or nil — the user's own mic is
-    /// one known speaker and is never clustered.
-    private var themSpeaker: Int? {
-        TranscriptSource(rawValue: source) == .them ? speaker : nil
+    /// The clustered voice this line carries, or nil — the user's own routed
+    /// mic is one known speaker and is never clustered.
+    private var clusteredSpeaker: Int? {
+        (TranscriptSource(rawValue: source)?.isClustered ?? false) ? speaker : nil
+    }
+
+    private var isRoom: Bool {
+        TranscriptSource(rawValue: source) == .room
+    }
+
+    /// Only a room recording can have the user inside its clusters.
+    private func isSelf(_ speaker: Int, selfSpeaker: Int?) -> Bool {
+        isRoom && selfSpeaker == speaker
     }
 
     /// Trimmed at the read boundary too, not only before writing: the map is

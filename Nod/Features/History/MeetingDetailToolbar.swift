@@ -163,7 +163,14 @@ struct MeetingDetailToolbar: View {
 
     private func copyTranscript() {
         guard let records = transcript.loadedRecords, !records.isEmpty else { return }
-        copyAndFlash(transcriptPlainText(records, names: meeting.speakerNames, host: hostName))
+        copyAndFlash(
+            transcriptPlainText(
+                records,
+                names: meeting.speakerNames,
+                host: hostName,
+                selfSpeaker: meeting.selfSpeaker
+            )
+        )
     }
 
     private func copyAndFlash(_ text: String) {

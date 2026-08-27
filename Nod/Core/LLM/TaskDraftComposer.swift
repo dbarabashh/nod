@@ -82,10 +82,11 @@ final class TaskDraftComposer: ObservableObject {
         do {
             let records = try await meetings.fetchTranscript(meetingID: item.meetingID)
             let window = records.filter { abs($0.idx - idx) <= Self.excerptRadius }
-            let names = meetings.meetings.first { $0.id == item.meetingID }?.speakerNames ?? [:]
+            let meeting = meetings.meetings.first { $0.id == item.meetingID }
+            let names = meeting?.speakerNames ?? [:]
             return window
                 .sorted { $0.idx < $1.idx }
-                .map { "\($0.speakerName(from: names)): \($0.text)" }
+                .map { "\($0.speakerName(from: names, selfSpeaker: meeting?.selfSpeaker)): \($0.text)" }
                 .joined(separator: "\n")
         } catch {
             Log.llm.error("TaskDraftComposer excerpt failed: \(error.localizedDescription)")

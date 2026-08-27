@@ -31,6 +31,9 @@ struct MeetingTranscriptTab: View {
     /// somebody shared, the reader is not that device, and a transcript where
     /// half the lines say "Me" is a transcript about nobody.
     let hostName: String?
+    /// Which cluster is the person who recorded this — set only for a room
+    /// recording, where the user is one voice among the others.
+    var selfSpeaker: Int?
     /// True while the remote speakers are still being clustered. The user's own
     /// mic is a single known voice, so its chip is final the moment it exists.
     let isResolvingRemoteSpeakers: Bool
@@ -163,14 +166,20 @@ struct MeetingTranscriptTab: View {
     }
 
     private func label(for record: TranscriptRecord) -> String {
-        record.displayLabel(names: speakerNames, host: hostName)
+        record.displayLabel(names: speakerNames, host: hostName, selfSpeaker: selfSpeaker)
     }
 
-    /// Mic (`me`) is violet; the remote party (`them`) is cyan.
+    /// Mic (`me`) is violet; the remote party (`them`) is cyan. A room line is
+    /// whichever of the two it turns out to be — the user's own cluster reads
+    /// like their mic, everyone else like the far side.
     private func speakerTint(_ record: TranscriptRecord) -> Color {
         switch TranscriptSource(rawValue: record.source) {
         case .me: Theme.Palette.violet.opacity(0.18)
         case .them: Theme.Palette.cyan.opacity(0.18)
+        case .room:
+            record.speaker != nil && record.speaker == selfSpeaker
+                ? Theme.Palette.violet.opacity(0.18)
+                : Theme.Palette.cyan.opacity(0.18)
         case nil: Theme.Palette.surface
         }
     }
@@ -190,11 +199,12 @@ private let transcriptTimeFormatter: DateFormatter = {
 func transcriptPlainText(
     _ records: [TranscriptRecord],
     names: [String: String]?,
-    host: String? = nil
+    host: String? = nil,
+    selfSpeaker: Int? = nil
 ) -> String {
     records
         .map { record in
-            let label = record.displayLabel(names: names, host: host)
+            let label = record.displayLabel(names: names, host: host, selfSpeaker: selfSpeaker)
             return "[\(transcriptTimeFormatter.string(from: record.ts))] \(label): \(record.text)"
         }
         .joined(separator: "\n")

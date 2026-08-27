@@ -27,6 +27,11 @@ struct Meeting: Codable, Identifiable, Equatable {
     /// rows carry (`{"1": "Eric"}`). Sparse: only clusters the transcript itself
     /// identified are named, the rest keep rendering as "Speaker N".
     var speakerNames: [String: String]?
+    /// Which diarized cluster is the person who recorded this, for a session
+    /// captured on one microphone (`source = "room"`, the iOS companion). Nil
+    /// for everything the Mac records: there the user's voice arrives on its
+    /// own stream and needs no cluster to be identified.
+    var selfSpeaker: Int?
     var sourcePlatform: String? = nil
     /// The calendar invitation this recording was matched to, when there was
     /// one. Read-only here: the server stamps it from the room the recording
@@ -100,6 +105,7 @@ struct Meeting: Codable, Identifiable, Equatable {
         case recap = "recap_json"
         case language
         case speakerNames = "speaker_names"
+        case selfSpeaker = "self_speaker"
         case sourcePlatform = "source_platform"
         case icalUID = "ical_uid"
         case deletedAt = "deleted_at"
@@ -125,6 +131,9 @@ struct Meeting: Codable, Identifiable, Equatable {
         // Omitted when absent so an upsert from the outbox can't wipe names a
         // later extraction pass already wrote.
         try c.encodeIfPresent(speakerNames, forKey: .speakerNames)
+        // Omitted when absent for the same reason as the names above: a Mac
+        // upsert must not clear what the phone wrote about its own recording.
+        try c.encodeIfPresent(selfSpeaker, forKey: .selfSpeaker)
         try c.encode("macos", forKey: .sourcePlatform)
         try c.encodeIfPresent(deletedAt, forKey: .deletedAt)
     }
@@ -156,6 +165,7 @@ struct Meeting: Codable, Identifiable, Equatable {
             recap: recap,
             language: language,
             speakerNames: nil,
+            selfSpeaker: nil,
             deletedAt: nil
         )
     }
