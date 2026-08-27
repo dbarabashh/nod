@@ -73,9 +73,14 @@ final class IntegrationService: ObservableObject {
     /// question and must get the same answer — the catalogue has to match
     /// between the prompt that describes it, the request that carries it, and
     /// the match that checks a call against it.
+    ///
+    /// Usable rather than linked: a product the organization switched off is
+    /// absent from the mention picker, and offering the model tools for it
+    /// meant the policy held everywhere a person could see it and nowhere the
+    /// model could act.
     func chatTools() async -> [ChatTool] {
         await refreshIfNeeded()
-        return ChatTools.definitions(for: linked)
+        return ChatTools.definitions(for: linked.filter(isUsable))
     }
 
     func refresh() async {
@@ -206,9 +211,14 @@ final class IntegrationService: ObservableObject {
         }
     }
 
-    /// What the organization has turned off. Row-level security scopes this to
-    /// the caller's own organizations, so no filter is needed and a personal
-    /// account reads nothing.
+    /// What the caller's organizations have turned off.
+    ///
+    /// A server answer rather than a client derivation. Reading the policy rows
+    /// directly worked, but only because this leant on that table's row-level
+    /// security to supply the membership half of the rule — two predicates
+    /// maintained apart, and a tool drawn as available that the server then
+    /// refuses is the failure this whole check exists to prevent. The rule now
+    /// lives once, in `my_blocked_providers`.
     ///
     /// Never throws, and that is the point rather than tidiness. No policy means
     /// everything is permitted — the same answer as an organization that has
@@ -223,18 +233,10 @@ final class IntegrationService: ObservableObject {
         guard let supabase else { return [] }
         struct Row: Decodable {
             let provider: String
-            let isAllowed: Bool
-
-            enum CodingKeys: String, CodingKey {
-                case provider
-                case isAllowed = "is_allowed"
-            }
         }
         do {
             let rows: [Row] = try await supabase
-                .from("org_integration_policies")
-                .select("provider, is_allowed")
-                .eq("is_allowed", value: false)
+                .rpc("my_blocked_providers")
                 .execute()
                 .value
             return Set(rows.compactMap { IntegrationProvider(rawValue: $0.provider) })

@@ -129,3 +129,70 @@ then redeploy the functions that read it (`integration-connect`,
 `integration-reconcile`, `integration-action`, `integration-catalogue`,
 `calendar-sync`, `directory-sync`, `proposal-execute`), because the value is
 read at module load.
+
+## Who may act — the organization's half of the answer
+
+A connection is one permission and `org_integration_policies` is the other, and
+every path that reaches a provider has to hold both. The table, the admin pane
+and `org_allows_provider` shipped in `20260816240000`, but only
+`approve_proposal` and `proposal-execute` ever asked; the chat's tool calls, the
+roster imports and the scheduled calendar read did not. So switching Slack off
+stopped the client drawing the button and stopped nothing else.
+
+`20260827160000` puts the check where the action is and `20260827170000` makes
+it the only expression of the rule. One join, three shapes:
+
+| | Question | Callers |
+|---|---|---|
+| `user_may_use_provider(user, provider)` | may this person act in it? | `resolveConnection`, `proposal-execute`, `approve_proposal` |
+| `users_barred_from_provider(users[], provider)` | which of these may not? | `calendar-sync`, `integration-reconcile` |
+| `my_blocked_providers()` | what is off for me? | the desktop client |
+
+The first two are `service_role` only: the argument is a user id, and a grant to
+`authenticated` would answer questions about other people's employers.
+`my_blocked_providers` takes no argument, so it can only answer about its
+caller — which is why it is the one the client gets, and why the client renders
+a server answer instead of deriving a parallel rule from the policy rows.
+
+**`resolveConnection` is the gate, not the five doors.** Every path that reaches
+a provider needs a `Connection`, so gating its construction is what makes the
+policy structurally true rather than something each caller has to remember. The
+two paths that build a `Connection` by hand — `calendar-sync` and the roster
+import in `integration-reconcile` — ask `barredUsers` in the batch shape their
+fan-out needs. `proposal-execute` asks a second time before it claims the
+proposal, so a refusal leaves the proposal `approved` and retryable rather than
+`failed`.
+
+Not at `proxy()`, though every provider call passes through it: several adapters
+fire two proxy calls per action and the calendar paginates up to ten pages per
+account, so the check would need a cache — and a cached policy contradicts the
+reason for checking at all. It would also break connecting on purpose-built
+identity reads, and connecting a forbidden product stays allowed.
+
+**Any organization, not the current one.** Somebody can belong to two, and a
+rule that let a permissive membership relax a forbidding one would be a way
+around the control. A forbidding organization forbids.
+
+**Absence still means allowed.** No row is not a denial, and an account in no
+organization is barred from nothing.
+
+**A check that cannot be run refuses**, as `policy_unavailable` rather than as
+a policy — denying with "your organization does not allow this" would state a
+company's position we failed to read. It costs nothing in practice: the same
+database answers `resolveConnection` a line later. The sweep is the exception
+and skips everyone on a failed read, because a missed sync round is recoverable
+and reading a calendar a company forbade is not.
+
+**Deploy order: the migration, then the functions.** They fail closed, so
+functions that land on an instance without `user_may_use_provider` refuse every
+integration action until it does. Rollback is the reverse: redeploy the previous
+functions, leave the functions in the database — nothing else reads them.
+
+**`org_allows_provider` is retired in place.** `20260827170000` moved its last
+caller (`approve_proposal`) onto the shared rule and revoked its `authenticated`
+grant — it took an arbitrary organization id, so any signed-in account could
+enumerate any organization's policy. The function itself stays until a contract
+migration can drop it.
+
+**Retiring is a schema change, not a config one.** All three functions are
+additive; dropping any of them means finding every caller above first.

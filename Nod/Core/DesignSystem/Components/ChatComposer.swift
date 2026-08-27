@@ -389,23 +389,30 @@ struct ChatMentionPicker: View {
     /// would answer "what can Nod reach?" with a list that depends on what you
     /// happened to set up months ago — so an unlinked tool stays visible and
     /// offers the one thing that would make it work.
+    ///
+    /// A tool the organization switched off is a third state, not the same as
+    /// an unconnected one: the person may well have connected it, Settings says
+    /// so, and offering "Connect" here sends them through an authorization that
+    /// changes nothing and leaves the row exactly as it was.
     private func toolRow(_ tool: IntegrationProvider) -> some View {
-        let isLinked = integrations.isUsable(tool)
-        return row(action: { onPick(isLinked ? .tool(tool) : .connectTool) }, content: {
+        let isBlocked = integrations.blockedByOrganization.contains(tool)
+        let isUsable = !isBlocked && integrations.linked.contains(tool)
+        let note = isBlocked ? "Off for your organization" : (isUsable ? nil : "Connect")
+        return row(action: isBlocked ? nil : { onPick(isUsable ? .tool(tool) : .connectTool) }) {
             ProviderMark(provider: tool, size: 14)
                 .frame(width: 16)
-                .opacity(isLinked ? 1 : 0.45)
+                .opacity(isUsable ? 1 : 0.45)
             Text(tool.displayName)
                 .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(isLinked ? Theme.Palette.ink : Theme.Palette.muted)
+                .foregroundStyle(isUsable ? Theme.Palette.ink : Theme.Palette.muted)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            if !isLinked {
-                Text("Connect")
+            if let note {
+                Text(note)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Theme.Palette.muted)
             }
-        })
+        }
     }
 
     /// An authorized product with nothing behind it yet. Not a button: there is
@@ -430,16 +437,23 @@ struct ChatMentionPicker: View {
         .contentShape(Rectangle())
     }
 
-    private func row(action: @escaping () -> Void, @ViewBuilder content: () -> some View) -> some View {
-        Button(action: action) {
-            HStack(spacing: 9) { content() }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+    /// A panel row. `action` is nil for a row that states something rather than
+    /// offering it — a button that answered a click by doing nothing would be
+    /// worse than one that plainly says why.
+    @ViewBuilder
+    private func row(action: (() -> Void)?, @ViewBuilder content: () -> some View) -> some View {
+        let body = HStack(spacing: 9) { content() }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        if let action {
+            Button(action: action) { body }
+                .buttonStyle(.plain)
+                .linkCursor()
+        } else {
+            body
         }
-        .buttonStyle(.plain)
-        .linkCursor()
     }
 }
 

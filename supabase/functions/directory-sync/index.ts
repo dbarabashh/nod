@@ -44,6 +44,10 @@ Deno.serve(async (req) => {
     }
 
     try {
+        // Reading a workspace's roster is acting in it, so `resolveConnection`
+        // refuses here for an administrator whose organization forbade the
+        // tool: their authority over the organization is not the
+        // organization's answer about the product.
         const connection = await resolveConnection(user.id, provider, apiBase(provider) ?? "");
         const outcome = await importDirectory(admin, connection, orgId);
         return json(outcome, 200);

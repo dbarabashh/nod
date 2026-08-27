@@ -19,6 +19,7 @@ import { json } from "../_shared/http.ts";
 import { adminClient } from "../_shared/supabase.ts";
 import { proxy } from "../_shared/integrations/pipedream.ts";
 import type { Connection } from "../_shared/integrations/pipedream.ts";
+import { barredUsers } from "../_shared/integrations/policy.ts";
 import { apiBase } from "../_shared/integrations/registry.ts";
 import {
     CALENDAR_ID,
@@ -73,6 +74,17 @@ Deno.serve(async (request: Request): Promise<Response> => {
         return json({ accounts: 0, events: 0 }, 200);
     }
 
+    // An organization that switched the calendar off switched off this sweep
+    // for its people, and this is the only place that could honour it: nobody
+    // asked for this run, so there is no request to refuse and no client to
+    // hide a button. Left unfiltered, a company's answer would hold everywhere
+    // except the one path that reads a person's calendar unattended every few
+    // minutes.
+    const barred = await barredUsers(connections.map((row) => row.user_id as string), PROVIDER);
+    const permitted = connections.filter((row) => !barred.has(row.user_id as string));
+    if (barred.size > 0) {
+        console.info(`calendar-sync skipped ${barred.size} account(s) their organization does not permit`);
+    }
     const from = new Date(Date.now() - WINDOW_BEHIND_MS);
     const to = new Date(Date.now() + WINDOW_AHEAD_MS);
 
@@ -83,8 +95,8 @@ Deno.serve(async (request: Request): Promise<Response> => {
     // Concurrent in bounded chunks. Serially, each account is a round trip to
     // Google and back, and `invoke_internal_edge_job` gives the whole sweep 30
     // seconds — enough for a few dozen accounts before the caller stops waiting.
-    for (let start = 0; start < connections.length; start += CONCURRENCY) {
-        const chunk = connections.slice(start, start + CONCURRENCY);
+    for (let start = 0; start < permitted.length; start += CONCURRENCY) {
+        const chunk = permitted.slice(start, start + CONCURRENCY);
         const results = await Promise.all(chunk.map(async (row) => {
             const userId = row.user_id as string;
             // One account's revoked grant or rate limit must not end the sweep
@@ -121,9 +133,9 @@ Deno.serve(async (request: Request): Promise<Response> => {
     // `fetched` and `stored` apart on purpose: without both, an empty calendar
     // and a calendar whose every entry we filtered out look identical.
     console.info(
-        `calendar-sync accounts=${connections.length} fetched=${fetched} stored=${synced} failed=${failed}`,
+        `calendar-sync accounts=${permitted.length} fetched=${fetched} stored=${synced} failed=${failed}`,
     );
-    return json({ accounts: connections.length, fetched, events: synced, failed }, 200);
+    return json({ accounts: permitted.length, fetched, events: synced, failed }, 200);
 });
 
 async function syncAccount(

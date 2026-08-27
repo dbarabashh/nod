@@ -25,6 +25,7 @@ import { json } from "../_shared/http.ts";
 import { adminClient, authenticate } from "../_shared/supabase.ts";
 import { brokerGET, connectURL, isConfigured } from "../_shared/integrations/pipedream.ts";
 import { directoryTargetOrg, importDirectory, isDirectorySource } from "../_shared/integrations/directory.ts";
+import { barredUsers } from "../_shared/integrations/policy.ts";
 import { apiBase, providerForSlug } from "../_shared/integrations/registry.ts";
 
 interface ConnectAccount {
@@ -184,6 +185,13 @@ async function importDirectories(userId: string, arrived: Live[]): Promise<void>
     const orgId = await directoryTargetOrg(admin, userId);
     if (!orgId) return;
     for (const entry of sources) {
+      // Connecting a product the organization forbade is allowed — the grant is
+      // the person's and a policy can be lifted — but reading its roster on the
+      // strength of it is the acting the policy is about.
+      if ((await barredUsers([userId], entry.provider)).has(userId)) {
+        console.info(`directory import skipped: ${entry.provider} not permitted`);
+        continue;
+      }
       await importDirectory(admin, {
         id: entry.accountId,
         provider: entry.provider,

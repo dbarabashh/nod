@@ -18,6 +18,7 @@
 import { json } from "../_shared/http.ts";
 import { adminClient, authenticate } from "../_shared/supabase.ts";
 import { ActionError, resolveConnection } from "../_shared/integrations/pipedream.ts";
+import { assertProviderPermitted } from "../_shared/integrations/policy.ts";
 import { apiBase, handlerFor } from "../_shared/integrations/registry.ts";
 import { resolveAssignee } from "./assignee.ts";
 
@@ -82,22 +83,16 @@ Deno.serve(async (req) => {
         return json({ error: { code: "unknown_action", message: `Nothing can perform ${proposal.type}.` } }, 400);
     }
 
-    // Checked again here, having already been checked at approval: an
-    // organization can withdraw a tool between saying yes and this running, and
-    // the moment that matters is the one where something leaves Nod.
-    if (proposal.org_id) {
-        const { data: allowed } = await admin.rpc("org_allows_provider", {
-            p_org: proposal.org_id,
-            p_provider: providerName,
-        });
-        if (allowed === false) {
-            return json({
-                error: {
-                    code: "not_permitted",
-                    message: `Your organization does not allow Nod to act in ${providerName}.`,
-                },
-            }, 200);
-        }
+    // `resolveConnection` below would refuse this anyway. Asking here as well
+    // is for the outcome rather than the gate: this runs before the claim, so a
+    // proposal refused by a policy stays `approved` and retryable — the policy
+    // may be back tomorrow, and a proposal marked `failed` for a reason outside
+    // the person's control reads as work they have to redo.
+    try {
+        await assertProviderPermitted(user.id, providerName);
+    } catch (error) {
+        if (!(error instanceof ActionError)) throw error;
+        return json({ error: { code: error.code, message: error.message } }, 200);
     }
 
     // The claim. `eq("status", "approved")` is what makes it a claim rather than

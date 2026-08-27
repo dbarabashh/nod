@@ -3,6 +3,12 @@
 // and the OAuth client stay in exactly one place no matter how many providers we
 // add.
 import { adminClient } from "../supabase.ts";
+import { ActionError } from "./errors.ts";
+import { assertProviderPermitted } from "./policy.ts";
+
+// Re-exported because every adapter and both doors already import it from here,
+// and where the class is declared is not worth a change in eighteen files.
+export { ActionError };
 
 const CLIENT_ID = Deno.env.get("PIPEDREAM_CLIENT_ID") ?? "";
 const CLIENT_SECRET = Deno.env.get("PIPEDREAM_CLIENT_SECRET") ?? "";
@@ -16,25 +22,6 @@ const API_BASE = "https://api.pipedream.com/v1/connect";
 
 export const isConfigured = Boolean(CLIENT_ID && CLIENT_SECRET && PROJECT_ID);
 
-export class ActionError extends Error {
-    readonly code: string;
-    readonly status: number;
-    /// The provider's own word for what went wrong, when there was one.
-    ///
-    /// `code` is ours and `message` is the person's; neither survives the trip
-    /// from a provider intact, and an adapter that wants to recover from one
-    /// specific failure — Slack's `not_in_channel`, say — has nothing else to
-    /// match on. Every adapter hits this eventually, so it belongs here rather
-    /// than being cast onto the error at one throw site.
-    readonly providerCode?: string;
-
-    constructor(code: string, message: string, status = 400, providerCode?: string) {
-        super(message);
-        this.code = code;
-        this.status = status;
-        this.providerCode = providerCode;
-    }
-}
 
 export interface Connection {
     /// Connect's account id (`apn_…`).
@@ -52,7 +39,17 @@ export interface Connection {
 
 /// The caller's live connection for a provider, or an error the model can act
 /// on — "not connected" is a normal answer, not a failure.
+///
+/// Holds both permissions, so that no caller has to remember either. The person
+/// connected the product and the organization permits it; a `Connection` is the
+/// object every provider call needs, so gating its construction is what makes
+/// "Nod may act here" structurally true instead of something five doors each
+/// check for themselves. The two paths that build a `Connection` by hand — the
+/// calendar sweep and the roster import — ask `barredUsers` for the same reason
+/// in the shape their fan-out needs.
 export async function resolveConnection(userId: string, provider: string, base: string): Promise<Connection> {
+    await assertProviderPermitted(userId, provider);
+
     const { data, error } = await adminClient()
         .from("integration_connections")
         .select("broker_account_id")

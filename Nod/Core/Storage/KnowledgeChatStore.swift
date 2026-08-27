@@ -1059,7 +1059,7 @@ extension KnowledgeChatStore {
     }
 
     private var hasCalendarReadTool: Bool {
-        integrations?.linked.contains(.googleCalendar) == true
+        integrations?.isUsable(.googleCalendar) == true
     }
 
     private static func calendarLine(_ event: CalendarOccurrence, now: Date) -> String {

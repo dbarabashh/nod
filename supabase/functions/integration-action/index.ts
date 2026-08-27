@@ -6,6 +6,10 @@
 // lives in `_shared/integrations/registry.ts`, so this file stays the same size
 // whether we ship one integration or twenty.
 //
+// Two permissions, both held by `resolveConnection`: the person connected the
+// product, and the organization permits it. The client hides a tool it may not
+// use, but a client's hidden button is a courtesy, not the gate.
+//
 // Request  (POST /functions/v1/integration-action):
 //   { "provider": "linear", "action": "search_issues", "params": { … } }
 // Response: { "result": … } or { "error": { "code", "message" } }

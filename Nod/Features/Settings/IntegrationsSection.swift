@@ -207,6 +207,7 @@ struct IntegrationsSection: View {
 
     private func summaryRow(_ provider: IntegrationProvider, isLinked: Bool, isOpen: Bool) -> some View {
         let isPending = service.pending == provider
+        let isBlocked = service.blockedByOrganization.contains(provider)
         return HStack(spacing: 12) {
             providerChip(provider)
             VStack(alignment: .leading, spacing: 3) {
@@ -223,13 +224,13 @@ struct IntegrationsSection: View {
                             .background(Capsule().fill(Theme.Palette.surfaceStrong))
                     }
                 }
-                Text(isPending ? "Waiting for authorization in your browser…" : provider.summary)
+                Text(summaryLine(provider, isPending: isPending, isBlocked: isBlocked))
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
-            connectControl(provider, isLinked: isLinked, isPending: isPending)
+            connectControl(provider, isLinked: isLinked, isPending: isPending, isBlocked: isBlocked)
             Image(isOpen ? "nc-chevron-down" : "nc-chevron-right")
                 .icon(9)
                 .foregroundStyle(Theme.Palette.muted)
@@ -246,20 +247,32 @@ struct IntegrationsSection: View {
         .accessibilityHint(isOpen ? "Hides this tool's settings" : "Shows this tool's settings")
     }
 
+    /// What the row says about a tool nobody in the company may use.
+    ///
+    /// Not `provider.summary`: that describes what Nod would do with the tool,
+    /// which is exactly what it is not doing. The person's own next move is in
+    /// somebody else's settings, so the line has to say whose.
+    private func summaryLine(_ provider: IntegrationProvider, isPending: Bool, isBlocked: Bool) -> String {
+        if isPending { return "Waiting for authorization in your browser…" }
+        if isBlocked { return "Your organization has turned this off. An owner can allow it again in Organization settings." }
+        return provider.summary
+    }
+
     /// Connected reads as a state, not a button — the thing you can do to a
     /// connection you already have is disconnect it, and that lives below with
     /// the rest of its settings rather than beside the name.
+    ///
+    /// Turned off outranks both, connected or not. A green tick over a
+    /// forbidden tool would promise something the chat refuses, and a Connect
+    /// button on one leads through an authorization that changes nothing.
     @ViewBuilder
-    private func connectControl(_ provider: IntegrationProvider, isLinked: Bool, isPending: Bool) -> some View {
-        if isLinked {
-            HStack(spacing: 5) {
-                Image("nc-check")
-                    .icon(10)
-                Text("Connected")
-                    .font(.system(size: 11.5, weight: .semibold))
-            }
-            .foregroundStyle(Theme.Palette.success)
-            .accessibilityLabel("\(provider.displayName) connected")
+    private func connectControl(_ provider: IntegrationProvider, isLinked: Bool, isPending: Bool, isBlocked: Bool) -> some View {
+        if isBlocked {
+            statusLabel("nc-lock", "Turned off", tint: Theme.Palette.warning)
+                .accessibilityLabel("\(provider.displayName) turned off for your organization")
+        } else if isLinked {
+            statusLabel("nc-check", "Connected", tint: Theme.Palette.success)
+                .accessibilityLabel("\(provider.displayName) connected")
         } else if isPending {
             Button("Cancel") { service.cancelPending() }
                 .font(.system(size: 12.5, weight: .semibold))
@@ -278,6 +291,16 @@ struct IntegrationsSection: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    private func statusLabel(_ icon: String, _ title: String, tint: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(icon)
+                .icon(10)
+            Text(title)
+                .font(.system(size: 11.5, weight: .semibold))
+        }
+        .foregroundStyle(tint)
     }
 
     private func details(_ provider: IntegrationProvider, isLinked: Bool) -> some View {
