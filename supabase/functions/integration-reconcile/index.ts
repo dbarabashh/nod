@@ -27,16 +27,12 @@ import { brokerGET, connectURL, isConfigured } from "../_shared/integrations/pip
 import { directoryTargetOrg, importDirectory, isDirectorySource } from "../_shared/integrations/directory.ts";
 import { barredUsers } from "../_shared/integrations/policy.ts";
 import { apiBase, providerForSlug } from "../_shared/integrations/registry.ts";
+import { diff, type Live } from "./diff.ts";
 
 interface ConnectAccount {
   id: string;
   external_id: string;
   app?: { name_slug?: string };
-}
-
-interface Live {
-  provider: string;
-  accountId: string;
 }
 
 Deno.serve(async (req) => {
@@ -61,7 +57,7 @@ Deno.serve(async (req) => {
   const admin = adminClient();
   const { data: stored, error: readError } = await admin
     .from("integration_connections")
-    .select("provider")
+    .select("provider, broker_account_id")
     .eq("user_id", userId)
     .is("revoked_at", null);
 
@@ -70,10 +66,13 @@ Deno.serve(async (req) => {
     return json({ error: "Could not read your connections" }, 500);
   }
 
-  const wasLive = new Set((stored ?? []).map((row) => row.provider as string));
-  const nowLive = live.map((entry) => entry.provider);
-  const arrived = live.filter((entry) => !wasLive.has(entry.provider));
-  const departed = [...wasLive].filter((provider) => !nowLive.includes(provider));
+  const { arrived, departed, nowLive } = diff(
+    (stored ?? []).map((row) => ({
+      provider: row.provider as string,
+      accountId: row.broker_account_id as string,
+    })),
+    live,
+  );
 
   // Nothing moved. The overwhelmingly common case while a spinner polls, and
   // the whole reason this function reads before it writes.

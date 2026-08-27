@@ -124,11 +124,20 @@ made again in production. That is a line in the release plan, not a surprise to
 find afterwards: `integration_connections` rows written against a development
 account address nothing once the environment changes.
 
-Deploy order for the switch is the usual one — set the secret on the branch,
-then redeploy the functions that read it (`integration-connect`,
-`integration-reconcile`, `integration-action`, `integration-catalogue`,
-`calendar-sync`, `directory-sync`, `proposal-execute`), because the value is
-read at module load.
+**Setting the secret is the whole switch — no redeploy.** Supabase states that
+secrets are "available immediately in your functions", and a `functions deploy`
+of unchanged source is deduplicated into a no-op anyway, so redeploying proves
+nothing and changes nothing. (This paragraph used to claim the opposite, on the
+strength of the module-load read in `pipedream.ts`; the read is real, but new
+isolates already boot with the current secret.)
+
+What the switch *does* need is retiring the connections it orphans. Every row in
+`integration_connections` points at an account in the old environment, so the
+client keeps drawing "Connected" over a grant that answers
+`Auth provision owner mismatch`. Run
+`scripts/sql/retire-connections-after-environment-switch.sql` against the branch,
+then everyone reconnects. Revoking fires `purge_provider_data`, which is correct
+— the grant is gone and its data cannot be refreshed.
 
 ## Who may act — the organization's half of the answer
 
