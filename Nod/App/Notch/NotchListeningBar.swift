@@ -86,7 +86,10 @@ struct NotchListeningBar: View {
     /// meeting is still being answered after the host presses End.
     private var center: some View {
         HStack(spacing: 6) {
-            if !rooms.hasEnded {
+            // A clock says "you are following this". While the request is still
+            // unanswered, or after it was refused, that is exactly what is not
+            // true yet.
+            if !rooms.hasEnded, !room.isPending, !room.isDenied {
                 TimelineView(.periodic(from: room.startedAt, by: 1)) { context in
                     Text(ElapsedClock.text(seconds: Int(context.date.timeIntervalSince(room.startedAt))))
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
@@ -130,7 +133,15 @@ struct NotchListeningBar: View {
     /// tell a finished meeting from a broken app.
     @ViewBuilder
     private var ending: some View {
-        if let summary = rooms.finalSummary {
+        if room.isPending {
+            MeetingBarStatusLine(
+                icon: "nc-volume-up",
+                text: "Asked \(room.hostName) to let you listen…",
+                tint: Theme.Palette.cyan
+            )
+        } else if room.isDenied {
+            MeetingBarStatusLine(icon: "nc-xmark", text: "\(room.hostName) declined")
+        } else if let summary = rooms.finalSummary {
             MeetingBarStatusLine(icon: "nc-check", text: "\(room.hostName) finished the meeting")
             MeetingBarProse(text: summary)
         } else if rooms.isAwaitingSummary {

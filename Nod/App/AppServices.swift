@@ -363,6 +363,10 @@ private struct AccessRefresh {
         // line has no source but a timer.
         if let hosting = meetings?.recordingMeetingID {
             await rooms?.refreshListeners(hostMeetingID: hosting)
+            // The same poke carries a request that has not been answered yet:
+            // somebody the server could not place in this meeting on its own is
+            // waiting on the host, and this is the only thing that tells them.
+            await rooms?.refreshPendingListeners(hostMeetingID: hosting)
         }
         // Both, together. Access to a shared folder and access to the sessions
         // inside it are revoked by the same act.

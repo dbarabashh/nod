@@ -599,6 +599,11 @@ final class NotchModel: ObservableObject {
             // moment it does or the card outlives the decision.
             session.analyst.askToolGate.$pending.map { _ in () }.eraseToAnyPublisher(),
             session.$justEndedMeetingID.map { _ in () }.eraseToAnyPublisher(),
+            // `.listening` carries the room by value, so a request the host
+            // answers changes a copy this derivation has already taken. Without
+            // this the bar keeps saying "asked them to let you listen" while the
+            // transcript it is no longer waiting for fills in behind it.
+            rooms.$joined.map { _ in () }.eraseToAnyPublisher(),
             meetingStore.$meetings.map { _ in () }.eraseToAnyPublisher(),
             meetingStore.$generatingSummaryIDs.map { _ in () }.eraseToAnyPublisher(),
             // The greeting reads the profile, which loads after the notch is built.

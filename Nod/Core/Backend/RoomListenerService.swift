@@ -4,7 +4,15 @@ import Supabase
 
 /// A colleague's meeting you can listen to, before you have decided to.
 struct LiveRoom: Equatable, Decodable {
-    let hostName: String
+    /// Withheld until this account has shown it belongs in the meeting.
+    ///
+    /// Discovery is silent — the host is not told it was asked — and a
+    /// conference link is knowable without being in the call, so answering with
+    /// a name would make this a way to watch who is recording, asked over and
+    /// over. Nil is the ordinary answer for somebody whose calendar the server
+    /// cannot see; they learn a recording exists, and the name comes with the
+    /// join, which the host is told about and can refuse.
+    let hostName: String?
     let startedAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -19,12 +27,56 @@ struct JoinedRoom: Equatable, Decodable {
     let hostName: String
     let hostMeetingID: UUID
     let startedAt: Date
+    /// `joined` once the read is open, `pending` while the host has yet to say
+    /// yes. The server decides which: it opens the room by itself when the
+    /// caller's own synced calendar carries the same meeting, and asks the host
+    /// when it cannot tell.
+    ///
+    /// Optional because a server that predates the approval flow — or one rolled
+    /// back to it — returns no such field, and a required key would turn that
+    /// into a decode failure that `join` swallows, leaving a button that does
+    /// nothing. Absent means the old behaviour: joining was the whole act.
+    let status: String?
+
+    var isPending: Bool {
+        status == "pending"
+    }
+
+    /// The host said no. Kept as a state of the room rather than dropping back
+    /// to nothing: somebody who pressed Join and then watched the screen go
+    /// blank has been given an answer they cannot read.
+    var isDenied: Bool {
+        status == "denied"
+    }
 
     enum CodingKeys: String, CodingKey {
         case listenerID = "listener_id"
         case hostName = "host_name"
         case hostMeetingID = "host_meeting_id"
         case startedAt = "started_at"
+        case status
+    }
+
+    init(listenerID: UUID, hostName: String, hostMeetingID: UUID, startedAt: Date, status: String = "joined") {
+        self.listenerID = listenerID
+        self.hostName = hostName
+        self.hostMeetingID = hostMeetingID
+        self.startedAt = startedAt
+        self.status = status
+    }
+}
+
+/// Somebody asking to listen to this account's recording, whom the server could
+/// not vouch for on its own.
+struct PendingListener: Equatable, Identifiable, Decodable {
+    let id: UUID
+    let name: String
+    let askedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id = "listener_id"
+        case name = "listener_name"
+        case askedAt = "asked_at"
     }
 }
 
@@ -48,6 +100,9 @@ final class RoomListenerService: ObservableObject {
     @Published private(set) var entries: [LiveTranscriptEntry] = []
     /// Who is listening to *this* account's own recording.
     @Published private(set) var listeners: [String] = []
+    /// Who has asked to listen to *this* account's own recording and is waiting
+    /// on an answer. Only the host is ever shown these.
+    @Published private(set) var pendingListeners: [PendingListener] = []
     @Published private(set) var isJoining = false
     /// The host stopped: the read has closed and what is on screen is all there
     /// will be.
@@ -73,6 +128,12 @@ final class RoomListenerService: ObservableObject {
     /// honest end to the card.
     private static let summaryWait: TimeInterval = 180
     private static let summaryPollInterval: TimeInterval = 4
+
+    /// How long to keep waiting on a host who has not answered. Long enough that
+    /// somebody mid-sentence can finish it before looking at the request, short
+    /// enough that an unanswered ask resolves inside the meeting it was made in.
+    private static let approvalWait: TimeInterval = 300
+    private static let approvalPollInterval: TimeInterval = 3
     /// Comfortably under `LiveMeetingAnalyst`'s own floor between passes, so a
     /// new finding is never more than this far behind the host's own screen.
     private static let findingsMinInterval: TimeInterval = 10
@@ -86,6 +147,7 @@ final class RoomListenerService: ObservableObject {
     private var channel: RealtimeChannelV2?
     private var pump: Task<Void, Never>?
     private var summaryPoll: Task<Void, Never>?
+    private var approvalPoll: Task<Void, Never>?
     private var lastLookNote: String?
     private var lastFindingsFetch: Date?
     private var sleepObserver: NSObjectProtocol?
@@ -191,6 +253,7 @@ final class RoomListenerService: ObservableObject {
     deinit {
         pump?.cancel()
         summaryPoll?.cancel()
+        approvalPoll?.cancel()
         if let sleepObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
         }
@@ -211,7 +274,8 @@ final class RoomListenerService: ObservableObject {
             // The answer, not just the failure. A successful call returning
             // nothing looked identical to a call never made, which is exactly
             // the ambiguity that made this take three attempts to diagnose.
-            let answer = rooms.first.map { "found \($0.hostName)" } ?? "nobody is recording it"
+            let answer = rooms.first.map { "found \($0.hostName ?? "somebody")" }
+                ?? "nobody is recording it"
             if answer != lastLookNote {
                 lastLookNote = answer
                 Log.ui.info("live room: \(answer)")
@@ -245,6 +309,15 @@ final class RoomListenerService: ObservableObject {
             lastFindingsFetch = nil
             finalSummary = nil
             isAwaitingSummary = false
+            // A pending request reads nothing until the host answers, so there
+            // is no transcript to fetch and no channel worth holding open. The
+            // host's answer arrives on this account's own access topic, which
+            // `awaitApproval` is watching.
+            guard !room.isPending else {
+                Log.ui.info("asked \(room.hostName) to listen; waiting for an answer")
+                awaitApproval(of: room)
+                return
+            }
             Log.ui.info("joined live room hosted by \(room.hostName)")
             await refreshTranscript()
             await subscribe(to: room.hostMeetingID)
@@ -253,11 +326,78 @@ final class RoomListenerService: ObservableObject {
         }
     }
 
+    /// Watches this account's own listener row until the host answers.
+    ///
+    /// Polled rather than pushed: the row is readable under "listeners read
+    /// their own row", and a realtime subscription for a single boolean that
+    /// flips once would be a channel to tear down on every path that already has
+    /// one too many. A refusal keeps the room rather than clearing it, because a
+    /// request that was refused and a request still waiting look identical from
+    /// an empty screen, and leaving somebody on "still waiting" forever is the
+    /// failure this has to avoid.
+    private func awaitApproval(of room: JoinedRoom) {
+        approvalPoll?.cancel()
+        approvalPoll = Task { [weak self] in
+            let deadline = Date().addingTimeInterval(Self.approvalWait)
+            while !Task.isCancelled, Date() < deadline {
+                try? await Task.sleep(nanoseconds: UInt64(Self.approvalPollInterval * 1_000_000_000))
+                guard let self, let supabase, joined?.listenerID == room.listenerID
+                else { return }
+                do {
+                    struct Row: Decodable {
+                        let status: String
+                        let left_at: Date?
+                    }
+                    let rows: [Row] = try await supabase
+                        .from("room_listeners")
+                        .select("status, left_at")
+                        .eq("id", value: room.listenerID)
+                        .execute()
+                        .value
+                    // Asked again after the round trip, not only before it: a
+                    // person can press Leave while this read is in flight, and
+                    // acting on the answer then would re-join them to a room the
+                    // server has already closed.
+                    guard !Task.isCancelled, joined?.listenerID == room.listenerID else { return }
+                    guard let row = rows.first else { return }
+                    if row.status == "joined" {
+                        joined = JoinedRoom(
+                            listenerID: room.listenerID,
+                            hostName: room.hostName,
+                            hostMeetingID: room.hostMeetingID,
+                            startedAt: room.startedAt,
+                            status: "joined"
+                        )
+                        Log.ui.info("\(room.hostName) let us into the room")
+                        await refreshTranscript()
+                        await subscribe(to: room.hostMeetingID)
+                        return
+                    }
+                    if row.status == "denied" || row.left_at != nil {
+                        Log.ui.info("the request to listen was declined")
+                        joined = JoinedRoom(
+                            listenerID: room.listenerID,
+                            hostName: room.hostName,
+                            hostMeetingID: room.hostMeetingID,
+                            startedAt: room.startedAt,
+                            status: "denied"
+                        )
+                        return
+                    }
+                } catch {
+                    Log.ui.error("RoomListenerService.awaitApproval failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
     func leave() async {
         guard let supabase, let room = joined else { return }
         await teardown()
         summaryPoll?.cancel()
         summaryPoll = nil
+        approvalPoll?.cancel()
+        approvalPoll = nil
         joined = nil
         entries = []
         hasEnded = false
@@ -293,9 +433,55 @@ final class RoomListenerService: ObservableObject {
         }
     }
 
+    /// Who has asked to listen and is still waiting.
+    ///
+    /// Only reaches a request the server could not settle by itself: when the
+    /// asker's own synced calendar carries this meeting, they are already in and
+    /// never appear here. So this list is exactly the people whose claim to be
+    /// in the room only the host can confirm.
+    func refreshPendingListeners(hostMeetingID: UUID) async {
+        guard let supabase else { return }
+        struct Params: Encodable { let p_meeting: UUID }
+        do {
+            let rows: [PendingListener] = try await supabase
+                .rpc("pending_room_listeners", params: Params(p_meeting: hostMeetingID))
+                .execute()
+                .value
+            pendingListeners = rows
+        } catch {
+            Log.ui.error("RoomListenerService.refreshPendingListeners failed: \(error.localizedDescription)")
+        }
+    }
+
+    func approve(_ listener: PendingListener, hostMeetingID: UUID) async {
+        await answer("approve_room_listener", listener, hostMeetingID)
+    }
+
+    func deny(_ listener: PendingListener, hostMeetingID: UUID) async {
+        await answer("deny_room_listener", listener, hostMeetingID)
+    }
+
+    private func answer(_ rpc: String, _ listener: PendingListener, _ hostMeetingID: UUID) async {
+        guard let supabase else { return }
+        struct Params: Encodable { let p_listener: UUID }
+        // Off the list first: the answer is the host's and should land on their
+        // own screen immediately, not after a round trip they are watching.
+        pendingListeners.removeAll { $0.id == listener.id }
+        do {
+            _ = try await supabase
+                .rpc(rpc, params: Params(p_listener: listener.id))
+                .execute()
+            await refreshListeners(hostMeetingID: hostMeetingID)
+        } catch {
+            Log.ui.error("RoomListenerService.\(rpc) failed: \(error.localizedDescription)")
+            await refreshPendingListeners(hostMeetingID: hostMeetingID)
+        }
+    }
+
     func clearListeners() {
-        guard !listeners.isEmpty else { return }
+        guard !listeners.isEmpty || !pendingListeners.isEmpty else { return }
         listeners = []
+        pendingListeners = []
     }
 
     // MARK: - The transcript

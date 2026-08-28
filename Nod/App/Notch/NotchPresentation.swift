@@ -270,7 +270,7 @@ extension NotchPresentation {
         case .updateRequired: "updateRequired"
         case .dormant: "dormant"
         case let .offer(offer): "offer.\(offer.identity)"
-        case let .liveRoom(room, _): "liveRoom.\(room.hostName)"
+        case let .liveRoom(room, _): "liveRoom.\(room.hostName ?? "someone")"
         case let .noticed(finding): "noticed.\(finding.id.uuidString)"
         case let .recalled(recall): "recalled.\(recall.id.uuidString)"
         case let .tucked(role): "tucked.\(role.contentID)"

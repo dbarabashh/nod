@@ -68,6 +68,7 @@ struct NotchMeetingBar: View {
         .task(id: meetingStore.recordingMeetingID) {
             guard let id = meetingStore.recordingMeetingID else { return rooms.clearListeners() }
             await rooms.refreshListeners(hostMeetingID: id)
+            await rooms.refreshPendingListeners(hostMeetingID: id)
         }
     }
 
@@ -83,6 +84,53 @@ struct NotchMeetingBar: View {
         if let names = listeningNames {
             MeetingBarStatusLine(icon: "nc-volume-up", text: names, tint: Theme.Palette.cyan)
         }
+        ForEach(rooms.pendingListeners) { asker in
+            listenRequest(asker)
+        }
+    }
+
+    /// Somebody asking to follow this recording, whom the server could not place
+    /// in the meeting on its own.
+    ///
+    /// The one prompt this bar carries, and it earns that: everything else here
+    /// is a fact already true, while this is a read of the conversation that
+    /// does not exist until the host says so. A calendar the server can see
+    /// answers for itself and never reaches this row, so what is left is only
+    /// the case where the host is the only one who knows who is in the room.
+    private func listenRequest(_ asker: PendingListener) -> some View {
+        HStack(spacing: 6) {
+            Image("nc-volume-up")
+                .icon(11)
+                .accessibilityHidden(true)
+            Text("\(asker.name) wants to listen")
+                .font(.system(size: 11))
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            requestButton("nc-check", "Let \(asker.name) listen", Theme.Palette.cyan) {
+                guard let id = meetingStore.recordingMeetingID else { return }
+                Task { await rooms.approve(asker, hostMeetingID: id) }
+            }
+            requestButton("nc-xmark", "Decline \(asker.name)", Theme.Palette.muted) {
+                guard let id = meetingStore.recordingMeetingID else { return }
+                Task { await rooms.deny(asker, hostMeetingID: id) }
+            }
+        }
+        .foregroundStyle(Theme.Palette.cyan)
+    }
+
+    private func requestButton(
+        _ icon: String,
+        _ label: String,
+        _ tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(icon)
+                .icon(11)
+                .foregroundStyle(tint)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     /// Who is following this recording, named. Being listened to without being

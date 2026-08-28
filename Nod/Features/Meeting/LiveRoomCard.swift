@@ -30,7 +30,8 @@ struct LiveRoomCard: View {
                 )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("\(room.hostName) is recording this meeting")
+                Text(room.hostName.map { "\($0) is recording this meeting" }
+                    ?? "Someone is recording this meeting")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
                 Text("Join to follow along and ask what you missed. You won't be recording, and nothing is kept when they stop.")
@@ -81,6 +82,19 @@ struct LiveRoomCard: View {
     #Preview("Offer") {
         LiveRoomCard(
             room: LiveRoom(hostName: "Alina", startedAt: Date().addingTimeInterval(-900)),
+            onJoin: {},
+            onDismiss: {}
+        )
+        .frame(width: 460)
+        .padding()
+        .background(WindowBackdrop())
+    }
+
+    /// The ordinary case for anybody whose calendar the server cannot read: a
+    /// recording exists, and who is making it is not this card's to say.
+    #Preview("Offer, host withheld") {
+        LiveRoomCard(
+            room: LiveRoom(hostName: nil, startedAt: Date().addingTimeInterval(-900)),
             onJoin: {},
             onDismiss: {}
         )
