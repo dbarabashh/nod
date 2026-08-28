@@ -238,6 +238,9 @@ struct KnowledgeChatView: View {
                     suggestion(opener)
                 }
             }
+
+            ConnectToolsRow()
+                .padding(.top, 22)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 28)

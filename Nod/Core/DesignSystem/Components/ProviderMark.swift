@@ -35,7 +35,10 @@ struct ProviderMark: View {
     /// Which providers ship a brand asset. Resolved once — whether an asset is
     /// in the bundle cannot change at runtime, and this is read from view bodies
     /// that re-run per stream flush.
-    private static let ships: Set<IntegrationProvider> = Set(
+    /// Which products draw their own mark. Read by anything that offers a
+    /// product by its logo: a row meant to be recognised cannot show the
+    /// stand-in glyph.
+    static let ships: Set<IntegrationProvider> = Set(
         IntegrationProvider.allCases.filter { NSImage(named: $0.brandAssetName) != nil }
     )
 

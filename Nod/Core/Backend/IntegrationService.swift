@@ -47,7 +47,11 @@ final class IntegrationService: ObservableObject {
     /// no-op without it rather than a crash.
     private let supabase: SupabaseClient?
     private var watch: Task<Void, Never>?
-    private var hasLoaded = false
+    /// Whether the first read has landed. Published because the home screen's
+    /// "connect your tools" card must not appear in the gap before it: the set
+    /// starts empty, so an unguarded check flashes an empty state at somebody
+    /// who connected four products last month.
+    @Published private(set) var hasLoaded = false
 
     private enum Unavailable: Error {
         case noClient

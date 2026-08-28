@@ -283,6 +283,7 @@
 		AAE983C36D51A61DC01204D2 /* SegmentedControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08E15061DB401211F675D939 /* SegmentedControl.swift */; };
 		AB9180C08829E72F431FF696 /* ConsentPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31D47EBC1238C9F5C5284120 /* ConsentPreference.swift */; };
 		AC372B3CB4DDEBA191A40C6A /* RoomTranscriptLabelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75117A04DA42BFB18B4F66DF /* RoomTranscriptLabelTests.swift */; };
+		AC4D0550DE2572AC0941705F /* ConnectToolsRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B0009E653E018DA8CC6ECC4 /* ConnectToolsRow.swift */; };
 		ACF028D23234F88BCEDFAADA /* SharedSessionAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D48449550D82BEAD2980A056 /* SharedSessionAttributionTests.swift */; };
 		AD522DB859CF667036058AAE /* ExclusionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6B6927276D787E385BEF18C /* ExclusionsSheet.swift */; };
 		AD8DF7863FBD9DA19BA0FFD5 /* MemberActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE3596D7885F829F87F8A5FE /* MemberActions.swift */; };
@@ -616,6 +617,7 @@
 		64F11C4719E84B561DD86DD5 /* ProfileSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSettingsSection.swift; sourceTree = "<group>"; };
 		6618DDE71A067ADD4AF0F9A0 /* DemoDailyMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoDailyMode.swift; sourceTree = "<group>"; };
 		6A72B7EB0EE1F3C1A24066C8 /* MeetingDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingDetector.swift; sourceTree = "<group>"; };
+		6B0009E653E018DA8CC6ECC4 /* ConnectToolsRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectToolsRow.swift; sourceTree = "<group>"; };
 		6BA796C49C289C2CF32FF050 /* SpeakerChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerChip.swift; sourceTree = "<group>"; };
 		6C5D8109B9D3813E03034E16 /* LLMProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProxyClient.swift; sourceTree = "<group>"; };
 		6D976F928680016234925545 /* KnowledgeThreadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeThreadStore.swift; sourceTree = "<group>"; };
@@ -1152,6 +1154,7 @@
 			isa = PBXGroup;
 			children = (
 				D1AF822695CA2FDBCC7AB9D0 /* ChatHomeSuggestions.swift */,
+				6B0009E653E018DA8CC6ECC4 /* ConnectToolsRow.swift */,
 				872EE05908937004E97ECE11 /* KnowledgeChatView.swift */,
 			);
 			path = Knowledge;
@@ -1974,6 +1977,7 @@
 				7E95D9373722BC9548454611 /* ChatTools.swift in Sources */,
 				24C87C410FD9145882F9F328 /* ChatTurnStep.swift in Sources */,
 				5E23F07E0B900FAFCA6B73AC /* ChatTurnTrace.swift in Sources */,
+				AC4D0550DE2572AC0941705F /* ConnectToolsRow.swift in Sources */,
 				D7E2D914A12612D46977211E /* Connection.swift in Sources */,
 				02CCE2E8B9B8397F03A2C1C3 /* ConnectionService.swift in Sources */,
 				E8DC321B43A36D6F5C9707F4 /* ConnectionsSection.swift in Sources */,

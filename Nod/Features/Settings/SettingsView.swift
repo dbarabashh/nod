@@ -232,7 +232,7 @@ struct SettingsView: View {
                     .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.muted)
+            .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.inkSecondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(

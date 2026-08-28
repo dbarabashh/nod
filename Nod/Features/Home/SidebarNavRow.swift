@@ -20,7 +20,7 @@ struct SidebarNavRow: View {
                     .minimumScaleFactor(0.9)
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.72))
+            .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.inkSecondary)
             .padding(.horizontal, 9)
             .padding(.vertical, 7)
             .background(

@@ -105,13 +105,22 @@ struct ChatComposerField: View {
 /// A tappable example-prompt chip shown in a chat's empty state.
 struct ChatSuggestionChip: View {
     let text: String
+    /// A connected product's own mark, in place of the sparkle. The home screen
+    /// stacks two rows of these — questions to ask, and tools to connect — and
+    /// a second hand-built capsule 22pt below the first drifted by half a point
+    /// and six per cent opacity before anybody looked.
+    var provider: IntegrationProvider?
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image("nc-sparkle-3")
-                    .icon(10)
+                if let provider {
+                    ProviderMark(provider: provider, size: 12)
+                } else {
+                    Image("nc-sparkle-3")
+                        .icon(10)
+                }
                 Text(text)
                     .font(.system(size: 12.5))
             }

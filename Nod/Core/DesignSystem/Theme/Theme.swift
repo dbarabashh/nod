@@ -24,6 +24,12 @@ enum Theme {
         static let ink = DesignTokens.Palette.frost
         static let graphite = DesignTokens.Palette.cloud
         static let muted = DesignTokens.Palette.slateGray
+        /// Unselected rows and secondary labels — readable, but clearly not the
+        /// thing in front. `muted` is opaque slate and sits too dark on the
+        /// app's surfaces for a row somebody is meant to be able to read; both
+        /// sidebars and the chat home reached for this weight by hand before it
+        /// had a name.
+        static let inkSecondary = ink.opacity(0.72)
 
         // Translucent layers (kept as alpha-on-white so glass effects survive
         // the palette swap — pure-black surfaces underneath read as flat).

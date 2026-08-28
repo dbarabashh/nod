@@ -66,7 +66,7 @@ struct BeatEditor: View {
             Divider().overlay(Theme.Palette.border)
             HStack(alignment: .top, spacing: 0) {
                 settings
-                    .frame(width: 214, alignment: .leading)
+                    .frame(width: 300, alignment: .leading)
                 Divider().overlay(Theme.Palette.border)
                 ask
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -75,7 +75,7 @@ struct BeatEditor: View {
             Divider().overlay(Theme.Palette.border)
             footer
         }
-        .frame(width: 560)
+        .frame(width: 672)
         .background(WindowBackdrop().ignoresSafeArea())
     }
 
@@ -153,13 +153,19 @@ struct BeatEditor: View {
                 VStack(alignment: .leading, spacing: 6) {
                     SectionLabel("Active")
                     HStack(spacing: 8) {
-                        Text(enabled ? "Asking on schedule" : "Paused — asks nothing")
+                        Text("Run on schedule")
                             .font(.system(size: 12))
-                            .foregroundStyle(Theme.Palette.ink.opacity(0.72))
+                            .foregroundStyle(Theme.Palette.graphite)
                         Spacer(minLength: 0)
                         Toggle("", isOn: $enabled)
                             .labelsHidden()
                             .nodSwitch()
+                    }
+                    if !enabled {
+                        Text("Paused. It keeps this schedule and asks nothing until you switch it back on.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.Palette.inkSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }

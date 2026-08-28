@@ -26,6 +26,10 @@ struct SegmentedControl<Value: Hashable>: View {
                     Text(title(option))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.muted)
+                        // A segment narrower than its word wrapped it —
+                        // "Weekd/ays" under a pill sized for one line.
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 4)
                         .background {
