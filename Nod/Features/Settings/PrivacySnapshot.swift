@@ -52,7 +52,12 @@ struct PrivacySnapshot: View {
                     // yes on a row in it, so an administrator can reach a team
                     // share by putting an account in the team. Saying only the
                     // first half here would be a claim the code does not keep.
-                    detail: "Sessions are yours until you share one, and sharing is per session. Administrators can't open a session you kept to yourself — Nod ships no way to turn that on. What you share with a team, though, is readable by whoever is in that team, and administrators decide who that is."
+                    detail: """
+                    Sessions are yours until you share one, and sharing is per session. \
+                    Administrators can't open a session you kept to yourself — Nod ships no way to turn that on. \
+                    What you share with a team, though, is readable by whoever is in that team, \
+                    and administrators decide who that is.
+                    """
                 )
                 SettingsRowDivider()
                 row(
