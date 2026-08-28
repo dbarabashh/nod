@@ -204,7 +204,7 @@ struct AppServices {
             guard let organizations = refresh.organizations else { return }
             await accessChannelBox?.resubscribe(
                 orgIDs: organizations.memberships.map(\.id),
-                teamIDs: organizations.teams.map(\.id)
+                teamIDs: Array(organizations.myTeamIDs)
             )
         }
         accessChannelBox = accessChannel
@@ -333,5 +333,12 @@ private struct AccessRefresh {
         // Both, together. Access to a shared folder and access to the sessions
         // inside it are revoked by the same act.
         await meetings?.refresh(force: true)
+        // A session somebody trashed on their phone left the list and joined the
+        // trash in one write; re-asking for only the list would take it off one
+        // screen and never put it on the other.
+        await meetings?.refreshTrashIfLoaded()
+        // Hiding is a per-person fact rather than an access change, but it rides
+        // the same `user:` topic and moves the same list.
+        await meetings?.refreshHidden()
     }
 }

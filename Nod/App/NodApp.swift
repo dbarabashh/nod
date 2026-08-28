@@ -249,7 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             await services.organizations.refresh()
                             await services.accessChannel.resubscribe(
                                 orgIDs: services.organizations.memberships.map(\.id),
-                                teamIDs: services.organizations.teams.map(\.id)
+                                teamIDs: Array(services.organizations.myTeamIDs)
                             )
                         }
                         services.productAnalytics.record(

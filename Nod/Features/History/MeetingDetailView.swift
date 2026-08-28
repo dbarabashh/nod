@@ -101,6 +101,7 @@ struct MeetingDetailView: View {
                     isGenerating: isGenerating,
                     isFinalizing: isFinalizing,
                     isDeleting: isDeleting,
+                    canDelete: !meetingStore.isSharedWithMe(current),
                     onClose: onClose,
                     onDelete: deleteMeeting,
                     onTitleEdited: scheduleSave

@@ -16,6 +16,12 @@ import Supabase
 final class OrganizationService: ObservableObject {
     @Published private(set) var memberships: [OrgMembership] = []
     @Published var teams: [Team] = []
+    /// The teams this person is actually in, which is narrower than `teams` —
+    /// that one carries every team in the organization so the sharing menu can
+    /// offer them. Only membership is a subscription right: the
+    /// `realtime.messages` policy checks `team_members`, so listening on a
+    /// `team:` topic for a team you can merely see is refused.
+    @Published private(set) var myTeamIDs: Set<UUID> = []
     /// Rosters keyed by team, loaded on demand — a pane showing five teams should
     /// not fetch five rosters nobody expanded.
     @Published var teamMembers: [UUID: [TeamMember]] = [:]
@@ -152,6 +158,34 @@ final class OrganizationService: ObservableObject {
         }
     }
 
+    /// Its own `do/catch` rather than a line inside `refresh`'s. This decides
+    /// which `team:` topics the access channel subscribes to, and the poke most
+    /// likely to arrive alongside a failure is "you were removed from a team" —
+    /// exactly when keeping the old set means re-subscribing to a topic the
+    /// policy now refuses, and retrying that join forever.
+    private func refreshMyTeamIDs(of userID: UUID, from supabase: SupabaseClient) async {
+        guard !memberships.isEmpty else {
+            myTeamIDs = []
+            return
+        }
+        struct TeamMembershipRow: Decodable { let team_id: UUID }
+        do {
+            let rows: [TeamMembershipRow] = try await supabase
+                .from("team_members")
+                .select("team_id")
+                .eq("user_id", value: userID.uuidString)
+                .execute()
+                .value
+            myTeamIDs = Set(rows.map(\.team_id))
+        } catch {
+            // Narrowed, not kept: listening on nothing costs a poke that the
+            // next refresh recovers; listening on a team you have left is a
+            // channel stuck retrying a join it will never be granted.
+            myTeamIDs = []
+            Log.ui.error("OrganizationService team memberships failed: \(error.localizedDescription)")
+        }
+    }
+
     func refresh() async {
         guard let supabase, let userID = supabase.auth.currentUser?.id else { return }
         currentUserID = userID
@@ -170,6 +204,8 @@ final class OrganizationService: ObservableObject {
                 .select("id, org_id, name")
                 .execute()
                 .value
+
+            await refreshMyTeamIDs(of: userID, from: supabase)
 
             activeOrgID = try await loadActiveOrgID()
             // With the organization, not on first chat. Everything that names a
@@ -531,6 +567,7 @@ final class OrganizationService: ObservableObject {
         people = []
         memberships = []
         teams = []
+        myTeamIDs = []
         members = []
         pendingInvites = []
         teamMembers = [:]

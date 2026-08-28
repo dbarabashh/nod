@@ -147,6 +147,78 @@ final class MeetingStore: ObservableObject {
     private static let tableName = "meetings"
     private static let speakersTableName = "meeting_speakers"
 
+    /// Sessions this person has taken out of their own list. Somebody else's
+    /// work, still where its owner left it and still readable — just not here.
+    @Published private(set) var hiddenMeetingIDs: Set<UUID> = []
+
+    private static let hidesTableName = "meeting_hides"
+
+    /// Takes a shared session out of this account's list, on every device.
+    ///
+    /// Applied locally first: the row is the subject of the gesture. The server
+    /// refuses this for a session of your own — Trash is the mechanism for those,
+    /// and it is the one with a way back.
+    func hide(_ meeting: Meeting) async throws {
+        guard isSharedWithMe(meeting), let me = supabase.auth.currentUser?.id else { return }
+        struct Row: Encodable {
+            let user_id: UUID
+            let meeting_id: UUID
+        }
+        let wasHidden = hiddenMeetingIDs.contains(meeting.id)
+        hiddenMeetingIDs.insert(meeting.id)
+        do {
+            try await supabase
+                .from(Self.hidesTableName)
+                .upsert(Row(user_id: me, meeting_id: meeting.id), onConflict: "user_id,meeting_id")
+                .execute()
+        } catch {
+            if !wasHidden { hiddenMeetingIDs.remove(meeting.id) }
+            throw error
+        }
+        Log.ui.info("MeetingStore.hide id=\(meeting.id.uuidString)")
+    }
+
+    func unhide(_ meetingID: UUID) async throws {
+        guard let me = supabase.auth.currentUser?.id else { return }
+        let wasHidden = hiddenMeetingIDs.contains(meetingID)
+        hiddenMeetingIDs.remove(meetingID)
+        do {
+            try await supabase
+                .from(Self.hidesTableName)
+                .delete()
+                .eq("user_id", value: me.uuidString)
+                .eq("meeting_id", value: meetingID.uuidString)
+                .execute()
+        } catch {
+            if wasHidden { hiddenMeetingIDs.insert(meetingID) }
+            throw error
+        }
+        Log.ui.info("MeetingStore.unhide id=\(meetingID.uuidString)")
+    }
+
+    func isHidden(_ meeting: Meeting) -> Bool {
+        hiddenMeetingIDs.contains(meeting.id)
+    }
+
+    /// Re-read on every access poke: hiding on one device is a change the others
+    /// have to hear about, and it travels on the same `user:` topic.
+    func refreshHidden() async {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+        struct Row: Decodable { let meeting_id: UUID }
+        do {
+            let rows: [Row] = try await supabase
+                .from(Self.hidesTableName)
+                .select("meeting_id")
+                .execute()
+                .value
+            hiddenMeetingIDs = Set(rows.map(\.meeting_id))
+        } catch {
+            Log.ui.error("MeetingStore.refreshHidden failed: \(error.localizedDescription)")
+        }
+    }
+
     /// Whether a session reached this list through a folder somebody shared,
     /// rather than by being recorded here. Row-level security started returning
     /// other people's sessions the moment sharing existed, and a list that mixes
@@ -165,6 +237,10 @@ final class MeetingStore: ObservableObject {
     /// fired for the first non-cached fetch, letting subsequent silent
     /// refreshes race each other on every NavigationStack pop.
     private var isFetching: Bool = false
+    private var refetchRequested: Bool = false
+    private var isFetchingTrash: Bool = false
+    private var refetchTrashRequested: Bool = false
+    private var queuedTrashIsSilent: Bool = true
 
     /// Timestamp of the last successful server fetch. Used by `refresh()`
     /// to throttle silent refreshes: `.task` re-fires on every
@@ -809,10 +885,21 @@ final class MeetingStore: ObservableObject {
         struct Params: Encodable {
             let meeting_id: UUID
         }
-        try await supabase
-            .rpc("soft_delete_meeting", params: Params(meeting_id: meeting.id))
-            .execute()
+        // Refused here as well as by the server. `soft_delete_meeting` now says
+        // so rather than reporting success on zero rows, but the optimistic
+        // removal below would still take the row off screen for the length of a
+        // round trip — a flinch on a session that was never going to move.
+        guard !isSharedWithMe(meeting) else { throw DeleteError.notYours }
 
+        // Off the list before the call, and back on it if the call fails. The
+        // row is the subject of the gesture, so the round trip is the one delay
+        // there is no hiding.
+        //
+        // One row each way, never a snapshot of the whole array: an access poke
+        // can complete a full `refresh` during the await, and restoring a list
+        // captured before it would revert every unrelated row that arrived or
+        // left in the meantime.
+        let wasListed = meetings.contains { $0.id == meeting.id }
         meetings.removeAll { $0.id == meeting.id }
         if case .loaded = trashState {
             // The trash-list copy carries a client-side `deletedAt` for
@@ -820,6 +907,19 @@ final class MeetingStore: ObservableObject {
             // overwrites with the server-stamped value.
             trashedMeetings.insert(trashed(meeting), at: 0)
         }
+        do {
+            try await supabase
+                .rpc("soft_delete_meeting", params: Params(meeting_id: meeting.id))
+                .execute()
+        } catch {
+            trashedMeetings.removeAll { $0.id == meeting.id }
+            if wasListed, !meetings.contains(where: { $0.id == meeting.id }) {
+                meetings.append(meeting)
+                meetings.sort { $0.startedAt > $1.startedAt }
+            }
+            throw error
+        }
+
         pendingUndo = meeting
         onTrashChange.fire()
     }
@@ -861,6 +961,17 @@ final class MeetingStore: ObservableObject {
         onTrashChange.fire()
     }
 
+    /// Somebody else's session, reached through a folder they shared. Readable,
+    /// never writable — the row-level policies on `meetings` scope both UPDATE
+    /// and DELETE to the owner, so every write path here refuses the same way.
+    enum DeleteError: LocalizedError {
+        case notYours
+
+        var errorDescription: String? {
+            "This session belongs to whoever recorded it. Only they can delete it."
+        }
+    }
+
     enum HardDeleteError: Error {
         /// Refused because `id` is the meeting `recordingMeetingID` currently
         /// points at. Enforced here, not only by the UI that disables "Delete
@@ -875,6 +986,10 @@ final class MeetingStore: ObservableObject {
     /// "Delete Forever" + the nightly pg_cron purge.
     func hardDelete(_ id: UUID) async throws {
         guard id != recordingMeetingID else { throw HardDeleteError.recordingInProgress }
+        if let meeting = meetings.first(where: { $0.id == id }) ?? trashedMeetings.first(where: { $0.id == id }),
+           isSharedWithMe(meeting) {
+            throw DeleteError.notYours
+        }
         Log.ui.info("MeetingStore.hardDelete id=\(id.uuidString)")
         #if DEBUG
             if DemoMode.isEnabled {
@@ -905,19 +1020,47 @@ final class MeetingStore: ObservableObject {
 
     /// Fetches the user's soft-deleted meetings, newest-trashed first.
     /// Lazy — only runs when the Trash segment is opened.
-    func refreshTrash() async {
+    ///
+    /// `silent` is for the refreshes nobody asked for: an access poke saying
+    /// another device trashed something. Those must not flip to `.loading`,
+    /// which would swap the list somebody is reading for a spinner, and must not
+    /// flip to `.failed`, which would replace it with an error screen over a
+    /// dropped packet. A refresh the user pressed a button for keeps both.
+    func refreshTrash(silent: Bool = false) async {
         #if DEBUG
             if DemoMode.isEnabled {
                 trashState = .loaded
                 return
             }
         #endif
-        if case .loading = trashState {
-            Log.ui.info("MeetingStore.refreshTrash skipped — already in flight")
+        // Its own flag rather than `trashState`: a silent refresh leaves the
+        // state on `.loaded` for its whole duration, so a state-based guard
+        // would let every concurrent call through and let the slowest response
+        // win over a newer one.
+        if isFetchingTrash {
+            refetchTrashRequested = true
+            // The queued run takes the *loudest* intent of everyone waiting: a
+            // reload somebody pressed, queued behind a poke's silent refresh,
+            // has to be allowed to show them that it failed.
+            queuedTrashIsSilent = queuedTrashIsSilent && silent
+            Log.ui.info("MeetingStore.refreshTrash queued behind the one in flight")
             return
         }
-        Log.ui.info("MeetingStore.refreshTrash starting")
-        trashState = .loading
+        isFetchingTrash = true
+        defer { isFetchingTrash = false }
+        var quietRun = silent
+        repeat {
+            refetchTrashRequested = false
+            queuedTrashIsSilent = true
+            await fetchTrash(silent: quietRun)
+            quietRun = queuedTrashIsSilent
+        } while refetchTrashRequested
+    }
+
+    private func fetchTrash(silent: Bool) async {
+        let quiet = silent && { if case .loaded = trashState { true } else { false } }()
+        Log.ui.info("MeetingStore.refreshTrash starting (silent=\(quiet))")
+        if !quiet { trashState = .loading }
         do {
             let rows: [Meeting] = try await supabase
                 .from(Self.tableName)
@@ -932,8 +1075,19 @@ final class MeetingStore: ObservableObject {
             Log.ui.info("MeetingStore.refreshTrash loaded \(rows.count) trashed meetings")
         } catch {
             Log.ui.error("MeetingStore.refreshTrash failed: \(error.localizedDescription)")
-            trashState = .failed(error.localizedDescription)
+            if !quiet { trashState = .failed(error.localizedDescription) }
         }
+    }
+
+    /// The trash, but only for somebody who is looking at it.
+    ///
+    /// A session trashed on another device lands here rather than in `meetings`,
+    /// so the access poke has to re-ask for both — and re-asking for a pane
+    /// nobody has opened would spend a round trip to fill a cache that
+    /// `refreshTrash` fills on arrival anyway.
+    func refreshTrashIfLoaded() async {
+        guard case .loaded = trashState else { return }
+        await refreshTrash(silent: true)
     }
 
     /// Server rows plus any local drafts still mid-generation — they aren't
@@ -997,6 +1151,7 @@ final class MeetingStore: ObservableObject {
         generatingSummaryIDs = []
         finalizingMeetingIDs = []
         unsyncedMeetingIDs = []
+        hiddenMeetingIDs = []
         streamingSummaries = [:]
     }
 
@@ -1009,6 +1164,9 @@ final class MeetingStore: ObservableObject {
     /// Use `force: true` for explicit user-initiated retries (toolbar
     /// reload button, "Couldn't sync" warning chip); leave the default
     /// for `.task`-driven auto-refreshes that should be throttled.
+    ///
+    /// A call arriving mid-fetch is queued rather than dropped — the query
+    /// already running was issued before whatever the new call needs to see.
     func refresh(force: Bool = false) async {
         #if DEBUG
             if DemoMode.isEnabled {
@@ -1025,12 +1183,20 @@ final class MeetingStore: ObservableObject {
         // those) AND silent refresh (loadState stays .loaded and the
         // old check would have let concurrent calls through).
         if isFetching {
-            Log.ui.info("MeetingStore.refresh skipped — already in flight")
+            // Remembered, not dropped — but only when the caller asked for it.
+            // The query already running was issued before the change a `force`
+            // caller is here to see (an access poke, a manual retry), so
+            // answering it with "a fetch is in flight" leaves the deleted row on
+            // screen until something else happens to ask again. A `.task`
+            // re-firing on a navigation pop wants no such thing; it is the
+            // caller the 30-second throttle exists for, and queueing it would
+            // spend a second 500-row round trip to learn nothing.
+            if force { refetchRequested = true }
+            Log.ui.info("MeetingStore.refresh in flight (queued=\(force))")
             return
         }
 
         let hadLoadedCache = if case .loaded = loadState { true } else { false }
-
         // Throttle silent refreshes. `.task` re-fires on every
         // NavigationStack pop; if the cache is < 30s old it's basically
         // fresh and the 500-row round trip is wasteful. Initial fetch
@@ -1045,6 +1211,14 @@ final class MeetingStore: ObservableObject {
 
         isFetching = true
         defer { isFetching = false }
+        repeat {
+            refetchRequested = false
+            await fetchMeetings()
+        } while refetchRequested
+    }
+
+    private func fetchMeetings() async {
+        let hadLoadedCache = if case .loaded = loadState { true } else { false }
 
         // Silent refresh when we already have a loaded cache: don't flip
         // to .loading (which would show the spinner and blank the list
@@ -1086,7 +1260,15 @@ final class MeetingStore: ObservableObject {
                 meetings.filter { unsyncedMeetingIDs.contains($0.id) }.map { ($0.id, $0) },
                 uniquingKeysWith: { current, _ in current }
             )
+            let previousIDs = Set(meetings.map(\.id))
             meetings = Self.merging(rows: rows, drafts: drafts, localAuthoritative: authoritative)
+            // A session that vanished between two refreshes was trashed or
+            // unshared somewhere else, and the retrieval cache is keyed only on
+            // query text — it cannot notice that by itself, and would go on
+            // answering out of a session this account can no longer read.
+            if !previousIDs.isSubset(of: Set(meetings.map(\.id))) {
+                onTrashChange.fire()
+            }
             loadState = .loaded
             lastSuccessfulFetchAt = Date()
             lastRefreshFailed = false

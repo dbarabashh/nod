@@ -182,6 +182,12 @@ final class LabelStore: ObservableObject {
 
     /// Sets the exact set of labels on a session, inserting/deleting only the
     /// links that changed.
+    ///
+    /// Applied locally first, and put back on failure. Unfiling a session from a
+    /// shared project is the moment somebody is deciding a colleague should stop
+    /// seeing it, and a chip that lingers for the length of a round trip reads as
+    /// a click that did not land — which is how a second, redundant unfile gets
+    /// attempted while the first is still in flight.
     func setLabels(_ desired: Set<UUID>, for meetingID: UUID) async throws {
         #if DEBUG
             if DemoMode.isEnabled {
@@ -195,6 +201,26 @@ final class LabelStore: ObservableObject {
         let removed = current.subtracting(desired)
         guard !added.isEmpty || !removed.isEmpty else { return }
 
+        assignments[meetingID] = desired.isEmpty ? nil : desired
+        do {
+            try await applyLinkChanges(added: added, removed: removed, meetingID: meetingID, userID: userID)
+        } catch {
+            // The inverse of what was applied, not the set captured before it: a
+            // second `setLabels` for the same session can land during the await,
+            // and restoring the old set outright would discard its work.
+            let now = assignments[meetingID] ?? []
+            let reverted = now.subtracting(added).union(removed)
+            assignments[meetingID] = reverted.isEmpty ? nil : reverted
+            throw error
+        }
+    }
+
+    private func applyLinkChanges(
+        added: Set<UUID>,
+        removed: Set<UUID>,
+        meetingID: UUID,
+        userID: UUID
+    ) async throws {
         if !added.isEmpty {
             struct LinkInsert: Encodable {
                 let meeting_id: UUID
@@ -215,7 +241,6 @@ final class LabelStore: ObservableObject {
                 .in("label_id", values: removed.map(\.uuidString))
                 .execute()
         }
-        assignments[meetingID] = desired.isEmpty ? nil : desired
     }
 
     // ── Sharing ─────────────────────────────────────────────────────────────
@@ -266,7 +291,12 @@ final class LabelStore: ObservableObject {
         }
     }
 
+    /// Dropped from the local map before the call, and restored if the server
+    /// refuses. Revoking is the half of sharing that has to look immediate: the
+    /// person doing it is watching to confirm the colleague lost the folder.
     func unshare(_ share: FolderShare) async {
+        let wasAt = shares[share.labelID]?.firstIndex { $0.id == share.id }
+        shares[share.labelID] = (shares[share.labelID] ?? []).filter { $0.id != share.id }
         do {
             struct Params: Encodable {
                 let p_share: UUID
@@ -276,6 +306,14 @@ final class LabelStore: ObservableObject {
             lastError = nil
             Log.ui.info("folder unshared")
         } catch {
+            // Only this share back, never the list as it was: a refresh can land
+            // during the await, and replacing the key wholesale would resurrect
+            // shares somebody else legitimately removed.
+            if let wasAt, !(shares[share.labelID]?.contains { $0.id == share.id } ?? false) {
+                var rows = shares[share.labelID] ?? []
+                rows.insert(share, at: min(wasAt, rows.count))
+                shares[share.labelID] = rows
+            }
             lastError = Self.serverMessage(error) ?? "Couldn't stop sharing that project."
             Log.ui.error("LabelStore.unshare failed: \(error.localizedDescription)")
         }

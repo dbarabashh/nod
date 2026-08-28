@@ -89,8 +89,13 @@ final class MeetingGrantStore: ObservableObject {
         }
     }
 
+    /// Dropped locally before the call and put back if the server refuses —
+    /// revoking is watched, and a row that stays "Shared" for the length of a
+    /// round trip reads as a revocation that did not happen.
     func unshare(_ grant: MeetingGrant) async {
         guard let supabase else { return }
+        let wasAt = grants[grant.meetingID]?.firstIndex { $0.id == grant.id }
+        grants[grant.meetingID] = (grants[grant.meetingID] ?? []).filter { $0.id != grant.id }
         do {
             struct Params: Encodable {
                 let p_grant: UUID
@@ -101,6 +106,13 @@ final class MeetingGrantStore: ObservableObject {
             await refresh()
             Log.ui.info("meeting unshared")
         } catch {
+            // This grant alone. A refresh landing during the await must not be
+            // undone by an error path that only knows about one row.
+            if let wasAt, !(grants[grant.meetingID]?.contains { $0.id == grant.id } ?? false) {
+                var rows = grants[grant.meetingID] ?? []
+                rows.insert(grant, at: min(wasAt, rows.count))
+                grants[grant.meetingID] = rows
+            }
             Log.ui.error("MeetingGrantStore.unshare failed: \(error.localizedDescription)")
         }
     }

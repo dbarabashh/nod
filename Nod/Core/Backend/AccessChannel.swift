@@ -26,6 +26,13 @@ final class AccessChannel {
     private var channels: [RealtimeChannelV2] = []
     private var listeners: [Task<Void, Never>] = []
     private var topics: [String] = []
+    /// Rebuilds run one after another. Two pokes arriving together each start a
+    /// refresh, each refresh ends by re-subscribing, and two rebuilds
+    /// interleaving at their `await`s would leave a second channel and a second
+    /// listener per topic — after which every poke does everything twice.
+    private var rebuild: Task<Void, Never>?
+    private var isRefreshing = false
+    private var refreshQueued = false
 
     init(supabase: SupabaseClient, onChange: @escaping @MainActor () async -> Void) {
         self.supabase = supabase
@@ -44,6 +51,16 @@ final class AccessChannel {
     /// left subscribed to a team somebody just left is the kind of leak that
     /// survives review — nothing about it looks wrong.
     func resubscribe(orgIDs: [UUID], teamIDs: [UUID]) async {
+        let previous = rebuild
+        let work = Task { @MainActor [weak self] in
+            await previous?.value
+            await self?.apply(orgIDs: orgIDs, teamIDs: teamIDs)
+        }
+        rebuild = work
+        await work.value
+    }
+
+    private func apply(orgIDs: [UUID], teamIDs: [UUID]) async {
         guard let userID = supabase.auth.currentUser?.id else { return }
 
         var wanted = ["user:\(userID.uuidString.lowercased())"]
@@ -52,8 +69,15 @@ final class AccessChannel {
         wanted.sort()
 
         guard wanted != topics else { return }
-        await teardown()
         topics = wanted
+        await closeChannels()
+        // The account can change across that suspension — a sign-out queues a
+        // teardown behind this rebuild, but a *different* person signing in
+        // would have this loop subscribe them to the last one's topics.
+        guard supabase.auth.currentUser?.id == userID else {
+            topics = []
+            return
+        }
 
         for topic in wanted {
             let channel = supabase.channel(topic) { $0.isPrivate = true }
@@ -62,7 +86,7 @@ final class AccessChannel {
                 for await _ in stream {
                     guard let self else { return }
                     Log.ui.info("access change received")
-                    await onChange()
+                    await pokeArrived()
                 }
             })
             await channel.subscribe()
@@ -71,8 +95,56 @@ final class AccessChannel {
         Log.ui.info("access channel listening topics=\(wanted.count)")
     }
 
+    /// Collapses a burst into one pass.
+    ///
+    /// One gesture can send several pokes — filing a session into three projects
+    /// is three rows — and each of them costs a full re-read of the
+    /// organizations, the folders, the grants and the library. Running that
+    /// three times answers the same question three times; running it once more
+    /// after the last one arrives answers it correctly.
+    private func pokeArrived() async {
+        guard !isRefreshing else {
+            refreshQueued = true
+            return
+        }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        repeat {
+            refreshQueued = false
+            // A moment before starting, so the pokes one gesture produces are
+            // one pass rather than two. Filing a session into three projects is
+            // three rows and three messages; so is the poke a device causes
+            // itself, which arrives just behind the change it already applied.
+            try? await Task.sleep(nanoseconds: Self.settleWindow)
+            if refreshQueued { continue }
+            await onChange()
+        } while refreshQueued
+    }
+
+    /// Long enough to absorb the messages of one gesture, short enough that a
+    /// colleague's revocation still reads as immediate.
+    private static let settleWindow: UInt64 = 300_000_000
+
+    /// Queued behind any rebuild in flight, never alongside one.
+    ///
+    /// A rebuild is five round trips and a subscribe, and a sign-out arriving
+    /// mid-way used to close the channels the rebuild was about to open — after
+    /// which the rebuild finished, re-opened them under the departing session,
+    /// and left `topics` claiming a set that the next sign-in would then see as
+    /// unchanged and decline to build. The channel stayed dead for the rest of
+    /// the process.
     func teardown() async {
-        topics = []
+        let previous = rebuild
+        let work = Task { @MainActor [weak self] in
+            await previous?.value
+            self?.topics = []
+            await self?.closeChannels()
+        }
+        rebuild = work
+        await work.value
+    }
+
+    private func closeChannels() async {
         listeners.forEach { $0.cancel() }
         listeners = []
         for channel in channels {

@@ -48,6 +48,10 @@ struct SessionsListView: View {
         case everyone = "All"
         case mine = "Mine"
         case shared = "Shared with me"
+        /// Where a hidden session can be found again. Hiding has no other way
+        /// back — the row is the whole of the state — so the list that shows
+        /// them is the undo.
+        case hidden = "Hidden"
         var id: String {
             rawValue
         }
@@ -433,9 +437,18 @@ struct SessionsListView: View {
             let ids = labelStore.meetingIDs(withLabel: filterLabelID)
             result = result.filter { ids.contains($0.id) }
         }
-        if mode == .all, owner != .everyone {
-            let wantsShared = owner == .shared
-            result = result.filter { meetingStore.isSharedWithMe($0) == wantsShared }
+        if mode == .all {
+            switch owner {
+            case .hidden:
+                result = result.filter(meetingStore.isHidden)
+            case .everyone:
+                result = result.filter { !meetingStore.isHidden($0) }
+            case .mine, .shared:
+                let wantsShared = owner == .shared
+                result = result.filter {
+                    !meetingStore.isHidden($0) && meetingStore.isSharedWithMe($0) == wantsShared
+                }
+            }
         }
         let q = normalizedQuery
         if q.isEmpty { return result }
@@ -578,18 +591,40 @@ struct SessionsListView: View {
             .listRowBackground(Color.clear)
             .listRowSeparatorTint(Theme.Palette.border)
             .contextMenu {
-                Button {
-                    Task { await performSoftDelete(meeting) }
-                } label: {
-                    IconLabel(title: "Delete", icon: "nc-trash")
+                // Nothing to offer on somebody else's session. The row-level
+                // policies scope both writes to the owner, so a Delete here only
+                // ever removed it from this window until the next refresh put it
+                // back — and on the phone it never left at all.
+                if meetingStore.isSharedWithMe(meeting) {
+                    // Not Delete: the session is its owner's. This takes it out
+                    // of this account's list and leaves everything else alone.
+                    if meetingStore.isHidden(meeting) {
+                        Button {
+                            Task { await performUnhide(meeting) }
+                        } label: {
+                            IconLabel(title: "Show in my list", icon: "nc-eye")
+                        }
+                    } else {
+                        Button {
+                            Task { await performHide(meeting) }
+                        } label: {
+                            IconLabel(title: "Hide from my list", icon: "nc-eye-closed")
+                        }
+                    }
+                } else {
+                    Button {
+                        Task { await performSoftDelete(meeting) }
+                    } label: {
+                        IconLabel(title: "Delete", icon: "nc-trash")
+                    }
+                    Button(role: .destructive) {
+                        pendingHardDelete = meeting
+                    } label: {
+                        IconLabel(title: "Delete Forever", icon: "nc-trash")
+                    }
+                    .disabled(isRecording)
+                    .help(isRecording ? "This meeting is still recording." : "")
                 }
-                Button(role: .destructive) {
-                    pendingHardDelete = meeting
-                } label: {
-                    IconLabel(title: "Delete Forever", icon: "nc-trash")
-                }
-                .disabled(isRecording)
-                .help(isRecording ? "This meeting is still recording." : "")
             }
         }
         .listStyle(.plain)
@@ -614,6 +649,22 @@ struct SessionsListView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+    }
+
+    private func performHide(_ meeting: Meeting) async {
+        do {
+            try await meetingStore.hide(meeting)
+        } catch {
+            Log.ui.error("hide failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func performUnhide(_ meeting: Meeting) async {
+        do {
+            try await meetingStore.unhide(meeting.id)
+        } catch {
+            Log.ui.error("unhide failed: \(error.localizedDescription)")
+        }
     }
 
     private func performSoftDelete(_ meeting: Meeting) async {

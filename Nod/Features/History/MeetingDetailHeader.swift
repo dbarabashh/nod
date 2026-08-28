@@ -7,6 +7,10 @@ struct MeetingDetailHeader: View {
     /// True until the meeting row has finished its first persistence pass.
     let isFinalizing: Bool
     let isDeleting: Bool
+    /// False for a session that reached this account through a folder somebody
+    /// shared. Row-level security scopes the write to the owner, so the button
+    /// only ever closed the pane and left the session where it was.
+    var canDelete: Bool = true
     let onClose: () -> Void
     let onDelete: () -> Void
     let onTitleEdited: () -> Void
@@ -15,7 +19,7 @@ struct MeetingDetailHeader: View {
         HStack(alignment: .top, spacing: 12) {
             closeButton
             titleField
-            deleteButton
+            if canDelete { deleteButton }
         }
     }
 
