@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-26_
+_Last updated: 2026-08-28_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -608,11 +608,18 @@ has no such list. This is the one place membership makes something visible that
 was not visible before, and it is limited to what sending someone an invitation
 would tell you anyway.
 
-**What an organization's administrators cannot do.** They cannot read your
-meetings. There is no administrative view of another member's recordings, no
-export of them, and no setting that turns one on. An administrator can add and
-remove members, create teams, and see an audit log of membership and sharing
-actions — never meeting content.
+**What an organization's administrators can and cannot do.** They cannot open a
+session you kept to yourself. There is no administrative view of another
+member's recordings, no export of them, and the setting that would allow one
+defaults to off and cannot be switched on from any Nod client.
+
+What they do control is who is in a team, and that matters for anything you
+shared with a team: the audience of a team share is whoever is in that team at
+the time of reading, not a fixed list of people fixed when you shared. So an
+administrator who adds an account to a team can read what was shared with that
+team. They cannot reach what you never shared, and every membership change is
+written to the audit log. If that is not the boundary you want, share with named
+people or keep the session to yourself.
 
 **What we store for this.** Which organization and teams you belong to, your role
 in them, and a row for each share you make: what was shared, with which audience,

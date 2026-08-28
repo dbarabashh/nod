@@ -45,8 +45,14 @@ struct PrivacySnapshot: View {
                     // you created. The admin overlay is gated on
                     // `org_policies.admin_content_access`, which defaults false
                     // and has no UPDATE policy and no RPC — nothing in any client
-                    // can turn it on. Delete this sentence the day that ships.
-                    detail: "Sessions are yours until you share one, and sharing is per session. Your organization's administrators can't read what you recorded — Nod ships no way to turn that on."
+                    // can turn it on. Delete that clause the day that ships.
+                    //
+                    // The team sentence is not decoration: administrators write
+                    // `team_members`, and `can_read_meeting_via_grant` answers
+                    // yes on a row in it, so an administrator can reach a team
+                    // share by putting an account in the team. Saying only the
+                    // first half here would be a claim the code does not keep.
+                    detail: "Sessions are yours until you share one, and sharing is per session. Administrators can't open a session you kept to yourself — Nod ships no way to turn that on. What you share with a team, though, is readable by whoever is in that team, and administrators decide who that is."
                 )
                 SettingsRowDivider()
                 row(

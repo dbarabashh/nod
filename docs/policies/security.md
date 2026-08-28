@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-08-15_
+_Last updated: 2026-08-28_
 
 _[Calendar access](#calendar-access), [Organizations](#organizations), and the
 email-delivery section under [How data flows](#how-data-flows) are **advance
@@ -51,9 +51,11 @@ the EU. This page documents exactly how that works.
   Personal messengers are excluded before you configure anything.
 - **Private by default.** Your meetings are visible only to you, unless you
   create a share link yourself (see [Access control](#access-control)). In an
-  organization the default holds: an administrator cannot read what members
-  record unless the organization switches that on, and ambient screen text, your
-  search index and your cross-session threads stay unreadable either way (see
+  organization the default holds: an administrator cannot read a session you
+  kept to yourself unless the organization switches that on. What you share with
+  a team is readable by that team, and administrators decide who is in one — so
+  a team share is as private as the team. Ambient screen text, your search index
+  and your cross-session threads stay unreadable either way (see
   [Organizations](#organizations)).
 - **Connectors are read-only and resource-bound.** Official ChatGPT and Claude
   access uses OAuth 2.1 with PKCE, rotating refresh tokens, exact audience
@@ -390,17 +392,23 @@ stated separately because the difference is real. The index in particular is
 derived from transcripts, so if a session is ever shared deliberately its index
 has to follow, or searching shared work would silently find nothing.
 
-Being in the same organization gives members nothing, and neither does being in
-the same team. Membership decides who pays, who administers, and which
-integration the assistant reaches for — never what a colleague can read.
+Being in the same organization gives members nothing on its own, and being in
+the same team gives them nothing you did not share with that team. Membership
+decides who pays, who administers, and which integration the assistant reaches
+for; beyond a team share you made yourself, it decides nothing about what a
+colleague can read.
 
 There are exactly three ways somebody else reads a session of yours, and you
 perform two of them:
 
 1. **You share a folder.** Sessions you file into a folder become readable by a
    team, or by the whole organization, when you share that folder with them.
-   Sharing is its own act on its own object — nothing becomes readable because
-   somebody joined a team, and unsharing takes it back.
+   Sharing is its own act on its own object, and unsharing takes it back — but
+   the audience is the team, not the people who were in it the day you shared.
+   Somebody added to that team afterwards can read what was already shared with
+   it, and team membership is administered by your organization's owners and
+   administrators. A team share is therefore as private as the team is, and if
+   that is not the boundary you want, do not share into it.
 2. **You create a share link** for one session (see [Access
    control](#access-control)) — summary only, never the transcript.
 3. **The organization switched on administrator access**, described above, and
