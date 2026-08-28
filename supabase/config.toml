@@ -360,6 +360,12 @@ verify_jwt = false
 [functions.calendar-sync]
 verify_jwt = false
 
+# Called by the `beat_runs_notify_answered` trigger through pg_net, which carries
+# the shared internal-job bearer rather than a user's JWT. The function checks
+# that secret itself.
+[functions.send-beat-push]
+verify_jwt = false
+
 # Resend signs deliveries with Svix (HMAC over the raw body), verified in the
 # function itself.
 [functions.resend-webhook]
