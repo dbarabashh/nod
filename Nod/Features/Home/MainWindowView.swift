@@ -49,6 +49,10 @@ struct MainWindowView: View {
         /// — is not what you can do to a live one, so it is a different place,
         /// not a lens on the same one.
         case trash
+        /// The questions that ask themselves. Its own destination rather than a
+        /// section of Settings: a beat's answers are something you come here to
+        /// read, not a preference you set once.
+        case beats
         case settings
         case demoDailyModes
     }
@@ -212,6 +216,8 @@ struct MainWindowView: View {
                 panelShortcut: hotkeys.combo(for: .togglePanel).displayString
             )
             .transition(.opacity)
+        case .beats:
+            BeatsView(onOpenThread: openThread).transition(.opacity)
         case .settings:
             settings.transition(.opacity)
         case .demoDailyModes:

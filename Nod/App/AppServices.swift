@@ -43,6 +43,11 @@ struct AppServices {
     let knowledgeChat: KnowledgeChatStore
     /// Saved cross-session conversations, listed and reopened from the rail.
     let knowledgeThreads: KnowledgeThreadStore
+    /// Saved questions that ask themselves on a schedule, and what came of
+    /// each run.
+    let beats: BeatStore
+    /// Answers those questions when they come due and this Mac is awake.
+    let beatRunner: BeatRunner
     let labelStore: LabelStore
     /// Which finished meetings have been handed to a team or the organization.
     let meetingGrants: MeetingGrantStore
@@ -216,6 +221,27 @@ struct AppServices {
         let knowledgeThreads = KnowledgeThreadStore(supabase: supabase)
         let retrievalFeedback = RetrievalFeedbackStore(supabase: supabase)
         let modeStore = ModeStore()
+        let beats = BeatStore(supabase: supabase, auth: auth)
+        // A second chat store, not the one on screen. A beat answering at 09:00
+        // must not clear the conversation somebody is in the middle of typing —
+        // and `unattended` is what takes every mutating tool off its table.
+        let beatChat = KnowledgeChatStore(
+            llm: llmClient,
+            knowledge: knowledgeStore,
+            meetings: meetingStore,
+            labels: labelStore,
+            profile: profileStore,
+            language: languagePreference,
+            entities: entityStore,
+            actionItems: actionItemStore,
+            threads: knowledgeThreads,
+            feedback: retrievalFeedback,
+            integrations: integrations,
+            screenContext: screenContext,
+            calendar: calendar,
+            organizations: organizations,
+            unattended: true
+        )
 
         return AppServices(
             permissions: permissions,
@@ -255,6 +281,14 @@ struct AppServices {
                 organizations: organizations
             ),
             knowledgeThreads: knowledgeThreads,
+            beats: beats,
+            beatRunner: BeatRunner(
+                beats: beats,
+                chat: beatChat,
+                threads: knowledgeThreads,
+                entitlements: entitlements,
+                auth: auth
+            ),
             labelStore: labelStore,
             meetingGrants: meetingGrants,
             remoteCalendar: remoteCalendar,

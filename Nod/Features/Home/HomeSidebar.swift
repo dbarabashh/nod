@@ -62,6 +62,12 @@ struct HomeSidebar: View {
                     // live session, so this is a different place to be, and it
                     // costs the sessions list nothing to sit here.
                     SidebarNavRow(
+                        title: "Beats",
+                        icon: "nc-stopwatch",
+                        isSelected: surface == .beats,
+                        action: { onSelect(.beats) }
+                    )
+                    SidebarNavRow(
                         title: "Trash",
                         icon: "nc-trash",
                         isSelected: surface == .trash,

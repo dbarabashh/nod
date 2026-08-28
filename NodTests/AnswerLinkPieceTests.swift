@@ -13,6 +13,8 @@ final class AnswerLinkPieceTests: XCTestCase {
             switch piece.content {
             case .prose: "prose"
             case .links: "links"
+            case .heading: "heading"
+            case .rule: "rule"
             }
         }
     }

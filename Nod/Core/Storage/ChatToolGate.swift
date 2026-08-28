@@ -48,6 +48,17 @@ final class ChatToolGate: ObservableObject {
 
     private var approval: CheckedContinuation<Bool, Never>?
 
+    /// No person is behind this chat — it is a beat running on a schedule, and
+    /// there is nobody to show a card to. Read-only calls go straight through;
+    /// what keeps that safe is not this flag but the catalogue the unattended
+    /// chat is given, which holds no mutating tool at all. Asserted here too,
+    /// because a gate that trusts its caller is not a gate.
+    private let unattended: Bool
+
+    init(unattended: Bool = false) {
+        self.unattended = unattended
+    }
+
     /// Called when a new question starts, so the last one's scaffolding doesn't
     /// ride along with it.
     func beginQuestion() {
@@ -70,6 +81,13 @@ final class ChatToolGate: ObservableObject {
         using integrations: IntegrationService,
         onApproved: () -> Void = {}
     ) async -> Outcome {
+        if unattended {
+            let mutates = tools.contains { $0.mutating }
+            Log.ui.info(
+                "unattended \(provider.rawValue) call(s)=\(calls.count) \(mutates ? "refused — mutating" : "allowed")"
+            )
+            return await settle(calls, tools: tools, provider: provider, using: integrations, allowed: !mutates)
+        }
         Log.ui.info("awaiting approval for \(calls.count) \(provider.rawValue) call(s)")
         // A question asked while an older card still stands supersedes it. The
         // slot holds one continuation: overwriting it used to strand the first
@@ -95,7 +113,20 @@ final class ChatToolGate: ObservableObject {
             Task { @MainActor [weak self] in self?.cancelPending() }
         }
         pending = nil
+        return await settle(calls, tools: tools, provider: provider, using: integrations, allowed: allowed, onApproved: onApproved)
+    }
 
+    /// Runs what was allowed and writes the turns the model has to see either
+    /// way. Shared by the card and the unattended path so a beat's transcript
+    /// is assembled by the same code as a person's.
+    private func settle(
+        _ calls: [ChatToolCall],
+        tools: [ChatTool],
+        provider: IntegrationProvider,
+        using integrations: IntegrationService,
+        allowed: Bool,
+        onApproved: () -> Void = {}
+    ) async -> Outcome {
         var outcome = Outcome()
         // The assistant's request has to be replayed verbatim, or the provider
         // rejects results for calls it can't see in the history.

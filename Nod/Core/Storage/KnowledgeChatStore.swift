@@ -98,7 +98,7 @@ final class KnowledgeChatStore: ObservableObject {
     /// Asking before anything leaves Nod, and the running that follows. Shared
     /// with the per-session chat, which reaches the same products and owes the
     /// same question.
-    let toolGate = ChatToolGate()
+    let toolGate: ChatToolGate
 
     /// The tool calls the model wants to make, waiting on the user. Nothing
     /// leaves Nod while this is set.
@@ -119,6 +119,13 @@ final class KnowledgeChatStore: ObservableObject {
     /// and the match in `runTools` can't be given different catalogues — and so
     /// the cached prompt prefix sees the same bytes every round.
     private var turnTools: [ChatTool] = []
+
+    /// This store answers a beat on a schedule rather than a person at a
+    /// keyboard. Two things follow, and both are enforced here rather than
+    /// trusted to the caller: nothing that writes to a connected product is
+    /// even offered to the model, and the tool gate stops asking a question
+    /// nobody is there to answer.
+    private let unattended: Bool
 
     private let llm: LLMProxyClient
     private let knowledge: KnowledgeStore
@@ -224,8 +231,11 @@ final class KnowledgeChatStore: ObservableObject {
         integrations: IntegrationService? = nil,
         screenContext: ScreenContextService? = nil,
         calendar: CalendarService? = nil,
-        organizations: OrganizationService? = nil
+        organizations: OrganizationService? = nil,
+        unattended: Bool = false
     ) {
+        self.unattended = unattended
+        toolGate = ChatToolGate(unattended: unattended)
         self.integrations = integrations
         self.llm = llm
         self.knowledge = knowledge
@@ -491,7 +501,10 @@ extension KnowledgeChatStore {
         )
 
         await roster
-        turnTools = await tools
+        // A beat gets the reading half of the catalogue only. What it finds
+        // worth doing becomes a proposal the user approves in the morning; a
+        // schedule does not get to file tickets on its own.
+        turnTools = await tools.filter { unattended ? !$0.mutating : true }
 
         let prepared: (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool)
         let routing: Routing
@@ -534,7 +547,8 @@ extension KnowledgeChatStore {
                 excerpts: [aboutNod, teammatesBlock(), calendarBlock(for: prepared.standalone)].compactMap { $0 },
                 language: replyLanguage,
                 personalContext: profile.promptContext,
-                connectedTools: turnTools
+                connectedTools: turnTools,
+                asReport: unattended
             )
             let history = chatHistory
             await saved
@@ -592,7 +606,10 @@ extension KnowledgeChatStore {
                 crossed: grounding.crossedObservations,
                 isRecap: grounding.isRecap
             ),
-            connectedTools: turnTools
+            connectedTools: turnTools,
+            // A beat is read on its own hours later, so it is written as a
+            // report rather than as a reply.
+            asReport: unattended
         )
         let history = chatHistory
         thinkingScript = ChatThinking.writing

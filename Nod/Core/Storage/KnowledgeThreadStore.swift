@@ -13,6 +13,10 @@ final class KnowledgeThreadStore: ObservableObject {
         var title: String
         let createdAt: Date
         var updatedAt: Date
+        /// Set when the thread was written by a beat rather than typed. Decoded
+        /// only — a thread claims a beat by being attached to one, never by
+        /// saying so on insert.
+        var beatID: UUID?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -20,6 +24,7 @@ final class KnowledgeThreadStore: ObservableObject {
             case title
             case createdAt = "created_at"
             case updatedAt = "updated_at"
+            case beatID = "beat_id"
         }
 
         /// Insert payload — `created_at`/`updated_at` are omitted so Postgres'
@@ -119,9 +124,13 @@ final class KnowledgeThreadStore: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         do {
+            // Beat threads are left out: they have their own list, and a
+            // daily beat would otherwise push every real conversation off the
+            // first screen within a week.
             threads = try await supabase
                 .from(Self.threadsTable)
                 .select()
+                .is("beat_id", value: nil)
                 .order("updated_at", ascending: false)
                 .limit(200)
                 .execute()
@@ -146,7 +155,8 @@ final class KnowledgeThreadStore: ObservableObject {
             userID: userID,
             title: Self.trimmedTitle(title),
             createdAt: Date(),
-            updatedAt: Date()
+            updatedAt: Date(),
+            beatID: nil
         )
         do {
             try await supabase.from(Self.threadsTable).insert(thread).execute()
@@ -155,6 +165,28 @@ final class KnowledgeThreadStore: ObservableObject {
         } catch {
             Log.ui.error("KnowledgeThreadStore.create failed: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    /// Marks a finished thread as a beat's answer and names it after the beat.
+    /// Done after the run rather than before, so a beat that fails leaves no
+    /// half-written thread claiming to be its answer.
+    func attach(threadID: UUID, to beatID: UUID, title: String) async {
+        struct Attachment: Encodable {
+            let beat_id: String
+            let title: String
+        }
+        do {
+            try await supabase
+                .from(Self.threadsTable)
+                .update(Attachment(beat_id: beatID.uuidString, title: Self.trimmedTitle(title)))
+                .eq("id", value: threadID.uuidString)
+                .execute()
+            // It was inserted into the visible list by `create`; a beat's
+            // answer does not belong there.
+            threads.removeAll { $0.id == threadID }
+        } catch {
+            Log.ui.error("KnowledgeThreadStore.attach failed: \(error.localizedDescription)")
         }
     }
 

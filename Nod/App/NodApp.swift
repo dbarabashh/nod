@@ -163,6 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // it is the moment to ask, exactly as the entitlement above does.
                 await services.organizations.refresh()
                 await services.labelStore.refresh()
+                await services.beats.refresh()
                 await services.meetingGrants.refresh()
                 await services.remoteCalendar.refresh()
                 // Both, together. Access to a shared folder and access to the
@@ -197,6 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Ambient capture is opt-in: this starts it only if the user has
         // already turned it on, and is a no-op otherwise.
         services.screenContext.refresh()
+        services.beatRunner.start()
 
         panelSharingObserveTask = Task { @MainActor [weak windows] in
             // `@Published` fires in willSet, so use the yielded value rather

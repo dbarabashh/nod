@@ -268,6 +268,12 @@ struct AnswerPiece: Identifiable {
     enum Content {
         case prose(AttributedString)
         case links([ProviderLinkItem])
+        /// A `## ` line. `renderRecapMarkdown` parses inline-only — block
+        /// syntax would collapse the line breaks the answers rely on — so a
+        /// heading reaches it as literal hashes unless it is split off here.
+        case heading(String)
+        /// A `---` line on its own, drawn as a rule rather than three dashes.
+        case rule
     }
 
     /// Position, not text: blocks are append-only while an answer streams, so
@@ -307,9 +313,21 @@ struct AnswerPiece: Identifiable {
         }
 
         for line in block.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
             if let item = ProviderLinkItem.item(in: line) {
                 flushProse()
                 links.append(item)
+            } else if trimmed.hasPrefix("## ") {
+                flushProse()
+                flushLinks()
+                pieces.append(AnswerPiece(
+                    id: "\(index).\(pieces.count)",
+                    content: .heading(String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces))
+                ))
+            } else if trimmed == "---" || trimmed == "***" {
+                flushProse()
+                flushLinks()
+                pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .rule))
             } else {
                 flushLinks()
                 prose.append(line)
@@ -343,6 +361,19 @@ struct AnswerPieceView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         case let .links(items):
             ProviderLinkList(items: items)
+        case let .heading(title):
+            Text(title)
+                .font(.system(size: 12, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(Theme.Palette.ink)
+                .textCase(.uppercase)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
+        case .rule:
+            Rectangle()
+                .fill(Theme.Palette.border)
+                .frame(height: 1)
+                .padding(.vertical, 2)
         }
     }
 }

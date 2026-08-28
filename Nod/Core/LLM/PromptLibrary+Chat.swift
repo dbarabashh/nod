@@ -280,7 +280,8 @@ extension PromptLibrary {
         personalContext: String = "",
         now: Date = Date(),
         observations: [String] = [],
-        connectedTools: [ChatTool] = []
+        connectedTools: [ChatTool] = [],
+        asReport: Bool = false
     ) -> String {
         let lang = language.promptName
         let today = sessionDateString(now)
@@ -289,6 +290,7 @@ extension PromptLibrary {
             ? "(No relevant excerpts were found in your sessions for this question.)"
             : excerpts.joined(separator: "\n\n---\n\n")
         let tools = connectedToolsRules(connectedTools)
+        let report = asReport ? beatReportRules : ""
         let screen = observations.isEmpty ? "" : """
 
 
@@ -334,7 +336,7 @@ extension PromptLibrary {
         - LANGUAGE: reply in \(lang) unless the user clearly writes in another language.
 
         === RETRIEVED FROM YOUR SESSIONS ===
-        \(context)\(screen)\(tools)
+        \(context)\(screen)\(tools)\(report)
         """
         return personalContext.isEmpty ? body : personalContext + "\n\n" + body
     }
@@ -380,6 +382,29 @@ private func connectedToolsRules(_ tools: [ChatTool]) -> String {
     - Put every reference to a connected product on its OWN line, as a markdown link, never inside a sentence: `[NOD-57 — Provide team access](https://linear.app/…)`. Nod draws those lines itself; a link buried mid-sentence is drawn as plain text and looks like a mistake.
     """
 }
+
+/// A beat's answer is read on its own, hours after it was written, by somebody
+/// deciding what to do with their morning. That is a different artefact from a
+/// reply in a conversation — it needs a shape a person can scan in ten seconds
+/// and act on — so the length rule in [STYLE] is explicitly lifted here rather
+/// than left to fight with it.
+///
+/// The section names are the model's to choose. Fixing them ("FIRE DRILL")
+/// would fit a morning briefing and read as nonsense on a weekly review, which
+/// is the same beat mechanism asking a different question.
+private let beatReportRules = """
+
+
+[REPORT FORMAT]
+- This answer is a scheduled briefing the user reads on its own, not a turn in a conversation. It REPLACES the length rule in [STYLE]: write the whole report.
+- Three to five numbered sections. Head each one with `## 1. TITLE IN CAPITALS`, and name it for what it actually holds in THIS report — the names must fit the question that was asked.
+- Order the sections by what needs the user first: what is blocking someone else, then the one thing worth their morning, then everything still open.
+- Open every section with ONE bold sentence stating the finding — `**nod-ios PR #27 is blocking your reviewer.**` — then two or three sentences of the substance behind it: who is waiting, what the gate is, what changes if it moves.
+- Put `---` on its own line between sections.
+- Make the last section a bullet list. Lead each bullet with a bold noun phrase naming the thing, then what to do about it in one sentence.
+- Name real things: repositories, branches, PR numbers, files, people, tickets. A sentence that would read the same for any user on any day is a sentence to cut.
+- No greeting, no preamble, no restating the question, no sign-off, no "let me know if". The first line of the report is the first section heading.
+"""
 
 private let screenContextRules = """
 [YOUR SCREEN]
