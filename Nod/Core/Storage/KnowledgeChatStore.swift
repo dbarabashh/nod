@@ -519,7 +519,15 @@ extension KnowledgeChatStore {
         // something. Asking to book a meeting today with someone the entity
         // graph knows matches both a name and a date window, so the request was
         // being answered with an empty search result instead of being carried out.
-        if !prepared.needsSessions, !turnTools.isEmpty {
+        //
+        // A question about the user's own recent activity holds it back, though.
+        // "What was I working on", "did I miss anything" is not an action
+        // however the router reads it, and the screen record is the only place
+        // its answer lives — taking this path answered it from Slack and Linear
+        // alone. Read from the model's flag and from the phrase list alike, for
+        // the reason `observed(for:aboutScreen:)` keeps both.
+        let asksAboutScreen = prepared.aboutScreen || ScreenRecall.window(for: prepared.standalone) != nil
+        if !prepared.needsSessions, !asksAboutScreen, !turnTools.isEmpty {
             Log.ui.info("chat: acting without retrieval")
             thinkingScript = ChatThinking.acting
             let system = PromptLibrary.buildKnowledgeSystem(
