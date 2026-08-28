@@ -218,6 +218,41 @@ evaluate the candidate's English from the original passages.
   speech is preserved in the transcript.
 - **Meeting persistence (#14)** — meetings are stored in a Supabase `meetings`
   table from day 1 (no local JSON), with soft delete + 30-day trash (#16).
+- **Live-room approval (unreleased, sandbox only)** — `join_live_room` now
+  returns `status`, and a join the server cannot prove from the caller's own
+  synced calendar lands as `pending` until the host approves it. `find_live_room`
+  returns a null `host_name` to a caller it cannot place in the meeting.
+
+  A build that predates the change reads a `pending` row as an ordinary join —
+  the listener watches a bar whose transcript never fills, and the host, whose
+  `room_listeners_of` now answers only for `joined`, never sees a request. Both
+  failures are silent. No shipped client is affected (`main` carries no
+  live-room code and the released build is 69), but the gate below makes that
+  hold however the feature is rolled out.
+
+  **`app_config.live_room_required_build` gates both ends.** It ships at
+  `2147483647` — no build qualifies — so the live room is **off in every
+  environment**, including after a merge to prod, until somebody turns it on.
+  `find_live_room` and `join_live_room` answer nothing when either the caller's
+  or the host's `profiles.app_build` is below it, so an old client is never
+  offered the room rather than being refused halfway through one. Leaving,
+  approving and denying stay open at any build, so nobody is trapped in a room.
+
+  Turn it on per branch, never in a migration (`.agents/rules/supabase.md`):
+
+  ```sql
+  select public.activate_live_room(<build that ships the approval UI>);
+  ```
+
+  Service-role only and monotonic — it refuses to lower an active gate.
+
+  **Deploy order:** migrations first is safe (the feature stays off), then the
+  client, then `activate_live_room` with that client's build. Rolling the
+  migrations back is safe too: `JoinedRoom.status` is optional and an absent
+  field reads as the old `joined` behaviour. Tracked as NOD-118.
+
+  A team share is separately still reachable by an administrator who invites an
+  account into the team (NOD-117); the policy pages say so until it is fixed.
 
 ## Official AI connectors
 
