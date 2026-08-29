@@ -104,6 +104,7 @@
 		3F276549C6BAD7056E57574B /* DemoDailyModesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39AFCD075DFE37BB0BCCAA06 /* DemoDailyModesView.swift */; };
 		3FA8A49FD981F4AFA8915107 /* MemoryBrief.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E6D976B12EB435E3C24123 /* MemoryBrief.swift */; };
 		40D46EF1E151F54DA5D287B7 /* HomeSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 321B1B8E80031FC6CC160F5C /* HomeSidebar.swift */; };
+		40F21327838B2810DFE35EEC /* CalendarSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5D9380111E863E607655EC /* CalendarSourceTests.swift */; };
 		414E1A30A67B4BBAD84E1508 /* Organization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1368FED05B1AAADD5ECBFA86 /* Organization.swift */; };
 		415445EE2323063ED08DD189 /* ExcludedAppsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD8172FCD484A89584DE1688 /* ExcludedAppsPane.swift */; };
 		415C4A59BEC26D4A49F97022 /* TranscriptOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC58FA0EB4DF64C449857718 /* TranscriptOrderingTests.swift */; };
@@ -630,6 +631,7 @@
 		6B0009E653E018DA8CC6ECC4 /* ConnectToolsRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectToolsRow.swift; sourceTree = "<group>"; };
 		6BA796C49C289C2CF32FF050 /* SpeakerChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerChip.swift; sourceTree = "<group>"; };
 		6C5D8109B9D3813E03034E16 /* LLMProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProxyClient.swift; sourceTree = "<group>"; };
+		6D5D9380111E863E607655EC /* CalendarSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarSourceTests.swift; sourceTree = "<group>"; };
 		6D976F928680016234925545 /* KnowledgeThreadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeThreadStore.swift; sourceTree = "<group>"; };
 		6DD4A68D8E88ECBCB84B90E2 /* AppearancePreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearancePreference.swift; sourceTree = "<group>"; };
 		6E351CFFCCEFD7BD8A281DB4 /* BeatSchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeatSchedule.swift; sourceTree = "<group>"; };
@@ -1287,6 +1289,7 @@
 				7A4AC3ED42822F07F1AB0F1F /* CalendarAttendeeTests.swift */,
 				94936609404CC7E07696E3D6 /* CalendarOccurrenceTests.swift */,
 				2A7E8DCDB4D95ECBAA4138AF /* CalendarRecencyTests.swift */,
+				6D5D9380111E863E607655EC /* CalendarSourceTests.swift */,
 				AE6259890903B3961C06F4FE /* CallBriefTests.swift */,
 				761DE5CAA3523940BA241F36 /* ChatFailureTests.swift */,
 				8832BAD2DAAE05BEC82F0569 /* ChatHomeSuggestionsTests.swift */,
@@ -1859,6 +1862,7 @@
 				3335EAB0EDE0444A1CEEEF0A /* CalendarAttendeeTests.swift in Sources */,
 				03A09E71FA2A69EEF1705887 /* CalendarOccurrenceTests.swift in Sources */,
 				7771B87DA2126C5D9062C27F /* CalendarRecencyTests.swift in Sources */,
+				40F21327838B2810DFE35EEC /* CalendarSourceTests.swift in Sources */,
 				0DBF613971F1DA9950F1BFD0 /* CallBriefTests.swift in Sources */,
 				317B9329F595E6ED0FCEBEB9 /* ChatFailureTests.swift in Sources */,
 				C4BF79F21CDDA1A2699E0BD6 /* ChatHomeSuggestionsTests.swift in Sources */,

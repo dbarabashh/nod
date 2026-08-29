@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-28_
+_Last updated: 2026-08-29_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -434,7 +434,7 @@ the data goes. Neither is on by default and neither implies the other.
 |---|---|
 | **Default** | **Off.** You switch it on yourself in Settings → General, and macOS then asks you separately. It is never switched on by an app update. |
 | **What it is not** | **Not a connected account.** There is no sign-in, no OAuth, no token, and no calendar API. Nod reads the calendar database already on your Mac — the same one the Calendar app shows you — through the macOS **Calendars** permission, exactly like the microphone permission you already granted. This reaches whatever accounts you have added to your Mac, including iCloud calendars that no integration can see. |
-| **When it reads** | On a timer while the switch is on — about every 20 seconds — plus when a call is detected and once more when a recording finishes: an invitation is often written minutes *after* the call started, so that last read is what finds it. The timer stops the moment you switch the feature off. |
+| **When it reads** | On a timer while the switch is on — about every 20 seconds — plus when a call is detected and once more when a recording finishes: an invitation is often written minutes *after* the call started, so that last read is what finds it. Switching the feature off stops Nod reading your Mac's calendar immediately. The timer itself keeps running only if you have also connected a calendar account under (a), and it then looks at that one alone. |
 | **What it reads** | Events around the moment it asks — the title, the start and end times, whether you declined it, whether the entry contains a video-call link, and **who was invited**: each person's name (or, where the invitation carries no name, their address), and which of them is you. Rooms and equipment are skipped, as is anyone who declined. |
 | **What it stores** | Nothing of its own. The **names of the people invited** go into the recording's own summary, the same way the participant list read from a conferencing app already does (§ 3.10(a)) — so a summary can say "Alina" instead of "Speaker 2". The title is compared against your existing sessions on your Mac and dropped, and no separate record of the event or its invitees is ever written. |
 | **Writing** | Never. Nod does not create, change, or delete anything in your calendar. |

@@ -124,6 +124,26 @@ struct CalendarSettingsSection: View {
                 SettingsRowDivider()
                 if calendar.status == .denied { blockedRow } else { notAskedRow }
             }
+
+            // A switch that reads "off" while Nod is announcing meetings is a
+            // switch nobody can trust. It governs this Mac's calendar; the
+            // connected account is the other half of the same feature and turns
+            // off where it was turned on.
+            if calendar.hasAnySource, !calendar.isReadable {
+                SettingsRowDivider()
+                connectedAccountRow
+            }
+        }
+    }
+
+    private var connectedAccountRow: some View {
+        SettingsRow(
+            icon: "nc-link",
+            title: "A connected calendar is already answering",
+            subtitle: "This switch covers your Mac's own calendar. Nod is reading the account you connected "
+                + "in Integrations, so it still knows which meeting is starting — disconnect it there to stop that."
+        ) {
+            EmptyView()
         }
     }
 

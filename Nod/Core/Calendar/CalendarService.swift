@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import EventKit
 import Foundation
 
@@ -32,6 +33,7 @@ final class CalendarService: ObservableObject {
             // has never been warmed and the first brief would pay the cold
             // query on the frame the card appears.
             warm()
+            refreshSources()
             Task { await ensureAccess() }
         }
     }
@@ -55,7 +57,21 @@ final class CalendarService: ObservableObject {
 
     /// The server's copy of a calendar this Mac cannot see for itself. Optional
     /// because previews and tests build a service with no backend.
-    var remote: RemoteCalendar?
+    var remote: RemoteCalendar? {
+        didSet {
+            // Synchronously, not through a `Task`: `RemoteCalendar` is
+            // `@MainActor`, so this only ever fires from the main actor, and a
+            // hop would leave `hasAnySource` a tick stale — which is a tick in
+            // which the watcher is still stopped for a calendar that has loaded.
+            remoteObserver = remote?.$occurrences
+                .sink { [weak self] _ in
+                    MainActor.assumeIsolated { self?.refreshSources() }
+                }
+            refreshSources()
+        }
+    }
+
+    private var remoteObserver: AnyCancellable?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -106,8 +122,23 @@ final class CalendarService: ObservableObject {
     /// good source. Gating the scheduled watcher on `isReadable` switched both
     /// the meeting offer and the live-room lookup off for precisely those
     /// people, while the server held every row needed to serve them.
-    var hasAnySource: Bool {
-        isEnabled && (status == .authorized || remote?.hasOccurrences == true)
+    ///
+    /// Published rather than computed: the scheduled watcher owns a timer that
+    /// has to start and stop with this answer, and the answer moves for three
+    /// separate reasons — the switch, the macOS grant, and a connected calendar
+    /// loading its first events.
+    @Published private(set) var hasAnySource = false
+
+    /// `isEnabled` governs the macOS Calendars permission and nothing else.
+    /// `privacy.md` § 3.11 gives the two sources an off-switch each and says in
+    /// as many words that neither implies the other — a connected account is
+    /// turned off by disconnecting it, in Integrations. Requiring the General
+    /// switch here as well meant somebody who connected Google in onboarding,
+    /// which is the only calendar we ask for there and never shows that switch,
+    /// got no meeting offer, no live-room lookup, and — because the recording
+    /// then had no invitation to read — the worst of the two diarization paths.
+    private func refreshSources() {
+        hasAnySource = isReadable || remote?.hasOccurrences == true
     }
 
     /// Brings the connected calendar's snapshot forward if it has gone stale.
@@ -138,6 +169,7 @@ final class CalendarService: ObservableObject {
         // the settings row's body each time.
         guard next != status else { return }
         status = next
+        refreshSources()
         // Guaranteed a transition by the guard, so this is the moment access was
         // gained and never a repeat of it.
         if next == .authorized { warm() }

@@ -107,14 +107,18 @@ final class ScheduledMeetingWatcher: ObservableObject {
         self.session = session
         self.rooms = rooms
 
-        // The switch owns the loop, not just the query inside it. Left running
-        // against a `calendar.isReadable` guard the timer would keep waking a
-        // sleeping Mac to learn nothing — and `privacy.md` § 3.11 promises the
-        // timer stops when the switch does, which a guard does not deliver.
-        switchObserver = calendar.$isEnabled
+        // Having a source owns the loop, not just the query inside it. Left
+        // running against a `calendar.isReadable` guard the timer would keep
+        // waking a sleeping Mac to learn nothing — and `privacy.md` § 3.11
+        // promises Nod stops reading the moment the switch goes off, which a
+        // guard inside a still-ticking loop does not deliver.
+        //
+        // `hasAnySource`, not `isEnabled`: a connected calendar account is the
+        // other half of § 3.11 and has its own off-switch, in Integrations.
+        switchObserver = calendar.$hasAnySource
             .removeDuplicates()
-            .sink { [weak self] enabled in
-                if enabled { self?.start() } else { self?.stop() }
+            .sink { [weak self] hasSource in
+                if hasSource { self?.start() } else { self?.stop() }
             }
         observeSleep()
     }
@@ -127,7 +131,7 @@ final class ScheduledMeetingWatcher: ObservableObject {
     }
 
     func start() {
-        guard timer == nil, calendar.isEnabled else { return }
+        guard timer == nil, calendar.hasAnySource else { return }
         Log.screen.info("scheduled: watching the calendar (every \(Int(Self.interval))s)")
         timer = Task { [weak self] in
             while !Task.isCancelled {

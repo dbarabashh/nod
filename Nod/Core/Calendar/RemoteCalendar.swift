@@ -36,6 +36,19 @@ final class RemoteCalendar: ObservableObject {
         !occurrences.isEmpty
     }
 
+    /// Previews and tests: a connected calendar that already holds these, with
+    /// no backend to load them from.
+    static func preview(_ occurrences: [CalendarOccurrence]) -> RemoteCalendar {
+        let calendar = RemoteCalendar(supabase: nil)
+        calendar.adopt(occurrences)
+        return calendar
+    }
+
+    /// Seam for the same: the real load path is a network read.
+    func adopt(_ occurrences: [CalendarOccurrence]) {
+        self.occurrences = occurrences
+    }
+
     /// Re-reads when the snapshot has aged past `maxAge`.
     ///
     /// Activation alone is not enough. A Mac sitting with Nod in the background
