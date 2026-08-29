@@ -8,7 +8,7 @@ struct TutorialStep: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(strings.tutorialTitle)
                 .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(Theme.GlassButton.text)
+                .foregroundStyle(Theme.Palette.ink)
                 .padding(.bottom, 24)
 
             VStack(alignment: .leading, spacing: 18) {
@@ -19,7 +19,7 @@ struct TutorialStep: View {
 
             Text(strings.tutorialPrivacy)
                 .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Theme.Palette.muted)
+                .foregroundStyle(Theme.Palette.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 22)
 
@@ -51,21 +51,21 @@ private struct BulletRow: View {
         HStack(alignment: .top, spacing: 14) {
             Image(bullet.icon)
                 .icon(15)
-                .foregroundStyle(Theme.Palette.cyan)
+                .foregroundStyle(Theme.Palette.ink)
                 .frame(width: 34, height: 34)
                 .background(
                     Circle()
-                        .fill(Theme.Palette.cyan.opacity(0.08))
-                        .overlay(Circle().stroke(Theme.Palette.cyan.opacity(0.22), lineWidth: 0.5))
+                        .fill(Theme.Palette.overlay.opacity(0.12))
+                        .overlay(Circle().stroke(Theme.Palette.overlay.opacity(0.28), lineWidth: 0.5))
                 )
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(bullet.title)
                     .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
+                    .foregroundStyle(Theme.Palette.ink)
                 Text(bullet.body)
                     .font(.system(size: 12.5, weight: .regular))
-                    .foregroundStyle(Theme.Palette.muted)
+                    .foregroundStyle(Theme.Palette.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.top, 4)

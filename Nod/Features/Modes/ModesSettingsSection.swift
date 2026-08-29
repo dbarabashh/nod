@@ -132,10 +132,10 @@ struct ModesSettingsSection: View {
             .padding(.vertical, 7)
             .background(
                 Capsule(style: .continuous)
-                    .fill(isEditing ? Color.white.opacity(0.12) : Color.white.opacity(0.04))
+                    .fill(Theme.Palette.overlay.opacity(isEditing ? 0.12 : 0.04))
                     .overlay(
                         Capsule(style: .continuous)
-                            .stroke(isEditing ? Color.white.opacity(0.18) : .clear, lineWidth: 0.5)
+                            .stroke(isEditing ? Theme.Palette.overlay.opacity(0.18) : .clear, lineWidth: 0.5)
                     )
             )
             .contentShape(Capsule(style: .continuous))
@@ -219,7 +219,7 @@ private struct ModeEditorForm: View {
                         .padding(2)
                         .background(
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.white.opacity(0.04))
+                                .fill(Theme.Palette.surface)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 6)
                                         .stroke(Theme.Palette.border, lineWidth: 1)
@@ -251,7 +251,7 @@ private struct ModeEditorForm: View {
         .padding(18)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.03))
+                .fill(Theme.Palette.overlay.opacity(0.03))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(Theme.Palette.border, lineWidth: 0.5)
@@ -267,11 +267,11 @@ private struct ModeEditorForm: View {
         } label: {
             Image(icon)
                 .icon(13)
-                .foregroundStyle(selected ? Color.white : Theme.Palette.muted)
+                .foregroundStyle(selected ? Theme.Palette.onAccent : Theme.Palette.muted)
                 .frame(width: 34, height: 30)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(selected ? Theme.Palette.violet.opacity(0.8) : Color.white.opacity(0.05))
+                        .fill(selected ? Theme.Palette.violet.opacity(0.8) : Theme.Palette.overlay.opacity(0.05))
                 )
         }
         .buttonStyle(.plain)

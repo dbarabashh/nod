@@ -32,10 +32,10 @@ struct MeetingLanguagePrompt: View {
             HStack(spacing: 8) {
                 Image("nc-earth")
                     .icon(12)
-                    .foregroundColor(.white.opacity(0.85))
+                    .foregroundColor(Theme.Palette.ink.opacity(0.85))
                 Text("Nod language")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(0.72))
+                    .foregroundColor(Theme.Palette.ink.opacity(0.72))
                 Spacer(minLength: 0)
                 picker
             }
@@ -47,13 +47,13 @@ struct MeetingLanguagePrompt: View {
             // So the card states what it governs, and what it does not.
             Text(Self.scopeNote)
                 .font(.system(size: 11, weight: .regular))
-                .foregroundColor(.white.opacity(0.55))
+                .foregroundColor(Theme.Palette.ink.opacity(0.55))
                 .fixedSize(horizontal: false, vertical: true)
 
             Toggle(isOn: $askEachTime) {
                 Text("Ask before each meeting")
                     .font(.system(size: 11.5, weight: .regular))
-                    .foregroundColor(.white.opacity(0.72))
+                    .foregroundColor(Theme.Palette.ink.opacity(0.72))
             }
             .toggleStyle(.checkbox)
 
@@ -79,7 +79,7 @@ struct MeetingLanguagePrompt: View {
                 Image("nc-chevron-expand-y")
                     .icon(8)
             }
-            .foregroundColor(.white.opacity(0.95))
+            .foregroundColor(Theme.Palette.ink.opacity(0.95))
         }
         .plainMenuChrome()
         .fixedSize()
@@ -89,7 +89,7 @@ struct MeetingLanguagePrompt: View {
         Button(action: action) {
             let label = Text(title)
                 .font(.system(size: 13, weight: primary ? .semibold : .medium))
-                .foregroundColor(primary ? Theme.GlassButton.text : .white.opacity(0.72))
+                .foregroundColor(primary ? Theme.GlassButton.text : Theme.Palette.ink.opacity(0.72))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
             if primary {
@@ -97,7 +97,7 @@ struct MeetingLanguagePrompt: View {
             } else {
                 label.background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white.opacity(0.06))
+                        .fill(Theme.Palette.overlay.opacity(0.06))
                 )
             }
         }

@@ -45,13 +45,13 @@ struct CalendarStep: View {
         VStack(spacing: 0) {
             Text(CalendarCopy.title)
                 .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(Theme.GlassButton.text)
+                .foregroundStyle(Theme.Palette.ink)
                 .padding(.bottom, 10)
 
             Text(CalendarCopy.body)
                 .multilineTextAlignment(.center)
                 .font(.system(size: 12.5))
-                .foregroundStyle(Theme.Palette.muted)
+                .foregroundStyle(Theme.Palette.inkSecondary)
                 .frame(maxWidth: 420)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, 24)
@@ -114,7 +114,7 @@ struct CalendarStep: View {
                 Button("Not now", action: onFinish)
                     .buttonStyle(.plain)
                     .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(Theme.Palette.muted)
+                    .foregroundStyle(Theme.Palette.inkSecondary)
                     .linkCursor()
             }
 
@@ -229,7 +229,7 @@ struct CalendarPromptView: View {
             RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
                 .stroke(Theme.Palette.borderStrong, lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+        .shadow(color: DesignTokens.Shadow.ink(light: 0.16, dark: 0.35), radius: 24, y: 10)
         .task { await integrations.refresh() }
         .onDisappear { integrations.cancelPending() }
     }
@@ -295,7 +295,7 @@ struct CalendarPromptHost<Content: View>: View {
             content
 
             if onboarding.needsCalendarPrompt, !email.shouldPresentPrompt, !isDismissedForSession {
-                Color.black.opacity(0.28)
+                Theme.Palette.scrim
                     .ignoresSafeArea()
                 CalendarPromptView(integrations: integrations) {
                     isDismissedForSession = true

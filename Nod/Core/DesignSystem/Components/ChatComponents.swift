@@ -12,7 +12,7 @@ extension View {
     func chatBubbleBackground(isUser: Bool) -> some View {
         background(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(isUser ? Color.white.opacity(0.14) : Theme.Palette.surface)
+                .fill(isUser ? Theme.Palette.userTurn : Theme.Palette.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
                         .stroke(isUser ? Color.clear : Theme.Palette.border, lineWidth: 0.5)
@@ -468,7 +468,7 @@ struct UserTextBubble: View {
                 if marks.isEmpty {
                     Text(text)
                         .font(.system(size: MentionText.font.pointSize))
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(Theme.Palette.ink)
                         .textSelection(.enabled)
                 } else {
                     MentionTextLabel(text: text, marks: marks)

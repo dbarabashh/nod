@@ -4,29 +4,23 @@ struct SignInView: View {
     @EnvironmentObject private var auth: AuthService
 
     var body: some View {
-        ZStack {
-            Image("WelcomeSky")
-                .resizable()
-                .interpolation(.high)
-                .scaledToFill()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                .ignoresSafeArea()
-
+        WelcomeBackdrop {
             VStack(spacing: 24) {
                 Spacer(minLength: 0)
 
                 VStack(spacing: 14) {
                     Image("NodGlyphInk")
+                        .renderingMode(.template)
                         .resizable()
                         .interpolation(.high)
                         .scaledToFit()
+                        .foregroundStyle(Theme.Palette.ink)
                         .frame(width: 76, height: 76)
                         .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 6)
 
                     Text("Welcome to Nod")
                         .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(Theme.GlassButton.text)
+                        .foregroundStyle(Theme.Palette.ink)
                 }
 
                 Button {

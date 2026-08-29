@@ -19,10 +19,10 @@ struct EmailConsentChoiceList: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(topic.title)
                                 .font(.system(size: 12.5, weight: .semibold))
-                                .foregroundStyle(Theme.Palette.muted)
+                                .foregroundStyle(Theme.Palette.ink)
                             Text(topic.detail)
                                 .font(.system(size: 11.5))
-                                .foregroundStyle(Theme.Palette.muted)
+                                .foregroundStyle(Theme.Palette.inkSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -73,7 +73,7 @@ struct EmailConsentPromptHost<Content: View>: View {
             content
 
             if preferences.shouldPresentFullPrompt, !isDismissedForSession {
-                Color.black.opacity(0.28)
+                Theme.Palette.scrim
                     .ignoresSafeArea()
                 EmailConsentPromptView(
                     preferences: preferences,
@@ -129,7 +129,7 @@ struct LifecycleConsentUpgradeCard: View {
             RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
                 .stroke(Theme.Palette.borderStrong, lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.2), radius: 16, y: 6)
+        .shadow(color: DesignTokens.Shadow.ink(light: 0.10, dark: 0.20), radius: 16, y: 6)
     }
 
     private func save(subscribed: Bool) {
@@ -208,7 +208,7 @@ struct EmailConsentPromptView: View {
             RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
                 .stroke(Theme.Palette.borderStrong, lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+        .shadow(color: DesignTokens.Shadow.ink(light: 0.16, dark: 0.35), radius: 24, y: 10)
     }
 
     private func save(nothing: Bool) {

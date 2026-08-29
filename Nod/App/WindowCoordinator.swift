@@ -113,7 +113,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     /// Shared chrome for every coordinator-owned window: transparent
-    /// titlebar, dark appearance, this coordinator as delegate, centred.
+    /// titlebar, this coordinator as delegate, centred. The theme is not set
+    /// here — these windows inherit `NSApp.appearance`, which is what lets the
+    /// Appearance setting reach them.
     private func makeWindow(contentRect: NSRect, styleMask: NSWindow.StyleMask) -> NSWindow {
         let window = NSWindow(
             contentRect: contentRect,
@@ -124,7 +126,6 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.appearance = NSAppearance(named: .darkAqua)
         window.center()
         return window
     }
@@ -375,7 +376,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 demoPlayback: services.demoPlayback,
                 captureSurface: services.captureSurface,
                 audioCapture: services.audioCapture,
-                permissions: services.permissions
+                permissions: services.permissions,
+                appearance: services.appearance
             )
         )
     }

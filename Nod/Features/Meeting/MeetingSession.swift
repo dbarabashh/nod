@@ -17,13 +17,6 @@ enum MeetingState: Equatable {
         case .paused: "Paused"
         }
     }
-
-    /// Tint for the status label. Paused is the only state that diverges —
-    /// the warning (amber) slot so "stopped, not recording" reads at a glance,
-    /// matching the menu-bar paused dot. Recording/idle use the muted default.
-    var statusTint: Color {
-        self == .paused ? Theme.Palette.warning : .white.opacity(0.82)
-    }
 }
 
 /// Non-nil while the "still recording?" prompt is showing. `secondsRemaining`

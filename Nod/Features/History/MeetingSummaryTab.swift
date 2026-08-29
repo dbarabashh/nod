@@ -87,7 +87,7 @@ struct MeetingSummaryTab: View {
             .scrollContentBackground(.hidden)
             .frame(minHeight: 320)
             .padding(10)
-            .background(Color.white.opacity(0.04))
+            .background(Theme.Palette.surface)
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(Theme.Palette.border, lineWidth: 0.5)

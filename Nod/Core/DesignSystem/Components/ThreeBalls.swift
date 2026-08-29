@@ -69,5 +69,5 @@ struct ThreeBalls: View {
         ThreeBalls()
     }
     .padding(24)
-    .background(Color.black)
+    .background(Theme.Palette.bg)
 }

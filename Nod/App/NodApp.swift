@@ -75,6 +75,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.windows = windows
         self.statusBar = statusBar
 
+        // Before any window is built, so the first one comes up already in the
+        // user's theme rather than flashing the system's.
+        services.appearance.apply()
+
         services.hotkeys.onTrigger = { [weak windows] action in
             switch action {
             case .togglePanel:

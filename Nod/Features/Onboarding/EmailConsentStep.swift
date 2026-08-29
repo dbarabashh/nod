@@ -13,7 +13,7 @@ struct EmailConsentStep: View {
         VStack(spacing: 0) {
             Text("Stay in the loop — only if you want")
                 .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(Theme.GlassButton.text)
+                .foregroundStyle(Theme.Palette.ink)
                 .padding(.bottom, 8)
 
             Text(
@@ -22,7 +22,7 @@ struct EmailConsentStep: View {
             )
             .multilineTextAlignment(.center)
             .font(.system(size: 12.5))
-            .foregroundStyle(Theme.Palette.muted)
+            .foregroundStyle(Theme.Palette.inkSecondary)
             .frame(maxWidth: 440)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.bottom, 20)
@@ -40,13 +40,14 @@ struct EmailConsentStep: View {
             HStack(spacing: 12) {
                 Link("Privacy policy", destination: EmailConsentLinks.privacy)
                     .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Theme.Palette.inkSecondary)
 
                 Spacer(minLength: 12)
 
                 Button("Not now") { save(nothing: true) }
                     .buttonStyle(.plain)
                     .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(Theme.Palette.muted)
+                    .foregroundStyle(Theme.Palette.inkSecondary)
                     .disabled(preferences.isBusy)
                     .linkCursor()
 

@@ -70,7 +70,7 @@ struct LabelSwatchRow: View {
                 Circle()
                     .fill(SessionLabel.color(fromHex: hex) ?? Theme.Palette.violet)
                     .frame(width: 18, height: 18)
-                    .overlay(Circle().stroke(Color.white, lineWidth: selection == hex ? 2 : 0))
+                    .overlay(Circle().stroke(Theme.Palette.ink, lineWidth: selection == hex ? 2 : 0))
                     .overlay(Circle().stroke(Theme.Palette.border, lineWidth: 0.5))
                     .contentShape(Circle())
                     .onTapGesture { selection = hex }

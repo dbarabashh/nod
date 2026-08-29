@@ -31,6 +31,7 @@ struct SettingsView: View {
     private let captureSurface: CaptureSurfacePreference?
     private let audioCapture: AudioCaptureService?
     private let permissions: PermissionManager?
+    private let appearance: AppearancePreference?
 
     init(
         hotkey: HotkeyManager,
@@ -59,6 +60,7 @@ struct SettingsView: View {
         captureSurface: CaptureSurfacePreference? = nil,
         audioCapture: AudioCaptureService? = nil,
         permissions: PermissionManager? = nil,
+        appearance: AppearancePreference? = nil,
         focusSubscription: Bool = false,
         focusModes: Bool = false
     ) {
@@ -88,6 +90,7 @@ struct SettingsView: View {
         self.captureSurface = captureSurface
         self.audioCapture = audioCapture
         self.permissions = permissions
+        self.appearance = appearance
         _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .general))
     }
 
@@ -237,10 +240,10 @@ struct SettingsView: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.10) : .clear)
+                    .fill(isSelected ? Theme.Palette.overlay.opacity(0.10) : .clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                            .stroke(isSelected ? Color.white.opacity(0.18) : .clear, lineWidth: 0.5)
+                            .stroke(isSelected ? Theme.Palette.overlay.opacity(0.18) : .clear, lineWidth: 0.5)
                     )
             )
             .contentShape(Rectangle())
@@ -290,7 +293,8 @@ struct SettingsView: View {
             demoPlayback: demoPlayback,
             captureSurface: captureSurface,
             audioCapture: audioCapture,
-            permissions: permissions
+            permissions: permissions,
+            appearance: appearance
         )
     }
 

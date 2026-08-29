@@ -250,7 +250,7 @@ struct MainWindowView: View {
                 SessionChatView(meeting: meeting).id(meeting.id)
             }
             .frame(width: width)
-            .background(Color.white.opacity(0.025))
+            .background(Theme.Palette.overlay.opacity(0.025))
         }
     }
 
@@ -413,7 +413,7 @@ private struct UndoToast: View {
                     .icon(9)
                     .foregroundColor(Theme.Palette.muted)
                     .frame(width: 18, height: 18)
-                    .background(Circle().fill(Color.white.opacity(0.08)))
+                    .background(Circle().fill(Theme.Palette.overlay.opacity(0.08)))
             }
             .buttonStyle(.plain)
         }
@@ -422,11 +422,11 @@ private struct UndoToast: View {
         .frame(maxWidth: 380)
         .background(
             Capsule(style: .continuous)
-                .fill(.ultraThinMaterial)
+                .glassFill()
                 .overlay(Capsule().fill(Theme.Palette.bgSoft.opacity(0.85)))
                 .overlay(Capsule().stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
         )
-        .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
+        .shadow(color: DesignTokens.Shadow.ink(light: 0.16, dark: 0.35), radius: 14, x: 0, y: 6)
     }
 }
 

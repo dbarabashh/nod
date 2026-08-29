@@ -85,8 +85,8 @@ final class MentionCell: NSTextAttachmentCell {
     private static let gap: CGFloat = 5
     private static let horizontalPadding: CGFloat = 7
     private static let verticalPadding: CGFloat = 3
-    private static let fill = NSColor.white.withAlphaComponent(0.14)
-    private static let border = NSColor.white.withAlphaComponent(0.22)
+    private static let fill = NSColor.themed(light: .black.withAlphaComponent(0.14), dark: .white.withAlphaComponent(0.14))
+    private static let border = NSColor.themed(light: .black.withAlphaComponent(0.22), dark: .white.withAlphaComponent(0.22))
 
     /// Everything below is fixed once the cell exists, and the layout manager
     /// asks for `cellSize()` on every pass while `draw` runs on every redraw —
@@ -188,7 +188,7 @@ enum MentionText {
     /// The field's height while it holds one line.
     static let rowHeight = lineHeight + 2 * verticalInset
 
-    static let ink = NSColor.white
+    static let ink = Theme.Palette.inkNS
 
     /// The used rect alone, which is also what `NSTextView` sizes itself to.
     ///

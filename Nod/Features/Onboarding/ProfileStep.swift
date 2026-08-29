@@ -53,7 +53,7 @@ struct ProfileStep: View {
         VStack(spacing: 0) {
             Text("A little about you")
                 .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(Theme.GlassButton.text)
+                .foregroundStyle(Theme.Palette.ink)
                 .padding(.bottom, 8)
 
             Text(
@@ -61,7 +61,7 @@ struct ProfileStep: View {
             )
             .multilineTextAlignment(.center)
             .font(.system(size: 13, weight: .regular))
-            .foregroundStyle(Theme.Palette.muted)
+            .foregroundStyle(Theme.Palette.inkSecondary)
             .frame(maxWidth: 400)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.bottom, 26)
@@ -113,7 +113,7 @@ struct ProfileStep: View {
             Button("Skip for now", action: onSkip)
                 .buttonStyle(.plain)
                 .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(Theme.Palette.muted)
+                .foregroundStyle(Theme.Palette.inkSecondary)
         }
         .padding(.horizontal, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -152,12 +152,12 @@ private struct ProfileField: View {
             Text(label.uppercased())
                 .font(.system(size: 10, weight: .bold))
                 .tracking(0.7)
-                .foregroundStyle(Theme.Palette.muted)
+                .foregroundStyle(Theme.Palette.inkSecondary)
 
             if let helper {
                 Text(helper)
                     .font(.system(size: 12))
-                    .foregroundStyle(Theme.Palette.muted)
+                    .foregroundStyle(Theme.Palette.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -197,7 +197,7 @@ private struct ProfilePicker<Option: Identifiable & Hashable>: View {
             Text(label.uppercased())
                 .font(.system(size: 10, weight: .bold))
                 .tracking(0.7)
-                .foregroundStyle(Theme.Palette.muted)
+                .foregroundStyle(Theme.Palette.inkSecondary)
 
             Menu {
                 ForEach(options) { option in
@@ -221,7 +221,7 @@ private struct ProfilePicker<Option: Identifiable & Hashable>: View {
             if let footnote {
                 Text(footnote)
                     .font(.system(size: 11.5))
-                    .foregroundStyle(Theme.Palette.muted)
+                    .foregroundStyle(Theme.Palette.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -262,7 +262,7 @@ private extension View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(0.7))
+                    .fill(Color.white.opacity(0.92))
                     .overlay(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .stroke(
@@ -275,8 +275,7 @@ private extension View {
 }
 
 #Preview {
-    ZStack {
-        Theme.Palette.bg.ignoresSafeArea()
+    WelcomeBackdrop {
         ProfileStep(
             initialName: "Dima",
             initialPreferences: "",

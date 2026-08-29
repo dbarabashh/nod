@@ -374,10 +374,10 @@ struct TooltipCard: View {
             tailEdge: tailEdge
         )
         return shape
-            .fill(.regularMaterial)
+            .glassFill()
             .overlay(shape.fill(Theme.Palette.bg.opacity(0.55)))
             .overlay(shape.stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
-            .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+            .shadow(color: DesignTokens.Shadow.ink(light: 0.14, dark: 0.22), radius: 10, x: 0, y: 4)
     }
 }
 

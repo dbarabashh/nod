@@ -79,6 +79,26 @@ large_tuple:
 todo:
   severity: warning
 
+# The Light theme rests on every colour coming from a token that knows both
+# themes. A hardcoded white scrim is invisible on Light and nothing in the Swift
+# code says so, so this is enforced rather than reviewed. Exclusions are the
+# three surfaces that deliberately don't follow the setting (see
+# docs/architecture.md § Appearance and transparency) plus the token files
+# themselves, which are where the literals belong.
+custom_rules:
+  hardcoded_color:
+    name: "Hardcoded Colour"
+    regex: '(?<![.\w])(Color|NSColor)\.(white|black)\b|(?<![.\w])Color\((red|white|hex):|(?<![\w])\.(white|black)\.opacity\('
+    message: "Use a Theme.Palette token; declare a new slot as Color.themed(light:dark:)."
+    severity: warning
+    excluded:
+      - "Nod/Core/DesignSystem/Theme"
+      - "Nod/Core/Storage/Label.swift"
+      - "Nod/App/Notch"
+      - "Nod/App/StatusItemController.swift"
+      - "Nod/Features/Onboarding"
+      - "Nod/Features/Auth/SignInView.swift"
+
 disabled_rules:
   - trailing_comma
 

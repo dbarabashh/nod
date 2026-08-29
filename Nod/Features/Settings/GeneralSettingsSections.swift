@@ -305,6 +305,7 @@ struct GeneralSettingsPane: View {
     let captureSurface: CaptureSurfacePreference?
     let audioCapture: AudioCaptureService?
     let permissions: PermissionManager?
+    let appearance: AppearancePreference?
     @AppStorage(MeetingLanguagePromptDefaults.defaultsKey) private var confirmLanguageBeforeMeeting = MeetingLanguagePromptDefaults.defaultValue
     @AppStorage(UISound.defaultsKey) private var soundsEnabled = true
 
@@ -314,6 +315,9 @@ struct GeneralSettingsPane: View {
             // is the one card that decides whether recording works at all.
             if let permissions {
                 RecordingPermissionsSection(permissions: permissions)
+            }
+            if let appearance {
+                AppearanceSection(preference: appearance)
             }
             if let meetingDetection {
                 MeetingDetectionSection(preference: meetingDetection)

@@ -54,6 +54,17 @@ final class GlyphIconInkTests: XCTestCase {
         XCTAssertLessThan(try spread(["nc-mic", "nc-stack-perspective", "nc-window-pointer"]), 1.12)
     }
 
+    /// The General settings pane's row icons — a single vertical column, where
+    /// one glyph drawn smaller than the rest is obvious at a glance. The two
+    /// Appearance icons are authored here rather than exported, so they are the
+    /// ones most likely to drift off the family's canvas coverage.
+    func testSettingsRowGlyphsMatch() throws {
+        XCTAssertLessThan(
+            try spread(["nc-contrast", "nc-transparency", "nc-video", "nc-gear-2", "nc-calendar"]),
+            1.12
+        )
+    }
+
     /// The recap card's footer: copy, and open the meeting in the main window.
     func testRecapFooterGlyphsMatch() throws {
         XCTAssertLessThan(try spread(["nc-files-2", "nc-arrow-up-right"]), 1.12)

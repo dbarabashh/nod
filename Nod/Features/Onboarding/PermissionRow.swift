@@ -20,7 +20,7 @@ struct PermissionRow: View {
                 .frame(width: 38, height: 38)
                 .background(
                     RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                        .fill(Color.white.opacity(0.6))
+                        .fill(Color.white.opacity(0.92))
                         .overlay(
                             RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                                 .stroke(Color.black.opacity(0.12), lineWidth: 0.5)
@@ -45,7 +45,7 @@ struct PermissionRow: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
-                .fill(Color.white.opacity(0.6))
+                .fill(Color.white.opacity(0.92))
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
                         .stroke(Color.black.opacity(0.12), lineWidth: 0.5)

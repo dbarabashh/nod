@@ -34,6 +34,9 @@ the macOS repository.
   Eclipse" tokens in `src/index.css` are a 1:1 port of
   `Nod/Core/DesignSystem/Theme`. Keep names aligned so the two codebases stay
   cross-referenceable; when a desktop token changes, flag the web port.
+  The flow runs the other way for one token: `Theme.Gradients.welcome` is
+  `nod-landing`'s hero blue (`HeroBackdrop`), ported stop for stop so the sky
+  behind sign-in is the one a user just saw on the site.
 - **Policy docs are authored here, rendered there.** `docs/policies/*.md` is the
   source; `nod-landing` publishes them at `hellonod.app/policies`. A policy edit
   here implies a landing-site update.

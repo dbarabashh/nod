@@ -47,8 +47,6 @@ final class LauncherPanel: NSPanel {
         hidesOnDeactivate = false
         animationBehavior = .utilityWindow
         acceptsMouseMovedEvents = true
-        // Content is hardcoded white-on-dark, same as the floating panel.
-        appearance = NSAppearance(named: .vibrantDark)
         // Follows the same "Visible when sharing" preference as the floating
         // panel — one switch for every Nod surface that can appear over a
         // shared screen, rather than a second rule the user has to discover.

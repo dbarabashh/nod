@@ -104,6 +104,9 @@ struct AppServices {
     /// Pending "open Settings on this pane" request, shared by the deep links
     /// that raise it and the window that renders Settings.
     let settingsFocus: SettingsFocus
+    /// Which theme Nod paints in, and whether its windows blur what's behind
+    /// them. Applied to `NSApp` at launch and on every change.
+    let appearance: AppearancePreference
 
     /// Construction ORDER is load-bearing — Supabase before the LLM client,
     /// auth before the stores that read it, callback wiring last.
@@ -336,7 +339,8 @@ struct AppServices {
             ),
             screenExclusions: screenExclusions,
             screenContext: screenContext,
-            settingsFocus: SettingsFocus()
+            settingsFocus: SettingsFocus(),
+            appearance: AppearancePreference()
         )
     }
 }

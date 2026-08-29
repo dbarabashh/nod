@@ -171,31 +171,8 @@ struct SessionsListView: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 8) {
-            Image("nc-magnifier")
-                .icon(12)
-                .foregroundStyle(Theme.Palette.muted)
-            TextField("Search sessions", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.Palette.ink)
-            if !searchQuery.isEmpty {
-                Button { searchQuery = "" } label: {
-                    Image("nc-circle-xmark")
-                        .icon(12)
-                        .foregroundStyle(Theme.Palette.muted)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(
-            Capsule(style: .continuous)
-                .fill(Color.white.opacity(0.06))
-                .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
-        )
-        .frame(maxWidth: 280)
+        SearchField(prompt: "Search sessions", text: $searchQuery)
+            .frame(maxWidth: 280)
     }
 
     /// The only permanent row of controls. What used to sit under it — a

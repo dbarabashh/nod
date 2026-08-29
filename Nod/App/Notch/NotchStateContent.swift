@@ -26,6 +26,8 @@ struct NotchStateContent: View {
             .transaction { $0.animation = nil }
             .id(model.presentation.contentID)
             .transition(.notchContent(reduceMotion: reduceMotion))
+            // The SwiftUI half of the pin in `NotchPanel`. Both are required:
+            // tokens read the scheme, `NSVisualEffectView` reads the window.
             .environment(\.colorScheme, .dark)
             .overlay(alignment: .top) { gestureZone }
     }

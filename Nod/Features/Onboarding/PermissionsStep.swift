@@ -14,10 +14,10 @@ struct PermissionsStep: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(strings.permissionsTitle)
                     .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
+                    .foregroundStyle(Theme.Palette.ink)
                 Text(strings.permissionsSubtitle)
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(Theme.Palette.muted)
+                    .foregroundStyle(Theme.Palette.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.bottom, 28)
@@ -60,7 +60,7 @@ struct PermissionsStep: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .font(.system(size: 11.5, weight: .regular))
-                .foregroundStyle(Theme.Palette.muted)
+                .foregroundStyle(Theme.Palette.inkSecondary)
                 .padding(.top, 14)
                 .padding(.horizontal, 2)
             }
@@ -84,7 +84,7 @@ struct PermissionsStep: View {
                 Button(action: { onFinish(true) }) {
                     Text(strings.actionSkip)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Theme.Palette.muted)
+                        .foregroundStyle(Theme.Palette.inkSecondary)
                 }
                 .buttonStyle(.plain)
 

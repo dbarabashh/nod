@@ -117,6 +117,52 @@ switches, stay above other windows, and never steal focus. Don't change these
 flags casually — they're the whole reason the panel UX feels right. The primary
 UI is this floating non-activating panel, anchored to the left of the screen.
 
+## Appearance and transparency
+
+`AppearancePreference` (`Features/Settings/`) owns the theme; the two defaults
+keys live in `AppearanceDefaults` (`Core/DesignSystem/Theme/`), because the
+surfaces that read the transparency switch are `Core` components and `Core` may
+not import a feature:
+
+- **Theme** — `system` (default), `light`, `dark`. Applied once to
+  `NSApp.appearance` from `AppDelegate.applicationDidFinishLaunching` and again
+  on every change; every window Nod opens inherits it. `WindowCoordinator`
+  deliberately does not set a per-window appearance.
+- **Transparent background** — on by default. Every translucent surface goes
+  through `BackdropSurface`, which owns the one gate: the key read through
+  `@AppStorage` (an injected object cannot reach four separate hosting roots)
+  plus macOS's own Reduce transparency
+  (`@Environment(\.accessibilityReduceTransparency)`), which overrides it. That
+  covers the behind-window blur (`WindowBackdrop`, `PanelMaterial`) and the
+  in-window `Material` fills (`Shape.glassFill()`); the Settings row disables
+  itself when macOS has already forced the answer.
+
+Themed colours are plain `static let`s: `Color.themed(light:dark:)` (and
+`NSColor.themed` for the AppKit-drawn surfaces) wraps an `NSColor` dynamic
+provider, so every `Theme.Palette.…` call site follows the appearance it is
+drawn in without knowing a theme exists. `Theme.Palette.overlay` is the base
+for every translucent scrim — white on dark, black on light. A SwiftLint
+`custom_rules` entry (`hardcoded_color`) fails a bare `Color.white` / `.black` /
+inline hex outside the token files and the three opt-out surfaces below, so a
+wash cannot be hardcoded again.
+
+Three surfaces deliberately do **not** follow the setting, each for its own
+reason — this is the whole list:
+
+- **The capture surface.** `NotchPanel` pins `NSAppearance(named: .vibrantDark)`,
+  `NotchStateContent` pins the matching SwiftUI `colorScheme`, and `NotchView`
+  fills with black. It hangs off the cut-out and has to read as part of the
+  machine. Both pins are required — tokens read the scheme, `NSVisualEffectView`
+  reads the window.
+- **The menu-bar item.** `StatusItemController` draws into the system menu bar,
+  which follows the Mac and not `NSApp.appearance`, so it resolves
+  `NSColor.labelColor` against the status button's own `effectiveAppearance`.
+- **The welcome screens** (`SignInView`, `OnboardingView`). `WelcomeBackdrop`
+  paints `Theme.Gradients.welcome` — hellonod.app's hero blue, ported stop for
+  stop from the site's `HeroBackdrop` — and pins `colorScheme` to `.dark`
+  alongside it. The ground is a saturated blue in every theme, so the content on
+  it is white in every theme, and the white pills keep their dark labels.
+
 ## Permissions
 
 `PermissionManager` handles mic + screen recording. Notable patterns:

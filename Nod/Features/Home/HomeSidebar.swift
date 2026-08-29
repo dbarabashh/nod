@@ -85,7 +85,7 @@ struct HomeSidebar: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(Color.white.opacity(0.02))
+        .background(Theme.Palette.overlay.opacity(0.02))
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(Theme.Palette.border)

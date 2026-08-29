@@ -22,15 +22,7 @@ struct OnboardingView: View {
     @State private var profileLoaded = false
 
     var body: some View {
-        ZStack {
-            Image("WelcomeSky")
-                .resizable()
-                .interpolation(.high)
-                .scaledToFill()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                .ignoresSafeArea()
-
+        WelcomeBackdrop {
             VStack(spacing: 0) {
                 // Reserve the traffic-light strip as a sibling so it subtracts
                 // from the content height instead of overflowing a full-height
@@ -38,7 +30,6 @@ struct OnboardingView: View {
                 Color.clear.frame(height: Self.chromeInset)
                 content
             }
-            .environment(\.colorScheme, .light)
         }
         // minWidth/minHeight (not fixed) so when users with large system
         // text scaling grow the window, the SwiftUI content actually

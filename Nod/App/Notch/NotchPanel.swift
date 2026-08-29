@@ -50,8 +50,10 @@ final class NotchPanel: NSPanel {
         // it never becomes key on its own, being a non-activating accessory
         // window, and without this the pointer stops updating over controls.
         acceptsMouseMovedEvents = true
-        // The content is hardcoded white-on-dark, so a Light-mode system theme
-        // would otherwise leave it near-invisible.
+        // The one surface that does NOT follow the Appearance setting. It hangs
+        // off the cut-out and has to read as part of the machine — a light
+        // shape growing out of a black bezel reads as a window sitting on the
+        // screen, which is the illusion this whole surface exists to avoid.
         appearance = NSAppearance(named: .vibrantDark)
         sharingType = sharing
         collectionBehavior = [

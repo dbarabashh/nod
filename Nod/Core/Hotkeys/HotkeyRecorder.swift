@@ -18,24 +18,24 @@ struct HotkeyRecorderView: View {
                     Text(label)
                         .font(.system(size: 13, weight: .semibold, design: .monospaced))
                         .foregroundColor(isRecording
-                            ? Color(red: 0.95, green: 0.45, blue: 0.50)
-                            : .white.opacity(0.92))
+                            ? Theme.Palette.controlEnd
+                            : Theme.Palette.ink.opacity(0.92))
                         .frame(minWidth: 96)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(.ultraThinMaterial)
+                                .glassFill()
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(Color.white.opacity(isRecording ? 0.04 : 0.06))
+                                        .fill(Theme.Palette.overlay.opacity(isRecording ? 0.04 : 0.06))
                                 )
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                                         .stroke(
                                             isRecording
-                                                ? Color(red: 0.95, green: 0.45, blue: 0.50).opacity(0.6)
-                                                : Color.white.opacity(0.14),
+                                                ? Theme.Palette.controlEnd.opacity(0.6)
+                                                : Theme.Palette.borderStrong,
                                             lineWidth: 0.8
                                         )
                                 )
@@ -54,7 +54,7 @@ struct HotkeyRecorderView: View {
             if let error {
                 Text(error)
                     .font(.system(size: 11))
-                    .foregroundColor(Color(red: 0.95, green: 0.55, blue: 0.55))
+                    .foregroundColor(Theme.Palette.controlMicMuted)
             }
         }
         .onDisappear(perform: cancelRecording)

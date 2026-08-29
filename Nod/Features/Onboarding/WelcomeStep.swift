@@ -24,22 +24,24 @@ struct WelcomeStep: View {
     var body: some View {
         VStack(spacing: 0) {
             Image("NodGlyphInk")
+                .renderingMode(.template)
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
+                .foregroundStyle(Theme.Palette.ink)
                 .frame(width: 72, height: 72)
                 .shadow(color: Color.black.opacity(0.12), radius: 16, x: 0, y: 8)
                 .padding(.bottom, 18)
 
             Text(strings.welcomeTitle)
                 .font(.system(size: 30, weight: .semibold, design: .default))
-                .foregroundStyle(Theme.GlassButton.text)
+                .foregroundStyle(Theme.Palette.ink)
                 .padding(.bottom, 8)
 
             Text(strings.welcomeTagline)
                 .multilineTextAlignment(.center)
                 .font(.system(size: 13.5, weight: .regular))
-                .foregroundStyle(Theme.Palette.muted)
+                .foregroundStyle(Theme.Palette.inkSecondary)
                 .frame(maxWidth: 380)
                 .padding(.bottom, 20)
 
@@ -58,7 +60,7 @@ struct WelcomeStep: View {
                 )
                 Text(strings.welcomeLanguageHint)
                     .font(.system(size: 11.5, weight: .regular))
-                    .foregroundStyle(Theme.Palette.muted)
+                    .foregroundStyle(Theme.Palette.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: 380)
@@ -89,17 +91,17 @@ private struct FeatureRow: View {
         HStack(spacing: 14) {
             Image(icon)
                 .icon(13)
-                .foregroundStyle(Theme.Palette.cyan)
+                .foregroundStyle(Theme.Palette.ink)
                 .frame(width: 22, height: 22)
                 .background(
                     Circle()
-                        .fill(Theme.Palette.cyan.opacity(0.10))
-                        .overlay(Circle().stroke(Theme.Palette.cyan.opacity(0.25), lineWidth: 0.5))
+                        .fill(Theme.Palette.overlay.opacity(0.12))
+                        .overlay(Circle().stroke(Theme.Palette.overlay.opacity(0.28), lineWidth: 0.5))
                 )
 
             Text(text)
                 .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(Theme.GlassButton.text.opacity(0.85))
+                .foregroundStyle(Theme.Palette.ink.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 0)
@@ -115,17 +117,17 @@ private struct LanguageRow: View {
         HStack(spacing: 14) {
             Image("nc-earth")
                 .icon(13)
-                .foregroundStyle(Theme.Palette.cyan)
+                .foregroundStyle(Theme.Palette.ink)
                 .frame(width: 22, height: 22)
                 .background(
                     Circle()
-                        .fill(Theme.Palette.cyan.opacity(0.10))
-                        .overlay(Circle().stroke(Theme.Palette.cyan.opacity(0.25), lineWidth: 0.5))
+                        .fill(Theme.Palette.overlay.opacity(0.12))
+                        .overlay(Circle().stroke(Theme.Palette.overlay.opacity(0.28), lineWidth: 0.5))
                 )
 
             Text(label)
                 .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(Theme.GlassButton.text.opacity(0.85))
+                .foregroundStyle(Theme.Palette.ink.opacity(0.85))
 
             Spacer(minLength: 0)
 
