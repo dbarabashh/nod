@@ -94,6 +94,6 @@ struct EmailConsentStep: View {
 
 #Preview {
     EmailConsentStep(preferences: EmailPreferenceService(), onFinish: {})
-        .frame(width: 580, height: 560)
+        .frame(width: 720, height: 660)
         .background(WindowBackdrop())
 }

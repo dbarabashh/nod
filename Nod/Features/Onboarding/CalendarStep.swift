@@ -2,44 +2,181 @@ import SwiftUI
 
 /// The calendar ask, written once.
 ///
-/// Both surfaces below show the same three promises, and those promises are
-/// claims `docs/policies/privacy.md` § 3.11 has to keep matching. Two copies of
-/// a sentence like that drift the first time one of them is edited.
+/// Every claim below is one `docs/policies/privacy.md` § 3.11 has to keep
+/// matching, and both surfaces show the same ones. Two copies of a sentence
+/// like that drift the first time one of them is edited.
 enum CalendarCopy {
     static let title = "Connect your calendar"
 
     static let body = "Nod needs to know which meeting you are in — what it is called, when it runs "
-        + "and who is invited. That is what puts notes on the right meeting, and lets Nod tell you "
-        + "one is starting before you have opened anything."
+        + "and who is invited. That is what puts notes on the right meeting, names the speakers in "
+        + "your transcript, and lets Nod tell you one is starting before you have opened anything."
 
-    static let promises: [(icon: String, text: String)] = [
-        (
-            "nc-shield-check",
-            "Nod reads your calendar and never changes it on its own. Google asks for wider access so you can later create events from Nod yourself."
-        ),
-        ("nc-lock", "Your Google password never reaches Nod, and you can revoke access from Google at any time."),
-        ("nc-calendar", "Your primary calendar only, and only meetings from two hours ago to a week ahead.")
-    ]
+    /// The two sources, in the order they should be offered.
+    ///
+    /// `privacy.md` § 3.11 gives them an off-switch each and says neither
+    /// implies the other, so both belong here rather than only the one that
+    /// happens to be a connected account.
+    enum Option {
+        case device
+        case google
 
-    static func button(isConnected: Bool, isPending: Bool) -> String {
-        if isConnected { return "Continue" }
-        return isPending ? "Waiting for Google…" : "Connect Google Calendar"
+        var title: String {
+            switch self {
+            case .device: "This Mac's calendar"
+            case .google: "Google Calendar"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .device:
+                "One macOS permission, no account. Reads the calendars already in your Calendar app — "
+                    + "iCloud, Exchange, Google. Nothing about an event is stored."
+            case .google:
+                "For a work calendar that is not on this Mac, and it keeps answering while the Mac sleeps. "
+                    + "Google's screen asks for wider access than Nod uses."
+            }
+        }
+
+        var offerTitle: String {
+            switch self {
+            case .device: "Allow"
+            case .google: "Connect"
+            }
+        }
+
+        var pendingTitle: String {
+            switch self {
+            case .device: "Asking macOS…"
+            case .google: "Waiting for Google…"
+            }
+        }
+    }
+
+    /// True of both sources, so it is said once under them rather than twice
+    /// inside them. Bound to `privacy.md` § 3.11 — (b) "Writing: Never" and
+    /// (a) "One thing, and only when you confirm it".
+    static let assurance = "Nod reads your calendar and never changes it on its own. It can create an "
+        + "event only from a draft you have confirmed."
+}
+
+/// Each source's own mark — the Calendar app's icon and Google's logo.
+///
+/// A row asking for a product's data is recognised by that product's mark, not
+/// by a generic glyph: two neutral calendar outlines side by side were the one
+/// thing on the step that did not say which was which.
+struct CalendarOptionMark: View {
+    let option: CalendarCopy.Option
+
+    private static let size: CGFloat = 17
+
+    var body: some View {
+        switch option {
+        case .device:
+            if let icon = AppDirectory.icon(for: AppDirectory.identity(forBundleID: "com.apple.iCal")) {
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: Self.size, height: Self.size)
+            } else {
+                Image("nc-calendar")
+                    .icon(Self.size * 0.82)
+                    .foregroundStyle(Theme.Palette.ink)
+            }
+        case .google:
+            ProviderMark(provider: .googleCalendar, size: Self.size)
+        }
     }
 }
 
-/// Step 5 of onboarding. The same question put to an existing account is
+/// The two ways to give Nod a calendar, offered together.
+///
+/// One view, mounted by both the onboarding step and the prompt an existing
+/// account gets, because the wording here is policy-bound and two copies of it
+/// drift the first time one is edited.
+struct CalendarOptionList: View {
+    @ObservedObject var calendar: CalendarService
+    @ObservedObject var integrations: IntegrationService
+
+    var body: some View {
+        VStack(spacing: 8) {
+            row(.device, state: CalendarSourceState.device(calendar), action: enableDevice)
+            row(.google, state: CalendarSourceState.google(integrations), action: connectGoogle)
+        }
+    }
+
+    private func enableDevice() {
+        guard calendar.status != .denied else { return calendar.openSystemSettings() }
+        Task { await calendar.enableOnThisMac() }
+    }
+
+    private func connectGoogle() {
+        Task { await integrations.connect(.googleCalendar) }
+    }
+
+    private func row(_ option: CalendarCopy.Option, state: CalendarSourceState, action: @escaping () -> Void) -> some View {
+        SettingsRow(
+            title: option.title,
+            subtitle: detail(for: option, state: state),
+            subtitleTone: .secondary,
+            alignment: .top
+        ) {
+            CalendarOptionMark(option: option)
+                .frame(width: 20, alignment: .center)
+                .padding(.top, 1)
+        } trailing: {
+            control(state, option: option, action: action)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surfaceCard(emphasis: .strong)
+    }
+
+    /// macOS only ever prompts once on its own, so a refusal replaces the pitch
+    /// with the one place that can still undo it.
+    private func detail(for option: CalendarCopy.Option, state: CalendarSourceState) -> String {
+        state == .blocked ? CalendarService.blockedHint : option.detail
+    }
+
+    @ViewBuilder
+    private func control(_ state: CalendarSourceState, option: CalendarCopy.Option, action: @escaping () -> Void) -> some View {
+        switch state {
+        case .connected:
+            HStack(spacing: 4) {
+                Image("nc-check").icon(10)
+                Text("Connected").font(.system(size: 11.5, weight: .semibold))
+            }
+            .foregroundStyle(Theme.Palette.success)
+        case .pending:
+            Text(option.pendingTitle)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(Theme.Palette.inkSecondary)
+        case .offer:
+            button(option.offerTitle, action: action)
+        case .blocked:
+            button("Open Settings", action: action)
+        }
+    }
+
+    private func button(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11.5, weight: .semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .glassButtonSurface(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .linkCursor()
+    }
+}
+
+/// The calendar step. The same question put to an existing account is
 /// `CalendarPromptView`, which shares this one's words through `CalendarCopy`.
 struct CalendarStep: View {
+    @ObservedObject var calendar: CalendarService
     @ObservedObject var integrations: IntegrationService
     let onFinish: () -> Void
-
-    private var isConnected: Bool {
-        integrations.linked.contains(.googleCalendar)
-    }
-
-    private var isPending: Bool {
-        integrations.pending == .googleCalendar
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,22 +189,30 @@ struct CalendarStep: View {
                 .multilineTextAlignment(.center)
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.Palette.inkSecondary)
+                .frame(maxWidth: 440)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 22)
+
+            CalendarOptionList(calendar: calendar, integrations: integrations)
+                .frame(maxWidth: 440)
+
+            Text(CalendarCopy.assurance)
+                .multilineTextAlignment(.center)
+                .font(.system(size: 11.5))
+                .foregroundStyle(Theme.Palette.inkSecondary)
                 .frame(maxWidth: 420)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 24)
-
-            promises
-                .frame(maxWidth: 420)
+                .padding(.top, 12)
 
             if let error = integrations.lastError {
                 Text(error)
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.Palette.danger)
-                    .padding(.top, 12)
+                    .padding(.top, 10)
             }
 
             actions
-                .frame(maxWidth: 420)
+                .frame(maxWidth: 440)
                 .padding(.top, 18)
         }
         .padding(.horizontal, 36)
@@ -77,64 +222,28 @@ struct CalendarStep: View {
         .onDisappear { integrations.cancelPending() }
     }
 
-    // `Palette.ink` and `surfaceStrong` are built for the dark interface and
-    // vanish on this sky backdrop; the glass pair below is what the primary
-    // button already uses here.
-    private var promises: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ForEach(CalendarCopy.promises, id: \.icon) { promise($0.icon, $0.text) }
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassButtonSurface(RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous))
-    }
-
-    private func promise(_ icon: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 11) {
-            Image(icon)
-                .icon(13)
-                .foregroundStyle(Theme.GlassButton.text.opacity(0.55))
-                .frame(width: 16)
-                .padding(.top, 1)
-            Text(text)
-                .font(.system(size: 12.5))
-                .foregroundStyle(Theme.GlassButton.text.opacity(0.9))
-                .lineSpacing(2)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-    }
-
+    /// Continue is always live and never a connect button: a step that can be
+    /// answered two ways cannot put one of them on the primary, and skipping
+    /// stays a real answer — `privacy.md` § 3.11 says neither source is on by
+    /// default.
     private var actions: some View {
         HStack(spacing: 12) {
+            Link("Privacy policy", destination: EmailConsentLinks.privacy)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(Theme.Palette.inkSecondary)
+
             Spacer(minLength: 12)
 
-            if !isConnected {
-                Button("Not now", action: onFinish)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(Theme.Palette.inkSecondary)
-                    .linkCursor()
-            }
-
-            Button {
-                if isConnected {
-                    onFinish()
-                } else {
-                    Task { await integrations.connect(.googleCalendar) }
-                }
-            } label: {
-                Text(CalendarCopy.button(isConnected: isConnected, isPending: isPending))
+            Button(action: onFinish) {
+                Text(CalendarSourceState.isAnswered(calendar: calendar, integrations: integrations) ? "Continue" : "Not now")
                     .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(Theme.GlassButton.text)
-                    .frame(width: 170)
+                    .frame(width: 150)
                     .padding(.vertical, 10)
                     .glassButtonSurface(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
-            .disabled(isPending)
             .linkCursor()
         }
     }
@@ -152,16 +261,9 @@ struct CalendarStep: View {
 /// step: `Palette.ink` is near-white and reads here, where on the sky backdrop
 /// of `CalendarStep` it disappears.
 struct CalendarPromptView: View {
+    @ObservedObject var calendar: CalendarService
     @ObservedObject var integrations: IntegrationService
     let onFinish: () -> Void
-
-    private var isConnected: Bool {
-        integrations.linked.contains(.googleCalendar)
-    }
-
-    private var isPending: Bool {
-        integrations.pending == .googleCalendar
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -179,7 +281,12 @@ struct CalendarPromptView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            promises
+            CalendarOptionList(calendar: calendar, integrations: integrations)
+
+            Text(CalendarCopy.assurance)
+                .font(.system(size: 11.5))
+                .foregroundStyle(Theme.Palette.muted)
+                .fixedSize(horizontal: false, vertical: true)
 
             if let error = integrations.lastError {
                 Text(error)
@@ -193,22 +300,8 @@ struct CalendarPromptView: View {
 
                 Spacer(minLength: 12)
 
-                if !isConnected {
-                    Button("Not now", action: onFinish)
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(Theme.Palette.muted)
-                        .linkCursor()
-                }
-
-                Button {
-                    if isConnected {
-                        onFinish()
-                    } else {
-                        Task { await integrations.connect(.googleCalendar) }
-                    }
-                } label: {
-                    Text(CalendarCopy.button(isConnected: isConnected, isPending: isPending))
+                Button(action: onFinish) {
+                    Text(CalendarSourceState.isAnswered(calendar: calendar, integrations: integrations) ? "Done" : "Not now")
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(Theme.GlassButton.text)
                         .padding(.horizontal, 16)
@@ -217,7 +310,6 @@ struct CalendarPromptView: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.defaultAction)
-                .disabled(isPending)
                 .linkCursor()
             }
         }
@@ -233,33 +325,6 @@ struct CalendarPromptView: View {
         .task { await integrations.refresh() }
         .onDisappear { integrations.cancelPending() }
     }
-
-    private var promises: some View {
-        VStack(spacing: 8) {
-            ForEach(CalendarCopy.promises, id: \.icon) { promise($0.icon, $0.text) }
-        }
-    }
-
-    private func promise(_ icon: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(icon)
-                .icon(13)
-                .foregroundStyle(Theme.Palette.ink.opacity(0.85))
-                .frame(width: 22)
-            Text(text)
-                .font(.system(size: 11.5))
-                .foregroundStyle(Theme.Palette.muted)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                .fill(Theme.Palette.surfaceStrong)
-        )
-    }
 }
 
 /// Wraps the main window and asks accounts that predate the calendar step the
@@ -271,9 +336,10 @@ struct CalendarPromptView: View {
 struct CalendarPromptHost<Content: View>: View {
     @ObservedObject var onboarding: OnboardingState
     @ObservedObject var email: EmailPreferenceService
-    /// Not observed: this view never reads it, and observing it here would
+    /// Not observed: this view never reads either, and observing them here would
     /// invalidate the main window's root every time a connection poll publishes.
     let integrations: IntegrationService
+    let calendar: CalendarService
 
     private let content: Content
     @State private var isDismissedForSession = false
@@ -281,11 +347,13 @@ struct CalendarPromptHost<Content: View>: View {
     init(
         onboarding: OnboardingState,
         integrations: IntegrationService,
+        calendar: CalendarService,
         email: EmailPreferenceService,
         @ViewBuilder content: () -> Content
     ) {
         self.onboarding = onboarding
         self.integrations = integrations
+        self.calendar = calendar
         self.email = email
         self.content = content()
     }
@@ -297,7 +365,7 @@ struct CalendarPromptHost<Content: View>: View {
             if onboarding.needsCalendarPrompt, !email.shouldPresentPrompt, !isDismissedForSession {
                 Theme.Palette.scrim
                     .ignoresSafeArea()
-                CalendarPromptView(integrations: integrations) {
+                CalendarPromptView(calendar: calendar, integrations: integrations) {
                     isDismissedForSession = true
                     onboarding.markCalendarPrompted()
                 }
@@ -308,20 +376,26 @@ struct CalendarPromptHost<Content: View>: View {
 
 #if DEBUG
     #Preview("Existing-user calendar prompt") {
-        CalendarPromptView(integrations: .preview(), onFinish: {})
+        CalendarPromptView(calendar: CalendarService(), integrations: .preview(), onFinish: {})
             .padding()
             .background(WindowBackdrop())
     }
 
-    #Preview("Not connected") {
-        CalendarStep(integrations: .preview(), onFinish: {})
-            .frame(width: 580, height: 560)
-            .background(WindowBackdrop())
+    #Preview("Nothing connected") {
+        WelcomeBackdrop {
+            CalendarStep(calendar: CalendarService(), integrations: .preview(), onFinish: {})
+        }
+        .frame(width: 720, height: 660)
     }
 
-    #Preview("Connected") {
-        CalendarStep(integrations: .preview(linked: [.googleCalendar]), onFinish: {})
-            .frame(width: 580, height: 560)
-            .background(WindowBackdrop())
+    #Preview("Google connected") {
+        WelcomeBackdrop {
+            CalendarStep(
+                calendar: CalendarService(),
+                integrations: .preview(linked: [.googleCalendar]),
+                onFinish: {}
+            )
+        }
+        .frame(width: 720, height: 660)
     }
 #endif

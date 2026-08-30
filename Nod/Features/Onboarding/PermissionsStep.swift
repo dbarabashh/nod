@@ -111,7 +111,7 @@ struct PermissionsStep: View {
     }
 
     private var allGranted: Bool {
-        permissions.microphone == .authorized && permissions.screenRecording == .authorized
+        permissions.canCaptureBothSides
     }
 
     /// Shown as soon as we've asked — not only once the grant is visible. A TCC

@@ -284,6 +284,6 @@ private extension View {
             onContinue: { _ in },
             onSkip: {}
         )
-        .frame(width: 580, height: 560)
+        .frame(width: 720, height: 660)
     }
 }

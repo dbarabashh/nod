@@ -12,6 +12,7 @@ struct OnboardingView: View {
     @EnvironmentObject private var modeStore: ModeStore
     @EnvironmentObject private var emailPreferences: EmailPreferenceService
     @EnvironmentObject private var integrations: IntegrationService
+    @EnvironmentObject private var calendar: CalendarService
 
     /// Pad past the traffic-light strip so step titles never collide with the
     /// close button. macOS chrome occupies ~28pt of the window's top.
@@ -29,12 +30,14 @@ struct OnboardingView: View {
                 // step (which clipped the bottom buttons).
                 Color.clear.frame(height: Self.chromeInset)
                 content
+                OnboardingProgress(step: state.status.currentStep)
+                    .padding(.bottom, 20)
             }
         }
-        // minWidth/minHeight (not fixed) so when users with large system
-        // text scaling grow the window, the SwiftUI content actually
-        // expands to use the new space.
-        .frame(minWidth: 580, minHeight: 560)
+        // Fills whatever the window is rather than asking for a size: the
+        // window owns it (`WindowCoordinator.onboardingSize`), and a step that
+        // states its own is a step that moves the frame when you reach it.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { permissions.refresh() }
         // Onboarding can run against an account that already has a profile —
         // a reinstall, a second Mac, a repeat of the flow. Load it so the step
@@ -114,20 +117,12 @@ struct OnboardingView: View {
                 strings: strings,
                 onFinish: { skipped in
                     state.recordPermissionsDecision(skipped: skipped)
-                    // Skipping permissions used to end onboarding on the spot.
-                    // The tutorial is where the panel, the hotkey and the recap
-                    // are explained — the person who skipped needs it most, and
-                    // they left with no idea where the app lives.
                     if skipped { telemetry.permissionsSkipped() }
                     state.goNext()
                 }
             )
-        case .tutorial:
-            TutorialStep(strings: strings, onFinish: {
-                state.goNext()
-            })
         case .calendar:
-            CalendarStep(integrations: integrations, onFinish: { state.goNext() })
+            CalendarStep(calendar: calendar, integrations: integrations, onFinish: { state.goNext() })
         case .emailPreferences:
             EmailConsentStep(preferences: emailPreferences, onFinish: {
                 telemetry.completed()

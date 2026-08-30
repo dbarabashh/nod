@@ -138,8 +138,28 @@ final class CalendarService: ObservableObject {
     /// got no meeting offer, no live-room lookup, and — because the recording
     /// then had no invitation to read — the worst of the two diarization paths.
     private func refreshSources() {
-        hasAnySource = isReadable || remote?.hasOccurrences == true
+        let next = isReadable || remote?.hasOccurrences == true
+        // Guarded for the same reason `adopt` guards `status`: the remote
+        // snapshot is re-read about once a minute for the life of the app, and
+        // an unchanged answer would still invalidate every observing body.
+        guard next != hasAnySource else { return }
+        hasAnySource = next
     }
+
+    /// Switch this Mac's calendar on and ask macOS for the grant.
+    ///
+    /// One call rather than two, because the two do not compose safely on their
+    /// own: `isEnabled`'s `didSet` raises the prompt, but it is guarded on a
+    /// change — so a second attempt, after a prompt that never appeared, has to
+    /// reach `ensureAccess` itself or it does nothing at all.
+    func enableOnThisMac() async {
+        isEnabled = true
+        await ensureAccess()
+    }
+
+    /// What to tell somebody macOS has refused. One sentence, because the app
+    /// says it in three places and they had already started to differ.
+    static let blockedHint = "macOS is blocking calendar access. Allow it in System Settings → Privacy & Security → Calendars."
 
     /// Brings the connected calendar's snapshot forward if it has gone stale.
     func refreshRemoteIfStale(maxAge: TimeInterval = 60) async {

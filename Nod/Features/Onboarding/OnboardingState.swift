@@ -1,19 +1,34 @@
 import Combine
 import Foundation
 
-enum OnboardingStep: Int, Codable, CaseIterable {
-    case welcome = 1
-    case profile = 2
-    case permissions = 3
-    case tutorial = 4
-    case calendar = 5
-    case emailPreferences = 6
+/// The flow, in order. Calendar sits second on purpose: it is the one answer
+/// that changes how well everything downstream works — an invitation gives the
+/// diarizer an exact speaker count and the names to go with it, and without one
+/// `MeetingParticipants` falls back to a window list that counted sixteen
+/// people for a four-person call.
+///
+/// `allCases` is the order. The raw value is a *name*, not a position, so a
+/// reorder is a reorder rather than a stored-data migration — which is what the
+/// 1.0–1.4 table below exists to stop happening again.
+enum OnboardingStep: String, Codable, CaseIterable {
+    case welcome
+    case calendar
+    case permissions
+    case profile
+    case emailPreferences
+
+    /// Where this step sits today, for the dots and for next/previous. Read
+    /// rather than stored: nothing persists it any more.
+    var position: Int {
+        (Self.allCases.firstIndex(of: self) ?? 0) + 1
+    }
 }
 
 struct OnboardingStatus: Codable {
-    static let currentVersion = "1.3"
+    static let currentVersion = "1.5"
 
     var version: String = currentVersion
+
     var completed: Bool = false
     var currentStep: OnboardingStep = .welcome
     var permissionsSkipped: Bool = false
@@ -36,20 +51,58 @@ struct OnboardingStatus: Codable {
         // rather than "assume they have seen it".
         calendarPrompted = try container.decodeIfPresent(Bool.self, forKey: .calendarPrompted) ?? false
 
-        let storedStep = try container.decodeIfPresent(Int.self, forKey: .currentStep) ?? OnboardingStep.welcome.rawValue
-        currentStep = Self.migrateStep(storedStep, from: storedVersion)
+        // Expand phase: 1.5 writes the name under `stepName` *and* keeps
+        // writing the legacy position under `currentStep`, so a downgrade to a
+        // 1.4 build still resumes on the right step. Read the name first; fall
+        // back to the position table for everything written before it existed.
+        if let name = try container.decodeIfPresent(String.self, forKey: .stepName),
+           let step = OnboardingStep(rawValue: name) {
+            currentStep = step
+        } else {
+            let storedPosition = try container.decodeIfPresent(Int.self, forKey: .currentStep) ?? 1
+            currentStep = Self.migrateStep(storedPosition, from: storedVersion)
+        }
         version = Self.currentVersion
     }
 
-    /// Every insertion into the flow shifts the raw values at or above it, so a
-    /// step persisted by an older build has to be shifted the same way before it
-    /// names the step the user was actually on. Profile arrived at 2 in 1.1,
-    /// calendar at 5 in 1.3.
-    private static func migrateStep(_ rawValue: Int, from version: String) -> OnboardingStep {
-        var raw = rawValue
-        if version == "1.0", raw >= 2 { raw += 1 }
-        if ["1.0", "1.1", "1.2"].contains(version), raw >= 5 { raw += 1 }
-        return OnboardingStep(rawValue: raw) ?? .welcome
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(version, forKey: .version)
+        try container.encode(completed, forKey: .completed)
+        try container.encode(permissionsSkipped, forKey: .permissionsSkipped)
+        try container.encode(calendarPrompted, forKey: .calendarPrompted)
+        try container.encode(lastUpdated, forKey: .lastUpdated)
+        try container.encode(currentStep.rawValue, forKey: .stepName)
+        // The legacy field, still written for a build that only knows it.
+        // Retired once no supported build reads it — see the cleanup issue.
+        try container.encode(currentStep.position, forKey: .currentStep)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version, completed, currentStep, stepName, permissionsSkipped, calendarPrompted, lastUpdated
+    }
+
+    /// Every position-based order Nod ever shipped. Terminal: nothing writes a
+    /// position as the source of truth any more, so this table stops growing.
+    ///
+    /// The tutorial is gone; whoever stood on it had already granted
+    /// permissions and filled the profile, so 1.3's slot 4 resolves to the
+    /// calendar — the one thing that flow had not yet asked them for.
+    private static let ordersByVersion: [String: [OnboardingStep]] = [
+        "1.0": [.welcome, .permissions, .calendar, .emailPreferences],
+        "1.1": [.welcome, .profile, .permissions, .calendar, .emailPreferences],
+        "1.2": [.welcome, .profile, .permissions, .calendar, .emailPreferences],
+        "1.3": [.welcome, .profile, .permissions, .calendar, .calendar, .emailPreferences],
+        "1.4": [.welcome, .calendar, .permissions, .profile, .emailPreferences]
+    ]
+
+    /// An unknown version is one this build has never shipped — a downgrade, or
+    /// a file somebody edited. The newest order is the best guess available, and
+    /// starting over is the safe fallback.
+    private static func migrateStep(_ position: Int, from version: String) -> OnboardingStep {
+        let order = ordersByVersion[version] ?? OnboardingStep.allCases
+        guard order.indices.contains(position - 1) else { return .welcome }
+        return order[position - 1]
     }
 }
 
@@ -85,16 +138,22 @@ final class OnboardingState: ObservableObject {
     }
 
     func goNext() {
-        let next = status.currentStep.rawValue + 1
-        guard let step = OnboardingStep(rawValue: next) else { return }
-        status.currentStep = step
-        save()
+        move(by: 1)
     }
 
     func goPrevious() {
-        let prev = status.currentStep.rawValue - 1
-        guard let step = OnboardingStep(rawValue: prev) else { return }
-        status.currentStep = step
+        move(by: -1)
+    }
+
+    /// Steps by index in `allCases`, not by raw value: the raw value is a name
+    /// now, and the order lives in one place so the dots and the navigation can
+    /// never disagree about it.
+    private func move(by offset: Int) {
+        let steps = OnboardingStep.allCases
+        guard let current = steps.firstIndex(of: status.currentStep) else { return }
+        let next = steps.index(current, offsetBy: offset)
+        guard steps.indices.contains(next) else { return }
+        status.currentStep = steps[next]
         save()
     }
 
@@ -107,7 +166,7 @@ final class OnboardingState: ObservableObject {
 
     func complete() {
         status.completed = true
-        // Someone who walked the flow has already been asked, at step 5. Without
+        // Someone who walked the flow has already been asked, at step 2. Without
         // this they would finish onboarding and be handed the same question
         // again as a standalone window.
         status.calendarPrompted = true

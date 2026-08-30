@@ -448,9 +448,9 @@ struct SessionsListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Carries the action, not directions to it: the panel this used to point
-    /// at isn't on screen at launch, so "hit record on the floating panel" was
-    /// an instruction with nothing to follow it.
+    /// Where onboarding lands. The pitch says what Nod is for; the checklist
+    /// under it says what is still unfinished and does the finishing — the flow
+    /// used to end here on a full stop.
     private var emptyAllState: some View {
         VStack(spacing: 14) {
             Image("nc-inbox-arrow-down")
@@ -459,25 +459,19 @@ struct SessionsListView: View {
             Text("No sessions yet.")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
-            Text("Start one and Nod listens, then hands you a recap when you're done.")
-                .font(.system(size: 12.5, weight: .regular))
-                .foregroundStyle(Theme.Palette.graphite)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 320)
+            Text(
+                "Nod keeps what you talk through — the decisions, the open threads, what you committed to — and hands it back when you need it."
+            )
+            .font(.system(size: 12.5, weight: .regular))
+            .foregroundStyle(Theme.Palette.graphite)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: 320)
 
-            Button(action: onStartCapture) {
-                Text("Start your first session")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 9)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 2)
+            QuickStart(hasSession: false, onStartCapture: onStartCapture)
+                .padding(.top, 6)
 
-            Text("Opens the capture panel — meeting, voice note or media. \(panelShortcut) brings it up any time.")
+            Text("\(panelShortcut) brings the capture panel up any time.")
                 .font(.system(size: 11.5, weight: .regular))
                 .foregroundStyle(Theme.Palette.muted)
                 .multilineTextAlignment(.center)

@@ -48,9 +48,22 @@ final class PermissionManager: ObservableObject {
         }
     }
 
+    /// Both grants Nod needs to hear a conversation: the microphone for the
+    /// user's own side, screen recording for everything else the Mac plays.
+    /// Asked by the onboarding step, the settings card and the setup checklist
+    /// — three places that were each spelling the conjunction themselves.
+    var canCaptureBothSides: Bool {
+        microphone == .authorized && screenRecording == .authorized
+    }
+
     func refresh() {
-        microphone = currentMicrophoneStatus()
-        screenRecording = currentScreenRecordingStatus()
+        // Assigned only on a change: this runs on every app activation, and an
+        // unchanged grant would still invalidate the body of everything
+        // observing — which now includes surfaces that redraw a whole list.
+        let mic = currentMicrophoneStatus()
+        if mic != microphone { microphone = mic }
+        let screen = currentScreenRecordingStatus()
+        if screen != screenRecording { screenRecording = screen }
     }
 
     // MARK: - Microphone

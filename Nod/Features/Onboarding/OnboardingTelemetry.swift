@@ -209,7 +209,6 @@ final class OnboardingTelemetry: ObservableObject {
         case .welcome: "welcome"
         case .profile: "profile"
         case .permissions: "permissions"
-        case .tutorial: "tutorial"
         case .calendar: "calendar"
         case .emailPreferences: "consent"
         }

@@ -44,7 +44,6 @@ final class ProductAnalytics: ObservableObject {
         case welcome
         case profile
         case permissions
-        case tutorial
         case consent
         case authentication
         case entitlement

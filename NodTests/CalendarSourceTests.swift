@@ -14,13 +14,6 @@ import XCTest
 /// anybody.
 @MainActor
 final class CalendarSourceTests: XCTestCase {
-    private func service(switchedOn: Bool) throws -> CalendarService {
-        let suite = "nod.tests.calendar.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defaults.set(switchedOn, forKey: CalendarService.defaultsKey)
-        return CalendarService(defaults: defaults)
-    }
-
     private var anEvent: CalendarOccurrence {
         CalendarOccurrence(
             title: "Weekly planning",
@@ -34,13 +27,13 @@ final class CalendarSourceTests: XCTestCase {
     /// The regression. Onboarding asks only for Google, and never shows the
     /// General switch — so this is the state every user who followed it lands in.
     func testAConnectedCalendarIsASourceWithTheMacSwitchOff() throws {
-        let calendar = try service(switchedOn: false)
+        let calendar = try CalendarServiceFixture.service(switchedOn: false)
         calendar.remote = .preview([anEvent])
         XCTAssertTrue(calendar.hasAnySource)
     }
 
     func testNoSourceWhenNothingIsConnectedAndTheSwitchIsOff() throws {
-        let calendar = try service(switchedOn: false)
+        let calendar = try CalendarServiceFixture.service(switchedOn: false)
         calendar.remote = .preview([])
         XCTAssertFalse(calendar.hasAnySource)
     }
@@ -48,7 +41,7 @@ final class CalendarSourceTests: XCTestCase {
     /// The switch still governs what it is documented to govern: EventKit needs
     /// both it and the macOS grant, and a service with neither reads nothing.
     func testTheMacSwitchAloneDoesNotMakeTheDeviceCalendarReadable() throws {
-        let calendar = try service(switchedOn: true)
+        let calendar = try CalendarServiceFixture.service(switchedOn: true)
         XCTAssertNotEqual(calendar.status, .authorized, "test host must not hold the Calendars grant")
         XCTAssertFalse(calendar.isReadable)
         XCTAssertFalse(calendar.hasAnySource)
@@ -57,7 +50,7 @@ final class CalendarSourceTests: XCTestCase {
     /// The watcher subscribes to this, so it has to move on its own when a
     /// connected calendar loads its first events — not only when the switch does.
     func testTheSourceAnswerMovesWhenAConnectedCalendarLoads() throws {
-        let calendar = try service(switchedOn: false)
+        let calendar = try CalendarServiceFixture.service(switchedOn: false)
         let remote = RemoteCalendar.preview([])
         calendar.remote = remote
         XCTAssertFalse(calendar.hasAnySource)

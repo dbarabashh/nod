@@ -1,6 +1,11 @@
 import SwiftUI
 
-// MARK: - Settings row primitives
+// MARK: - Grouped-surface row primitives
+
+//
+// In `Core/` rather than `Features/Settings/` despite the names: the shape
+// started there, but `ToolApprovalCard` and the getting-started checklist draw
+// it too, and `Core` may not reach into a feature to get it.
 
 /// A rounded card grouping one or more `SettingsRow`s, separated by
 /// `SettingsRowDivider`. Matches the grouped look used across the app.
@@ -43,31 +48,54 @@ extension View {
     }
 }
 
-/// One setting: leading icon, title + subtitle, and a trailing control.
-struct SettingsRow<Trailing: View>: View {
-    let icon: String
+/// One row: something on the left, title + subtitle, and a trailing control.
+///
+/// The leading view is generic because the three surfaces that draw this row
+/// disagree about it and about nothing else — settings puts the glyph in a
+/// chip, the calendar step shows a product's own mark, the checklist shows a
+/// bare glyph that turns into a tick. Everything to the right of it is the same
+/// row, and was being hand-copied to change that one corner.
+struct SettingsRow<Leading: View, Trailing: View>: View {
     let title: String
     let subtitle: String?
+    var titleStyle: TitleStyle = .standard
+    /// `muted` is opaque slate, tuned for the app's own dark surfaces. A row on
+    /// a coloured ground — the welcome sky — needs the subtitle to be the ink at
+    /// reduced weight instead, or it sinks into the background.
+    var subtitleTone: SubtitleTone = .muted
+    var alignment: VerticalAlignment = .center
+    @ViewBuilder var leading: () -> Leading
     @ViewBuilder var trailing: () -> Trailing
 
+    enum SubtitleTone {
+        case muted
+        case secondary
+
+        var color: Color {
+            self == .muted ? Theme.Palette.muted : Theme.Palette.inkSecondary
+        }
+    }
+
+    enum TitleStyle {
+        case standard
+        /// A finished checklist row: the title is struck through and steps
+        /// back, and the subtitle is dropped — it was instructions for
+        /// something already done.
+        case done
+    }
+
     var body: some View {
-        HStack(spacing: 12) {
-            Image(icon)
-                .icon(14)
-                .foregroundStyle(Theme.Palette.ink.opacity(0.85))
-                .frame(width: 32, height: 32)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                        .fill(Theme.Palette.surfaceStrong)
-                )
+        HStack(alignment: alignment, spacing: 12) {
+            leading()
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                if let subtitle {
+                    .foregroundStyle(titleStyle == .done ? Theme.Palette.muted : Theme.Palette.ink)
+                    .strikethrough(titleStyle == .done)
+                if let subtitle, titleStyle != .done {
                     Text(subtitle)
                         .font(.system(size: 11.5))
-                        .foregroundStyle(Theme.Palette.muted)
+                        .foregroundStyle(subtitleTone.color)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -79,12 +107,54 @@ struct SettingsRow<Trailing: View>: View {
     }
 }
 
+extension SettingsRow where Leading == SettingsRowIcon {
+    /// The settings shape: the glyph in its chip. What 50-odd call sites want,
+    /// and the reason the generic form has this shorthand.
+    init(
+        icon: String,
+        title: String,
+        subtitle: String?,
+        @ViewBuilder trailing: @escaping () -> Trailing
+    ) {
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            leading: { SettingsRowIcon(icon) },
+            trailing: trailing
+        )
+    }
+}
+
+/// The chip a settings row draws its glyph in.
+struct SettingsRowIcon: View {
+    let icon: String
+
+    init(_ icon: String) {
+        self.icon = icon
+    }
+
+    var body: some View {
+        Image(icon)
+            .icon(14)
+            .foregroundStyle(Theme.Palette.ink.opacity(0.85))
+            .frame(width: 32, height: 32)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                    .fill(Theme.Palette.surfaceStrong)
+            )
+    }
+}
+
 /// Hairline divider between rows in a `SettingsCard`, indented past the icon.
+/// The inset is a parameter because a row with a smaller leading view leaves
+/// the default starting past its own title.
 struct SettingsRowDivider: View {
+    var indent: CGFloat = 58
+
     var body: some View {
         Divider()
             .overlay(Theme.Palette.border)
-            .padding(.leading, 58)
+            .padding(.leading, indent)
     }
 }
 

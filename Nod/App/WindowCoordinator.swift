@@ -170,13 +170,12 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
 
         // .resizable so users with large system text settings can grow the
-        // window. A content min size stops it shrinking below where the
-        // primary action (Continue) still fits.
+        // window. The min size is the designed size: every step is laid out
+        // against it, and shrinking below it clips the primary action.
         let window = makeWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 600),
+            contentRect: NSRect(origin: .zero, size: Self.onboardingSize),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView]
         )
-        window.contentMinSize = NSSize(width: 580, height: 560)
         window.titleVisibility = .hidden
 
         let root = OnboardingView(onComplete: { [weak self] in
@@ -192,12 +191,29 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         .environmentObject(services.emailPreferences)
         .environmentObject(services.integrations)
         .environmentObject(services.integrationCatalogue)
+        .environmentObject(services.calendar)
 
-        window.contentViewController = NSHostingController(rootView: root)
+        let hosting = NSHostingController(rootView: root)
+        // The window is one size for the whole flow. Left to itself the hosting
+        // controller writes each step's own ideal height back to the window, so
+        // the frame jumped on every Continue and the traffic lights moved under
+        // the pointer between steps.
+        hosting.sizingOptions = []
+        window.contentViewController = hosting
+        // After the controller, not before: assigning one resets the window's
+        // size constraints, which is why the main-window path orders it the
+        // same way.
+        window.contentMinSize = Self.onboardingSize
+        window.setContentSize(Self.onboardingSize)
+        window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         onboardingWindow = window
     }
+
+    /// One size for every onboarding step. The steps all fill it rather than
+    /// hugging their own content, so this is the only place it is decided.
+    private static let onboardingSize = NSSize(width: 720, height: 660)
 
     private func closeOnboardingWindow() {
         close(&onboardingWindow)
@@ -422,6 +438,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         let root = CalendarPromptHost(
             onboarding: services.onboarding,
             integrations: services.integrations,
+            calendar: services.calendar,
             email: services.emailPreferences
         ) {
             EmailConsentPromptHost(preferences: services.emailPreferences) {
@@ -453,6 +470,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                     .environmentObject(services.summaryRegeneration)
                     .environmentObject(services.productAnalytics)
                     .environmentObject(services.demoPlayback)
+                    .environmentObject(services.permissions)
+                    .environmentObject(services.calendar)
             }
         }
 

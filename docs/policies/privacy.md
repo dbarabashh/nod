@@ -432,7 +432,7 @@ the data goes. Neither is on by default and neither implies the other.
 
 | | |
 |---|---|
-| **Default** | **Off.** You switch it on yourself in Settings → General, and macOS then asks you separately. It is never switched on by an app update. |
+| **Default** | **Off.** You switch it on yourself, in onboarding or in Settings → General, and macOS then asks you separately. It is never switched on by an app update. |
 | **What it is not** | **Not a connected account.** There is no sign-in, no OAuth, no token, and no calendar API. Nod reads the calendar database already on your Mac — the same one the Calendar app shows you — through the macOS **Calendars** permission, exactly like the microphone permission you already granted. This reaches whatever accounts you have added to your Mac, including iCloud calendars that no integration can see. |
 | **When it reads** | On a timer while the switch is on — about every 20 seconds — plus when a call is detected and once more when a recording finishes: an invitation is often written minutes *after* the call started, so that last read is what finds it. Switching the feature off stops Nod reading your Mac's calendar immediately. The timer itself keeps running only if you have also connected a calendar account under (a), and it then looks at that one alone. |
 | **What it reads** | Events around the moment it asks — the title, the start and end times, whether you declined it, whether the entry contains a video-call link, and **who was invited**: each person's name (or, where the invitation carries no name, their address), and which of them is you. Rooms and equipment are skipped, as is anyone who declined. |

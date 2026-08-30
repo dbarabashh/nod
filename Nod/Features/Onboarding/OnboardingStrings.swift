@@ -47,26 +47,15 @@ struct OnboardingStrings {
     let actionContinueAnyway: String
     let actionFinish: String
     let statusGranted: String
-
-    let tutorialTitle: String
-    let tutorialBullets: [TutorialBullet]
-    let tutorialPrivacy: String
-    let tutorialGotIt: String
-
-    struct TutorialBullet {
-        let icon: String
-        let title: String
-        let body: String
-    }
 }
 
 extension OnboardingStrings {
     static let english = OnboardingStrings(
         welcomeTitle: "Welcome to Nod",
-        welcomeTagline: "Your meeting copilot — listens during the call, recaps when you're done.",
+        welcomeTagline: "Everything you talk through is kept, and handed back when you need it.",
         welcomeBullets: [
-            .init(icon: "nc-video", text: "Captures both you and the other side of the call."),
-            .init(icon: "nc-sparkle-3", text: "Ask for key points, follow-ups, or a recap mid-meeting."),
+            .init(icon: "nc-video", text: "Meetings, voice notes, anything playing — captured off this Mac, with no bot joining."),
+            .init(icon: "nc-sparkle-3", text: "Ask what was decided, what's still open, and what you committed to."),
             .init(icon: "nc-lock", text: "Audio leaves your Mac only during transcription — never stored.")
         ],
         welcomeLanguageLabel: "Nod language",
@@ -74,16 +63,16 @@ extension OnboardingStrings {
         welcomeContinue: "Continue",
 
         permissionsTitle: "Grant Permissions",
-        permissionsSubtitle: "Nod needs access to your microphone and system audio to record meetings.",
+        permissionsSubtitle: "Nod captures through your Mac, so it needs the microphone and the system audio.",
 
         micTitle: "Microphone",
-        micDescription: "Captures what you say during the meeting.",
+        micDescription: "Captures your own side — a call, or a voice note with nobody else in it.",
 
         screenTitle: "Screen Recording",
-        screenDescription: "Required to capture system audio from your meeting app.",
+        screenDescription: "Required to capture system audio — the other side of a call, or anything playing.",
 
         screenPreemptiveTitle: "Why Screen Recording?",
-        screenPreemptiveBody: "Screen Recording is required to capture system audio — the other people in your meeting. Nod doesn't record or transmit your screen; only the audio mix from your speakers.",
+        screenPreemptiveBody: "Screen Recording is what macOS calls the permission to hear your Mac's own audio — the other side of a call. Nod doesn't record or transmit your screen; only the audio mix from your speakers.",
 
         guideStep1Title: "Open Privacy & Security",
         guideStep1Detail: "In System Settings, scroll to Privacy & Security.",
@@ -98,27 +87,6 @@ extension OnboardingStrings {
         actionContinue: "Continue",
         actionContinueAnyway: "Continue Anyway",
         actionFinish: "Continue",
-        statusGranted: "Granted",
-
-        tutorialTitle: "Your first meeting",
-        tutorialBullets: [
-            .init(
-                icon: "nc-mic",
-                title: "Hit Start Meeting on the floating panel",
-                body: "The panel sits on the left of your screen. The next upcoming event from your calendar shows above the button."
-            ),
-            .init(
-                icon: "nc-sparkle-3",
-                title: "Ask Nod during the call",
-                body: "Tap Catch me up, Key points, Suggest follow-up questions, or Recap so far whenever you need a hand."
-            ),
-            .init(
-                icon: "nc-file",
-                title: "Get a recap when you end",
-                body: "Hit End and Nod generates a meeting summary you can copy. Nothing is recorded or kept — audio only leaves your Mac for transcription."
-            )
-        ],
-        tutorialPrivacy: "Mic, Nod language, and sign-out live in the floating panel — change them any time.",
-        tutorialGotIt: "Got it"
+        statusGranted: "Granted"
     )
 }
