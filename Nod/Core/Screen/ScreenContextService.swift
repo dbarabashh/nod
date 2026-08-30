@@ -45,6 +45,7 @@ final class ScreenContextService: ObservableObject {
 
     private let supabase: SupabaseClient?
     private let exclusions: ScreenExclusions
+    private let analytics: ProductAnalytics?
     private let reader: AccessibilityReader
     private var timerTask: Task<Void, Never>?
     private var pauseTask: Task<Void, Never>?
@@ -101,11 +102,28 @@ final class ScreenContextService: ObservableObject {
     /// characters each — so the chunk keeps the URL clear of proxy limits.
     private static let bodyChunkSize = 48
 
-    init(supabase: SupabaseClient?, exclusions: ScreenExclusions, reader: AccessibilityReader = AccessibilityReader()) {
+    init(
+        supabase: SupabaseClient?,
+        exclusions: ScreenExclusions,
+        reader: AccessibilityReader = AccessibilityReader(),
+        analytics: ProductAnalytics? = nil
+    ) {
         self.supabase = supabase
         self.exclusions = exclusions
         self.reader = reader
+        self.analytics = analytics
         observeWake()
+    }
+
+    /// Reports the switch moving, and nothing else.
+    ///
+    /// Never what was read, which app it came from, or what is on the blocklist
+    /// — `privacy.md` § 3.8 rules those out by name, and they are the most
+    /// tempting numbers in the product. Adoption and intensity come from
+    /// `screen_observations`, the feature's own records, per the § 3.5 rule that
+    /// what has a domain record is measured from it.
+    private func report(_ outcome: ProductAnalytics.Outcome) {
+        analytics?.record(.ambientContextToggled, properties: .init(surface: .settings, outcome: outcome))
     }
 
     deinit {
@@ -232,6 +250,7 @@ final class ScreenContextService: ObservableObject {
     /// leaving a stale deadline in place would make the toggle do nothing.
     func setAmbientEnabled(_ enabled: Bool) {
         ScreenContextDefaults.setEnabled(enabled)
+        report(enabled ? .enabled : .disabled)
         if enabled {
             ScreenContextDefaults.setPausedUntil(nil)
             // Asked here, not inside `start()`: this is the one moment the
@@ -247,6 +266,7 @@ final class ScreenContextService: ObservableObject {
     func pause(for duration: TimeInterval) {
         ScreenContextDefaults.setPausedUntil(Date().addingTimeInterval(duration))
         refresh()
+        report(.paused)
         Log.screen.info("context: paused for \(Int(duration / 60)) min")
     }
 

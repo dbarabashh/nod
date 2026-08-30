@@ -46,6 +46,10 @@ final class IntegrationService: ObservableObject {
     /// exactly as `OrganizationService` already does. Every call below is a
     /// no-op without it rather than a crash.
     private let supabase: SupabaseClient?
+    /// Reports linking and unlinking. Assigned by the composition root after
+    /// the analytics client exists — this service is built before it — and nil
+    /// in a preview, the same way `supabase` is.
+    var analytics: ProductAnalytics?
     private var watch: Task<Void, Never>?
     /// Whether the first read has landed. Published because the home screen's
     /// "connect your tools" card must not appear in the gap before it: the set
@@ -116,6 +120,7 @@ final class IntegrationService: ObservableObject {
                 .execute()
                 .value
             linked = Set(rows.compactMap { IntegrationProvider(rawValue: $0.provider) })
+            await reportLinkChanges()
             linkedApps = Set(rows.map(\.provider).filter { IntegrationProvider(rawValue: $0) == nil })
             teamByProvider = rows.reduce(into: [:]) { table, row in
                 guard let provider = IntegrationProvider(rawValue: row.provider), let teamID = row.teamID else { return }
@@ -130,6 +135,47 @@ final class IntegrationService: ObservableObject {
             lastError = "Couldn't load your integrations."
             Log.ui.error("IntegrationService.refresh failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Reports what changed since the last time this account was looked at, in
+    /// both directions, and remembers the new set.
+    ///
+    /// Against a stored snapshot rather than the previous in-memory value, for
+    /// two reasons the in-memory version got wrong. A connection finishes in a
+    /// browser and lands through a webhook — if the app was closed while that
+    /// happened, the next launch saw it as part of its own baseline and never
+    /// counted it. And a grant revoked at Slack or Google rather than here just
+    /// stopped appearing, so adoption could only ever rise: the graph went up
+    /// monotonically while people were leaving.
+    ///
+    /// Keyed by account. The same Mac carries more than one, and the last one's
+    /// products are not this one's news.
+    ///
+    /// A user with no snapshot is establishing a baseline, not connecting nine
+    /// things at once — the first look is silent.
+    private func reportLinkChanges() async {
+        guard let userID = try? await supabase?.auth.session.user.id else { return }
+        let key = "integrations.known.\(userID.uuidString)"
+        let current = Set(linked.map(\.rawValue))
+        defer { UserDefaults.standard.set(Array(current).sorted(), forKey: key) }
+
+        guard let stored = UserDefaults.standard.stringArray(forKey: key) else { return }
+        let change = Self.linkChanges(known: Set(stored), current: current)
+        change.connected.forEach { reportLink(.integrationConnected, $0) }
+        change.revoked.forEach { reportLink(.integrationRevoked, $0) }
+    }
+
+    /// What moved between two sets of linked products. Sorted, so the events a
+    /// single reconcile emits arrive in a stable order rather than a hash one.
+    nonisolated static func linkChanges(
+        known: Set<String>,
+        current: Set<String>
+    ) -> (connected: [String], revoked: [String]) {
+        (current.subtracting(known).sorted(), known.subtracting(current).sorted())
+    }
+
+    private func reportLink(_ event: ProductAnalytics.Event, _ provider: String) {
+        analytics?.record(event, properties: .init(surface: .settings, provider: provider))
     }
 
     /// Whether Nod may act in a product on this account's behalf: the person
@@ -347,6 +393,7 @@ final class IntegrationService: ObservableObject {
             teamByProvider[provider] = nil
             taskTargets = filingTargets()
             lastError = nil
+            await reportLinkChanges()
             Log.ui.info("integration disconnected \(provider.rawValue)")
             return true
         } catch {

@@ -149,6 +149,10 @@ struct AppServices {
             auth: auth
         )
         let productAnalytics = ProductAnalytics(supabase: supabase, auth: auth)
+        // Set here rather than taken in the initializer: `integrations` is built
+        // before the analytics client exists, and reordering the graph to suit a
+        // reporting dependency would put the tail before the dog.
+        integrations.analytics = productAnalytics
         let onboardingTelemetry = OnboardingTelemetry(
             supabase: supabase,
             auth: auth,
@@ -176,7 +180,11 @@ struct AppServices {
         // the cache is keyed only on query text and can't notice that itself.
         meetingStore.onTrashChange.subscribe { [weak knowledgeStore] in knowledgeStore?.invalidateCache() }
         let screenExclusions = ScreenExclusions()
-        let screenContext = ScreenContextService(supabase: supabase, exclusions: screenExclusions)
+        let screenContext = ScreenContextService(
+            supabase: supabase,
+            exclusions: screenExclusions,
+            analytics: productAnalytics
+        )
         let entitlements = EntitlementService(supabase: supabase)
         // Ambient capture has to *act* on the entitlement, not just render it, so
         // it's mirrored here once instead of at each of the four `refresh()`

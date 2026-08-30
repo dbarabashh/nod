@@ -21,6 +21,21 @@ final class ProductAnalytics: ObservableObject {
         case allowanceGateAction = "allowance_gate_action"
         case referralLinkShared = "referral_link_shared"
         case emailConsentSaved = "email_consent_saved"
+        /// A product was linked or unlinked. Adoption of the thing a meeting is
+        /// no longer the only input to.
+        case integrationConnected = "integration_connected"
+        case integrationRevoked = "integration_revoked"
+        /// A live question was pointed at a connected product. Says whether the
+        /// integrations *answer*, which linking alone never showed.
+        case lookupRouted = "lookup_routed"
+        /// Somebody was shown what a write would do and said yes or no. The one
+        /// number that says whether the approval gate protects more than it
+        /// interrupts.
+        case toolCallReviewed = "tool_call_reviewed"
+        /// The screen-reading switch moved. Absence of `screen_observations` is
+        /// ambiguous — off, paused, blocklisted, or the Mac simply shut — and
+        /// only the transition tells them apart.
+        case ambientContextToggled = "ambient_context_toggled"
     }
 
     enum EntryPoint: String, Codable {
@@ -110,6 +125,16 @@ final class ProductAnalytics: ObservableObject {
         case failure
         case cancelled
         case viewed
+        /// The product answered and had nothing. Distinct from `failure` on
+        /// purpose: "your Linear is quiet" and "your Linear is unreachable" are
+        /// opposite pieces of news, and a funnel that flattens them measures the
+        /// wrong thing to go and fix.
+        case empty
+        /// Never attempted — somebody in the room is not a colleague.
+        case refused
+        case enabled
+        case disabled
+        case paused
     }
 
     struct Properties: Codable {
@@ -125,6 +150,10 @@ final class ProductAnalytics: ObservableObject {
         var outcome: Outcome?
         var plan: String?
         var billing: String?
+        /// Which connected product, as `IntegrationProvider.rawValue`. Bounded
+        /// by that enum and nothing else — never a URL, an account name, or a
+        /// workspace.
+        var provider: String?
 
         init(
             sessionKind: String? = nil,
@@ -136,7 +165,8 @@ final class ProductAnalytics: ObservableObject {
             aiFeature: AIFeature? = nil,
             outcome: Outcome? = nil,
             plan: String? = nil,
-            billing: String? = nil
+            billing: String? = nil,
+            provider: String? = nil
         ) {
             self.sessionKind = sessionKind
             self.entryPoint = entryPoint
@@ -148,6 +178,7 @@ final class ProductAnalytics: ObservableObject {
             self.outcome = outcome
             self.plan = plan
             self.billing = billing
+            self.provider = provider
         }
 
         enum CodingKeys: String, CodingKey {
@@ -163,6 +194,7 @@ final class ProductAnalytics: ObservableObject {
             case outcome
             case plan
             case billing
+            case provider
         }
     }
 

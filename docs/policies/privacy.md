@@ -140,15 +140,21 @@ Legal basis: legitimate interest in operating a sustainable service
 Nod records a minimal first-party event log in `onboarding_events` and
 `product_events`. It covers setup steps, app opens, capture requests and
 outcomes, summary/transcript/action-item views, Ask completion, copy/export,
-paywall views, and successful checkout creation. Each row contains a random
-event ID, timestamp, app-session or capture ID where relevant, platform, app
-version, event name, and bounded categories such as session kind, entry point,
-stage, permission type (microphone or screen recording), failure reason,
-surface, content type, AI feature, outcome, plan, and billing cycle.
+paywall views, successful checkout creation, connecting or disconnecting a
+third-party product, whether a question put to one of those products was
+answered, your decision on an approval card before Nod writes anything to them,
+and the ambient-context switch being turned on, off, or paused. Each row
+contains a random event ID, timestamp, app-session or capture ID where relevant,
+platform, app version, event name, and bounded categories such as session kind,
+entry point, stage, permission type (microphone or screen recording), failure
+reason, surface, content type, AI feature, outcome, which product (from a fixed
+list of the integrations Nod supports), plan, and billing cycle.
 
 The event log never contains meeting titles, transcript or summary text,
 questions, answers, arbitrary error messages, email, clipboard contents, share
-tokens, or other free-form app content. Completed meetings, persisted chats,
+tokens, or other free-form app content. Nothing read from your screen reaches
+it either: not the app a capture came from, not a window title, and not what is
+on your exclusion list — the ambient event records only that the switch moved. Completed meetings, persisted chats,
 action items, shares, and payments are measured from their domain records
 rather than trusting a client event.
 

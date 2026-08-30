@@ -48,6 +48,9 @@ struct MeetingLookup {
     /// `LiveMeetingAnalyst.recallSourceLabel` takes, and for the same reason:
     /// an answer from memory that cannot be placed is one nobody can check.
     let sessionLabel: (UUID) -> String?
+    /// Reports where a live question got to. Optional so a test can build a
+    /// lookup without one, the same way `gate` is optional.
+    var analytics: ProductAnalytics?
 
     /// One question, read once.
     ///
@@ -203,6 +206,8 @@ struct MeetingLookup {
             }
         }
 
+        report(runs.first ?? first, provider: routed.provider)
+
         let text = written.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             // A call that failed is not a product that had nothing. Reported as
@@ -221,6 +226,33 @@ struct MeetingLookup {
                 provider: usedTool ? runs.compactMap(\.report).last.map { _ in routed.provider } : nil,
                 subject: written.subject?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
                     ?? (usedTool ? nil : memory.first?.source)
+            )
+        )
+    }
+
+    /// What the question reached, and whether the product answered it.
+    ///
+    /// Linking an integration and it being *useful* are different facts, and
+    /// only the second one is worth anything — an account with Linear connected
+    /// that never gets an answer out of it is a failure that looks identical to
+    /// success in a table of connections.
+    ///
+    /// `empty` is kept apart from `failed` deliberately: "your tracker is quiet"
+    /// and "your tracker is unreachable" send somebody to two different places.
+    private func report(_ run: ToolRun, provider: IntegrationProvider) {
+        let outcome: ProductAnalytics.Outcome = switch run {
+        case .succeeded: .success
+        case .failed: .failure
+        case .declined: .declined
+        case .refusedByRoom: .refused
+        }
+        analytics?.record(
+            .lookupRouted,
+            properties: .init(
+                entryPoint: .notch,
+                surface: .capture,
+                outcome: outcome,
+                provider: provider.rawValue
             )
         )
     }
@@ -299,7 +331,19 @@ struct MeetingLookup {
     /// no, and the answer should say that instead of offering to retry.
     private func confirm(_ call: ChatToolCall, routed: Routed, through gate: ChatToolGate) async -> ToolRun {
         let outcome = await gate.run([call], tools: [routed.tool], provider: routed.provider, using: integrations)
-        if outcome.steps.first?.outcome == .declined { return .declined }
+        let declined = outcome.steps.first?.outcome == .declined
+        // The one number that says whether the approval card protects more than
+        // it interrupts. A gate nobody ever refuses is a dialog, not a gate.
+        analytics?.record(
+            .toolCallReviewed,
+            properties: .init(
+                entryPoint: .notch,
+                surface: .capture,
+                outcome: declined ? .declined : .granted,
+                provider: routed.provider.rawValue
+            )
+        )
+        if declined { return .declined }
         return Self.settle(routed.tool, outcome.turns.last?.content ?? "")
     }
 
