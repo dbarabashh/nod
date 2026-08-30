@@ -379,12 +379,34 @@ struct MeetingDetailView: View {
 
     private func rebuildSummary() {
         Task {
-            guard let updated = await summaryRegeneration.run(for: current) else { return }
+            guard let updated = await summaryRegeneration.run(for: current) else {
+                reportRegeneration(.failure)
+                return
+            }
+            reportRegeneration(.success)
             seedEditors(from: updated)
             // A rebuilt meeting has a typed recap, and the toolbar hides Done
             // once it does — left on, the raw-markdown box would have no way out.
             isEditingSummary = false
         }
+    }
+
+    /// Asking for the summary again is a statement that the first one was not
+    /// good enough. How often it happens, and how often the second attempt also
+    /// fails, is the closest thing the funnel has to a quality signal on the
+    /// recap — so both outcomes are reported, not just the one that worked.
+    private func reportRegeneration(_ outcome: ProductAnalytics.Outcome) {
+        analytics.record(
+            .aiActionCompleted,
+            properties: .init(
+                sessionKind: current.kind.rawValue,
+                entryPoint: .meetingDetail,
+                surface: .meetingDetail,
+                contentType: .summary,
+                aiFeature: .summaryRegeneration,
+                outcome: outcome
+            )
+        )
     }
 
     /// One correction, applied to both halves.

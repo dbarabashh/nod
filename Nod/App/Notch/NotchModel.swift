@@ -38,6 +38,11 @@ final class NotchModel: ObservableObject {
     let captureSurface: CaptureSurfacePreference
     let panelSharing: PanelSharingPreference
 
+    /// Reports what the Ask box was used for. The notch is the one surface that
+    /// never told the funnel anything — `AIFeature.liveAsk` has existed since
+    /// the enum did and has never once been emitted, so the question people ask
+    /// most often, mid-meeting, is the one we cannot see.
+    let analytics: ProductAnalytics
     let session: MeetingSession
     let offers: MeetingOffers
     let audioCapture: AudioCaptureService
@@ -148,6 +153,7 @@ final class NotchModel: ObservableObject {
         billing: BillingService,
         meetingStore: MeetingStore,
         permissions: PermissionManager,
+        analytics: ProductAnalytics,
         defaults: UserDefaults = .standard
     ) {
         self.session = session
@@ -167,6 +173,7 @@ final class NotchModel: ObservableObject {
         self.billing = billing
         self.meetingStore = meetingStore
         self.permissions = permissions
+        self.analytics = analytics
         self.defaults = defaults
         askLanguageEachTime = defaults.object(forKey: MeetingLanguagePromptDefaults.defaultsKey) as? Bool
             ?? MeetingLanguagePromptDefaults.defaultValue
@@ -800,8 +807,24 @@ extension NotchModel {
     /// The Ask box's "Summarize" chip — routed through the dedicated catch-up
     /// prompt (tuned for exactly this) rather than through `ask` with the
     /// literal word "Summarize" as the question.
+    /// The question, and how it went. A cancelled ask reports nothing: the
+    /// person asked something newer, and counting the abandoned one as a failure
+    /// would make the feature look broken by being used quickly.
+    private func report(_ feature: ProductAnalytics.AIFeature, outcome: ProductAnalytics.Outcome) {
+        analytics.record(
+            .aiActionCompleted,
+            properties: .init(
+                entryPoint: .notch,
+                surface: .capture,
+                contentType: .answer,
+                aiFeature: feature,
+                outcome: outcome
+            )
+        )
+    }
+
     func askSummarize() {
-        runAsk(question: "Summarize") { _ in
+        runAsk(question: "Summarize", feature: .catchUp) { _ in
             self.isListening
                 ? try await self.rooms.catchMeUp(language: self.language.current)
                 : try await self.session.analyst.catchUp(language: self.language.current)
@@ -814,7 +837,11 @@ extension NotchModel {
     /// happens to be showing when the answer arrives does not, so a panel the
     /// user folded away mid-flight still has the answer waiting in it when they
     /// come back.
-    private func runAsk(question: String, call: @escaping (AskThread) async throws -> String) {
+    private func runAsk(
+        question: String,
+        feature: ProductAnalytics.AIFeature = .liveAsk,
+        call: @escaping (AskThread) async throws -> String
+    ) {
         askTask?.cancel()
         meetingBarPanel.startAsking()
         refresh()
@@ -828,10 +855,15 @@ extension NotchModel {
                 guard !Task.isCancelled else { return }
                 askThread.append(question: question, answer: answer)
                 meetingBarPanel.land(.answered(question: question, answer: answer))
+                report(feature, outcome: .success)
             } catch {
                 guard !Task.isCancelled else { return }
                 Log.llm.error("ask: \(question) failed — \(error.localizedDescription)")
                 meetingBarPanel.land(.failed(question: question))
+                // Reported, not only logged. Every other Ask surface records its
+                // successes and stays silent about its failures, so the funnel
+                // reads as if the feature never misses.
+                report(feature, outcome: .failure)
             }
             refresh()
         }

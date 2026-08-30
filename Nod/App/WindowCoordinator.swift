@@ -295,7 +295,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                     gate: gate,
                     room: room,
                     scope: scope,
-                    sessionLabel: sessionLabel
+                    sessionLabel: sessionLabel,
+                    analytics: services.productAnalytics
                 )
             },
             colleagues: { [weak organizations = services.organizations] in
@@ -362,7 +363,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 entitlements: services.entitlements,
                 billing: services.billing,
                 meetingStore: services.meetingStore,
-                permissions: services.permissions
+                permissions: services.permissions,
+                analytics: services.productAnalytics
             ),
             cards: NotchCardEnvironment(
                 integrations: services.integrations,

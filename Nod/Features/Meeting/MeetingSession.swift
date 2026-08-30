@@ -1162,6 +1162,18 @@ final class MeetingSession: ObservableObject {
             let title = await recapGenerator.title(from: text, language: lang)
             let updated = named.updating(title: title, summary: text, recap: recap)
             meetingStore.applyGenerated(updated)
+            // The most expensive call the product makes, and until now the only
+            // major one the funnel could not see succeed or fail.
+            analytics.record(
+                .aiActionCompleted,
+                properties: .init(
+                    sessionKind: pinned.draft.kind.rawValue,
+                    stage: .finalization,
+                    contentType: .summary,
+                    aiFeature: .recap,
+                    outcome: .success
+                )
+            )
 
             // Only clear the live store if it still belongs to THIS meeting —
             // a recording started during summary generation now owns it. The
