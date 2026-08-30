@@ -110,7 +110,7 @@ final class LLMProxyClient: ObservableObject {
     /// override with `defaults write com.example.nod openrouter.model.title "..."`.
     private static let titleModelKey = "openrouter.model.title"
     var titleModel: String {
-        UserDefaults.standard.string(forKey: Self.titleModelKey) ?? "anthropic/claude-sonnet-4.6"
+        UserDefaults.standard.string(forKey: Self.titleModelKey) ?? "anthropic/claude-haiku-4.5"
     }
 
     /// Model for the structured prep calls that never reach the user: rewriting

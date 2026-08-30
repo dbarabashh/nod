@@ -313,10 +313,23 @@ extension PromptLibrary {
         LANGUAGE (repeat): the output must be in \(lang).
         """
 
-        let user = "Meeting recap:\n\n\(summary)\n\nGenerate the title now."
+        let user = "Meeting recap:\n\n\(summary.prefix(titleRecapBudget))\n\nGenerate the title now."
 
         return (system, user)
     }
+
+    /// How much of the recap a title is worth reading.
+    ///
+    /// A calendar-event title comes from what the meeting was about, which the
+    /// recap says in its first section — the rest is detail no four-word title
+    /// can carry. Unbounded, this sent the whole recap: titles averaged 6,633
+    /// prompt tokens and were the single most expensive line in the product,
+    /// costing more per call than the questions people actually asked.
+    ///
+    /// Characters rather than sections: a recap is markdown by the time it gets
+    /// here, and slicing it on `**` would make the budget depend on a format
+    /// this function has no other reason to parse.
+    private static let titleRecapBudget = 1_200
 
     // MARK: - AI-assisted summary editing
 

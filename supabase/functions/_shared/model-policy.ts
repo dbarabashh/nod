@@ -24,7 +24,7 @@ interface TaskPolicy {
 
 const TASK_POLICY: Record<RoutingTask, TaskPolicy> = {
     summary: { env: "SUMMARY_MODEL", clientDefault: "anthropic/claude-sonnet-4.6" },
-    title: { env: "TITLE_MODEL", clientDefault: "anthropic/claude-sonnet-4.6" },
+    title: { env: "TITLE_MODEL", clientDefault: "anthropic/claude-haiku-4.5" },
     utility: { env: "UTILITY_MODEL", clientDefault: "anthropic/claude-haiku-4.5" },
     chat: { env: "CHAT_MODEL", clientDefault: "anthropic/claude-sonnet-5" },
 };
