@@ -343,6 +343,42 @@ struct AppServices {
             appearance: AppearancePreference()
         )
     }
+
+    /// Drops everything the signed-out account put in memory, so the next
+    /// person to sign in sees none of it.
+    ///
+    /// Here rather than at the sign-out call site, which is what let this go
+    /// wrong: the list lived in `NodApp`, a hundred lines and a file away from
+    /// where a store is added, and `knowledgeThreads` was never put on it. The
+    /// chat sidebar then kept the last account's titles, and its load-once
+    /// guard kept saying "already loaded" — so signing out, in as somebody
+    /// else, and back again left an account looking at an empty chat list until
+    /// the app was relaunched. `integrations` was missing for the same reason,
+    /// and offered the next person the last one's Linear and calendar.
+    ///
+    /// A store that holds anything account-scoped belongs on this list. It is
+    /// still a list somebody has to remember, but it is now the file they were
+    /// already editing.
+    func clearPerAccountState() async {
+        meetingStore.clear()
+        profileStore.clear()
+        chatStore.clear()
+        knowledgeChat.clear()
+        knowledgeThreads.clear()
+        beats.clear()
+        actionItemStore.clear()
+        actionProposals.clear()
+        labelStore.clear()
+        meetingGrants.clear()
+        remoteCalendar.clear()
+        entitlements.clear()
+        emailPreferences.clear()
+        organizations.clear()
+        integrations.clear()
+        // The channel carries this account's topics; leaving it open across a
+        // sign-out would have the next person listening on the last one's.
+        await accessChannel.teardown()
+    }
 }
 
 /// What an access change has to go and re-ask, holding none of it strongly.

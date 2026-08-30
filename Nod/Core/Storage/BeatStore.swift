@@ -38,6 +38,14 @@ final class BeatStore: ObservableObject {
 
     // MARK: - Reads
 
+    /// Drops the previous account's beats and everything they produced.
+    func clear() {
+        beats = []
+        runs = []
+        reports = [:]
+        lastError = nil
+    }
+
     func refresh() async {
         #if DEBUG
             if DemoMode.isEnabled { return }

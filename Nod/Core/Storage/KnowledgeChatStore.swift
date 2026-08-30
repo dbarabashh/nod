@@ -289,6 +289,23 @@ final class KnowledgeChatStore: ObservableObject {
         clearTurnMarkers()
     }
 
+    /// Drops the conversation on screen when the account changes.
+    ///
+    /// Unconditional where `startNewThread` is guarded: that guard exists so
+    /// clicking "New chat" twice does not throw away a draft, and it is exactly
+    /// wrong here — an empty-looking view can still be holding the last
+    /// account's scope, draft and failure.
+    func clear() {
+        cancel()
+        messages = []
+        threadID = nil
+        thinkingScript = []
+        scopeLabelIDs = []
+        pendingDraft = nil
+        failure = nil
+        clearTurnMarkers()
+    }
+
     /// Reopens a saved conversation, with the sources and passages its answers
     /// were built on.
     func open(threadID: UUID) async {

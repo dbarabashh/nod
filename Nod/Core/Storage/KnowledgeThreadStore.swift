@@ -141,6 +141,19 @@ final class KnowledgeThreadStore: ObservableObject {
         }
     }
 
+    /// Drops the previous account's conversations on sign-out.
+    ///
+    /// `hasLoaded` matters as much as the list: without it `refreshIfNeeded`
+    /// answers "already loaded" for the next person who signs in, so they are
+    /// shown the last account's chat titles and never a fetch of their own.
+    /// That is how a sign-out, a sign-in as somebody else and a sign-in back
+    /// left an account looking at an empty list until the app was relaunched.
+    func clear() {
+        threads = []
+        hasLoaded = false
+        isLoading = false
+    }
+
     /// The owner comes from the live session rather than an injected auth
     /// service — `AuthService` lives in `Features/`, and a `Core` store must
     /// not reach into a feature to learn who is signed in.

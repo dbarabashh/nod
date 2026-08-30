@@ -226,27 +226,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for await _ in services.auth.$session.values {
                 guard let self, let windows = self.windows else { return }
                 let isSignedIn = services.auth.session != nil
+                // Before `reconcile()` reads `isCompleted`: onboarding progress
+                // is per account, and which account it describes is decided
+                // here. Signing out adopts nil so the next person to arrive is
+                // not handed the last one's answers.
+                services.onboarding.adopt(userID: services.auth.currentSupabaseSession?.user.id)
                 if wasSignedIn, !isSignedIn {
                     // Sign-out: tear down the recording pipeline AND drop
                     // the per-user caches so the next signed-in user can't
                     // see the previous one's data through the in-memory
                     // store or a stale History window.
                     await stopRecordingServices()
-                    services.meetingStore.clear()
-                    services.profileStore.clear()
-                    services.chatStore.clear()
-                    services.actionItemStore.clear()
-                    services.actionProposals.clear()
-                    services.labelStore.clear()
-                    services.meetingGrants.clear()
-                    services.remoteCalendar.clear()
-                    services.entitlements.clear()
-                    services.emailPreferences.clear()
-                    services.organizations.clear()
-                    // The channel carries this account's topics; leaving it open
-                    // across a sign-out would have the next person listening on
-                    // the last one's.
-                    await services.accessChannel.teardown()
+                    await services.clearPerAccountState()
                     windows.closeMainWindow()
                 }
                 if isSignedIn {

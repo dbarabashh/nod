@@ -58,6 +58,26 @@ struct OnboardingView: View {
         .english
     }
 
+    /// The steps this Mac has already answered.
+    ///
+    /// Derived here rather than held on `OnboardingState`: the answer lives in
+    /// `PermissionManager` and `CalendarService`, and read at the moment of
+    /// advancing it cannot be stale — a copy kept on the state would go wrong
+    /// exactly when somebody grants a permission mid-flow.
+    ///
+    /// Only these two. Both are machine-level facts a second account inherits
+    /// honestly: macOS grants the microphone to the app, not to an account, and
+    /// this Mac's calendar is this Mac's. Welcome, profile and email consent
+    /// are the person's own answers and are always asked.
+    private var satisfied: Set<OnboardingStep> {
+        var done: Set<OnboardingStep> = []
+        if permissions.canCaptureBothSides { done.insert(.permissions) }
+        if CalendarSourceState.isAnswered(calendar: calendar, integrations: integrations) {
+            done.insert(.calendar)
+        }
+        return done
+    }
+
     /// A name the user already saved wins over the one Google handed us — they
     /// may have shortened it on purpose.
     private var seededName: String {
@@ -77,7 +97,7 @@ struct OnboardingView: View {
                 currentLanguage: language.current,
                 onContinue: { picked in
                     language.current = picked
-                    state.goNext()
+                    state.goNext(skipping: satisfied)
                 }
             )
         case .profile where !profileLoaded:
@@ -105,11 +125,11 @@ struct OnboardingView: View {
                             $0.heardFrom = answers.heardFrom
                         }
                     }
-                    state.goNext()
+                    state.goNext(skipping: satisfied)
                 },
                 onSkip: {
                     telemetry.profileSkipped()
-                    state.goNext()
+                    state.goNext(skipping: satisfied)
                 }
             )
         case .permissions:
@@ -118,11 +138,11 @@ struct OnboardingView: View {
                 onFinish: { skipped in
                     state.recordPermissionsDecision(skipped: skipped)
                     if skipped { telemetry.permissionsSkipped() }
-                    state.goNext()
+                    state.goNext(skipping: satisfied)
                 }
             )
         case .calendar:
-            CalendarStep(calendar: calendar, integrations: integrations, onFinish: { state.goNext() })
+            CalendarStep(calendar: calendar, integrations: integrations, onFinish: { state.goNext(skipping: satisfied) })
         case .emailPreferences:
             EmailConsentStep(preferences: emailPreferences, onFinish: {
                 telemetry.completed()

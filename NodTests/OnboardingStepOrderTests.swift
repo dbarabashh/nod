@@ -80,4 +80,38 @@ final class OnboardingStepOrderTests: XCTestCase {
     func testAnUnknownStepFallsBackToTheStart() throws {
         XCTAssertEqual(try decode(step: 99, version: "1.3"), .welcome)
     }
+
+    /// The flow steps over what this Mac has already answered, and keeps going
+    /// in the same direction — stopping on the first satisfied step would leave
+    /// it on a screen it had just decided not to show.
+    func testAdvancingStepsOverWhatIsAlreadyAnswered() {
+        XCTAssertEqual(
+            OnboardingStep.welcome.advanced(by: 1, skipping: [.calendar, .permissions]),
+            .profile
+        )
+    }
+
+    /// Only the machine-level steps are ever passed in as satisfied. A person's
+    /// own answers — their name, their email choice — are asked of every
+    /// account, so the flow always lands on them.
+    func testAPersonsOwnStepsAreNeverSkipped() {
+        XCTAssertEqual(
+            OnboardingStep.profile.advanced(by: 1, skipping: [.calendar, .permissions]),
+            .emailPreferences
+        )
+    }
+
+    /// Back out the same way, over the same steps.
+    func testGoingBackStepsOverThemToo() {
+        XCTAssertEqual(
+            OnboardingStep.profile.advanced(by: -1, skipping: [.calendar, .permissions]),
+            .welcome
+        )
+    }
+
+    /// Nil at the ends rather than a wrap or a clamp: the caller stays put.
+    func testThereIsNothingBeyondTheEnds() {
+        XCTAssertNil(OnboardingStep.welcome.advanced(by: -1, skipping: []))
+        XCTAssertNil(OnboardingStep.emailPreferences.advanced(by: 1, skipping: []))
+    }
 }

@@ -22,6 +22,26 @@ enum OnboardingStep: String, Codable, CaseIterable {
     var position: Int {
         (Self.allCases.firstIndex(of: self) ?? 0) + 1
     }
+
+    /// The next step in `offset`'s direction, stepping over anything already
+    /// answered, or nil at either end.
+    ///
+    /// On the enum that owns the order rather than inside `OnboardingState`:
+    /// it is a fact about the flow, not about one person's progress through it,
+    /// and here it can be exercised without a `UserDefaults` round trip.
+    ///
+    /// Walks on in the same direction rather than stopping at the first
+    /// satisfied step — stopping would leave the flow on a screen it had just
+    /// decided not to show.
+    func advanced(by offset: Int, skipping satisfied: Set<OnboardingStep>) -> OnboardingStep? {
+        let steps = Self.allCases
+        guard let current = steps.firstIndex(of: self) else { return nil }
+        var next = steps.index(current, offsetBy: offset)
+        while steps.indices.contains(next), satisfied.contains(steps[next]) {
+            next = steps.index(next, offsetBy: offset)
+        }
+        return steps.indices.contains(next) ? steps[next] : nil
+    }
 }
 
 struct OnboardingStatus: Codable {
@@ -110,15 +130,56 @@ struct OnboardingStatus: Codable {
 final class OnboardingState: ObservableObject {
     @Published private(set) var status: OnboardingStatus
 
-    private static let storageKey = "onboarding-status"
+    /// Whose progress `status` currently describes.
+    private var userID: UUID?
+
+    /// The pre-account key, and the stem every per-account one is built from.
+    private static let legacyKey = "onboarding-status"
+
+    private static func storageKey(for userID: UUID?) -> String {
+        guard let userID else { return legacyKey }
+        return "\(legacyKey).\(userID.uuidString)"
+    }
 
     init() {
-        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
-           let decoded = try? JSONDecoder().decode(OnboardingStatus.self, from: data) {
-            status = decoded
-        } else {
-            status = OnboardingStatus()
+        status = Self.load(for: nil)
+    }
+
+    /// Points the flow at one account's progress.
+    ///
+    /// Per account, not per Mac. Onboarding asks for a name, a role, an email
+    /// choice and a calendar — four answers that belong to a person, kept until
+    /// now under one unkeyed `UserDefaults` blob. So a second account signing in
+    /// on a Mac where somebody had already finished was handed `completed =
+    /// true` and never asked anything: no profile, no email consent, straight
+    /// into the main window.
+    ///
+    /// Called on every session change, before `WindowCoordinator.reconcile()`
+    /// reads `isCompleted` — signing out adopts nil, which is what stops the
+    /// sign-in screen inheriting the last account's answers.
+    func adopt(userID: UUID?) {
+        guard self.userID != userID else { return }
+        self.userID = userID
+        status = Self.load(for: userID)
+    }
+
+    private static func load(for userID: UUID?) -> OnboardingStatus {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: storageKey(for: userID)) {
+            return (try? JSONDecoder().decode(OnboardingStatus.self, from: data)) ?? OnboardingStatus()
         }
+        // Nothing under this account's key, and an unkeyed blob from before the
+        // split. It belongs to whoever was signed in when it was written, and
+        // the first account to arrive after the update is that person — so they
+        // inherit it rather than being made to redo a flow they finished. It is
+        // removed with the same act, or the next account would inherit it too,
+        // which is the bug this whole change is about.
+        guard userID != nil, let legacy = defaults.data(forKey: legacyKey) else {
+            return OnboardingStatus()
+        }
+        defaults.set(legacy, forKey: storageKey(for: userID))
+        defaults.removeObject(forKey: legacyKey)
+        return (try? JSONDecoder().decode(OnboardingStatus.self, from: legacy)) ?? OnboardingStatus()
     }
 
     var isCompleted: Bool {
@@ -137,23 +198,22 @@ final class OnboardingState: ObservableObject {
         save()
     }
 
-    func goNext() {
-        move(by: 1)
+    /// - Parameter satisfied: steps this Mac has already answered, stepped over
+    ///   rather than shown. A second account on a Mac whose microphone and
+    ///   screen recording are already granted should not be walked through
+    ///   granting them — the step would open on a screen of green ticks and
+    ///   read as a flow that had lost its place.
+    func goNext(skipping satisfied: Set<OnboardingStep> = []) {
+        move(by: 1, skipping: satisfied)
     }
 
-    func goPrevious() {
-        move(by: -1)
+    func goPrevious(skipping satisfied: Set<OnboardingStep> = []) {
+        move(by: -1, skipping: satisfied)
     }
 
-    /// Steps by index in `allCases`, not by raw value: the raw value is a name
-    /// now, and the order lives in one place so the dots and the navigation can
-    /// never disagree about it.
-    private func move(by offset: Int) {
-        let steps = OnboardingStep.allCases
-        guard let current = steps.firstIndex(of: status.currentStep) else { return }
-        let next = steps.index(current, offsetBy: offset)
-        guard steps.indices.contains(next) else { return }
-        status.currentStep = steps[next]
+    private func move(by offset: Int, skipping satisfied: Set<OnboardingStep>) {
+        guard let next = status.currentStep.advanced(by: offset, skipping: satisfied) else { return }
+        status.currentStep = next
         save()
     }
 
@@ -176,14 +236,15 @@ final class OnboardingState: ObservableObject {
     #if DEBUG
         /// Clears the persisted first-run flag so the next launch replays
         /// onboarding. Local only — no account or meeting data is touched.
-        static func resetPersistedStatus() {
-            UserDefaults.standard.removeObject(forKey: storageKey)
+        static func resetPersistedStatus(userID: UUID? = nil) {
+            UserDefaults.standard.removeObject(forKey: storageKey(for: userID))
+            UserDefaults.standard.removeObject(forKey: legacyKey)
         }
     #endif
 
     private func save() {
         status.lastUpdated = Date()
         guard let data = try? JSONEncoder().encode(status) else { return }
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
+        UserDefaults.standard.set(data, forKey: Self.storageKey(for: userID))
     }
 }
