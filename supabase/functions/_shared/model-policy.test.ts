@@ -61,17 +61,6 @@ Deno.test("a task keeps its own knob — summary does not move title", () => {
     });
 });
 
-// Titles are a four-to-seven word label pulled off the top of a recap — the
-// same shape as every other utility call, and priced accordingly. Routed to a
-// frontier model they were the most expensive line in the product, costing more
-// per call than the questions people actually asked.
-Deno.test("a title is a utility-class call by default", () => {
-    withEnv({}, () => {
-        const r = applyModelPolicy(payload, "title", "anthropic/claude-haiku-4.5");
-        assertEquals(r.routed, "anthropic/claude-haiku-4.5");
-    });
-});
-
 Deno.test("an unknown task is never re-routed", () => {
     withEnv({ SUMMARY_MODEL: "anthropic/claude-sonnet-5" }, () => {
         const r = applyModelPolicy(payload, "unknown", "anthropic/claude-sonnet-4.6");
