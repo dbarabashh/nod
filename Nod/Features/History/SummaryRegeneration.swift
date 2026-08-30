@@ -228,7 +228,7 @@ final class SummaryRegeneration: ObservableObject {
 
         var errorDescription: String? {
             switch self {
-            case .noTranscript: "No transcript saved for this meeting."
+            case .noTranscript: "No transcript saved for this session."
             }
         }
     }

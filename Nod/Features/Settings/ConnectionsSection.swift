@@ -15,7 +15,7 @@ struct ConnectionsSection: View {
                 SettingsRow(
                     icon: "nc-puzzle-piece",
                     title: "Connect Nod to AI assistants",
-                    subtitle: "Search your meeting summaries and transcripts from ChatGPT or Claude. Official connections use secure OAuth and are read-only."
+                    subtitle: "Search your summaries and transcripts from ChatGPT or Claude. Official connections use secure OAuth and are read-only."
                 ) {
                     Button("Setup guide") { open(Self.connectorsURL) }
                         .buttonStyle(.link)

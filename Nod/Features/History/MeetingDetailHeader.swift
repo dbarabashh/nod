@@ -46,7 +46,7 @@ struct MeetingDetailHeader: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .redacted(reason: .placeholder)
         } else {
-            TextField("Meeting title", text: $title, axis: .vertical)
+            TextField("Session title", text: $title, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1 ... 3)
                 .font(.system(size: 28, weight: .bold))

@@ -303,7 +303,7 @@ struct SettingsView: View {
         if let modeStore {
             ModesSettingsSection(store: modeStore)
         } else {
-            Text("Meeting modes are unavailable right now.")
+            Text("Modes are unavailable right now.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.Palette.muted)
         }

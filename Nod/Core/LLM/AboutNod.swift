@@ -115,11 +115,11 @@ enum AboutNod {
             ])
         ),
         Prepared(
-            question: "How is this different from other AI note-takers?",
+            question: "How is this different from other meeting tools?",
             answer: paragraphs([
                 ["Two things."],
                 [
-                    "Nothing joins your call. Most note-takers send a bot that appears in the",
+                    "Nothing joins your call. Most of them send a bot that appears in the",
                     "participant list and needs a calendar invite.",
                     "Nod records the audio on your Mac, so it works on any call —",
                     "including the ones that were never scheduled."

@@ -233,7 +233,7 @@ private struct StarterAllowanceGate: View {
                 Image("nc-hourglass")
                     .icon(17)
                     .foregroundStyle(Theme.Palette.warning)
-                Text("You've used this period's hours")
+                Text("You've used this period's capture hours")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
             }
@@ -276,8 +276,8 @@ private struct StarterAllowanceGate: View {
 
     private var detail: String {
         recommendPro
-            ? "You've already topped up this period, so Pro's unlimited hours are probably the cheaper answer. A meeting already in progress is never stopped."
-            : "Add 5 meeting hours for $12, or move to Pro for unlimited hours. A meeting already in progress is never stopped."
+            ? "You've already topped up this period, so Pro's unlimited hours are probably the cheaper answer. A session already in progress is never stopped."
+            : "Add 5 capture hours for $12, or move to Pro for unlimited hours. A session already in progress is never stopped."
     }
 }
 

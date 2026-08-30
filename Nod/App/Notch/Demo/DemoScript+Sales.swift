@@ -124,7 +124,7 @@ extension DemoScenario {
 
         .init(at: 58.4, action: .stage(.summary(DemoSummary(
             greeting: "Hey Jordan — here's where Northwind landed.",
-            title: "Meeting summary ready",
+            title: "Session summary ready",
             overview: "The team concluded that security review, not budget timing, is holding the Northwind expansion, and moved to unblock it this week.",
             keyInsight: "Both close-date slips followed a security question, and the questionnaire sent three weeks ago was never returned.",
             decisions: [

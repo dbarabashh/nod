@@ -41,7 +41,7 @@ struct NotchRecapCard: View {
             Image("nc-file")
                 .icon(12)
                 .foregroundStyle(Theme.Palette.brand)
-            Text("Meeting summary")
+            Text("Session summary")
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
             Spacer(minLength: 0)

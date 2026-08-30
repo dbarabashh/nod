@@ -92,7 +92,7 @@ struct MeetingTranscriptTab: View {
             Image("nc-msg-writing")
                 .icon(22)
                 .foregroundStyle(Theme.Palette.muted)
-            Text("No transcript saved for this meeting.")
+            Text("No transcript saved for this session.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.Palette.muted)
         }

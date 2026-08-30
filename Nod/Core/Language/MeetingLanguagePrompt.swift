@@ -25,7 +25,7 @@ struct MeetingLanguagePrompt: View {
     /// What the Nod language pick governs, and — the half people get wrong —
     /// what it leaves alone. Shared with the onboarding pick and the header
     /// picker's tooltip so all three describe the same setting the same way.
-    static let scopeNote = "Summaries, titles, and answers come back in this language. It doesn't limit what you speak on the call — Nod transcribes whatever it hears."
+    static let scopeNote = "Summaries, titles, and answers come back in this language. It doesn't limit what you speak — Nod transcribes whatever it hears."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {

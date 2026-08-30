@@ -374,7 +374,7 @@ struct GeneralSettingsPane: View {
             SettingsCard {
                 SettingsRow(
                     icon: "nc-earth",
-                    title: "Confirm Nod language before each meeting",
+                    title: "Confirm Nod language before each session",
                     subtitle: "Show a quick check for the language Nod uses in summaries and answers. Turn off to start straight away."
                 ) {
                     Toggle("", isOn: $confirmLanguageBeforeMeeting)

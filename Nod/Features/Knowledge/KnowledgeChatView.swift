@@ -113,14 +113,16 @@ struct KnowledgeChatView: View {
             Image("nc-sparkle-3")
                 .icon(30)
                 .foregroundStyle(Theme.Palette.violet)
-            Text("Ask across all your meetings")
+            Text("Ask across everything you've captured")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
-            Text("Search and ask questions across everything you've recorded — your personal knowledge base. Available on Pro.")
-                .font(.system(size: 12.5))
-                .foregroundStyle(Theme.Palette.graphite)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+            Text(
+                "One memory instead of a pile of notes: ask across every session you've kept, and get the answer with the session it came from. Available on Pro."
+            )
+            .font(.system(size: 12.5))
+            .foregroundStyle(Theme.Palette.graphite)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
             Button {
                 NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
             } label: {

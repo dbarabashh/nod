@@ -61,9 +61,9 @@ targets:
         CFBundleVersion: "69"
         LSUIElement: true
         NSHumanReadableCopyright: ""
-        NSMicrophoneUsageDescription: "Nod needs access to your microphone to capture meeting audio."
-        NSScreenCaptureUsageDescription: "Nod needs screen recording permission to capture system audio during meetings."
-        NSSpeechRecognitionUsageDescription: "Nod uses speech recognition to transcribe what is said during meetings."
+        NSMicrophoneUsageDescription: "Nod needs your microphone to capture your side of a conversation — a call, or a voice note."
+        NSScreenCaptureUsageDescription: "Nod needs screen recording permission to capture your Mac's own audio — the other side of a call. The screen itself is never recorded."
+        NSSpeechRecognitionUsageDescription: "Nod uses speech recognition to transcribe what is said in the sessions you capture."
         # Both keys are required: macOS 14 reads the FullAccess one, macOS 13
         # only knows the plain one, and a missing key on either is a crash at
         # the moment the prompt would appear. Nod never writes an event — full

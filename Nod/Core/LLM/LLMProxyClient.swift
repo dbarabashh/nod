@@ -46,7 +46,7 @@ final class LLMProxyClient: ObservableObject {
             case .entitlementRequired:
                 "Your plan doesn't cover this. Please choose a plan to continue."
             case .meetingLimitReached:
-                "You've used this period's meeting hours."
+                "You've used this period's capture hours."
             case let .meetingBlocked(reason):
                 reason
             case let .requestFailed(status, body):

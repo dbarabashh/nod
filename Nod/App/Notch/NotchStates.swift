@@ -52,7 +52,7 @@ struct NotchOffer: View {
     }
 
     private var title: String {
-        guard case let .scheduled(meeting) = offer else { return "Meeting in progress" }
+        guard case let .scheduled(meeting) = offer else { return "Session in progress" }
         guard let userName else { return "\(meeting.title) starts now" }
         return "Hey \(userName) — \(meeting.title) starts now"
     }

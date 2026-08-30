@@ -21,7 +21,7 @@ enum MeetingMarkdownExport {
         out += "\n"
 
         let title = (meeting.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        out += "# \(title.isEmpty ? "Untitled meeting" : title)\n"
+        out += "# \(title.isEmpty ? "Untitled session" : title)\n"
 
         let summary = meeting.summary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !summary.isEmpty {

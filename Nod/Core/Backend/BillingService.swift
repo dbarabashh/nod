@@ -239,13 +239,13 @@ final class BillingService: ObservableObject {
     private static func topUpErrorMessage(_ error: Error) -> String {
         switch serverErrorCode(error) {
         case "topup_not_eligible":
-            "Extra hours are only available on an active Starter plan."
+            "Extra capture hours are only available on an active Starter plan."
         case "no_active_usage_period":
-            "Your billing period is about to roll over — your hours reset then."
+            "Your billing period is about to roll over — your capture hours reset then."
         case "topup_unconfigured", "topup_unavailable":
-            "Extra hours aren't available right now. Please try again later."
+            "Extra capture hours aren't available right now. Please try again later."
         default:
-            "Couldn't start the hours checkout. Please try again."
+            "Couldn't start the capture-hours checkout. Please try again."
         }
     }
 

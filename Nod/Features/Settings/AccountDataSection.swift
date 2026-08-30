@@ -61,7 +61,7 @@ struct AccountDataSection: View {
             Button("Delete account", role: .destructive) { delete() }
         } message: {
             Text(
-                "This permanently deletes your account and all your meetings, transcripts, summaries, chats, and profile. This can't be undone. Export your data first if you want a copy."
+                "This permanently deletes your account and everything in it — every session, transcript, summary, chat and your profile. This can't be undone. Export your data first if you want a copy."
             )
         }
     }
@@ -73,7 +73,7 @@ struct AccountDataSection: View {
     private var exportSubtitle: String {
         switch export.state {
         case .idle, .exporting:
-            "Download everything Nod holds about you — meetings, transcripts, summaries, chats, profile, and account data — as one JSON file."
+            "Download everything Nod holds about you — every session, transcript, summary, chat, your profile and account data — as one JSON file."
         case .done:
             "Saved. Your data export is a complete, machine-readable copy of everything Nod holds about you."
         case let .failed(message):

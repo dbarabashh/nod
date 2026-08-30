@@ -31,28 +31,28 @@ struct PaywallView: View {
     private static let plans: [PlanCopy] = [
         PlanCopy(
             id: "starter", name: "Starter",
-            tagline: "Your AI notetaker, fully unlocked.",
+            tagline: "Everything you capture, kept and searchable.",
             highlighted: false, badge: nil,
             features: [
-                "1 device",
-                "Records you and the other side",
+                "Unlimited memory — every session kept, with projects & search",
+                "Ask Nod about a single session",
                 "Live transcription, summaries & action items",
-                "Ask Nod about a single meeting",
-                "Unlimited history, projects & search",
-                "Audio is never stored"
+                "Records you and the other side",
+                "Audio is never stored",
+                "1 device"
             ]
         ),
         PlanCopy(
             id: "pro", name: "Pro",
-            tagline: "For people who live in meetings.",
+            tagline: "For people with too much to keep track of.",
             highlighted: true, badge: "Most popular",
             features: [
-                "Up to 3 devices",
                 "Everything in Starter, plus:",
-                "Ask Nod live during a meeting",
-                "Ask Nod across all meetings — your knowledge base",
+                "Ask across everything you've captured — one memory, not a pile of notes",
                 "Project-scoped questions",
                 "Screen context — ask about what's in front of you",
+                "Ask Nod live, while a session is still running",
+                "Up to 3 devices",
                 "Early access + priority support"
             ]
         )
@@ -189,7 +189,7 @@ struct PaywallView: View {
             // allowance — printing "of 40" would hand the user the one number
             // the pricing page says doesn't exist.
             if billing.hoursAreUnlimited(plan: ent.plan) {
-                return String(format: "%.1f hours recorded this period", ent.hoursUsed)
+                return String(format: "%.1f capture hours this period", ent.hoursUsed)
             }
             let used = ent.consumedSeconds / 3_600
             let total = (ent.includedSeconds + ent.topUpSeconds) / 3_600
@@ -281,10 +281,10 @@ struct PaywallView: View {
     /// Omitted rather than guessed when the catalog hasn't loaded.
     private func features(for plan: PlanCopy) -> [String] {
         if billing.hoursAreUnlimited(plan: plan.id) {
-            return ["Unlimited meeting hours"] + plan.features
+            return plan.features + ["Unlimited capture hours"]
         }
         guard let hours = billing.hoursPerMonth(plan: plan.id) else { return plan.features }
-        return ["\(Self.hoursText(hours)) meeting hours / month"] + plan.features
+        return plan.features + ["\(Self.hoursText(hours)) capture hours / month"]
     }
 
     /// Whole numbers read as plan limits ("8"), fractions keep one decimal so a

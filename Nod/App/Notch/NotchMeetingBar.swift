@@ -631,7 +631,7 @@ struct MeetingAskPanel: View {
 
     private var inputRow: some View {
         HStack(spacing: 8) {
-            TextField("Ask anything about this meeting…", text: $draft)
+            TextField("Ask anything about this session…", text: $draft)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5, weight: .regular))
                 .foregroundStyle(Theme.Palette.ink)

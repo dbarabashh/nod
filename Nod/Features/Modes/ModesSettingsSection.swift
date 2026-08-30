@@ -33,7 +33,7 @@ struct ModesSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(
-                "Modes apply to meetings. Each mode sets the recap layout, the reply framing, and a focus — pick one from the panel when you start a meeting instead of changing settings each time."
+                "Modes apply to every session. Each mode sets the recap layout, the reply framing, and a focus — pick one from the panel when you start a meeting instead of changing settings each time."
             )
             .font(.system(size: 12.5))
             .foregroundStyle(Theme.Palette.muted)
@@ -227,7 +227,7 @@ private struct ModeEditorForm: View {
                         )
                 }
                 hint(
-                    "Added to the prompt for meeting summaries and replies, so Nod prioritizes what matters to you — it never invents facts to fit it."
+                    "Added to the prompt for summaries and replies, so Nod prioritizes what matters to you — it never invents facts to fit it."
                 )
             }
 
