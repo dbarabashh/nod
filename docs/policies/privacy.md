@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-29_
+_Last updated: 2026-08-30_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -360,13 +360,18 @@ card you click, and clicking it takes you through the same consent and language
 steps as pressing Start yourself.
 
 - **What it reads.** Which apps are running, **which** app is using your
-  microphone (macOS names the app; Nod never hears what it is recording), and
-  the **window titles** of conferencing apps only — never the contents of any
-  window, in any app. It does not use the accessibility
+  microphone (macOS names the app; Nod never hears what it is recording) — for a
+  browser this is what notices a call in a tab you have moved away from, and it
+  has to hold the microphone for about a minute before Nod says anything — and
+  the **window titles** of conferencing apps only — including their windows on
+  other Spaces and minimized ones, so a call left running behind your work is
+  still noticed — never the contents of any window, in any app. It does not use the accessibility
   interface at all; window titles come from the same **Screen Recording**
   permission Nod already needs to hear a meeting.
 - **What it stores.** Nothing. A title is matched in memory and dropped when the
-  offer goes away. There is no row, no file, and nothing leaves your Mac.
+  offer goes away. There is no row, no file, and nothing leaves your Mac. (A
+  development build of Nod writes the titles it examined to the Mac's own
+  console log to diagnose detection; a released build never does.)
 - **What it is matched against.** The call-marker words above, and — on your Mac
   only — the titles of sessions you have already recorded, so the offer can tell
   you that you have had this conversation before and how much of it is still
@@ -385,9 +390,10 @@ steps as pressing Start yourself.
   become forty minutes of an empty room. A window title is never used to end a
   recording: it disappears when you switch tab or Space, not only when the call
   is over.
-- **Off in one click.** Settings → General turns detection off entirely, and
-  the card itself offers "Never for <app>" for a single app. An app on your
-  screen-reading blocklist is never detected either.
+- **Off in one switch.** Settings → General turns detection off entirely, and
+  the same card carries the list of conferencing apps to exclude — tick one and
+  Nod stops offering to record its calls. An app on your screen-reading
+  blocklist is never detected either.
 
 Legal basis: Legitimate interest (Art. 6(1)(f)) — offering to record the
 meeting you are in is the product's core purpose, and it is served by reading a

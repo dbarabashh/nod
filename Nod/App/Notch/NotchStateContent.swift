@@ -95,10 +95,9 @@ struct NotchStateContent: View {
                 offer: offer,
                 userName: model.userName,
                 context: model.callContext,
-                mutableApp: model.offers.mutableApp,
                 onStart: model.acceptOffer,
                 onDismiss: model.declineOffer,
-                onMute: model.muteOffer
+                onOpenSettings: model.openDetectionSettings
             )
         case let .meetingBar(role, panel):
             // The one place the two sides genuinely differ, and so the only

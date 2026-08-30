@@ -27,11 +27,9 @@ struct NotchOffer: View {
     /// What Nod already knows about this meeting. Empty is the ordinary case — a
     /// first conversation, or one nothing on this Mac can put a name to.
     let context: CallContext
-    /// The app "Never for …" would silence, when the offer names one.
-    let mutableApp: ConferencingApp?
     let onStart: () -> Void
     let onDismiss: () -> Void
-    let onMute: (ConferencingApp) -> Void
+    let onOpenSettings: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -45,16 +43,35 @@ struct NotchOffer: View {
                     subtitle
                 }
                 Spacer(minLength: 0)
+                NotchGlyphButton(
+                    icon: "nc-gear-2",
+                    help: "Detection settings",
+                    action: onOpenSettings
+                )
                 NotchGlyphButton(icon: "nc-xmark", help: "Not now", action: onDismiss)
             }
-            actions
+            NotchActionButton(title: "Start transcription", action: onStart)
         }
     }
 
+    /// A question about what Nod noticed, never a statement about what it is
+    /// doing. Nothing is recording yet — this card is the ask — and a title
+    /// that reads as "already running" is the one thing this surface must not
+    /// say on a product whose whole claim is that it never starts on its own.
     private var title: String {
-        guard case let .scheduled(meeting) = offer else { return "Session in progress" }
-        guard let userName else { return "\(meeting.title) starts now" }
-        return "Hey \(userName) — \(meeting.title) starts now"
+        let what: String = switch offer {
+        case let .scheduled(meeting):
+            "\(meeting.title) starts now"
+        case let .detected(call):
+            // The app, not the window title: a browser's title is a room code
+            // as often as a name, and naming the app is the honest account of
+            // what Nod actually saw.
+            call.app.isBrowser
+                ? "looks like you're on a call in \(call.app.displayName)"
+                : "looks like you're on a \(call.app.displayName) call"
+        }
+        guard let userName else { return what.prefix(1).uppercased() + what.dropFirst() }
+        return "Hey \(userName) — \(what)"
     }
 
     /// What Nod knows, when it knows something; what it is about to do
@@ -95,24 +112,6 @@ struct NotchOffer: View {
                 .icon(13)
                 .foregroundStyle(Theme.Palette.brand)
                 .frame(width: 24, height: 24)
-        }
-    }
-
-    private var actions: some View {
-        HStack(spacing: 8) {
-            NotchActionButton(title: "Start transcription", action: onStart)
-
-            if let mutableApp {
-                Button { onMute(mutableApp) } label: {
-                    Text("Never for \(mutableApp.displayName)")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(Theme.Palette.muted)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .buttonStyle(.pressable)
-                .linkCursor()
-            }
         }
     }
 }

@@ -520,8 +520,8 @@ final class NotchModel: ObservableObject {
         offers.decline()
     }
 
-    func muteOffer(_ app: ConferencingApp) {
-        offers.mute(app)
+    func openDetectionSettings() {
+        NotificationCenter.default.post(name: .nodOpenSettings, object: nil)
     }
 
     /// What to call the user in the one card that speaks to them directly.

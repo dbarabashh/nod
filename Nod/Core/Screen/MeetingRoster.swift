@@ -69,6 +69,19 @@ enum ConferencingApp: String, CaseIterable, Equatable {
         }
     }
 
+    /// One row per product. Teams ships two bundle ids for one client, and a
+    /// list that shows "Microsoft Teams" twice is a list nobody trusts.
+    static let products: [ConferencingApp] = {
+        var seen: Set<String> = []
+        return allCases.filter { seen.insert($0.displayName).inserted }
+    }()
+
+    /// Every bundle id this product ships under, so a choice made about the
+    /// product reaches all of them.
+    var bundleIDs: [String] {
+        Self.allCases.filter { $0.displayName == displayName }.map(\.rawValue)
+    }
+
     /// A browser is not a meeting — it merely contains one. Its other windows
     /// are the user's private browsing and must never be walked, so a browser
     /// is only ever read through a window whose title names a call.

@@ -4,22 +4,19 @@ import SwiftUI
 /// list (filtering), and the cross-session chat (scoping). A label always
 /// reads as a coloured pill — keep that look in one place.
 
-/// A pill naming something, with a trailing ✕ that takes it off whatever list
-/// it is on. `swatch` tints the pill for a folder; without one it reads as
-/// neutral chrome, which is what a plain named entry (an excluded app) wants.
+/// A pill naming a folder, tinted with its colour, and a trailing ✕ that takes
+/// it off whatever list it is on.
 struct RemovablePill: View {
     let title: String
-    var swatch: Color?
+    let swatch: Color
     var removeHelp: String
     var onRemove: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 5) {
-            if let swatch {
-                Circle()
-                    .fill(swatch)
-                    .frame(width: 7, height: 7)
-            }
+            Circle()
+                .fill(swatch)
+                .frame(width: 7, height: 7)
             Text(title)
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
@@ -32,13 +29,13 @@ struct RemovablePill: View {
                 .help(removeHelp)
             }
         }
-        .foregroundStyle(Theme.Palette.ink.opacity(swatch == nil ? 0.7 : 0.85))
+        .foregroundStyle(Theme.Palette.ink.opacity(0.85))
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
             Capsule(style: .continuous)
-                .fill(swatch?.opacity(0.16) ?? Theme.Palette.surface)
-                .overlay(Capsule().stroke(swatch?.opacity(0.4) ?? Theme.Palette.border, lineWidth: 0.5))
+                .fill(swatch.opacity(0.16))
+                .overlay(Capsule().stroke(swatch.opacity(0.4), lineWidth: 0.5))
         )
     }
 }

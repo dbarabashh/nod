@@ -53,6 +53,47 @@ struct GranolaImportSection: View {
 /// user who reads only the row should still know that.
 struct MeetingDetectionSection: View {
     @ObservedObject var preference: MeetingDetectionPreference
+    @ObservedObject var permissions: PermissionManager
+
+    /// One menu with every conferencing app Nod knows, ticked where it is
+    /// excluded. A picker rather than a list of removable pills: the card that
+    /// used to add to this list is gone, so without somewhere to *add* an app
+    /// the setting could only ever empty itself.
+    private var blockedByScreenRecordingRow: some View {
+        SettingsRow(
+            icon: "nc-triangle-warning",
+            title: "macOS is blocking detection",
+            subtitle: "Nod reads a conferencing app's window title to notice a call, and that needs Screen "
+                + "Recording — the same permission it already uses to hear the other side."
+        ) {
+            Button("Open Settings", action: permissions.openScreenRecordingSettings)
+                .controlSize(.small)
+        }
+    }
+
+    private var excludedAppsMenu: some View {
+        Menu {
+            ForEach(ConferencingApp.products, id: \.rawValue) { app in
+                Toggle(app.displayName, isOn: binding(for: app))
+            }
+        } label: {
+            MenuTrigger(title: menuLabel)
+        }
+        .plainMenuChrome()
+    }
+
+    private var menuLabel: String {
+        let muted = preference.mutedApps
+        guard let first = muted.first else { return "None" }
+        return muted.count == 1 ? first.displayName : "\(muted.count) apps"
+    }
+
+    private func binding(for app: ConferencingApp) -> Binding<Bool> {
+        Binding(
+            get: { app.bundleIDs.contains { preference.mutedBundleIDs.contains($0) } },
+            set: { preference.setMuted($0, app: app) }
+        )
+    }
 
     var body: some View {
         SettingsCard {
@@ -69,24 +110,22 @@ struct MeetingDetectionSection: View {
                     .controlSize(.small)
             }
 
-            if !preference.mutedApps.isEmpty {
+            // The switch says what the user wants; macOS decides whether Nod
+            // may. Window titles ride on the screen-recording grant, so without
+            // it detection is silent for ever while this row still reads "on" —
+            // the same lie the calendar row below exists to prevent.
+            if preference.isEnabled, permissions.screenRecording != .authorized {
                 SettingsRowDivider()
-                SettingsRow(
-                    icon: "nc-bell-slash",
-                    title: "Never offered",
-                    subtitle: "Nod stays quiet for calls in these apps."
-                ) {
-                    HStack(spacing: 6) {
-                        ForEach(preference.mutedApps, id: \.rawValue) { app in
-                            RemovablePill(
-                                title: app.displayName,
-                                removeHelp: "Detect \(app.displayName) calls again"
-                            ) {
-                                preference.setMuted(false, bundleID: app.rawValue)
-                            }
-                        }
-                    }
-                }
+                blockedByScreenRecordingRow
+            }
+
+            SettingsRowDivider()
+            SettingsRow(
+                icon: "nc-bell-slash",
+                title: "Excluded meeting apps",
+                subtitle: "Nod won't offer to record calls in these apps."
+            ) {
+                excludedAppsMenu
             }
         }
     }
@@ -339,8 +378,8 @@ struct GeneralSettingsPane: View {
             if let appearance {
                 AppearanceSection(preference: appearance)
             }
-            if let meetingDetection {
-                MeetingDetectionSection(preference: meetingDetection)
+            if let meetingDetection, let permissions {
+                MeetingDetectionSection(preference: meetingDetection, permissions: permissions)
             }
             if let calendar {
                 CalendarSettingsSection(calendar: calendar)
