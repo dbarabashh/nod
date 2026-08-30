@@ -113,7 +113,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     /// Shared chrome for every coordinator-owned window: transparent
-    /// titlebar, this coordinator as delegate, centred. The theme is not set
+    /// titlebar, this coordinator as delegate, centred on screen. The theme is not set
     /// here — these windows inherit `NSApp.appearance`, which is what lets the
     /// Appearance setting reach them.
     private func makeWindow(contentRect: NSRect, styleMask: NSWindow.StyleMask) -> NSWindow {
@@ -126,8 +126,33 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.center()
+        Self.centerOnScreen(window)
         return window
+    }
+
+    /// The middle of the screen, which is not where `NSWindow.center()` puts a
+    /// window.
+    ///
+    /// AppKit's own centring is horizontal only: vertically it seats the window
+    /// about a third of the way down, an old HIG placement meant to leave room
+    /// for whatever else is on screen. On a welcome window that is alone on a
+    /// blue field with nothing to balance against, it reads as sitting too high.
+    ///
+    /// `visibleFrame`, so the menu bar and Dock are excluded — centring against
+    /// the raw screen puts the window a menu bar's height too high on every Mac.
+    private static func centerOnScreen(_ window: NSWindow) {
+        // Nil before the window is ordered front, which is where this runs;
+        // `NSScreen.main` is then the screen the user is working on. With
+        // neither, AppKit's placement is still better than the origin.
+        guard let screen = window.screen ?? NSScreen.main else {
+            window.center()
+            return
+        }
+        let area = screen.visibleFrame
+        let size = window.frame.size
+        window.setFrameOrigin(
+            NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2)
+        )
     }
 
     private func close(_ window: inout NSWindow?) {

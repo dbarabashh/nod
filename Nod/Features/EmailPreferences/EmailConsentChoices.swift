@@ -69,7 +69,12 @@ struct EmailConsentPromptHost<Content: View>: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        // Centred, because the thing that usually sits here is a modal over a
+        // scrim and belongs in the middle of the window. The upgrade card is the
+        // exception — a corner toast — so it takes *itself* to the corner. As a
+        // stack alignment the exception governed both, and the full prompt was
+        // pinned to the top-right with its 520pt hanging off the window edge.
+        ZStack {
             content
 
             if preferences.shouldPresentFullPrompt, !isDismissedForSession {
@@ -85,6 +90,7 @@ struct EmailConsentPromptHost<Content: View>: View {
                     onFinish: { isDismissedForSession = true }
                 )
                 .padding(18)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
         }
         .task { await preferences.refresh() }

@@ -190,6 +190,10 @@ struct SettingsView: View {
             }
             Spacer(minLength: 0)
 
+            if let auth {
+                signOutButton(auth)
+            }
+
             // Selectable so a user can copy it verbatim into a bug report.
             // The DEBUG badge only compiles into Debug builds — a visible cue
             // that this build talks to the sandbox branch, never shipped to prod.
@@ -215,6 +219,35 @@ struct SettingsView: View {
         // Clear the traffic-light buttons that float over the transparent titlebar.
         .padding(.top, 28)
         .frame(width: 210, alignment: .top)
+    }
+
+    /// The only way out of the account from inside the app. The menu-bar item
+    /// is the other one, and somebody who opened Settings looking for it has no
+    /// reason to know that.
+    ///
+    /// In the footer rather than as a row in the list above: every row there is
+    /// a destination, and one that signs you out instead of navigating is the
+    /// wrong shape for the place it would sit in. It also keeps the list to
+    /// Nucleo icons — Nod ships no logout glyph, and a hand-drawn one beside
+    /// eight real ones is what `design-system.md` is about.
+    ///
+    /// No confirmation, matching the menu-bar path: signing back in is one
+    /// button, and the device slot is released either way.
+    private func signOutButton(_ auth: AuthService) -> some View {
+        Button {
+            // Slot release rides on `AuthService.onSignOut`, so this frees it
+            // the same way `StatusItemController.signOutAction` does.
+            Task { await auth.signOut() }
+        } label: {
+            Text("Sign out")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.Palette.muted)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .linkCursor()
     }
 
     private static var versionString: String {
