@@ -448,9 +448,11 @@ final class ScreenContextService: ObservableObject {
         if let last = lastRecognitionAt, Date().timeIntervalSince(last) < Self.recognitionInterval { return asRead }
 
         lastRecognitionAt = Date()
-        guard let recognized = await ScreenTextRecognizer.read(forProcessID: pid, isAllowed: {
-            !rules.excludesWindow(title: $0)
-        }), let text = ScreenObservationBuilder.text(from: recognized.texts) else { return asRead }
+        guard let recognized = await ScreenTextRecognizer.read(
+            forProcessID: pid,
+            matching: read.title,
+            isAllowed: { !rules.excludesWindow(title: $0) }
+        ), let text = ScreenObservationBuilder.text(from: recognized.texts) else { return asRead }
 
         let title = read.title.isEmpty ? recognized.title : read.title
         Log.screen.info("context: accessibility thin — read \(text.count) chars from pixels")
@@ -465,9 +467,10 @@ final class ScreenContextService: ObservableObject {
     /// something "seen on your screen", and an address the user had typed into
     /// Nod was answered as if Nod had found it out.
     private static let ownBundleIDs: Set<String> = {
+        let shipped: Set = ["com.example.nod", "com.example.nod.sandbox"]
         let base = (Bundle.main.bundleIdentifier ?? "").replacingOccurrences(of: ".sandbox", with: "")
-        guard !base.isEmpty else { return [] }
-        return [base, base + ".sandbox"]
+        guard !base.isEmpty else { return shipped }
+        return shipped.union([base, base + ".sandbox"])
     }()
 
     private func captureOnce() async {
@@ -487,8 +490,8 @@ final class ScreenContextService: ObservableObject {
         let reader = reader
         let pid = app.processIdentifier
         let read = await Task.detached(priority: .utility) { () -> (title: String, text: String?)? in
-            guard let focused = reader.focusedWindowText(forProcessID: pid),
-                  !rules.excludesWindow(title: focused.title)
+            guard let focused = reader.focusedWindowText(forProcessID: pid, bundleID: bundleID),
+                  !rules.excludesWindow(title: focused.title, url: focused.url)
             else { return nil }
             return (focused.title, ScreenObservationBuilder.text(from: focused.texts))
         }.value

@@ -48,10 +48,11 @@ enum ScreenTextRecognizer {
     /// taken — a window the user excluded is never captured, only skipped.
     static func read(
         forProcessID pid: pid_t,
+        matching expectedTitle: String = "",
         isAllowed: @Sendable (String) -> Bool
     ) async -> (title: String, texts: [String])? {
         guard #available(macOS 14.0, *), isAvailable else { return nil }
-        guard let window = await frontmostWindow(forProcessID: pid) else { return nil }
+        guard let window = await frontmostWindow(forProcessID: pid, matching: expectedTitle) else { return nil }
         let title = window.title ?? ""
         guard isAllowed(title) else { return nil }
         guard let image = await image(of: window) else { return nil }
@@ -59,15 +60,28 @@ enum ScreenTextRecognizer {
         return texts.isEmpty ? nil : (title, texts)
     }
 
+    /// The window the user is in, not merely the first one big enough.
+    ///
+    /// `SCShareableContent.windows` is in no documented order, so picking
+    /// `first` meant a dialog, a huddle, or a second document could be captured
+    /// and then stored under the focused window's title — content filed against
+    /// the wrong window, which no later pass can undo. Accessibility already
+    /// named the focused window, so match on that title first. Failing that,
+    /// the lowest `windowLayer` is the ordinary document level, which is what
+    /// separates a document from the floating palettes and panels above it.
     @available(macOS 14.0, *)
-    private static func frontmostWindow(forProcessID pid: pid_t) async -> SCWindow? {
+    private static func frontmostWindow(forProcessID pid: pid_t, matching expectedTitle: String) async -> SCWindow? {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-            return content.windows.first { window in
+            let candidates = content.windows.filter { window in
                 window.owningApplication?.processID == pid
                     && window.frame.width >= minimumWindowSide
                     && window.frame.height >= minimumWindowSide
             }
+            if !expectedTitle.isEmpty, let named = candidates.first(where: { $0.title == expectedTitle }) {
+                return named
+            }
+            return candidates.min { $0.windowLayer < $1.windowLayer }
         } catch {
             Log.screen.error("context: window lookup failed — \(error.localizedDescription)")
             return nil
@@ -76,29 +90,91 @@ enum ScreenTextRecognizer {
 
     @available(macOS 14.0, *)
     private static func image(of window: SCWindow) async -> CGImage? {
+        let filter = SCContentFilter(desktopIndependentWindow: window)
         let configuration = SCStreamConfiguration()
-        configuration.width = Int(window.frame.width)
-        configuration.height = Int(window.frame.height)
+        // `frame` is in points; the backing store on a Retina display is
+        // `pointPixelScale` times that. Capturing at the point size threw away
+        // half the linear resolution before recognition ever ran — on 11pt chat
+        // text, which is the whole reason this fallback exists.
+        // Floored at 1: a zero scale would make the configured size zero and
+        // turn every pixel read into a silent no-op, which is the one failure
+        // mode here that leaves no trace.
+        let scale = max(1, CGFloat(filter.pointPixelScale))
+        let pixels = CGSize(width: window.frame.width * scale, height: window.frame.height * scale)
+        let fitted = downscaledToLongSideLimit(pixels)
+        configuration.width = Int(fitted.width)
+        configuration.height = Int(fitted.height)
         configuration.showsCursor = false
         do {
-            return try await SCScreenshotManager.captureImage(
-                contentFilter: SCContentFilter(desktopIndependentWindow: window),
-                configuration: configuration
-            )
+            return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
         } catch {
             Log.screen.error("context: window capture failed — \(error.localizedDescription)")
             return nil
         }
     }
 
+    /// Ceiling on the captured image's long side.
+    ///
+    /// Recognition cost scales with pixel count, so taking the full backing
+    /// store of a 6K display would trade the CPU budget away for resolution far
+    /// past what text recognition can use. Above this the extra pixels buy
+    /// nothing legible.
+    private static let maximumLongSide: CGFloat = 4_096
+
+    static func downscaledToLongSideLimit(_ size: CGSize) -> CGSize {
+        let longSide = max(size.width, size.height)
+        guard longSide > maximumLongSide, longSide > 0 else { return size }
+        let factor = maximumLongSide / longSide
+        return CGSize(width: (size.width * factor).rounded(), height: (size.height * factor).rounded())
+    }
+
+    /// Pinned rather than left to the default, which travels with the OS. An
+    /// unpinned revision silently changes what gets recognised — and so what
+    /// gets stored under the user — across a macOS update, with nothing in the
+    /// record saying the reading changed.
+    private static let revision = VNRecognizeTextRequestRevision3
+
+    /// The languages Vision is asked to look for, resolved once against what
+    /// the installed revision actually supports.
+    ///
+    /// This was a hardcoded `en-US`/`uk-UA` pair, which recognised a German or
+    /// Spanish window with the wrong model and no sign that it had. The
+    /// system's own language order is the closest available statement of what
+    /// the user reads. `AppLanguage` is deliberately not consulted: it is an
+    /// *output* preference, and recognition is an input constraint — the same
+    /// distinction transcription observes.
+    private static let recognitionLanguages: [String] = {
+        let probe = VNRecognizeTextRequest()
+        probe.revision = revision
+        guard let supported = try? probe.supportedRecognitionLanguages(), !supported.isEmpty else {
+            return ["en-US"]
+        }
+        var picked: [String] = []
+        // English last-resort as well as first-class: identifiers, code and
+        // product chrome are English on a screen in any locale.
+        let preferred = Locale.preferredLanguages + ["en"]
+        for identifier in preferred where picked.count < maximumRecognitionLanguages {
+            let code = identifier.split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map(String.init) ?? identifier
+            guard let match = supported.first(where: { $0.hasPrefix(code) }), !picked.contains(match) else { continue }
+            picked.append(match)
+        }
+        return picked.isEmpty ? ["en-US"] : picked
+    }()
+
+    /// Ceiling on how many languages `.accurate` is asked to consider. Someone
+    /// with eight languages configured would otherwise pay for eight models on
+    /// a path that already has to stay off the steady state.
+    private static let maximumRecognitionLanguages = 3
+
     private static func recognize(_ image: CGImage) -> [String] {
         let request = VNRecognizeTextRequest()
+        request.revision = revision
         request.recognitionLevel = .accurate
         // A window is labels, code and identifiers, not prose: "correcting"
         // AP-8 or cc-analytics into a dictionary word destroys the only part of
         // the capture worth keeping.
         request.usesLanguageCorrection = false
-        request.recognitionLanguages = ["en-US", "uk-UA"]
+        request.recognitionLanguages = recognitionLanguages
 
         do {
             try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])

@@ -381,8 +381,27 @@ struct ScreenExclusionRules: Equatable {
     static let none = ScreenExclusionRules(appBundleIDs: [], websites: [])
 
     func excludesApp(bundleID: String) -> Bool {
-        appBundleIDs.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame }
+        if ScreenExclusionRules.neverRead.contains(bundleID) { return true }
+        return appBundleIDs.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame }
     }
+
+    /// Surfaces that are never read, whatever the user's list says.
+    ///
+    /// The lock screen and the authorization prompt are where a person is most
+    /// likely to be typing a credential, and neither ever carries anything an
+    /// answer could be built from. This sits inside the rule rather than beside
+    /// its caller so no capture path can be written that forgets it, and it is
+    /// not seeded into the user's list like the messengers are: those are
+    /// defaults someone may reasonably untick, and this is not a preference.
+    ///
+    /// `com.apple.loginwindow` was found in production captures across four
+    /// users before this existed.
+    static let neverRead: Set<String> = [
+        "com.apple.loginwindow",
+        "com.apple.SecurityAgent",
+        "com.apple.SecurityAgentPlugin",
+        "com.apple.ScreenSaver.Engine"
+    ]
 
     /// Precedence, and the reason for it: a named exclusion always wins, and the
     /// allowlist can only overrule a *category*.
@@ -393,10 +412,17 @@ struct ScreenExclusionRules: Equatable {
     /// allowlist is the escape hatch for exactly that. What it must never do is
     /// re-open a site the user typed into the blocklist themselves: that is an
     /// explicit "never read this", and no other rule gets to overrule it.
-    func excludesWindow(title: String) -> Bool {
-        if ScreenExclusions.matches(title: title, patterns: websites) { return true }
-        if ScreenExclusions.matches(title: title, patterns: alwaysIncluded) { return false }
-        return ScreenExclusions.matches(title: title, patterns: categoryKeywords)
+    /// `url` is checked alongside the title because a title is whatever the
+    /// page decided to call itself. A bank whose tab reads "Dashboard" matches
+    /// no domain the user typed in, so the address is the only thing an
+    /// exclusion can reliably be held against; it is optional because the
+    /// roster path and every non-browser window have none.
+    func excludesWindow(title: String, url: String? = nil) -> Bool {
+        let candidates = [title, url ?? ""].filter { !$0.isEmpty }
+        guard !candidates.isEmpty else { return false }
+        if candidates.contains(where: { ScreenExclusions.matches(title: $0, patterns: websites) }) { return true }
+        if candidates.contains(where: { ScreenExclusions.matches(title: $0, patterns: alwaysIncluded) }) { return false }
+        return candidates.contains { ScreenExclusions.matches(title: $0, patterns: categoryKeywords) }
     }
 }
 

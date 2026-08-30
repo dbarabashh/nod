@@ -24,6 +24,15 @@ struct AccessibilityReader {
         self.messagingTimeout = messagingTimeout
     }
 
+    /// The timeout only binds the walk when it is set on the *system-wide*
+    /// element. `AXUIElementSetMessagingTimeout` applies to the object it is
+    /// given and nothing else, so setting it on the application element — as
+    /// this did — left every window and child on the 6-second global default,
+    /// which is the stall it exists to prevent.
+    private func boundMessaging() {
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), messagingTimeout)
+    }
+
     /// Every non-empty string exposed by the app's windows, in traversal order.
     ///
     /// `windowTitleFilter` narrows the walk to the windows whose title it
@@ -47,8 +56,8 @@ struct AccessibilityReader {
         windowTitleFilter: ((String) -> Bool)? = nil,
         descendingInto role: String? = nil
     ) -> [String] {
+        boundMessaging()
         let application = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(application, messagingTimeout)
 
         guard let windows = copyElements(application, kAXWindowsAttribute) else { return [] }
 
@@ -84,8 +93,9 @@ struct AccessibilityReader {
             // Only what the budget can still reach: one level of a browser
             // window is hundreds of children, and every one of them costs an
             // IPC round trip to fetch and is retained until the search ends.
-            guard queue.count < Self.descentBudget else { continue }
-            queue += copyElements(element, kAXChildrenAttribute) ?? []
+            let remaining = Self.descentBudget - queue.count
+            guard remaining > 0 else { continue }
+            queue += copyChildren(element, limit: remaining)
         }
         return nil
     }
@@ -104,9 +114,12 @@ struct AccessibilityReader {
     /// window directly, so ask for it instead of filtering after the fact.
     ///
     /// Blocking — call it off the main actor.
-    func focusedWindowText(forProcessID pid: pid_t) -> (title: String, texts: [String])? {
+    func focusedWindowText(
+        forProcessID pid: pid_t,
+        bundleID: String = ""
+    ) -> (title: String, url: String?, texts: [String])? {
+        boundMessaging()
         let application = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(application, messagingTimeout)
 
         // A window can be main without holding focus (a sheet is up, focus is in
         // a panel), and some apps expose only one of the two.
@@ -117,22 +130,98 @@ struct AccessibilityReader {
         var collected: [String] = []
         var visited = 0
         walk(window, depth: 0, visited: &visited, into: &collected)
-        return (copyString(window, kAXTitleAttribute) ?? "", collected)
+        let url = Self.exposesPageURL(bundleID: bundleID) ? pageURL(of: window) : nil
+        return (copyString(window, kAXTitleAttribute) ?? "", url, collected)
     }
+
+    /// The address of the page in a browser window, when there is one.
+    ///
+    /// The blocklist matches on the window title, and a title is whatever the
+    /// page chose to call itself — a bank whose tab reads "Dashboard" slips
+    /// past every domain the user typed in. The web area names the actual URL,
+    /// so the exclusion can be checked against the thing the user excluded.
+    private func pageURL(of window: AXUIElement) -> String? {
+        if let direct = copyURL(window, kAXURLAttribute) { return direct }
+        guard let area = firstDescendant(of: window, role: Self.webAreaRole) else { return nil }
+        return copyURL(area, kAXURLAttribute)
+    }
+
+    /// Whether looking for a web area in this app is worth the search.
+    ///
+    /// Finding one costs a breadth-first walk of up to `descentBudget`
+    /// elements, and in Word, Finder or a terminal that walk runs to the end
+    /// and returns nothing — every tick, all day. A list of bundle ids goes
+    /// stale in the direction that costs nothing: an unlisted browser falls
+    /// back to matching the exclusion on the title, which is what every app did
+    /// before this existed.
+    static func exposesPageURL(bundleID: String) -> Bool {
+        browserBundleIDs.contains(bundleID)
+    }
+
+    private static let browserBundleIDs: Set<String> = [
+        "com.google.Chrome",
+        "com.google.Chrome.beta",
+        "com.google.Chrome.canary",
+        "com.apple.Safari",
+        "com.apple.SafariTechnologyPreview",
+        "company.thebrowser.Browser",
+        "company.thebrowser.dia",
+        "com.microsoft.edgemac",
+        "org.mozilla.firefox",
+        "com.brave.Browser",
+        "com.operasoftware.Opera",
+        "com.vivaldi.Vivaldi",
+        "ai.perplexity.comet",
+        "com.openai.atlas"
+    ]
+
+    /// Not an SDK constant — `AXWebArea` is declared in no public header, so the
+    /// role travels as a string here the same way it does at the call sites.
+    static let webAreaRole = "AXWebArea"
 
     private func walk(_ element: AXUIElement, depth: Int, visited: inout Int, into collected: inout [String]) {
         guard depth <= maxDepth, visited < maxElements else { return }
         visited += 1
 
-        for attribute in Self.textAttributes {
-            guard let text = copyString(element, attribute), !text.isEmpty else { continue }
-            collected.append(text)
-        }
+        collected.append(contentsOf: copyStrings(element, Self.textAttributes))
 
         guard let children = copyElements(element, kAXChildrenAttribute) else { return }
         for child in children {
             walk(child, depth: depth + 1, visited: &visited, into: &collected)
         }
+    }
+
+    /// Every requested attribute in one round trip.
+    ///
+    /// Each `AXUIElementCopyAttributeValue` is a synchronous IPC call into the
+    /// target process, and the walk makes one per attribute per element — four
+    /// on every node of a 2000-element budget. Asking for them together is the
+    /// same information for a quarter of the traffic.
+    ///
+    /// With no options, an attribute the element doesn't support comes back as
+    /// `CFNull` or a wrapped `AXError` in its own position, so the cast is what
+    /// filters them and the positions still line up.
+    private func copyStrings(_ element: AXUIElement, _ attributes: [String]) -> [String] {
+        var values: CFArray?
+        let status = AXUIElementCopyMultipleAttributeValues(
+            element,
+            attributes as CFArray,
+            AXCopyMultipleAttributeOptions(),
+            &values
+        )
+        guard status == .success, let values = values as? [Any] else { return [] }
+        return values.compactMap { value in
+            guard let text = value as? String else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    private func copyURL(_ element: AXUIElement, _ attribute: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
+        if let url = value as? URL { return url.absoluteString }
+        return value as? String
     }
 
     private func copyString(_ element: AXUIElement, _ attribute: String) -> String? {
@@ -148,13 +237,28 @@ struct AccessibilityReader {
         return unsafeDowncast(value, to: AXUIElement.self)
     }
 
+    /// At most `limit` children, fetched as a range rather than as a whole
+    /// array. `AXUIElementCopyAttributeValues` exists for exactly this — the
+    /// docs call out large arrays — and the search only ever looks at the front
+    /// of the queue.
+    private func copyChildren(_ element: AXUIElement, limit: Int) -> [AXUIElement] {
+        var values: CFArray?
+        let status = AXUIElementCopyAttributeValues(element, kAXChildrenAttribute as CFString, 0, limit, &values)
+        guard status == .success else { return [] }
+        return values as? [AXUIElement] ?? []
+    }
+
     private func copyElements(_ element: AXUIElement, _ attribute: String) -> [AXUIElement]? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
         return value as? [AXUIElement]
     }
 
+    /// Selection leads: what the user highlighted is the strongest statement of
+    /// intent accessibility exposes, and if the capture is truncated it is the
+    /// part worth keeping.
     private static let textAttributes = [
+        kAXSelectedTextAttribute,
         kAXTitleAttribute,
         kAXValueAttribute,
         kAXDescriptionAttribute
