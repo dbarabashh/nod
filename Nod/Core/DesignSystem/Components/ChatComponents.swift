@@ -110,6 +110,9 @@ struct ChatSuggestionChip: View {
     /// a second hand-built capsule 22pt below the first drifted by half a point
     /// and six per cent opacity before anybody looked.
     var provider: IntegrationProvider?
+    /// Draws in the accent rather than the surface. One chip in a list at most:
+    /// a row where everything leads has nothing leading.
+    var isFeatured = false
     let action: () -> Void
 
     var body: some View {
@@ -122,15 +125,20 @@ struct ChatSuggestionChip: View {
                         .icon(10)
                 }
                 Text(text)
-                    .font(.system(size: 12.5))
+                    .font(.system(size: 12.5, weight: isFeatured ? .medium : .regular))
             }
-            .foregroundStyle(Theme.Palette.ink.opacity(0.78))
+            .foregroundStyle(isFeatured ? Theme.Palette.brand : Theme.Palette.ink.opacity(0.78))
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Theme.Palette.surface)
-                    .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
+                    .fill(isFeatured ? Theme.Palette.brand.opacity(0.10) : Theme.Palette.surface)
+                    .overlay(
+                        Capsule().stroke(
+                            isFeatured ? Theme.Palette.brand.opacity(0.35) : Theme.Palette.border,
+                            lineWidth: 0.5
+                        )
+                    )
             )
         }
         .buttonStyle(.plain)

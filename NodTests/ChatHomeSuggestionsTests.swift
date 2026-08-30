@@ -21,6 +21,70 @@ final class ChatHomeSuggestionsTests: XCTestCase {
         )
     }
 
+    private func welcome(daysAgo: Double = 0) -> Meeting {
+        var sample = meeting(title: "Dima B <> Nod", daysAgo: daysAgo)
+        sample.origin = "welcome"
+        return sample
+    }
+
+    /// An account whose only session is the sample has nothing to be caught up
+    /// *on*: the useful move is to go and read it. So the opener opens it, says
+    /// "Open" rather than asking a question it would answer with nothing, and
+    /// leads in the accent.
+    func testTheSampleOpensInsteadOfAsking() {
+        let sample = welcome()
+
+        let featured = ChatHomeSuggestions.build(meetings: [sample], now: now).first { $0.isFeatured }
+
+        XCTAssertEqual(featured?.opens, sample.id)
+        XCTAssertEqual(featured?.label, "Start here — Dima B <> Nod")
+    }
+
+    /// The moment a real session exists, the sample stops leading — pointing
+    /// somebody at the demo instead of their own work is the failure here.
+    func testARealSessionTakesTheLeadBackFromTheSample() {
+        let openers = ChatHomeSuggestions.build(
+            meetings: [meeting(title: "Pricing sync", daysAgo: 0), welcome(daysAgo: 1)],
+            now: now
+        )
+
+        XCTAssertNil(openers.first { $0.isFeatured })
+        XCTAssertTrue(openers.contains { $0.label == "Catch me up on Pricing sync" })
+        XCTAssertTrue(openers.allSatisfy { $0.opens == nil })
+    }
+
+    /// The sample is a row in the list, not something the person said. It must
+    /// not move an account out of its first run: doing so replaced the openers
+    /// that explain the product with memory questions a new account answers
+    /// with "I don't have anything on that yet".
+    func testTheSampleDoesNotEndTheFirstRun() {
+        let openers = ChatHomeSuggestions.build(meetings: [welcome()], now: now)
+
+        XCTAssertTrue(openers.contains { AboutNod.questions.contains($0.question) })
+        XCTAssertFalse(openers.contains { $0.question == "What did I promise?" })
+    }
+
+    /// And it still leads, above the explanations — reading it answers most of
+    /// what they ask.
+    func testTheSampleLeadsTheFirstRunOpeners() {
+        let openers = ChatHomeSuggestions.build(meetings: [welcome()], now: now)
+
+        XCTAssertEqual(openers.first?.label, "Start here — Dima B <> Nod")
+        XCTAssertTrue(openers.first?.isFeatured == true)
+    }
+
+    /// A "catch me up" pointed at the sample would be answering out of a demo
+    /// while a real session sits beside it.
+    func testCatchMeUpNeverNamesTheSample() {
+        let openers = ChatHomeSuggestions.build(
+            meetings: [welcome(daysAgo: 0), meeting(title: "Pricing sync", daysAgo: 1)],
+            now: now
+        )
+
+        XCTAssertTrue(openers.contains { $0.label == "Catch me up on Pricing sync" })
+        XCTAssertFalse(openers.contains { $0.label.contains("Dima B <> Nod") })
+    }
+
     /// A first run has nothing to remember, so the openers that read memory
     /// ("what did I promise?") are answered with "I don't have anything on
     /// that yet" — the worst possible first impression of a memory product.

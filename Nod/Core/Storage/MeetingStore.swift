@@ -27,6 +27,11 @@ final class MeetingStore: ObservableObject {
         case failed(String)
     }
 
+    /// Whether this launch has already put the welcome-session question to the
+    /// server. The server is the authority on whether one is owed; this only
+    /// keeps an empty account from asking on every silent refresh.
+    private var hasAskedForWelcomeSession = false
+
     @Published private(set) var meetings: [Meeting] = [] {
         didSet {
             byID = Dictionary(meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -1085,6 +1090,37 @@ final class MeetingStore: ObservableObject {
     /// so the access poke has to re-ask for both — and re-asking for a pane
     /// nobody has opened would spend a round trip to fill a cache that
     /// `refreshTrash` fills on arrival anyway.
+    /// Gives a brand-new account one session to open.
+    ///
+    /// Asked of the server, which is the only thing that can answer it: it
+    /// seeds only into an account that has never had a session — deleted ones
+    /// included — so two Macs signing in the same morning produce one sample,
+    /// and somebody who cleared their list is not handed it back.
+    ///
+    /// Once per launch. The guard is the server's, and this one only stops an
+    /// account that genuinely has nothing from spending a round trip on every
+    /// silent refresh.
+    private func seedWelcomeSessionIfNeeded() async {
+        guard meetings.isEmpty, !hasAskedForWelcomeSession else { return }
+        hasAskedForWelcomeSession = true
+        do {
+            let seeded: UUID? = try await supabase
+                .rpc("seed_welcome_session")
+                .execute()
+                .value
+            guard let seeded else { return }
+            Log.ui.info("MeetingStore seeded welcome session \(seeded.uuidString)")
+            // Re-read rather than composing the row here: what the server wrote
+            // is what every other surface will read, and a client-built copy of
+            // it would be a second answer to the same question.
+            await refresh(force: true)
+        } catch {
+            // A first launch with no sample is a worse empty state, not a
+            // broken one — and the next launch asks again.
+            Log.ui.error("MeetingStore.seedWelcomeSession failed: \(error.localizedDescription)")
+        }
+    }
+
     func refreshTrashIfLoaded() async {
         guard case .loaded = trashState else { return }
         await refreshTrash(silent: true)
@@ -1273,6 +1309,7 @@ final class MeetingStore: ObservableObject {
             lastSuccessfulFetchAt = Date()
             lastRefreshFailed = false
             Log.ui.info("MeetingStore.refresh loaded \(rows.count) meetings (+ \(drafts.count) drafts)")
+            await seedWelcomeSessionIfNeeded()
         } catch {
             if hadLoadedCache {
                 Log.ui.error("MeetingStore.refresh failed (keeping cache): \(error.localizedDescription)")

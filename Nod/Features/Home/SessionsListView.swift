@@ -382,8 +382,30 @@ struct SessionsListView: View {
         } else if rows.isEmpty {
             noMatchesState
         } else {
-            allList(rows)
+            // Leading, and on the same 18pt gutter as the search field and the
+            // section header above it. Centred — the stack's default — the card
+            // floated in the middle of a left-aligned column with nothing lining
+            // up with anything.
+            VStack(alignment: .leading, spacing: 0) {
+                // Above the list rather than only inside the empty state. The
+                // welcome sample fills the list on day one, which used to take
+                // the checklist off screen with it — and two of its rows are
+                // buttons that do the setup, which an action item's text can
+                // only ask for. It hides itself once nothing is left.
+                QuickStart(hasSession: hasRecordedSession, onStartCapture: onStartCapture)
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 14)
+                allList(rows)
+            }
         }
+    }
+
+    /// Whether this account has recorded anything. The welcome sample is one
+    /// session and no recording, so it must not tick the row that says "capture
+    /// your first" — a checklist that marks itself done teaches the wrong thing
+    /// about what the product just did.
+    private var hasRecordedSession: Bool {
+        meetingStore.meetings.contains { !$0.isWelcome }
     }
 
     @ViewBuilder

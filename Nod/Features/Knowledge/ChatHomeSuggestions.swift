@@ -19,6 +19,23 @@ enum ChatHomeSuggestions {
     struct Opener: Identifiable, Equatable {
         let label: String
         let question: String
+        /// The one to try first, drawn in the accent so it reads as a way in
+        /// rather than one of four equal options.
+        ///
+        /// True for exactly one case: the sample session is the only thing this
+        /// account has, and asking about it is the whole point of its being
+        /// there. It stops being featured the moment a real session exists,
+        /// because then there is something better to ask about.
+        var isFeatured = false
+        /// A session to open instead of a question to ask.
+        ///
+        /// Set only on the sample's opener. Somebody who has recorded nothing
+        /// has nothing to be caught up *on* — the useful thing is to see what a
+        /// session looks like, and an answer about a session they have not read
+        /// is an answer with nothing behind it. The label says "Open" for the
+        /// same reason: a chip that reads like a question and returns a screen
+        /// has told the user the wrong thing about what it does.
+        var opens: UUID?
 
         var id: String {
             question
@@ -29,9 +46,11 @@ enum ChatHomeSuggestions {
             question = text
         }
 
-        init(label: String, question: String) {
+        init(label: String, question: String, isFeatured: Bool = false, opens: UUID? = nil) {
             self.label = label
             self.question = question
+            self.isFeatured = isFeatured
+            self.opens = opens
         }
     }
 
@@ -103,6 +122,14 @@ enum ChatHomeSuggestions {
         titleLimit: Int = 40,
         firstRunPreview: Bool = false
     ) -> [Opener] {
+        // What the person has actually recorded. The sample Nod seeds at signup
+        // is a row in the list but not an answer to anything they said, so it
+        // must not move an account out of its first run — it did, and the
+        // openers that explain the product were replaced by memory questions
+        // ("what did I promise?") that a brand-new account answers with "I
+        // don't have anything on that yet".
+        let recorded = meetings.live().filter { !$0.isWelcome }
+
         var suggestions: [Opener] = []
         if let full = scopeName(projects) {
             let short = truncated(full, to: titleLimit)
@@ -111,17 +138,21 @@ enum ChatHomeSuggestions {
                 naming("What did I promise in %@?", short: short, full: full),
                 naming("What's still unresolved in %@?", short: short, full: full)
             ]
-        } else if meetings.liveNewestFirst().isEmpty || firstRunPreview {
+        } else if recorded.isEmpty || firstRunPreview {
             // Nothing recorded yet, so every opener that names a session has
             // nothing to name — and the generic ones are answered with "I
             // don't have anything on that yet", which is the worst possible
             // first impression of a memory product. Ask about the product
             // instead; `AboutNod` has the answers ready.
-            suggestions = AboutNod.questions.map(Opener.init)
+            //
+            // The sample leads, when there is one: it is the only thing on this
+            // screen that can be *read* rather than asked about, and reading it
+            // answers most of what the questions below it would.
+            let sample = meetings.live().first(where: \.isWelcome)
+            suggestions = (sample.map { [opening($0, titleLimit: titleLimit)] } ?? [])
+                + AboutNod.questions.map(Opener.init)
         } else {
-            let recent = meetings
-                .liveNewestFirst()
-                .filter { now.timeIntervalSince($0.startedAt) <= recentWindow }
+            let recent = recorded.filter { now.timeIntervalSince($0.startedAt) <= recentWindow }
 
             if recent.count >= 2 {
                 suggestions.append(Opener("What did we decide this week?"))
@@ -138,6 +169,22 @@ enum ChatHomeSuggestions {
 
         var seen = Set<String>()
         return suggestions.filter { seen.insert($0.question).inserted }.prefix(maximum).map { $0 }
+    }
+
+    /// The sample's own opener: a door, not a question.
+    ///
+    /// "Start here" rather than "Open" because the chip has to say what this is,
+    /// and named anyway so the sentence points at something the session list
+    /// shows under the same title.
+    private static func opening(_ sample: Meeting, titleLimit: Int) -> Opener {
+        let full = (sample.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let named = full.isEmpty ? "your sample session" : full
+        return Opener(
+            label: String(format: "Start here — %@", truncated(named, to: titleLimit)),
+            question: String(format: "Start here — %@", named),
+            isFeatured: true,
+            opens: sample.id
+        )
     }
 
     /// The empty state is the one screen nobody can see again once they have

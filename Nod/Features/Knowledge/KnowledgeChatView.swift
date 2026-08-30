@@ -256,7 +256,18 @@ struct KnowledgeChatView: View {
     /// travels the same path a typed one does and lands in the transcript the
     /// same way.
     private func suggestion(_ opener: ChatHomeSuggestions.Opener) -> some View {
-        ChatSuggestionChip(text: opener.label) {
+        ChatSuggestionChip(text: opener.label, isFeatured: opener.isFeatured) {
+            // A door rather than a question — the sample's opener carries the
+            // session it is about, and the same notification the notch's recap
+            // card posts is what opens it, so there is one way in.
+            if let id = opener.opens {
+                NotificationCenter.default.post(
+                    name: .nodOpenMeetingDetail,
+                    object: nil,
+                    userInfo: [Notification.nodMeetingIDKey: id]
+                )
+                return
+            }
             guard !chat.isSending else { return }
             draft = opener.question
             send()
@@ -428,9 +439,9 @@ struct KnowledgeChatView: View {
 
     /// Derived rather than tracked: a stored list outlived the draft it
     /// described, so a tool named in one question came back as a pill in the
-    /// next. `allCases` is three long, which is body-safe.
+    /// next.
     private var mentionedTools: [IntegrationProvider] {
-        MentionMark.named(in: draft, from: IntegrationProvider.allCases, mark: MentionMark.init(tool:))
+        MentionMark.namedTools(in: draft)
     }
 
     /// The send button is swapped for Stop while a turn runs, so this only has
