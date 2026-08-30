@@ -58,7 +58,6 @@ extension LiveMeetingAnalyst {
     /// the question could be about anything already said, not just the recent
     /// window.
     func ask(_ question: String, thread: AskThread = AskThread(), language: AppLanguage) async throws -> String {
-        let transcript = store.recentContext(maxEntries: Self.catchUpMaxEntries)
         switch await answerFromTools(question, thread: thread) {
         case let .answered(text):
             return text
@@ -66,11 +65,16 @@ extension LiveMeetingAnalyst {
         // it has something to answer with; on an empty one the fallback is not
         // "the meeting's own words", it is a model with no context inventing a
         // reason, and the reason it invents is that it has no access.
-        case let .checked(provider) where transcript.isEmpty:
+        //
+        // Asked of the store rather than of a built transcript: the wide read
+        // below costs a five-hundred-line string on the main actor, and every
+        // outcome above this line throws it away.
+        case let .checked(provider) where !store.hasContent:
             return LiveLookup.nothingFound(in: provider)
         case .checked, .notTried:
             break
         }
+        let transcript = store.recentContext(maxEntries: Self.catchUpMaxEntries)
         let known = LiveFinding.notes(from: findings)
         let prompt = PromptLibrary.buildAsk(
             question: question,
@@ -119,10 +123,28 @@ extension LiveMeetingAnalyst {
 
     private func answerFromTools(_ question: String, thread: AskThread) async -> ToolAttempt {
         guard let meetingLookup else { return .notTried }
-        guard let routed = await meetingLookup.routing(for: question, thread: thread) else { return .notTried }
+        // Read once, here, where a question enters the lookup. The naming
+        // decides what it may reach and the room decides what it means, and
+        // three calls each re-deriving them from the same sentence is how a
+        // question comes to be routed against one minute of the conversation
+        // and phrased against the next.
+        //
+        // The window is the live pass's own: recent turns, because this is
+        // context for resolving "that ticket" rather than material to answer
+        // from — the wide read belongs to `ask`, below the tools.
+        let request = MeetingLookup.Request(question, room: store.recentContext(maxEntries: Self.windowLines))
+        // A product named in the sentence that Nod cannot reach ends the
+        // question here rather than falling through to the transcript. The
+        // fallback is silent, and silence about a naming is how somebody comes
+        // to believe their Linear was read when it never was.
+        if let refusal = await meetingLookup.objection(to: request) {
+            Log.llm.info("live: ask names an unreachable product")
+            return .answered(refusal.label)
+        }
+        guard let routed = await meetingLookup.routing(for: request, thread: thread) else { return .notTried }
 
         Log.llm.info("live: ask routed to \(routed.tool.name)\(routed.tool.mutating ? " (needs approval)" : "")")
-        switch await meetingLookup.answer(question, running: routed, thread: thread) {
+        switch await meetingLookup.answer(request, running: routed, thread: thread) {
         case let .refused(refusal):
             Log.llm.info("live: ask refused — \(refusal)")
             return .answered(refusal.label)

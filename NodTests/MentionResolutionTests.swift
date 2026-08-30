@@ -38,6 +38,48 @@ final class MentionResolutionTests: XCTestCase {
         XCTAssertEqual(MentionMark.named(in: "ping @linear please", from: [mark("Linear")]).map(\.name), ["Linear"])
     }
 
+    /// An "@" inside a word is not a mention. The composer only opens the
+    /// picker at a word boundary, and the reading side has to agree — otherwise
+    /// an address in the sentence names a product, and a question aimed at
+    /// nothing gets answered "Linear isn't connected".
+    func testAnAddressDoesNotNameAProduct() {
+        XCTAssertTrue(MentionMark.named(in: "mail dima@linear.app about it", from: [mark("Linear")]).isEmpty)
+    }
+
+    /// The same sentence naming it properly still resolves — the boundary rule
+    /// narrows what counts, it does not stop counting.
+    func testTheSameNameStillResolvesWhenItStandsAlone() {
+        let named = MentionMark.named(in: "mail dima@linear.app, then check @Linear", from: [mark("Linear")])
+
+        XCTAssertEqual(named.map(\.name), ["Linear"])
+    }
+
+    func testANewlineIsAWordBoundaryToo() {
+        XCTAssertEqual(MentionMark.named(in: "status?\n@Linear", from: [mark("Linear")]).map(\.name), ["Linear"])
+    }
+
+    /// Writing a mention in and taking it out are one rule, so a row of marks
+    /// and a picker cannot disagree about what a draft says.
+    func testAMentionGoesInWithItsSpacingAndComesBackOut() {
+        var draft = "what's the status"
+        mark("Linear").insert(into: &draft)
+
+        XCTAssertEqual(draft, "what's the status @Linear ")
+
+        mark("Linear").remove(from: &draft)
+
+        XCTAssertEqual(draft, "what's the status ")
+    }
+
+    /// Removal reads the sentence by the rule that drew it. Cutting the first
+    /// raw match instead took a word out of the address.
+    func testRemovingLeavesAnAddressAlone() {
+        var draft = "mail dima@linear.app about @Linear"
+        mark("Linear").remove(from: &draft)
+
+        XCTAssertEqual(draft, "mail dima@linear.app about ")
+    }
+
     /// The caller's order survives, whatever order the search had to walk.
     func testKeepsTheCallersOrder() {
         let candidates = [mark("Zebra"), mark("Alphabetical"), mark("Mid")]
@@ -56,5 +98,18 @@ final class MentionResolutionTests: XCTestCase {
         let named = MentionMark.named(in: "check @\(first.displayName)", from: providers, mark: MentionMark.init(tool:))
 
         XCTAssertEqual(named, [first])
+    }
+
+    /// The one definition every surface asks: the notch's marks, the composer's
+    /// pills and the tools a live question is allowed to reach.
+    func testNamedToolsReadsTheSentence() {
+        XCTAssertEqual(MentionMark.namedTools(in: "@Slack what did they say"), [.slack])
+        XCTAssertTrue(MentionMark.namedTools(in: "what did they say").isEmpty)
+    }
+
+    /// The longer product name claims the text it spells, so a question aimed at
+    /// the calendar is not routed into Drive.
+    func testTheLongerProductNameWins() {
+        XCTAssertEqual(MentionMark.namedTools(in: "anything on @Google Calendar today"), [.googleCalendar])
     }
 }

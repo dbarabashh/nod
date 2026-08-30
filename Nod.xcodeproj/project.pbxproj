@@ -71,6 +71,7 @@
 		2668AFF515FB196534CF97F3 /* CalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA6667FF07EBCEE7BA10E51C /* CalendarService.swift */; };
 		26B9FFD9D6AC25D9E7827F50 /* Entity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 325D6DF38937D83990700FCF /* Entity.swift */; };
 		2BAC54FE6BD9BACF7992702B /* ConsentDisclaimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA859CFF2FDCD8AB2CAC700 /* ConsentDisclaimerView.swift */; };
+		2BB06AFEB636706B6F9BCBF1 /* NotchAskPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86C2AEF0258D0210A93932E6 /* NotchAskPanel.swift */; };
 		2D59376511388C7B5BBF4F8D /* ChatComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A346DC11B298BE6A464B33 /* ChatComposer.swift */; };
 		2D8D2E7D2F08C46DA5C150A4 /* ExcludedSitesPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7218FFBF012037FC5B43AA4B /* ExcludedSitesPane.swift */; };
 		2E148EED7FBE3217B6E4AA39 /* SpeakerAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74FFE8D5A03ED99BC46D2E6C /* SpeakerAttributionTests.swift */; };
@@ -380,6 +381,7 @@
 		E0DA2A30522BA138C06CB99F /* ModesSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B99C2D73E32BFDDFFD07A1D /* ModesSettingsSection.swift */; };
 		E2485BAAC404E37EFAE5CEA4 /* WelcomeStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46A04894406BDE7F0626C7EF /* WelcomeStep.swift */; };
 		E30DABB4A818CDAF01166694 /* AppearanceSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 055E4ADFDA55BBB059787B0C /* AppearanceSection.swift */; };
+		E37C5EB9B567327430E4E526 /* LookupRoomContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82FDD3899DE2DA47CA2114EC /* LookupRoomContextTests.swift */; };
 		E3CEF731AC1DF0B81198058A /* silero_vad.onnx in Resources */ = {isa = PBXBuildFile; fileRef = 35C3AE41335A1F54ABE41B4F /* silero_vad.onnx */; };
 		E4E1AB7B1AC596CEA443332B /* LaunchBehavior.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54EBA711DA23D9570392102D /* LaunchBehavior.swift */; };
 		E65A63FB5B77CAC785371CFA /* SessionTimeRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F68FAF5ABCBA2D9765A6D73 /* SessionTimeRange.swift */; };
@@ -686,10 +688,12 @@
 		8218A4D4A8BE7FB051C4A81D /* PromptLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptLibrary.swift; sourceTree = "<group>"; };
 		82386F87AF5C9593617BE703 /* CalendarSourceState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarSourceState.swift; sourceTree = "<group>"; };
 		828F88BE571845B9DAB530E1 /* DemoTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoTool.swift; sourceTree = "<group>"; };
+		82FDD3899DE2DA47CA2114EC /* LookupRoomContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookupRoomContextTests.swift; sourceTree = "<group>"; };
 		84740F2D908689B2FA62989B /* PaywallCurrentSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaywallCurrentSelectionTests.swift; sourceTree = "<group>"; };
 		86B3C74B36E44417C932ED13 /* GranolaCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GranolaCacheTests.swift; sourceTree = "<group>"; };
 		86B747E569AB1981D6B8212A /* EntitlementService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntitlementService.swift; sourceTree = "<group>"; };
 		86B941C19DD34AD9C5247BC7 /* OrganizationOverview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrganizationOverview.swift; sourceTree = "<group>"; };
+		86C2AEF0258D0210A93932E6 /* NotchAskPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchAskPanel.swift; sourceTree = "<group>"; };
 		872EE05908937004E97ECE11 /* KnowledgeChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeChatView.swift; sourceTree = "<group>"; };
 		87586E3F354FB30A3844F7C3 /* LiveLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveLookup.swift; sourceTree = "<group>"; };
 		8832BAD2DAAE05BEC82F0569 /* ChatHomeSuggestionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHomeSuggestionsTests.swift; sourceTree = "<group>"; };
@@ -924,6 +928,7 @@
 			isa = PBXGroup;
 			children = (
 				8E92AE5C380F00D41A2B84F4 /* NotchAlerts.swift */,
+				86C2AEF0258D0210A93932E6 /* NotchAskPanel.swift */,
 				1B53D50BE6DEEA067CF7EE06 /* NotchBarChrome.swift */,
 				0534919E92AAD56E7A18419F /* NotchCollector.swift */,
 				BFEE1A4629797AB96AE7534E /* NotchController.swift */,
@@ -1328,6 +1333,7 @@
 				EF17FD8D0D87579281EA0B3D /* LookupArgumentDecodingTests.swift */,
 				5979CBC204319CD4FC999429 /* LookupHopPromptTests.swift */,
 				5A15BF1D61E1546358A6C82A /* LookupNowPromptTests.swift */,
+				82FDD3899DE2DA47CA2114EC /* LookupRoomContextTests.swift */,
 				5483C32793C806FFC686F97C /* LookupScopeTests.swift */,
 				54EB6ECDB6EE2661B148D97B /* LoopClosureTests.swift */,
 				7335E1F2F10BCF874BC7B634 /* LoopGraphTests.swift */,
@@ -1906,6 +1912,7 @@
 				6D7BA5E22EA7A998E12D289B /* LookupArgumentDecodingTests.swift in Sources */,
 				EEC82AEFB2394594B5BCE457 /* LookupHopPromptTests.swift in Sources */,
 				CBE29F5D9A4A734C15C1832B /* LookupNowPromptTests.swift in Sources */,
+				E37C5EB9B567327430E4E526 /* LookupRoomContextTests.swift in Sources */,
 				F17826D07DC0AC6EE307CEC5 /* LookupScopeTests.swift in Sources */,
 				CD8D7FAAA06D33F0A0D361C2 /* LoopClosureTests.swift in Sources */,
 				5422F9C9862800CF76985BCF /* LoopGraphTests.swift in Sources */,
@@ -2164,6 +2171,7 @@
 				C7B524DC6679D9B4A217462F /* NodApp.swift in Sources */,
 				3B8044A7E7650D64997B0AD8 /* NodSwitch.swift in Sources */,
 				855217421BF50216DD832BA2 /* NotchAlerts.swift in Sources */,
+				2BB06AFEB636706B6F9BCBF1 /* NotchAskPanel.swift in Sources */,
 				086BCA1A2F8EFC9A74A4D4C0 /* NotchBarChrome.swift in Sources */,
 				372CB2F5EED0B023909ABA4D /* NotchCollector.swift in Sources */,
 				54F1778228048EC76B5308F6 /* NotchController.swift in Sources */,

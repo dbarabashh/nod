@@ -42,11 +42,26 @@ enum LiveLookup {
         /// silence, because a request that was refused and one that was never
         /// understood look identical from an empty box.
         case declined
+        /// The sentence names a product Nod cannot reach, and names no other
+        /// one it can. A refusal rather than a failure: nothing was attempted
+        /// and nothing is broken.
+        ///
+        /// Worded here with its siblings. Built at the call site instead, it
+        /// was the fourth family of live-lookup copy and the only one outside
+        /// the tests that pin how these read.
+        case unreachable(IntegrationProvider, blockedByOrganization: Bool)
 
         var label: String {
             switch self {
             case .outsidersPresent: "Not everyone here is from your team"
             case .declined: "Not done — you didn't allow it"
+            // Opposite advice, so never one sentence with a clause. Somebody
+            // sent to reconnect a product their company switched off walks
+            // through an authorization that changes nothing.
+            case let .unreachable(provider, blocked):
+                blocked
+                    ? "\(provider.displayName) is off for your organization"
+                    : "\(provider.displayName) isn't connected — add it in Nod's settings"
             }
         }
     }

@@ -64,6 +64,19 @@ final class MeetingActionPromptTests: XCTestCase {
         XCTAssertNotEqual(LiveLookup.Refusal.declined.label, LiveLookup.Refusal.outsidersPresent.label)
     }
 
+    /// Naming a product Nod cannot reach is a refusal, and the two reasons read
+    /// as opposite advice: somebody sent to reconnect a product their company
+    /// switched off walks through an authorization that changes nothing.
+    func testAnUnreachableProductSaysWhichKindOfUnreachable() {
+        let unlinked = LiveLookup.Refusal.unreachable(.linear, blockedByOrganization: false)
+        let blocked = LiveLookup.Refusal.unreachable(.linear, blockedByOrganization: true)
+
+        XCTAssertTrue(unlinked.label.contains("Linear"))
+        XCTAssertTrue(blocked.label.contains("Linear"))
+        XCTAssertNotEqual(unlinked.label, blocked.label)
+        XCTAssertFalse(blocked.label.contains("connect"))
+    }
+
     func testAPendingApprovalIsSomethingTheBarCanSee() {
         var panel = MeetingBarPanel()
         XCTAssertFalse(panel.isAwaitingApproval)

@@ -274,8 +274,7 @@ struct SessionChatView: View {
     /// meant, and every call still stops at the approval card.
     private func marks(in text: String, opens: Bool = true) -> [MentionMark] {
         mentionedSessions(in: text).map { MentionMark(session: $0, opens: opens) }
-            + MentionMark.named(in: text, from: IntegrationProvider.allCases, mark: MentionMark.init(tool:))
-            .map(MentionMark.init(tool:))
+            + MentionMark.namedTools(in: text).map(MentionMark.init(tool:))
     }
 
     /// The send button is swapped for Stop while a turn runs, so this only has

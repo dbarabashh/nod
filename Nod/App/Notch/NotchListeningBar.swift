@@ -162,6 +162,10 @@ struct NotchListeningBar: View {
             // host's own list, and a listener seeing what somebody else still
             // owes is the account boundary this product does not cross.
             loops: [],
+            // Integrations belong to the account that authorized them. A
+            // listener is on somebody else's meeting with their own account,
+            // and this bar has no lookup to reach either one's products with.
+            canReachTools: false,
             onSubmit: onSubmitAsk,
             onSummarize: onSummarize,
             // A listener has no lookup and so nothing that could ask to write.

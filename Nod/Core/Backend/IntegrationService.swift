@@ -87,6 +87,23 @@ final class IntegrationService: ObservableObject {
         return ChatTools.definitions(for: linked.filter(isUsable))
     }
 
+    /// Drops what the previous account had connected.
+    ///
+    /// `hasLoaded` with it, for the reason `refreshIfNeeded` exists: left true,
+    /// the next person to sign in is offered the last one's Linear in the
+    /// mention picker and in every live lookup, and no fetch of their own ever
+    /// runs.
+    func clear() {
+        linked = []
+        linkedApps = []
+        taskTargets = []
+        teamByProvider = [:]
+        blockedByOrganization = []
+        pending = nil
+        lastError = nil
+        hasLoaded = false
+    }
+
     func refresh() async {
         guard let supabase else { return }
         isLoading = true
@@ -122,6 +139,16 @@ final class IntegrationService: ObservableObject {
     /// policy is the company's, and neither substitutes for the other.
     func isUsable(_ provider: IntegrationProvider) -> Bool {
         linked.contains(provider) && !blockedByOrganization.contains(provider)
+    }
+
+    /// Every product Nod may act in right now.
+    ///
+    /// The plural of `isUsable`, stated once because more than one surface
+    /// draws it and they have to draw the same list: a row of marks under a
+    /// composer and the placeholder above it disagreed about whether there was
+    /// anything to name.
+    var usable: [IntegrationProvider] {
+        IntegrationProvider.allCases.filter(isUsable)
     }
 
     /// Every usable product that can serve a capability.

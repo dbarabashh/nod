@@ -91,6 +91,10 @@ struct MeetingBarExpansion: View {
     let panel: MeetingBarPanel
     let findings: [LiveFinding]
     let loops: [LiveRecall]
+    /// Whether a question typed into Ask can reach the connected products. The
+    /// host's can; a listener has no lookup, and a row of marks offering
+    /// something this bar cannot do is a promise it doesn't keep.
+    let canReachTools: Bool
     let onSubmit: (String) -> Void
     let onSummarize: () -> Void
     let onApprove: () -> Void
@@ -106,6 +110,7 @@ struct MeetingBarExpansion: View {
             MeetingAskPanel(
                 phase: panel.ask,
                 approval: panel.approval,
+                canReachTools: canReachTools,
                 onSubmit: onSubmit,
                 onSummarize: onSummarize,
                 onApprove: onApprove,

@@ -103,9 +103,7 @@ struct ChatComposer: View {
                 // are typed as they are.
                 .onChange(of: text) { value in
                     guard let last = value.last, let typed = ChatComposerTrigger(rawValue: last) else { return }
-                    let preceding = value.dropLast().last
-                    let atWordBoundary = preceding == nil || preceding == " " || preceding == "\n"
-                    guard atWordBoundary else { return }
+                    guard MentionMark.standsAlone(after: value.dropLast().last) else { return }
                     text.removeLast()
                     withAnimation(.standard(reduceMotion: reduceMotion)) { trigger = typed }
                 }
@@ -163,8 +161,7 @@ struct ChatComposer: View {
     }
 
     private func append(_ mark: MentionMark) {
-        if !text.isEmpty, !text.hasSuffix(" ") { text += " " }
-        text += "\(mark.token) "
+        mark.insert(into: &text)
         close()
         isFocused = true
     }
@@ -462,12 +459,26 @@ struct ChatMentionPicker: View {
 /// Passive discovery: somebody who never types `@` still learns that Linear and
 /// the calendar are reachable, which is the whole argument for having connected
 /// them.
+///
+/// Passive is the default and not the only mode. On a surface with no room for
+/// a mention picker — the notch's Ask box — the same marks are how a product
+/// gets named at all, so they take a tap and show which one the sentence is
+/// aimed at. Two rows would have drifted: the second one was written without
+/// the dimmed authorized-but-not-yet-actionable marks, which is precisely the
+/// "reads as a connection that failed" case this row exists to prevent.
 struct ConnectedToolsRow: View {
+    /// The products the sentence being written names, drawn as aimed. Empty is
+    /// the ordinary case — a row that states what is connected and nothing more.
+    var aimed: Set<IntegrationProvider> = []
+    /// Tapping a mark. Nil leaves the row passive, which is what a surface with
+    /// its own mention picker wants.
+    var onTap: ((IntegrationProvider) -> Void)?
+
     @EnvironmentObject private var integrations: IntegrationService
     @EnvironmentObject private var catalogue: IntegrationCatalogue
 
     private var linked: [IntegrationProvider] {
-        IntegrationProvider.allCases.filter(integrations.isUsable)
+        integrations.usable
     }
 
     /// Authorized, but with no actions behind it. Dimmed rather than absent —
@@ -486,13 +497,16 @@ struct ConnectedToolsRow: View {
         if !linked.isEmpty || !authorized.isEmpty {
             HStack(spacing: 5) {
                 ForEach(linked) { provider in
-                    ProviderMark(provider: provider, size: 13)
-                        .help("\(provider.displayName) is connected — mention it with @")
+                    mark(provider)
                 }
                 ForEach(authorized) { app in
                     CatalogueMark(slug: app.slug, size: 13)
                         .opacity(0.45)
-                        .help("\(app.name) is connected — Nod can't act in it yet")
+                        // The same inset a tappable mark carries. Without it
+                        // these sit at a different pitch from the neighbours
+                        // they share a row with.
+                        .padding(onTap == nil ? 0 : 4)
+                        .glyphTooltip("\(app.name) is connected — Nod can't act in it yet")
                 }
             }
             .accessibilityElement(children: .ignore)
@@ -508,6 +522,36 @@ struct ConnectedToolsRow: View {
             }
         }
     }
+
+    /// A mark that offers something, or one that merely states it — the same
+    /// split `ChatMentionPicker.row(action:)` makes, and for the same reason: a
+    /// button that answers a click by doing nothing is worse than a glyph that
+    /// plainly isn't one.
+    ///
+    /// `glyphTooltip` rather than `help`: AppKit's tooltip needs the window to
+    /// take key focus, and the notch panel deliberately never does.
+    @ViewBuilder
+    private func mark(_ provider: IntegrationProvider) -> some View {
+        let glyph = ProviderMark(provider: provider, size: 13)
+        if let onTap {
+            let isAimed = aimed.contains(provider)
+            Button { onTap(provider) } label: {
+                glyph
+                    .opacity(isAimed ? 1 : 0.5)
+                    .padding(4)
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                            .fill(isAimed ? Theme.Palette.surfaceStrong : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .linkCursor()
+            .glyphTooltip(isAimed ? "Asking \(provider.displayName)" : "Ask \(provider.displayName)")
+        } else {
+            glyph.glyphTooltip("\(provider.displayName) is connected — mention it with @")
+        }
+    }
 }
 
 /// The kinds turned into the mark that draws them, in one place. Built once per
@@ -520,6 +564,14 @@ extension MentionMark {
 
     init(tool: IntegrationProvider) {
         self.init(name: tool.displayName, glyph: .icon(tool.iconName))
+    }
+
+    /// Which products a sentence names. One definition, because the pill a
+    /// person sees, the mark shown as aimed at, and the tools the question is
+    /// allowed to reach have to be the same answer — asked separately, a
+    /// question that read "@Linear" was routed into Slack.
+    static func namedTools(in text: String) -> [IntegrationProvider] {
+        named(in: text, from: IntegrationProvider.allCases, mark: MentionMark.init(tool:))
     }
 
     init(session: Meeting, opens: Bool = false) {

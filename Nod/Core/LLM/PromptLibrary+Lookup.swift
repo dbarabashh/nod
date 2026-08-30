@@ -80,7 +80,6 @@ extension PromptLibrary {
         let usedTool: Bool?
     }
 
-    /// Pick the one read tool that answers the request.
     /// The tools as the model reads them. Shared by the routing call and the
     /// follow-up read, so a tool cannot be described one way when it is chosen
     /// and another way when it is chosen again.
@@ -100,6 +99,7 @@ extension PromptLibrary {
         request: String,
         tools: [ChatTool],
         thread: AskThread = AskThread(),
+        transcript: String = "",
         now: Date = Date()
     ) -> (system: String, user: String) {
         let system = """
@@ -111,6 +111,12 @@ extension PromptLibrary {
         - Choose nothing rather than something close. A wrong call wastes the moment it was asked in, and the person will simply ask again.
         - A request about the conversation rather than about a product is not a tool call. Choose nothing.
         - "And the previous one?", "say that again", "what did you just tell me" are answered from [EARLIER IN THIS ASK BOX].
+        - [IN THE ROOM] is what is being said right now. It is what resolves a request that leaves its subject
+        out — "that ticket", "the channel we just mentioned", "her" — and it is where an id, a name or a date
+        said out loud but not typed comes from.
+        - It does not turn a request about the conversation into a tool call. Still choose nothing for those.
+        - Never carry the room's words into an argument beyond what is being looked for. A search takes the
+        thing, not the sentence it was said in.
         - Fill every required argument or choose nothing. A call missing one is not made, and the turn is spent.
         - A tool that changes something is chosen only when the request asks for it: "file that", "open a channel for it", "put it on the calendar".
         - A question about what exists is never served by a tool that creates something.
@@ -130,7 +136,7 @@ extension PromptLibrary {
         Use {"tool": null, "arguments": null} when nothing here answers the request.
         """
 
-        return (system, "\(thread.block)[REQUEST]\n\(request)\n\nChoose.")
+        return (system, "\(thread.block)\(roomBlock(transcript))[REQUEST]\n\(request)\n\nChoose.")
     }
 
     /// The offer of one further tool call, or nothing when this is the pass that
@@ -168,6 +174,7 @@ extension PromptLibrary {
         memory: [String],
         thread: AskThread = AskThread(),
         hopTools: [ChatTool] = [],
+        transcript: String = "",
         now: Date = Date(),
         language: AppLanguage = .english
     ) -> (system: String, user: String) {
@@ -201,6 +208,11 @@ extension PromptLibrary {
         - Never report it as the product having nothing, and never ask for it again: it will fail the same way.
         - [EARLIER IN THIS ASK BOX] is the conversation this question continues, and it resolves what the question leaves out.
         - A follow-up naming no channel, issue or person means the one from the turn before.
+        - [IN THE ROOM] is what is being said right now. It is there to tell you what the question is about — it is
+        not a source. Never answer out of the room's own words, and never report something said in the meeting as
+        something a tool returned. If only the room answers the question, return an empty `text`: that case is
+        handled elsewhere, and an answer built from the meeting wearing a product's mark is the one mistake this
+        card must never make.
         - `subject` is what this was read from — an issue key, a channel name, or the session an earlier discussion came from — copied from what you were given, or empty.
         - `usedTool` is true only when the tool's result is part of your answer. It decides which mark the card shows, so it must not claim a source you did not use.
         - LANGUAGE: write in \(lang).\(hop)
@@ -211,30 +223,56 @@ extension PromptLibrary {
         {"next": {"tool": "", "arguments": {}}, "text": "", "subject": "", "usedTool": false}
         """
 
-        let tool = results
-            .map { "[\($0.tool) RESULT]\n\($0.body.prefix(lookupResultBudget))\n" }
-            .joined()
-            + failures
-            .map { "[\($0.tool) COULD NOT RUN]\n\($0.message)\n" }
-            .joined()
-        let earlier = memory.isEmpty
-            ? ""
-            : "[EARLIER IN THIS PROJECT]\n"
-            + memory.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
-            + "\n"
-
         let user = """
-        \(thread.block)[QUESTION]
+        \(thread.block)\(roomBlock(transcript))[QUESTION]
         \(request)
 
-        \(tool)\(earlier)
+        \(gathered(results: results, failures: failures, memory: memory))
         Answer it.
         """
 
         return (system, user)
     }
 
+    /// Everything the answer is allowed to be built from, in the order it is
+    /// preferred: what the tools returned, what they could not, and what
+    /// earlier sessions said.
+    private static func gathered(
+        results: [(tool: String, body: String)],
+        failures: [(tool: String, message: String)],
+        memory: [String]
+    ) -> String {
+        let ran = results
+            .map { "[\($0.tool) RESULT]\n\($0.body.prefix(lookupResultBudget))\n" }
+            .joined()
+            + failures
+            .map { "[\($0.tool) COULD NOT RUN]\n\($0.message)\n" }
+            .joined()
+        guard !memory.isEmpty else { return ran }
+        return ran
+            + "[EARLIER IN THIS PROJECT]\n"
+            + memory.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+            + "\n"
+    }
+
     /// Enough of a tool result for the answer, and no more. A channel read
     /// comes back with an hour of messages, and the card is two sentences.
     private static let lookupResultBudget = 6_000
+
+    /// What is being said right now, for both calls.
+    ///
+    /// The two prompts get the same window and the same wording, so a request
+    /// cannot be routed against one conversation and phrased against another.
+    /// Kept from the end when it overruns: "that ticket" refers to something
+    /// said thirty seconds ago, never to the top of the meeting.
+    private static func roomBlock(_ transcript: String) -> String {
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return "[IN THE ROOM]\n\(String(trimmed.suffix(lookupRoomBudget)))\n\n"
+    }
+
+    /// Enough of the room to resolve what a request leaves out. Smaller than
+    /// the result budget on purpose: this is context for a reference, not
+    /// material to answer from, and it is paid for twice per question.
+    private static let lookupRoomBudget = 3_000
 }

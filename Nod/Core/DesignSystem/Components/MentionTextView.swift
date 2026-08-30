@@ -47,10 +47,7 @@ struct MentionMark: Equatable {
         for item in items.sorted(by: { mark($0).name.count > mark($1).name.count }) {
             let token = mark(item).token
             var cursor = 0
-            while cursor < haystack.length {
-                let remaining = NSRange(location: cursor, length: haystack.length - cursor)
-                let range = haystack.range(of: token, options: [.caseInsensitive], range: remaining)
-                guard range.location != NSNotFound else { break }
+            while let range = standingRange(of: token, in: haystack, from: cursor) {
                 if !claimed.contains(where: { NSIntersectionRange($0, range).length > 0 }) {
                     claimed.append(range)
                     found.insert(token)
@@ -66,6 +63,67 @@ struct MentionMark: Equatable {
 
     static func named(in text: String, from marks: [MentionMark]) -> [MentionMark] {
         named(in: text, from: marks) { $0 }
+    }
+
+    /// The next occurrence of `token` that stands as a mention, or nil.
+    ///
+    /// The one walker. `standsAlone` made the rule single, and then three
+    /// separate cursor loops each had to remember to call it — the fourth
+    /// reader would have been one forgotten call from the bug the rule exists
+    /// to prevent.
+    static func standingRange(of token: String, in text: NSString, from cursor: Int = 0) -> NSRange? {
+        var cursor = cursor
+        while cursor < text.length {
+            let remaining = NSRange(location: cursor, length: text.length - cursor)
+            let found = text.range(of: token, options: [.caseInsensitive], range: remaining)
+            guard found.location != NSNotFound else { return nil }
+            if standsAlone(found, in: text) { return found }
+            cursor = found.upperBound
+        }
+        return nil
+    }
+
+    /// Whether a token found here names something, or is part of a word.
+    private static func standsAlone(_ range: NSRange, in text: NSString) -> Bool {
+        guard range.location > 0, let scalar = Unicode.Scalar(text.character(at: range.location - 1)) else { return true }
+        return standsAlone(after: Character(scalar))
+    }
+
+    /// Whether an `@` after this character opens a mention.
+    ///
+    /// One predicate for both halves of the rule — the composer asks it before
+    /// opening the picker, everything above asks it before counting a token.
+    /// Spelled twice they disagreed at the edges, and disagreeing is the whole
+    /// failure: without the rule an address names a product ("dima@linear.app"
+    /// reads as "@Linear"), and with two of them a tab meant one thing to the
+    /// person writing and another to the code reading it back.
+    static func standsAlone(after preceding: Character?) -> Bool {
+        preceding.map(\.isWhitespace) ?? true
+    }
+
+    /// Writes this mention into a draft, and takes it back out.
+    ///
+    /// Beside `token` because that is what both are made of, and in one place
+    /// because the composer's picker and the notch's row of marks are two ways
+    /// of doing the same thing to the same sentence.
+    func insert(into draft: inout String) {
+        if !draft.isEmpty, !draft.hasSuffix(" ") { draft += " " }
+        draft += "\(token) "
+    }
+
+    /// Removes the first occurrence that stands as a mention — an address that
+    /// merely spells the token is left alone, so what a tap takes out is what
+    /// the reader said was there.
+    func remove(from draft: inout String) {
+        guard let found = Self.standingRange(of: token, in: draft as NSString),
+              let range = Range(found, in: draft)
+        else { return }
+        // The space it was written with goes too, or taking two mentions out
+        // leaves a gap to find and delete by hand.
+        let end = draft[range.upperBound...].first == " "
+            ? draft.index(after: range.upperBound)
+            : range.upperBound
+        draft.removeSubrange(range.lowerBound ..< end)
     }
 }
 
@@ -218,10 +276,11 @@ enum MentionText {
         let result = NSMutableAttributedString(string: plain, attributes: baseAttributes())
         for mark in marks.sorted(by: { $0.name.count > $1.name.count }) {
             var cursor = 0
-            while cursor < result.length {
-                let remaining = NSRange(location: cursor, length: result.length - cursor)
-                let found = (result.string as NSString).range(of: mark.token, options: [.caseInsensitive], range: remaining)
-                guard found.location != NSNotFound else { break }
+            // `.string` on a mutable attributed string copies the whole backing
+            // store, and `replaceCharacters` below invalidates it — so it is
+            // re-derived per pass, and only once per pass. This runs on every
+            // keystroke of every open composer.
+            while let found = MentionMark.standingRange(of: mark.token, in: result.string as NSString, from: cursor) {
                 let attachment = NSTextAttachment()
                 attachment.attachmentCell = MentionCell(mark: mark)
                 result.replaceCharacters(in: found, with: NSAttributedString(attachment: attachment))

@@ -49,12 +49,38 @@ struct MeetingLookup {
     /// an answer from memory that cannot be placed is one nobody can check.
     let sessionLabel: (UUID) -> String?
 
+    /// One question, read once.
+    ///
+    /// The three calls a lookup takes — can this be served at all, which tool,
+    /// how does the answer read — each used to derive the same two facts from
+    /// the same sentence. Asked separately they can disagree, and both
+    /// disagreements are the kind nobody sees: a question routed against one
+    /// minute of the conversation and phrased against the next, or narrowed to
+    /// a product that the refusal check had already judged unreachable.
+    struct Request {
+        /// What the person typed.
+        let text: String
+        /// The products the sentence names, in the order it names them. The
+        /// fact the whole narrowing turns on, so it is derived once.
+        let named: [IntegrationProvider]
+        /// What was being said when they typed it, and what "that ticket"
+        /// therefore means. Empty for a voice note, or a meeting nobody has
+        /// spoken in yet.
+        let room: String
+
+        init(_ text: String, room: String = "") {
+            self.text = text
+            named = MentionMark.namedTools(in: text)
+            self.room = room
+        }
+    }
+
     /// A read-only tool that would serve this request, chosen but not yet run.
     ///
-    /// Routing is its own step because the caller has to answer two questions
+    /// Routing is its own step because the caller has to answer a question
     /// between choosing a tool and running it — whether this is a question for
-    /// a tool at all, and whether the room may see what comes back. Routing a
-    /// second time to get there would spend that model call twice.
+    /// a tool at all. Routing a second time to get there would spend that model
+    /// call twice.
     struct Routed {
         let tool: ChatTool
         let arguments: String
@@ -72,10 +98,27 @@ struct MeetingLookup {
         }
     }
 
-    func routing(for request: String, thread: AskThread = AskThread()) async -> Routed? {
-        let offered = await offeredTools()
+    func routing(for request: Request, thread: AskThread = AskThread()) async -> Routed? {
+        let offered = await offeredTools(naming: request.named)
         guard !offered.isEmpty else { return nil }
         return await route(request, among: offered, thread: thread)
+    }
+
+    /// Why this request cannot be served at all, when it names products and Nod
+    /// can reach none of them.
+    ///
+    /// Said rather than routed around. A named product is an instruction: a
+    /// question written "@Linear what's the status" and answered out of Slack,
+    /// or out of what the room happened to say, is not a worse answer to the
+    /// same question — it is an answer to a different one, and the person has
+    /// no way to tell which they got.
+    ///
+    /// Only when *none* of them is reachable. Naming two and having one
+    /// connected is a question this can still answer.
+    func objection(to request: Request) async -> LiveLookup.Refusal? {
+        await integrations.refreshIfNeeded()
+        guard let first = request.named.first, !request.named.contains(where: integrations.isUsable) else { return nil }
+        return .unreachable(first, blockedByOrganization: integrations.blockedByOrganization.contains(first))
     }
 
     /// Whether this request's reads may leave at all.
@@ -83,15 +126,33 @@ struct MeetingLookup {
     /// A write discloses nothing to the room and carries its own confirmation,
     /// so it is not asked about. Refusing one because a customer is on the call
     /// would shut the box in the meetings it gets opened in most.
-    func mayRun(_ routed: Routed) -> Bool {
+    private func mayRun(_ routed: Routed) -> Bool {
         routed.tool.mutating || room().mayReadFreely
     }
 
     /// What either call may choose from. Read-only without a gate, because a
     /// write nobody can confirm is not a write we make.
-    private func offeredTools() async -> [ChatTool] {
+    ///
+    /// Narrowed to the products the request names, whenever it names any — the
+    /// hop included, which is why this takes them rather than the caller
+    /// filtering once at the top: a question aimed at one tracker must not
+    /// reach past its result into a different product.
+    ///
+    /// The condition is "did the sentence name anything", not "did the filter
+    /// find anything". Keyed on the filter's result, a naming whose tools all
+    /// fell out — a product the person has connected whose only actions are
+    /// writes, with no gate to confirm them — silently re-opened the whole
+    /// catalogue and answered `@Linear` out of Slack, which is the thing this
+    /// parameter exists to stop. Narrowing to nothing routes nothing, and the
+    /// question falls back to the room's own words.
+    ///
+    /// This narrows the *live* lookup, which gets one routing choice and must
+    /// spend it where it was pointed. The two chats read the same token as a
+    /// hint the model may weigh, because they can call again.
+    private func offeredTools(naming named: [IntegrationProvider]) async -> [ChatTool] {
         let all = await integrations.chatTools()
-        return gate == nil ? all.filter { !$0.mutating } : all
+        let allowed = gate == nil ? all.filter { !$0.mutating } : all
+        return named.isEmpty ? allowed : allowed.filter { named.contains($0.provider) }
     }
 
     /// Run a routing the caller has already accepted, and phrase what comes
@@ -101,12 +162,12 @@ struct MeetingLookup {
     /// each other, so running them in sequence would spend the slower one's
     /// latency twice, and this is a surface where somebody is watching a
     /// spinner.
-    func answer(_ request: String, running routed: Routed, thread: AskThread = AskThread()) async -> LiveLookup.State {
+    func answer(_ request: Request, running routed: Routed, thread: AskThread = AskThread()) async -> LiveLookup.State {
         // Memory is skipped for a write: what earlier sessions said cannot bear
         // on whether to create something, and on a refusal it is thrown away
         // unread — a billed embedding and vector search for nothing.
         async let running = run(routed)
-        async let remembered = routed.tool.mutating ? [] : recall(request)
+        async let remembered = routed.tool.mutating ? [] : recall(request.text)
         let (first, memory) = await (running, remembered)
 
         // Both end it where they stand. Answering anyway out of memory would
@@ -116,27 +177,28 @@ struct MeetingLookup {
         if case let .failed(_, failure) = first, memory.isEmpty { return .failed(failure) }
 
         var runs = [first]
-        // Offered only when there is a result to reach past. The catalogue is a
-        // thousand tokens, and a hop is "I now have the id, read the thing" —
-        // with nothing in hand there is no id and nothing to ask for.
-        let mayHop = first.report != nil
+        // The hop's catalogue is offered only when there is a result to reach
+        // past. It is a thousand tokens, and a hop is "I now have the id, read
+        // the thing" — with nothing in hand there is no id and nothing to ask
+        // for.
+        let hopTools = first.report == nil ? [] : await offeredTools(naming: request.named)
         // A tool that answered and a phrasing pass that then failed is our
         // fault, not the product's. Blaming the product sends somebody to
         // reconnect an integration that is working.
-        guard var written = await phrase(request, ran: runs, memory: memory, thread: thread, mayHop: mayHop) else {
+        guard var written = await phrase(request, ran: runs, memory: memory, thread: thread, hopTools: hopTools) else {
             return .failed(first.failure ?? .nod(Self.couldNotPhrase))
         }
 
         // The one follow-up read, taken only when the model asked for it and
         // named something the catalogue actually holds. Not offered again on
         // the way back, which is what makes this a hop rather than a loop.
-        if let next = written.next, let hop = await follow(next), !hop.repeats(routed) {
+        if let next = written.next, let hop = await follow(next, naming: request.named), !hop.repeats(routed) {
             Log.llm.info("live: lookup hop \(routed.tool.name) → \(hop.tool.name)")
             await runs.append(run(hop))
             // Falling back to what the first pass wrote rather than failing: the
             // hop is an attempt to do better, and a hedge is still better than
             // nothing when it doesn't come off.
-            if let closed = await phrase(request, ran: runs, memory: memory, thread: thread, mayHop: false) {
+            if let closed = await phrase(request, ran: runs, memory: memory, thread: thread, hopTools: []) {
                 written = closed
             }
         }
@@ -171,8 +233,8 @@ struct MeetingLookup {
     /// read-only catalogue the first choice came from. The model answers with a
     /// string; a string that is not in the list it was given is not a tool,
     /// whatever it looks like.
-    private func follow(_ choice: PromptLibrary.LookupChoice) async -> Routed? {
-        await Self.routed(choice, among: offeredTools())
+    private func follow(_ choice: PromptLibrary.LookupChoice, naming named: [IntegrationProvider]) async -> Routed? {
+        await Self.routed(choice, among: offeredTools(naming: named))
     }
 
     /// What a tool run came back with.
@@ -282,8 +344,13 @@ struct MeetingLookup {
     /// short. The recall pass uses six to pick one; this reads all of them.
     private static let memoryMatches = 4
 
-    private func route(_ request: String, among tools: [ChatTool], thread: AskThread) async -> Routed? {
-        let (system, user) = PromptLibrary.buildLookupRouting(request: request, tools: tools, thread: thread)
+    private func route(_ request: Request, among tools: [ChatTool], thread: AskThread) async -> Routed? {
+        let (system, user) = PromptLibrary.buildLookupRouting(
+            request: request.text,
+            tools: tools,
+            thread: thread,
+            transcript: request.room
+        )
         do {
             let choice = try await llm.completeJSON(
                 system: system,
@@ -324,19 +391,20 @@ struct MeetingLookup {
     }
 
     private func phrase(
-        _ request: String,
+        _ request: Request,
         ran: [ToolRun],
         memory: [Remembered],
         thread: AskThread,
-        mayHop: Bool
+        hopTools: [ChatTool]
     ) async -> PromptLibrary.LookupAnswer? {
         let (system, user) = await PromptLibrary.buildLookupAnswer(
-            request: request,
+            request: request.text,
             results: ran.compactMap(\.report),
             failures: ran.compactMap(\.breakage),
             memory: memory.map(\.text),
             thread: thread,
-            hopTools: mayHop ? offeredTools() : [],
+            hopTools: hopTools,
+            transcript: request.room,
             language: language.current
         )
         do {
