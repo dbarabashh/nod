@@ -195,22 +195,21 @@ struct SettingsView: View {
             }
 
             // Selectable so a user can copy it verbatim into a bug report.
-            // The DEBUG badge only compiles into Debug builds — a visible cue
-            // that this build talks to the sandbox branch, never shipped to prod.
             HStack(spacing: 6) {
                 Text(Self.versionString)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.Palette.muted)
                     .textSelection(.enabled)
-                #if DEBUG
-                    Text("DEBUG")
+                if let channel = Self.buildChannel {
+                    Text(channel)
                         .font(.system(size: 9, weight: .bold, design: .rounded))
                         .tracking(0.5)
                         .foregroundStyle(Theme.Palette.warning)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(Capsule(style: .continuous).fill(Theme.Palette.warning.opacity(0.15)))
-                #endif
+                        .textSelection(.enabled)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 4)
@@ -248,6 +247,24 @@ struct SettingsView: View {
         }
         .buttonStyle(.plain)
         .linkCursor()
+    }
+
+    /// Which build this is, or nil for the one that talks to production.
+    ///
+    /// The badge used to read `DEBUG` and compile only into Debug builds, on a
+    /// comment that called it "a visible cue that this build talks to the
+    /// sandbox branch". The Sandbox configuration talks to that branch too and
+    /// carried no badge at all, so the build most likely to be mistaken for the
+    /// real thing — shipped-shape, notarized, delivered by its own appcast —
+    /// was the one that looked identical to it.
+    static var buildChannel: String? {
+        #if DEBUG
+            return "DEBUG"
+        #elseif NOD_SANDBOX
+            return "SANDBOX"
+        #else
+            return nil
+        #endif
     }
 
     private static var versionString: String {

@@ -233,12 +233,20 @@ final class OnboardingState: ObservableObject {
         save()
     }
 
-    #if DEBUG
+    #if DEBUG || NOD_SANDBOX
         /// Clears the persisted first-run flag so the next launch replays
         /// onboarding. Local only — no account or meeting data is touched.
-        static func resetPersistedStatus(userID: UUID? = nil) {
-            UserDefaults.standard.removeObject(forKey: storageKey(for: userID))
-            UserDefaults.standard.removeObject(forKey: legacyKey)
+        ///
+        /// Every account's key, not the caller's. Status is stored per user
+        /// (`onboarding-status.<uuid>`) and the settings button has no user id
+        /// to pass, so it cleared `storageKey(for: nil)` — which is the legacy
+        /// key, which the migration above has already deleted. The button ran,
+        /// the app relaunched, and onboarding did not replay.
+        static func resetPersistedStatus() {
+            let defaults = UserDefaults.standard
+            for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(legacyKey) {
+                defaults.removeObject(forKey: key)
+            }
         }
     #endif
 

@@ -54,7 +54,7 @@ final class ConsentPreference: ObservableObject {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || NOD_SANDBOX
         /// Clears the device-side UX gate so the disclaimer shows again on the
         /// next recording. The Supabase audit rows are untouched — they are the
         /// legal record, not a cache.

@@ -143,7 +143,7 @@ final class PermissionManager: ObservableObject {
         SystemSettings.open(privacyPane: "Privacy_ScreenCapture")
     }
 
-    #if DEBUG
+    #if DEBUG || NOD_SANDBOX
         /// Forgets that we ever prompted for Screen Recording, so the row reads
         /// `notDetermined` again. Pair it with `tccutil reset ScreenCapture
         /// com.example.nod` — this clears our synthesized flag, not the OS grant.

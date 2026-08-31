@@ -442,12 +442,20 @@ struct GeneralSettingsPane: View {
 
             #if DEBUG
                 demoModeCard
+            #endif
+            #if DEBUG || NOD_SANDBOX
                 resetFirstRunCard
             #endif
         }
     }
 
-    #if DEBUG
+    // Sandbox as well as Debug. The sandbox build is how onboarding actually
+    // gets exercised — it is a shipped-shape build on the sandbox database,
+    // which is the whole point of having one — and without this the only way to
+    // replay a first run was to build Debug from source. Deliberately narrower
+    // than defining `DEBUG` for the configuration: that would switch on all 39
+    // other `#if DEBUG` sites, demo mode and its fixture data among them.
+    #if DEBUG || NOD_SANDBOX
         /// Replays the first-run experience without touching the account: the
         /// onboarding flag, the consent gate and our "we've prompted for Screen
         /// Recording" flag are all device-local. Meetings, profile and
@@ -511,6 +519,9 @@ struct GeneralSettingsPane: View {
             )
         }
 
+    #endif
+
+    #if DEBUG || NOD_SANDBOX
         private static func relaunch() {
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.createsNewApplicationInstance = true
