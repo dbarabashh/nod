@@ -222,13 +222,71 @@ export async function proxy(
 
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
-        console.error(`connect proxy ${connection.provider}/${path} failed: ${response.status}`);
+        const detail = providerDetail(payload);
+        console.error(
+            `connect proxy ${connection.provider}/${path} failed: ${response.status} ${detail ?? "no detail"}`,
+        );
         // 401 here means the user revoked access on the provider's side; saying
         // so lets the model tell them to reconnect instead of retrying.
         const code = response.status === 401 ? "reauthorize" : "provider_error";
-        throw new ActionError(code, `${connection.provider} rejected the request.`, 502);
+        // Without the provider's own words the model can only report that
+        // something failed, and the person asking "why?" gets nothing back.
+        const said = detail ? `: ${detail}` : ` (HTTP ${response.status})`;
+        throw new ActionError(code, `${connection.provider} rejected the request${said}.`, 502);
     }
     return payload;
+}
+
+/// However long the provider was, this is a tool result the model re-reads on
+/// every later turn.
+const DETAIL_LIMIT = 300;
+
+/// What the provider said went wrong, out of whichever shape it said it in.
+///
+/// Every API here spells an error differently — Google nests one under `error`,
+/// Jira lists `errorMessages`, Asana and GraphQL send arrays, Notion and GitHub
+/// put it flat on the body — and none of them survive being thrown away. The
+/// walk is generic rather than per-provider because a shape we have not seen is
+/// exactly the case where the detail matters most.
+export function providerDetail(payload: unknown): string | null {
+    const text = firstString(payload, 0);
+    if (!text) return null;
+    const detail = text.replace(/\s+/g, " ").trim();
+    if (!detail) return null;
+    return detail.length > DETAIL_LIMIT ? `${detail.slice(0, DETAIL_LIMIT - 1)}…` : detail;
+}
+
+const DETAIL_KEYS = [
+    "error_description",
+    "errorMessages",
+    "message",
+    "error",
+    "errors",
+    "detail",
+    "details",
+    "error_message",
+    "description",
+    "reason",
+    "status",
+];
+
+function firstString(value: unknown, depth: number): string | null {
+    if (typeof value === "string") return value;
+    if (depth > 4 || value === null || typeof value !== "object") return null;
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            const found = firstString(item, depth + 1);
+            if (found) return found;
+        }
+        return null;
+    }
+    const table = value as Record<string, unknown>;
+    for (const key of DETAIL_KEYS) {
+        if (!(key in table)) continue;
+        const found = firstString(table[key], depth + 1);
+        if (found) return found;
+    }
+    return null;
 }
 
 /// The proxy addresses the upstream API by url-safe base64, unpadded.

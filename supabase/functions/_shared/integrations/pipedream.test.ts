@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert";
-import { customOAuthAppID } from "./pipedream.ts";
+import { customOAuthAppID, providerDetail } from "./pipedream.ts";
 
 function withEnv(vars: Record<string, string>, body: () => void) {
     for (const [k, v] of Object.entries(vars)) Deno.env.set(k, v);
@@ -42,4 +42,61 @@ Deno.test("an empty value is no client rather than an empty one", () => {
     withEnv({ PIPEDREAM_OAUTH_APP_SLACK: "   " }, () => {
         assertEquals(customOAuthAppID("slack"), null);
     });
+});
+
+// A failed call that only says "the provider rejected it" leaves the model with
+// nothing to answer "why?" with, and the person asking gets a shrug.
+Deno.test("Google's nested error is the detail", () => {
+    assertEquals(
+        providerDetail({
+            error: {
+                code: 403,
+                message: "The caller does not have permission",
+                status: "PERMISSION_DENIED",
+            },
+        }),
+        "The caller does not have permission",
+    );
+});
+
+Deno.test("Jira's list of messages gives up its first", () => {
+    assertEquals(
+        providerDetail({ errorMessages: ["Issue does not exist"], errors: {} }),
+        "Issue does not exist",
+    );
+});
+
+Deno.test("an array of errors gives up its first message", () => {
+    assertEquals(
+        providerDetail({ errors: [{ message: "Not a recognized id." }] }),
+        "Not a recognized id.",
+    );
+});
+
+Deno.test("a flat message is the detail", () => {
+    assertEquals(providerDetail({ message: "Bad credentials" }), "Bad credentials");
+});
+
+Deno.test("an error that is itself a string is the detail", () => {
+    assertEquals(providerDetail({ error: "invalid_grant" }), "invalid_grant");
+});
+
+/// A provider that answers a failure with HTML or nothing at all must not turn
+/// into an empty `rejected the request: .`
+Deno.test("no readable detail is no detail", () => {
+    assertEquals(providerDetail(null), null);
+    assertEquals(providerDetail({ ok: false }), null);
+    assertEquals(providerDetail({ message: "   " }), null);
+});
+
+Deno.test("a long detail is cut to stay a tool result", () => {
+    const detail = providerDetail({ message: "x".repeat(500) });
+    assertEquals(detail?.length, 300);
+    assertEquals(detail?.endsWith("…"), true);
+});
+
+/// Newlines in a stack trace would break the one-line-per-event log rule and
+/// read as three failures in the transcript.
+Deno.test("a multi-line detail collapses to one line", () => {
+    assertEquals(providerDetail({ message: "first\n  second" }), "first second");
 });

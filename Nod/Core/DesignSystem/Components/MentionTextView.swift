@@ -317,13 +317,22 @@ enum MentionText {
         var result = ""
         result.reserveCapacity(string.length)
         var cursor = 0
-        snapshot.enumerateAttribute(.attachment, in: NSRange(location: 0, length: string.length)) { value, range, _ in
+        // The snapshot can still disagree with itself. `NSTextStorage.string` is
+        // a primitive read, so a copy taken while AppKit is mid-edit can carry
+        // attribute runs that point past the end of the string it copied —
+        // `Range {0, 1000} out of bounds; string length 54`. Every range is
+        // therefore checked against the string rather than trusted.
+        snapshot.enumerateAttribute(.attachment, in: NSRange(location: 0, length: string.length)) { value, range, stop in
+            guard range.location >= cursor, range.upperBound <= string.length else {
+                stop.pointee = true
+                return
+            }
             guard let mark = ((value as? NSTextAttachment)?.attachmentCell as? MentionCell)?.mark else { return }
             result += string.substring(with: NSRange(location: cursor, length: range.location - cursor))
             result += mark.token
             cursor = range.upperBound
         }
-        result += string.substring(from: cursor)
+        result += string.substring(from: min(cursor, string.length))
         return result
     }
 
