@@ -16,6 +16,14 @@ final class ChatToolGate: ObservableObject {
         let provider: IntegrationProvider
         let calls: [ChatToolCall]
         let tools: [ChatTool]
+
+        /// Whether this card may offer to stop asking. Only a card with no
+        /// write on it: "always allow" on a batch that sends a message would
+        /// buy silence for every message after it, which is not a thing to
+        /// agree to once.
+        var mayAlwaysAllow: Bool {
+            !tools.isEmpty && tools.allSatisfy { !$0.mutating }
+        }
     }
 
     /// Two rounds is enough for search-then-answer or search-then-create. A
@@ -55,8 +63,14 @@ final class ChatToolGate: ObservableObject {
     /// because a gate that trusts its caller is not a gate.
     private let unattended: Bool
 
-    init(unattended: Bool = false) {
+    /// How much may run without a card, as the person set it in Settings.
+    /// Optional so a store built without one keeps the strictest behaviour:
+    /// a gate that cannot read the preference asks, it does not assume.
+    private let approvalPreference: ToolApprovalPreference?
+
+    init(unattended: Bool = false, approval: ToolApprovalPreference? = nil) {
         self.unattended = unattended
+        approvalPreference = approval
     }
 
     /// Called when a new question starts, so the last one's scaffolding doesn't
@@ -87,6 +101,14 @@ final class ChatToolGate: ObservableObject {
                 "unattended \(provider.rawValue) call(s)=\(calls.count) \(mutates ? "refused — mutating" : "allowed")"
             )
             return await settle(calls, tools: tools, provider: provider, using: integrations, allowed: !mutates)
+        }
+        // Reads run unasked when the person said they may — the rule the live
+        // lookup has always followed ("a read changes nothing"), now available
+        // to the chat as well. A batch carrying any write is a write, and shows
+        // its card exactly as before.
+        if approvalPreference?.runsUnasked(tools, from: provider) == true {
+            Log.ui.info("\(calls.count) \(provider.rawValue) read(s) allowed without asking")
+            return await settle(calls, tools: tools, provider: provider, using: integrations, allowed: true, onApproved: onApproved)
         }
         Log.ui.info("awaiting approval for \(calls.count) \(provider.rawValue) call(s)")
         // A question asked while an older card still stands supersedes it. The
@@ -157,6 +179,14 @@ final class ChatToolGate: ObservableObject {
     func approve() {
         approval?.resume(returning: true)
         approval = nil
+    }
+
+    /// Approves this card and stops asking about reads from the same product.
+    func approveAlways() {
+        if let pending, pending.mayAlwaysAllow {
+            approvalPreference?.allowReads(from: pending.provider)
+        }
+        approve()
     }
 
     func deny() {

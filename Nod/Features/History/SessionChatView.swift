@@ -120,6 +120,7 @@ struct SessionChatView: View {
                         ToolApprovalCard(
                             approval: approval,
                             onApprove: chatStore.approvePendingTools,
+                            onApproveAlways: chatStore.approvePendingToolsAlways,
                             onDeny: chatStore.denyPendingTools
                         )
                         .id(Self.approvalAnchor)

@@ -9,6 +9,9 @@ import SwiftUI
 struct ToolApprovalCard: View {
     let approval: ChatToolGate.Pending
     let onApprove: () -> Void
+    /// Approve, and stop asking about reads from this product. Absent on a card
+    /// carrying a write.
+    var onApproveAlways: (() -> Void)?
     let onDeny: () -> Void
 
     var body: some View {
@@ -34,6 +37,16 @@ struct ToolApprovalCard: View {
                     .padding(.vertical, 7)
                     .glassButtonSurface(Capsule(style: .continuous))
                     .buttonStyle(.plain)
+
+                if approval.mayAlwaysAllow, let onApproveAlways {
+                    Button("Always allow \(approval.provider.displayName)", action: onApproveAlways)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.ink)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Capsule(style: .continuous).fill(Theme.Palette.surfaceStrong))
+                        .buttonStyle(.plain)
+                }
 
                 Button("Not now", action: onDeny)
                     .font(.system(size: 12.5, weight: .semibold))

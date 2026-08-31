@@ -23,6 +23,7 @@ struct SettingsView: View {
     private let referral: ReferralService?
     private let emailPreferences: EmailPreferenceService?
     private let productAnalytics: ProductAnalytics?
+    private let toolApproval: ToolApprovalPreference?
     private let screenExclusions: ScreenExclusions?
     private let screenContext: ScreenContextService?
     private let meetingDetection: MeetingDetectionPreference?
@@ -54,6 +55,7 @@ struct SettingsView: View {
         referral: ReferralService? = nil,
         emailPreferences: EmailPreferenceService? = nil,
         productAnalytics: ProductAnalytics? = nil,
+        toolApproval: ToolApprovalPreference? = nil,
         screenExclusions: ScreenExclusions? = nil,
         screenContext: ScreenContextService? = nil,
         meetingDetection: MeetingDetectionPreference? = nil,
@@ -84,6 +86,7 @@ struct SettingsView: View {
         self.referral = referral
         self.emailPreferences = emailPreferences
         self.productAnalytics = productAnalytics
+        self.toolApproval = toolApproval
         self.screenExclusions = screenExclusions
         self.screenContext = screenContext
         self.meetingDetection = meetingDetection
@@ -497,6 +500,9 @@ struct SettingsView: View {
                 PrivacySnapshot()
                 if let screenExclusions, let screenContext {
                     ScreenPrivacySection(exclusions: screenExclusions, screenContext: screenContext)
+                }
+                if let toolApproval {
+                    ToolApprovalSection(preference: toolApproval)
                 }
                 if let productAnalytics {
                     ProductAnalyticsSection(analytics: productAnalytics)

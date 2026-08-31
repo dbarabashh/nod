@@ -161,6 +161,7 @@ struct KnowledgeChatView: View {
                         ToolApprovalCard(
                             approval: approval,
                             onApprove: chat.approvePendingTools,
+                            onApproveAlways: chat.approvePendingToolsAlways,
                             onDeny: chat.denyPendingTools
                         )
                         .id(Self.approvalAnchor)

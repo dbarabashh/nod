@@ -36,7 +36,7 @@ final class ChatStore: ObservableObject {
     /// Asking before anything leaves Nod. The same gate the cross-session chat
     /// uses — a session chat reaches the same products, and consent that means
     /// something in one place has to mean the same in the other.
-    let toolGate = ChatToolGate()
+    let toolGate: ChatToolGate
 
     private let supabase: SupabaseClient
     private let llm: LLMProxyClient
@@ -56,10 +56,16 @@ final class ChatStore: ObservableObject {
     /// still on screen while the swap is in flight.
     @Published private(set) var openMeetingID: UUID?
 
-    init(supabase: SupabaseClient, llm: LLMProxyClient, integrations: IntegrationService) {
+    init(
+        supabase: SupabaseClient,
+        llm: LLMProxyClient,
+        integrations: IntegrationService,
+        toolApproval: ToolApprovalPreference? = nil
+    ) {
         self.supabase = supabase
         self.llm = llm
         self.integrations = integrations
+        toolGate = ChatToolGate(approval: toolApproval)
         // The gate holds state this store publishes as its own, and a nested
         // object's changes don't reach a view observing the owner.
         gateChanges = toolGate.objectWillChange.sink { [weak self] _ in
@@ -78,6 +84,10 @@ final class ChatStore: ObservableObject {
 
     func approvePendingTools() {
         toolGate.approve()
+    }
+
+    func approvePendingToolsAlways() {
+        toolGate.approveAlways()
     }
 
     func denyPendingTools() {

@@ -83,6 +83,8 @@ struct AppServices {
     /// recording session survives relaunches between takes.
     let demoPlayback: DemoPlayback
     let captureSurface: CaptureSurfacePreference
+    /// How much a connected product may be reached without a card.
+    let toolApproval: ToolApprovalPreference
     let updateGate: UpdateGate
     /// Which Sparkle channel this account may see builds from. Refreshed at
     /// launch so the answer is cached before Sparkle's first update check.
@@ -233,6 +235,7 @@ struct AppServices {
         let retrievalFeedback = RetrievalFeedbackStore(supabase: supabase)
         let modeStore = ModeStore()
         let beats = BeatStore(supabase: supabase, auth: auth)
+        let toolApproval = ToolApprovalPreference()
         // A second chat store, not the one on screen. A beat answering at 09:00
         // must not clear the conversation somebody is in the middle of typing —
         // and `unattended` is what takes every mutating tool off its table.
@@ -270,7 +273,7 @@ struct AppServices {
             meetingStore: meetingStore,
             meetingOutbox: MeetingOutbox(),
             profileStore: profileStore,
-            chatStore: ChatStore(supabase: supabase, llm: llmClient, integrations: integrations),
+            chatStore: ChatStore(supabase: supabase, llm: llmClient, integrations: integrations, toolApproval: toolApproval),
             reachability: NetworkReachability(),
             entityStore: entityStore,
             actionItemStore: actionItemStore,
@@ -326,6 +329,7 @@ struct AppServices {
             calendar: calendar,
             demoPlayback: DemoPlayback(),
             captureSurface: CaptureSurfacePreference(),
+            toolApproval: toolApproval,
             updateGate: UpdateGate(supabase: supabase),
             releaseChannel: ReleaseChannelStore(supabase: supabase, auth: auth),
             hotkeys: hotkeys,

@@ -232,10 +232,11 @@ final class KnowledgeChatStore: ObservableObject {
         screenContext: ScreenContextService? = nil,
         calendar: CalendarService? = nil,
         organizations: OrganizationService? = nil,
-        unattended: Bool = false
+        unattended: Bool = false,
+        toolApproval: ToolApprovalPreference? = nil
     ) {
         self.unattended = unattended
-        toolGate = ChatToolGate(unattended: unattended)
+        toolGate = ChatToolGate(unattended: unattended, approval: toolApproval)
         self.integrations = integrations
         self.llm = llm
         self.knowledge = knowledge
@@ -840,6 +841,10 @@ extension KnowledgeChatStore {
         toolGate.approve()
     }
 
+    func approvePendingToolsAlways() {
+        toolGate.approveAlways()
+    }
+
     func denyPendingTools() {
         toolGate.deny()
     }
@@ -1407,7 +1412,15 @@ extension KnowledgeChatStore {
             // The person exists and the period exists, but they never met in it
             // — narrowing to nothing would answer from the whole corpus
             // instead, which is worse than saying so.
+            //
+            // Unless the name is also a product this account has connected.
+            // "Slack" is a project in somebody's meetings *and* a tool on their
+            // table, and "what did we say on Slack today" asked for the second
+            // one: answering "nothing from that period involves them" states
+            // the memory's emptiness as though it settled the question, and
+            // takes the turn away from the tool that could have answered it.
             guard !meetingIDs.isEmpty else {
+                if namesAProduct(names) { return nil }
                 return .answered("Nothing from that period involves them.")
             }
         }
@@ -1425,6 +1438,19 @@ extension KnowledgeChatStore {
 
     /// Asks the model which session(s) the question targets. Falls back to a
     /// corpus-wide search on any failure or ambiguity.
+    /// Whether any matched entity is also a connected product.
+    ///
+    /// Connected, not merely known: an unreachable name settles nothing, and
+    /// falling through for it would trade a clear answer for a vaguer one.
+    private func namesAProduct(_ names: [String]) -> Bool {
+        guard let integrations else { return false }
+        return names.contains { name in
+            IntegrationProvider.allCases.contains {
+                integrations.isUsable($0) && $0.displayName.compare(name, options: .caseInsensitive) == .orderedSame
+            }
+        }
+    }
+
     private func routeQuery(_ text: String) async -> Routing {
         // Cap the routable list so the prompt stays small; broad questions that
         // reference an older session still resolve via the "all" path.
