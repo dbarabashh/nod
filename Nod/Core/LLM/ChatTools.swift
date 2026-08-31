@@ -543,6 +543,25 @@ enum ChatTools {
         ),
         ChatTool(
             provider: .slack,
+            name: "slack_post_message",
+            description: """
+            Post a message to Slack — in a channel, or as a direct message to one person. \
+            Use when the user asks to tell, ping, message or send something to somebody or somewhere. \
+            Give `channel_id` from slack_list_channels for a channel, or `to` for a person; never both. \
+            Write the message as the user would send it, in their own language, with no preamble.
+            """,
+            parameters: ChatToolSchema(
+                properties: [
+                    "text": .init(description: "The message to send, exactly as it should appear."),
+                    "channel_id": .init(description: "Channel id from slack_list_channels. Omit when messaging a person."),
+                    "to": .init(description: "Who to message — a first name, full name, @handle or email. Omit when posting to a channel.")
+                ],
+                required: ["text"]
+            ),
+            mutating: true
+        ),
+        ChatTool(
+            provider: .slack,
             name: "slack_invite_users",
             description: """
             Add people to a Slack channel that already exists. Needs the channel id from \

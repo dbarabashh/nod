@@ -846,4 +846,32 @@ export const SLACK_ACTIONS: ActionHandlers = {
         });
         return { key: channel, invited: users.length };
     },
+
+    // The only action here that puts words in front of other people, which is
+    // why it is `mutating` on the client and never runs without the card.
+    //
+    // A person or a channel, not both: "post this in #pricing" and "tell Vlad"
+    // are the two ways anyone asks, and a call carrying both is a model that
+    // has not decided. Addressing a person posts a direct message, which is a
+    // different thing from *reading* one — `privacy.md` § 3.16 promises Nod
+    // never reads DMs, and writing one the user dictated does not touch that.
+    post_message: async (connection, params) => {
+        const text = requireString(params, "text");
+        const channel = typeof params?.channel_id === "string" ? params.channel_id.trim() : "";
+        const person = typeof params?.to === "string" ? params.to.trim() : "";
+        if (channel && person) {
+            throw new ActionError("invalid_params", "Give either `channel_id` or `to`, not both.");
+        }
+
+        let target = channel;
+        if (!target) {
+            if (!person) {
+                throw new ActionError("invalid_params", "Give a `channel_id` to post in, or `to` for a person.");
+            }
+            target = (await memberFor(connection, person)).id;
+        }
+
+        const payload = await call(connection, "chat.postMessage", { channel: target, text });
+        return { key: target, ts: payload.ts ?? null };
+    },
 };

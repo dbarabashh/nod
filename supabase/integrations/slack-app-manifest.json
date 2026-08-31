@@ -27,7 +27,9 @@
         "groups:write",
         "groups:write.invites",
         "users:read",
-        "users:read.email"
+        "users:read.email",
+        "chat:write",
+        "im:write"
       ],
       "user": [
         "channels:read",
