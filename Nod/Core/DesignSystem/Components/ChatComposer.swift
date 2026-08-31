@@ -37,6 +37,17 @@ enum ChatMentionPick {
     /// An unconnected tool. Nothing is written; the surface takes them to
     /// settings.
     case connectTool
+
+    /// Identity for the highlight, so the row being drawn and the row Return
+    /// would take are compared by the same thing.
+    var id: String {
+        switch self {
+        case let .project(project): "project:\(project.id)"
+        case let .session(session): "session:\(session.id)"
+        case let .tool(tool): "tool:\(tool.rawValue)"
+        case .connectTool: "connect"
+        }
+    }
 }
 
 /// The chat composer: a mention panel, the field, and the send button.
@@ -67,6 +78,9 @@ struct ChatComposer: View {
     /// Which trigger opened the panel, or nil while it is closed — the two
     /// facts are one, and as a flag beside a mode they could disagree.
     @State private var trigger: ChatComposerTrigger?
+    /// Which row Return would take. Reset whenever the query changes, because
+    /// the list under it has changed with it.
+    @State private var highlighted = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -80,10 +94,8 @@ struct ChatComposer: View {
                     trigger: trigger,
                     sources: sources,
                     onPick: pick,
-                    onDismiss: {
-                        close()
-                        isFocused = true
-                    }
+                    search: query,
+                    highlighted: highlighted
                 )
                 Divider().overlay(Theme.Palette.border)
                     .transition(.opacity)
@@ -95,17 +107,16 @@ struct ChatComposer: View {
                     isEnabled: isEnabled,
                     isFocused: $isFocused,
                     mentions: mentions,
+                    keys: steer,
                     onSend: onSend
                 )
-                // A word-boundary "/" or "@" opens the panel (and is consumed —
-                // what gets chosen is re-inserted as "@Name" inline). Mid-word
-                // both stay literal, so an email, a handle, a path and a date
-                // are typed as they are.
+                // A word-boundary "/" or "@" opens the panel, and *stays in the
+                // text*: what follows it is the query, typed in this field with
+                // the caret where it already was. Mid-word both stay literal,
+                // so an email, a handle, a path and a date are typed as they
+                // are.
                 .onChange(of: text) { value in
-                    guard let last = value.last, let typed = ChatComposerTrigger(rawValue: last) else { return }
-                    guard MentionMark.standsAlone(after: value.dropLast().last) else { return }
-                    text.removeLast()
-                    withAnimation(.standard(reduceMotion: reduceMotion)) { trigger = typed }
+                    withAnimation(.standard(reduceMotion: reduceMotion)) { retrigger(on: value) }
                 }
 
                 if isGenerating {
@@ -150,6 +161,66 @@ struct ChatComposer: View {
         .keyboardShortcut(.cancelAction)
     }
 
+    /// The run being typed after the trigger, or nil when nothing is open.
+    ///
+    /// Derived rather than stored: the field is free to change under us —
+    /// undo, a paste, a click that moves the caret — and a second copy of this
+    /// would be wrong every time it did.
+    private var query: String {
+        guard let trigger, let start = text.lastIndex(of: trigger.rawValue) else { return "" }
+        return String(text[text.index(after: start)...])
+    }
+
+    /// Opens, closes and re-queries the panel from whatever the field now says.
+    private func retrigger(on value: String) {
+        if let trigger {
+            guard let start = value.lastIndex(of: trigger.rawValue) else { return close() }
+            // A space ends a mention: past it the person is writing a sentence
+            // again, not choosing from a list.
+            guard !value[value.index(after: start)...].contains(" ") else { return close() }
+            highlighted = 0
+            return
+        }
+        guard let last = value.last, let typed = ChatComposerTrigger(rawValue: last),
+              MentionMark.standsAlone(after: value.dropLast().last)
+        else { return }
+        highlighted = 0
+        trigger = typed
+    }
+
+    /// The panel's keyboard, borrowed from the field. Returns false when
+    /// nothing is open, which is how Return goes back to sending.
+    private func steer(_ key: ComposerKey) -> Bool {
+        guard trigger != nil else { return false }
+        let count = visiblePicks.count
+        switch key {
+        case .up:
+            guard count > 0 else { return true }
+            highlighted = (highlighted - 1 + count) % count
+        case .down:
+            guard count > 0 else { return true }
+            highlighted = (highlighted + 1) % count
+        case .commit:
+            guard visiblePicks.indices.contains(highlighted) else { return false }
+            pick(visiblePicks[highlighted])
+        case .dismiss:
+            close()
+            isFocused = true
+        }
+        return true
+    }
+
+    /// What the panel is showing, in its drawn order. Held here as well as
+    /// drawn there because Return has to resolve without asking a view.
+    private var visiblePicks: [ChatMentionPick] {
+        guard let trigger else { return [] }
+        return ChatMentionPicker.picks(
+            projects: trigger.listsProjects ? ChatMentionPicker.projects(sources.projects, matching: query) : [],
+            sessions: ChatMentionPicker.sessions(sources.sessions, matching: query),
+            tools: sources.tools ? ChatMentionPicker.tools(matching: query) : []
+        )
+    }
+
     private func pick(_ pick: ChatMentionPick) {
         switch pick {
         case let .project(project): append(MentionMark(project: project))
@@ -160,7 +231,12 @@ struct ChatComposer: View {
         onPick(pick)
     }
 
+    /// Writes the token over the `@query` that summoned it, so the trigger and
+    /// the half-typed name are replaced by the pill rather than left beside it.
     private func append(_ mark: MentionMark) {
+        if let trigger, let start = text.lastIndex(of: trigger.rawValue) {
+            text.removeSubrange(start...)
+        }
         mark.insert(into: &text)
         close()
         isFocused = true
@@ -182,34 +258,48 @@ struct ChatMentionPicker: View {
     let trigger: ChatComposerTrigger
     let sources: ChatMentionSources
     let onPick: (ChatMentionPick) -> Void
-    let onDismiss: () -> Void
+    /// What has been typed after the trigger, and which row is selected. Both
+    /// live in the composer: the caret never leaves the field, so the field is
+    /// the only thing that knows either.
+    let search: String
+    let highlighted: Int
 
     @EnvironmentObject private var integrations: IntegrationService
     @EnvironmentObject private var catalogue: IntegrationCatalogue
-    @State private var search = ""
-    @FocusState private var searchFocused: Bool
-    @State private var escape: Any?
-
-    private static let escapeKey: UInt16 = 53
 
     private var matchingProjects: [SessionLabel] {
         guard trigger.listsProjects else { return [] }
-        guard !search.isEmpty else { return sources.projects }
-        return sources.projects.filter { $0.name.localizedCaseInsensitiveContains(search) }
+        return Self.projects(sources.projects, matching: search)
+    }
+
+    /// The three filters, shared with the composer: it has to resolve what
+    /// Return would take without asking a view, and two copies of "what is
+    /// showing" would disagree the moment either was edited.
+    static func projects(_ projects: [SessionLabel], matching search: String) -> [SessionLabel] {
+        guard !search.isEmpty else { return projects }
+        return projects.filter { $0.name.localizedCaseInsensitiveContains(search) }
+    }
+
+    static func sessions(_ sessions: [Meeting], matching search: String) -> [Meeting] {
+        guard !search.isEmpty else { return Array(sessions.prefix(8)) }
+        return Array(sessions.lazy.filter { $0.matches(search) }.prefix(8))
+    }
+
+    static func tools(matching search: String) -> [IntegrationProvider] {
+        guard !search.isEmpty else { return IntegrationProvider.allCases }
+        return IntegrationProvider.allCases.filter { $0.displayName.localizedCaseInsensitiveContains(search) }
     }
 
     /// Lazily, and capped at what is drawn. Eagerly filtering meant lowercasing
     /// every session's summary — the whole store — on every keystroke, three
     /// times over, to render eight rows.
     private var matchingSessions: [Meeting] {
-        guard !search.isEmpty else { return Array(sources.sessions.prefix(8)) }
-        return Array(sources.sessions.lazy.filter { $0.matches(search) }.prefix(8))
+        Self.sessions(sources.sessions, matching: search)
     }
 
     private var matchingTools: [IntegrationProvider] {
         guard sources.tools else { return [] }
-        guard !search.isEmpty else { return IntegrationProvider.allCases }
-        return IntegrationProvider.allCases.filter { $0.displayName.localizedCaseInsensitiveContains(search) }
+        return Self.tools(matching: search)
     }
 
     /// Products this account authorized that Nod has no actions for yet.
@@ -225,19 +315,6 @@ struct ChatMentionPicker: View {
         return apps.filter { $0.name.localizedCaseInsensitiveContains(search) }
     }
 
-    /// Names what is actually listed, so the panel never invites a search for
-    /// something this chat cannot reach.
-    private var searchPrompt: String {
-        let kinds = [
-            trigger.listsProjects && !sources.projects.isEmpty ? "projects" : nil,
-            sources.sessions.isEmpty ? nil : "sessions",
-            sources.tools ? "tools" : nil
-        ].compactMap { $0 }
-        guard let last = kinds.last else { return "Search" }
-        guard kinds.count > 1 else { return "Search \(last)" }
-        return "Search \(kinds.dropLast().joined(separator: ", ")) and \(last)"
-    }
-
     var body: some View {
         // Each list evaluated once per pass, not three times: `isEmpty`, the
         // section guard and the `ForEach` each used to re-run the filter.
@@ -245,22 +322,26 @@ struct ChatMentionPicker: View {
         let sessions = matchingSessions
         let tools = matchingTools
         let apps = matchingApps
+        let selected = Self.picks(projects: projects, sessions: sessions, tools: tools)
+            .indices.contains(highlighted)
+            ? Self.picks(projects: projects, sessions: sessions, tools: tools)[highlighted].id
+            : nil
         return VStack(alignment: .leading, spacing: 0) {
-            searchField
-            Divider().overlay(Theme.Palette.border)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if projects.isEmpty, sessions.isEmpty, tools.isEmpty, apps.isEmpty {
-                        Text("Nothing matches “\(search)”")
+                        Text(search.isEmpty ? "Nothing to mention yet" : "Nothing matches “\(search)”")
                             .font(.system(size: 12))
                             .foregroundStyle(Theme.Palette.muted)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 10)
                     }
-                    section("Projects", items: projects, row: projectRow)
-                    section("Sessions", items: sessions, row: sessionRow)
-                    section("Tools", items: tools, row: toolRow)
+                    // Tools lead: they are the thing the trigger is reached for
+                    // most, and the thing the person has just named half of.
+                    section("Tools", items: tools) { toolRow($0, selected: selected) }
+                    section("Sessions", items: sessions) { sessionRow($0, selected: selected) }
+                    section("Projects", items: projects) { projectRow($0, selected: selected) }
                     section("Connected", items: apps, row: appRow)
                 }
                 .padding(.bottom, 4)
@@ -274,62 +355,17 @@ struct ChatMentionPicker: View {
         // panel is part of the composer, and a block that pops into place reads
         // as a different surface arriving.
         .transition(.move(edge: .bottom).combined(with: .opacity))
-        .onAppear {
-            searchFocused = true
-            watchForEscape()
-        }
-        .onDisappear(perform: stopWatchingForEscape)
     }
 
-    /// Escape, heard by the panel itself.
-    ///
-    /// `onExitCommand` never fired: the search field takes focus the moment the
-    /// panel opens, and its field editor handles the key and stops it there —
-    /// so the responder chain the modifier listens on never sees it, and the
-    /// panel had no way out but picking something.
-    private func watchForEscape() {
-        stopWatchingForEscape()
-        escape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard event.keyCode == Self.escapeKey else { return event }
-            onDismiss()
-            return nil
-        }
-    }
-
-    private func stopWatchingForEscape() {
-        guard let escape else { return }
-        NSEvent.removeMonitor(escape)
-        self.escape = nil
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 8) {
-            Image("nc-magnifier")
-                .icon(11)
-                .foregroundStyle(Theme.Palette.muted)
-            TextField(searchPrompt, text: $search)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
-                .foregroundStyle(Theme.Palette.ink)
-                .focused($searchFocused)
-            Button(action: onDismiss) {
-                Image("nc-xmark")
-                    .icon(10)
-                    .foregroundStyle(Theme.Palette.muted)
-                    .padding(4)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .linkCursor()
-            .help("Close")
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        // The row is as tall as its own text. Left free it takes a share of any
-        // height the panel is given, and a field editor draws its line at the
-        // top of the box it was handed — so the text climbed away from the
-        // magnifier beside it, which stayed in the middle.
-        .fixedSize(horizontal: false, vertical: true)
+    /// Everything selectable, in the order it is drawn — the list the composer
+    /// steps through and takes from. Built here rather than in the composer so
+    /// what Return picks and what the eye is on cannot come apart.
+    static func picks(
+        projects: [SessionLabel],
+        sessions: [Meeting],
+        tools: [IntegrationProvider]
+    ) -> [ChatMentionPick] {
+        tools.map { .tool($0) } + sessions.map { .session($0) } + projects.map { .project($0) }
     }
 
     /// Takes the items rather than a flag about them, so the heading and the
@@ -349,8 +385,8 @@ struct ChatMentionPicker: View {
         }
     }
 
-    private func projectRow(_ project: SessionLabel) -> some View {
-        row(action: { onPick(.project(project)) }, content: {
+    private func projectRow(_ project: SessionLabel, selected: String?) -> some View {
+        row(action: { onPick(.project(project)) }, isSelected: ChatMentionPick.project(project).id == selected, content: {
             Circle()
                 .fill(project.swatchColor)
                 .frame(width: 8, height: 8)
@@ -363,8 +399,8 @@ struct ChatMentionPicker: View {
         })
     }
 
-    private func sessionRow(_ session: Meeting) -> some View {
-        row(action: { onPick(.session(session)) }, content: {
+    private func sessionRow(_ session: Meeting, selected: String?) -> some View {
+        row(action: { onPick(.session(session)) }, isSelected: ChatMentionPick.session(session).id == selected, content: {
             Image(session.kind.icon)
                 .icon(11)
                 .foregroundStyle(Theme.Palette.muted)
@@ -391,11 +427,14 @@ struct ChatMentionPicker: View {
     /// an unconnected one: the person may well have connected it, Settings says
     /// so, and offering "Connect" here sends them through an authorization that
     /// changes nothing and leaves the row exactly as it was.
-    private func toolRow(_ tool: IntegrationProvider) -> some View {
+    private func toolRow(_ tool: IntegrationProvider, selected: String?) -> some View {
         let isBlocked = integrations.blockedByOrganization.contains(tool)
         let isUsable = !isBlocked && integrations.linked.contains(tool)
         let note = isBlocked ? "Off for your organization" : (isUsable ? nil : "Connect")
-        return row(action: isBlocked ? nil : { onPick(isUsable ? .tool(tool) : .connectTool) }) {
+        return row(
+            action: isBlocked ? nil : { onPick(isUsable ? .tool(tool) : .connectTool) },
+            isSelected: ChatMentionPick.tool(tool).id == selected
+        ) {
             ProviderMark(provider: tool, size: 14)
                 .frame(width: 16)
                 .opacity(isUsable ? 1 : 0.45)
@@ -438,11 +477,23 @@ struct ChatMentionPicker: View {
     /// offering it — a button that answered a click by doing nothing would be
     /// worse than one that plainly says why.
     @ViewBuilder
-    private func row(action: (() -> Void)?, @ViewBuilder content: () -> some View) -> some View {
+    private func row(
+        action: (() -> Void)?,
+        isSelected: Bool = false,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
         let body = HStack(spacing: 9) { content() }
             .padding(.horizontal, 6)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // `surfaceStrong`, not `overlay`: the latter is `themed(light:
+            // .black, dark: .white)` at full opacity — a wash to be given an
+            // opacity, not a fill. Used raw it painted a black bar on the Light
+            // theme and swallowed the label sitting on it.
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? Theme.Palette.surfaceStrong : .clear)
+            )
             .contentShape(Rectangle())
         if let action {
             Button(action: action) { body }

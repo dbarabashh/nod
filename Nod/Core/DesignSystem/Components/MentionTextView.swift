@@ -412,6 +412,18 @@ private struct MentionMeasurement: Equatable {
     let width: CGFloat
 }
 
+/// A key the mention panel wants before the field does.
+///
+/// The panel is a list the person is steering while the caret stays in the
+/// composer, so the four keys that steer a list have to be taken from the field
+/// and only handed back when nothing is open — which is what the `Bool` says.
+enum ComposerKey {
+    case up
+    case down
+    case commit
+    case dismiss
+}
+
 /// The composer's text area, with `@mentions` drawn as pills in place.
 struct MentionTextView: NSViewRepresentable {
     @Binding var text: String
@@ -422,6 +434,8 @@ struct MentionTextView: NSViewRepresentable {
     /// it reports — split across the two, neither knew the field's real height.
     var maxHeight: CGFloat
     var isEnabled = true
+    /// Offered every steering key first. Returns true when the panel used it.
+    var keys: (ComposerKey) -> Bool = { _ in false }
     let onSend: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -529,7 +543,14 @@ struct MentionTextView: NSViewRepresentable {
         /// Return sends; Shift-Return breaks the line — the same contract the
         /// SwiftUI field had, restated here because `onKeyPress` never reaches
         /// an `NSTextView`.
+        ///
+        /// The mention panel is offered the steering keys first. It is driven
+        /// from this field rather than from a search box of its own, so while
+        /// it is open ↑/↓ move its selection, Return takes the selected row,
+        /// and Escape closes it — and each of those only reaches the text when
+        /// nothing is open to want it.
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if let key = Self.steering[selector], parent.keys(key) { return true }
             guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
             if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
                 textView.insertText("\n", replacementRange: textView.selectedRange())
@@ -538,6 +559,14 @@ struct MentionTextView: NSViewRepresentable {
             }
             return true
         }
+
+        private static let steering: [Selector: ComposerKey] = [
+            #selector(NSResponder.moveUp(_:)): .up,
+            #selector(NSResponder.moveDown(_:)): .down,
+            #selector(NSResponder.insertNewline(_:)): .commit,
+            #selector(NSResponder.insertTab(_:)): .commit,
+            #selector(NSResponder.cancelOperation(_:)): .dismiss
+        ]
     }
 }
 

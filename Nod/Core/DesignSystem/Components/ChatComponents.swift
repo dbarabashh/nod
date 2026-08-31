@@ -61,6 +61,8 @@ struct ChatComposerField: View {
     /// Names to draw as pills. Empty is the ordinary case — a question with no
     /// mention in it looks exactly as it did.
     var mentions: [MentionMark] = []
+    /// Offered the steering keys before the field takes them.
+    var keys: (ComposerKey) -> Bool = { _ in false }
     let onSend: () -> Void
 
     private static let maxLines: CGFloat = 5
@@ -73,6 +75,7 @@ struct ChatComposerField: View {
             mentions: mentions,
             maxHeight: Self.maxHeight,
             isEnabled: isEnabled,
+            keys: keys,
             onSend: onSend
         )
         // `NSTextView` has no placeholder, and the one it does expose is not
