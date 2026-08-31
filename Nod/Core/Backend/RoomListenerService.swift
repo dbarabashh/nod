@@ -151,6 +151,17 @@ final class RoomListenerService: ObservableObject {
     private var lastLookNote: String?
     private var lastFindingsFetch: Date?
     private var sleepObserver: NSObjectProtocol?
+    /// Which calendar entry `available` was found for. The card carries no
+    /// identity of its own — a `LiveRoom` is a host name and a start time — so
+    /// this is what a dismissal has to name.
+    private var availableIdentity: RoomIdentity?
+    /// Rooms this account has answered "Not now" to, by the entry they belong
+    /// to. Declining is an answer about a meeting, so it is remembered for that
+    /// meeting: without it the twenty-second discovery tick found the same room
+    /// and put the card straight back, and `requestRecordingStart` read the
+    /// cleared `available` as "never asked", rediscovered the room, and refused
+    /// to record — so the card could neither be dismissed nor recorded past.
+    private var declined: Set<String> = []
 
     init(supabase: SupabaseClient?, llm: LLMProxyClient? = nil) {
         self.supabase = supabase
@@ -265,29 +276,65 @@ final class RoomListenerService: ObservableObject {
     /// this invitation. Quiet by design: nobody is told this was asked.
     func lookForRoom(_ identity: RoomIdentity) async {
         guard let supabase, joined == nil else { return }
+        guard !isDeclined(identity) else {
+            note("live room: not asking — this meeting's room was dismissed")
+            return
+        }
         do {
             let rooms: [LiveRoom] = try await supabase
                 .rpc("find_live_room", params: Identity(identity))
                 .execute()
                 .value
             available = rooms.first
+            availableIdentity = rooms.first == nil ? nil : identity
             // The answer, not just the failure. A successful call returning
             // nothing looked identical to a call never made, which is exactly
             // the ambiguity that made this take three attempts to diagnose.
             let answer = rooms.first.map { "found \($0.hostName ?? "somebody")" }
                 ?? "nobody is recording it"
-            if answer != lastLookNote {
-                lastLookNote = answer
-                Log.ui.info("live room: \(answer)")
-            }
+            note("live room: \(answer)")
         } catch {
             lastLookNote = nil
             Log.ui.error("RoomListenerService.lookForRoom failed: \(error.localizedDescription)")
         }
     }
 
+    /// Clear the offer without answering it — the calendar moved on, or nothing
+    /// names this moment any more. The room may be offered again the moment it
+    /// is discovered, which is the difference from `declineRoom`.
     func forgetRoom() {
         available = nil
+        availableIdentity = nil
+    }
+
+    /// "Not now", pressed. Remembers the answer so neither the discovery tick
+    /// nor the pre-start check offers this meeting's room again.
+    func declineRoom() {
+        if let key = availableIdentity.flatMap(Self.key) {
+            declined.insert(key)
+            Log.ui.info("live room: declined for this meeting")
+        }
+        forgetRoom()
+    }
+
+    func isDeclined(_ identity: RoomIdentity) -> Bool {
+        guard let key = Self.key(identity) else { return false }
+        return declined.contains(key)
+    }
+
+    /// Nil for an entry that names nothing — `CalendarService.currentRoomIdentity`
+    /// never returns one, and a blank key would decline every room at once.
+    private static func key(_ identity: RoomIdentity) -> String? {
+        identity.icalUID ?? identity.conferenceURL?.absoluteString
+    }
+
+    /// One line per *change* of outcome. Discovery is asked three times a
+    /// minute for the life of the app; logging every pass would bury the
+    /// transition that actually matters.
+    private func note(_ message: String) {
+        guard message != lastLookNote else { return }
+        lastLookNote = message
+        Log.ui.info("\(message)")
     }
 
     // MARK: - Joining
@@ -303,7 +350,7 @@ final class RoomListenerService: ObservableObject {
                 .value
             guard let room = rooms.first else { return }
             joined = room
-            available = nil
+            forgetRoom()
             hasEnded = false
             findings = []
             lastFindingsFetch = nil
@@ -682,6 +729,7 @@ struct LiveTranscriptEntry: Equatable, Decodable, Identifiable {
     extension RoomListenerService {
         static func preview(
             available: LiveRoom? = nil,
+            availableIdentity: RoomIdentity? = nil,
             joined: JoinedRoom? = nil,
             listeners: [String] = [],
             ended: Bool = false,
@@ -690,6 +738,7 @@ struct LiveTranscriptEntry: Equatable, Decodable, Identifiable {
         ) -> RoomListenerService {
             let service = RoomListenerService(supabase: nil)
             service.available = available
+            service.availableIdentity = availableIdentity
             service.joined = joined
             service.listeners = listeners
             service.hasEnded = ended

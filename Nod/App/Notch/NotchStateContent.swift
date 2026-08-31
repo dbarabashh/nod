@@ -79,7 +79,7 @@ struct NotchStateContent: View {
                 room: room,
                 isJoining: model.rooms.isJoining,
                 onJoin: model.joinLiveRoom,
-                onDismiss: model.rooms.forgetRoom,
+                onDismiss: model.rooms.declineRoom,
                 onRecordInstead: alsoOffered ? { model.acceptOffer() } : (nil as (() -> Void)?)
             )
         case let .noticed(finding):
