@@ -57,6 +57,9 @@ final class IntegrationService: ObservableObject {
     /// who connected four products last month.
     @Published private(set) var hasLoaded = false
 
+    /// When the links were last read, for `refreshIfNeeded`.
+    private var loadedAt: Date?
+
     private enum Unavailable: Error {
         case noClient
     }
@@ -69,12 +72,33 @@ final class IntegrationService: ObservableObject {
         watch?.cancel()
     }
 
-    /// Loads the links once per launch. The chat needs to know what's connected
-    /// before it can offer any tools, and it can't wait for the user to have
-    /// visited Settings first.
+    /// Loads the links, and reloads them once the last answer has gone stale.
+    ///
+    /// This was once per launch, and a connection that landed outside the
+    /// two-minute window `watchForConnection` polls for stayed invisible until
+    /// the app was quit: Settings said connected, the chat offered nothing, and
+    /// nothing in between ever asked again. That window is missed by an
+    /// authorization the person finished slowly, by one they finished on
+    /// another device, and by a broker webhook that was simply late.
+    ///
+    /// A staleness check rather than a notification: `didBecomeActive` is the
+    /// obvious hook and the wrong one here, because the panel is
+    /// non-activating and this app can go a whole session without ever becoming
+    /// active — the same reason `ScreenContextService` had to poll for its
+    /// Accessibility grant.
     func refreshIfNeeded() async {
-        guard !hasLoaded else { return }
+        guard Self.isStale(loadedAt: loadedAt, now: Date()) else { return }
         await refresh()
+    }
+
+    /// Long enough that opening the chat repeatedly costs one query a minute,
+    /// short enough that somebody who just connected something and came back to
+    /// the window does not think it failed.
+    static let freshness: TimeInterval = 60
+
+    static func isStale(loadedAt: Date?, now: Date) -> Bool {
+        guard let loadedAt else { return true }
+        return now.timeIntervalSince(loadedAt) >= freshness
     }
 
     /// What a chat may offer the model this turn. Both chats ask the same
@@ -106,6 +130,7 @@ final class IntegrationService: ObservableObject {
         pending = nil
         lastError = nil
         hasLoaded = false
+        loadedAt = nil
     }
 
     func refresh() async {
@@ -129,6 +154,7 @@ final class IntegrationService: ObservableObject {
             blockedByOrganization = await loadBlockedProviders()
             taskTargets = filingTargets()
             hasLoaded = true
+            loadedAt = Date()
             lastError = nil
             Log.ui.info("integrations linked=\(linked.map(\.rawValue).sorted().joined(separator: ","))")
         } catch {
