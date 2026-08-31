@@ -809,11 +809,30 @@ final class MeetingStore: ObservableObject {
     /// halves of a room, and neither copy is the canonical one. This only asks
     /// the question; `merge(_:into:)` is what a person answering it calls.
     func sameMeetingCandidates(for meetingID: UUID) async -> [SameMeeting] {
+        guard !isSomebodyElses(meetingID) else { return [] }
         async let mine = matches(from: "my_earlier_recording", for: meetingID)
         async let others = matches(from: "same_meeting_in_org", for: meetingID)
         // Your own first: rejoining a call is the commoner event and the more
         // confusing one to find filed as two meetings.
         return await mine.map { var match = $0; match.isMine = true; return match } + others
+    }
+
+    /// Whether this session is known to belong to somebody else.
+    ///
+    /// Both matchers anchor on a recording of the caller's own — they answer
+    /// "is anyone else holding the meeting *I* recorded" — and raise `that
+    /// meeting is not yours` for anything else. A session shared by a colleague
+    /// therefore logged two authorization errors every time it was opened, for
+    /// a question that could not have applied to it.
+    ///
+    /// Only when we positively know. A meeting missing from the local list is
+    /// asked about as before and the server decides; guessing "not mine" from
+    /// an incomplete list would switch the feature off on real sessions.
+    private func isSomebodyElses(_ meetingID: UUID) -> Bool {
+        guard let owner = meetings.first(where: { $0.id == meetingID })?.userID,
+              let me = supabase.auth.currentSession?.user.id
+        else { return false }
+        return owner != me
     }
 
     private func matches(from rpc: String, for meetingID: UUID) async -> [SameMeeting] {
