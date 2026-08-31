@@ -224,10 +224,22 @@ struct MeetingLookup {
             LiveLookup.Answer(
                 text: text,
                 provider: usedTool ? runs.compactMap(\.report).last.map { _ in routed.provider } : nil,
-                subject: written.subject?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
-                    ?? (usedTool ? nil : memory.first?.source)
+                subject: Self.mark(written.subject, notNaming: runs.compactMap { $0.tool?.name } + [routed.tool.name])
             )
         )
+    }
+
+    /// What the provenance mark is allowed to say, or nothing.
+    ///
+    /// The field is written by the model, and it arrives as the name of the
+    /// function it called — `gmail_search_messages` — as readily as an issue
+    /// key or a channel. Matched against the names actually in play rather than
+    /// by shape: a real Slack channel is `eng_releases`, so punctuation cannot
+    /// tell the two apart.
+    nonisolated static func mark(_ written: String?, notNaming toolNames: [String]) -> String? {
+        guard let subject = written?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty else { return nil }
+        guard !toolNames.contains(where: { $0.caseInsensitiveCompare(subject) == .orderedSame }) else { return nil }
+        return subject
     }
 
     /// What the question reached, and whether the product answered it.
