@@ -52,10 +52,10 @@ enum ScreenTextRecognizer {
         isAllowed: @Sendable (String) -> Bool
     ) async -> (title: String, texts: [String])? {
         guard #available(macOS 14.0, *), isAvailable else { return nil }
-        guard let window = await frontmostWindow(forProcessID: pid, matching: expectedTitle) else { return nil }
-        let title = window.title ?? ""
+        guard let found = await frontmostWindow(forProcessID: pid, matching: expectedTitle) else { return nil }
+        let title = found.window.title ?? ""
         guard isAllowed(title) else { return nil }
-        guard let image = await image(of: window) else { return nil }
+        guard let image = await image(of: found.window, among: found.displays) else { return nil }
         let texts = await Task.detached(priority: .utility) { recognize(image) }.value
         return texts.isEmpty ? nil : (title, texts)
     }
@@ -70,7 +70,10 @@ enum ScreenTextRecognizer {
     /// the lowest `windowLayer` is the ordinary document level, which is what
     /// separates a document from the floating palettes and panels above it.
     @available(macOS 14.0, *)
-    private static func frontmostWindow(forProcessID pid: pid_t, matching expectedTitle: String) async -> SCWindow? {
+    private static func frontmostWindow(
+        forProcessID pid: pid_t,
+        matching expectedTitle: String
+    ) async -> (window: SCWindow, displays: [SCDisplay])? {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
             let candidates = content.windows.filter { window in
@@ -79,19 +82,78 @@ enum ScreenTextRecognizer {
                     && window.frame.height >= minimumWindowSide
             }
             if !expectedTitle.isEmpty, let named = candidates.first(where: { $0.title == expectedTitle }) {
-                return named
+                return (named, content.displays)
             }
-            return candidates.min { $0.windowLayer < $1.windowLayer }
+            return candidates.min { $0.windowLayer < $1.windowLayer }.map { ($0, content.displays) }
         } catch {
             Log.screen.error("context: window lookup failed — \(error.localizedDescription)")
             return nil
         }
     }
 
+    /// The window as pixels, from whichever filter this display arrangement
+    /// accepts.
+    ///
+    /// `desktopIndependentWindow` resolves the window's display itself, and on
+    /// a second display that lookup fails outright — `failed display lookup for
+    /// windowBounds={{-1524, 33}, …} found=0`, and every pixel read of a window
+    /// over there returns nothing. The display-scoped filter names the display
+    /// instead of asking ScreenCaptureKit to find it, so it is tried second
+    /// rather than first: the single-display path is the one that works today
+    /// and must not be disturbed to fix the one that doesn't.
     @available(macOS 14.0, *)
-    private static func image(of window: SCWindow) async -> CGImage? {
-        let filter = SCContentFilter(desktopIndependentWindow: window)
+    private static func image(of window: SCWindow, among displays: [SCDisplay]) async -> CGImage? {
+        if let image = await image(of: window, using: SCContentFilter(desktopIndependentWindow: window)) {
+            return image
+        }
+        guard let display = display(hosting: window, among: displays) else {
+            Log.screen.error("context: window capture failed and no display hosts the window")
+            return nil
+        }
+        // The display filter draws the whole display with only this window
+        // composited onto it, so the crop is what makes the result a window
+        // again. `sourceRect` is display-local, hence the shift by its origin.
+        let filter = SCContentFilter(display: display, including: [window])
+        let cropped = rect(ofWindow: window.frame, within: display.frame)
+        guard let image = await image(of: window, using: filter, cropping: cropped) else {
+            Log.screen.error("context: window capture failed on both filters — display \(display.displayID)")
+            return nil
+        }
+        return image
+    }
+
+    @available(macOS 14.0, *)
+    private static func display(hosting window: SCWindow, among displays: [SCDisplay]) -> SCDisplay? {
+        indexOfHost(forWindow: window.frame, among: displays.map(\.frame)).map { displays[$0] }
+    }
+
+    /// Which display the window sits on: the one it overlaps most, because a
+    /// window dragged across a seam belongs to neither outright and the larger
+    /// share is the one that has its text on it.
+    static func indexOfHost(forWindow window: CGRect, among displays: [CGRect]) -> Int? {
+        displays.indices
+            .map { (index: $0, overlap: displays[$0].intersection(window)) }
+            .filter { !$0.overlap.isEmpty }
+            .max { $0.overlap.width * $0.overlap.height < $1.overlap.width * $1.overlap.height }?
+            .index
+    }
+
+    /// The window's frame in its display's own coordinates, which is what
+    /// `sourceRect` is measured in.
+    static func rect(ofWindow window: CGRect, within display: CGRect) -> CGRect {
+        window.offsetBy(dx: -display.minX, dy: -display.minY)
+    }
+
+    @available(macOS 14.0, *)
+    private static func image(
+        of window: SCWindow,
+        using filter: SCContentFilter,
+        cropping sourceRect: CGRect? = nil
+    ) async -> CGImage? {
         let configuration = SCStreamConfiguration()
+        if let sourceRect {
+            configuration.sourceRect = sourceRect
+        }
         // `frame` is in points; the backing store on a Retina display is
         // `pointPixelScale` times that. Capturing at the point size threw away
         // half the linear resolution before recognition ever ran — on 11pt chat
@@ -108,7 +170,10 @@ enum ScreenTextRecognizer {
         do {
             return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
         } catch {
-            Log.screen.error("context: window capture failed — \(error.localizedDescription)")
+            // Debug, not error: the window-scoped attempt failing is the normal
+            // first half of a capture on a second display, and the caller logs
+            // once when both filters have been tried.
+            Log.screen.debug("context: capture attempt failed — \(error.localizedDescription)")
             return nil
         }
     }

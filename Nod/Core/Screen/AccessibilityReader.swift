@@ -113,6 +113,10 @@ struct AccessibilityReader {
     /// result with whichever title came last. Accessibility names the focused
     /// window directly, so ask for it instead of filtering after the fact.
     ///
+    /// A browser is read from its web area down, for the reason
+    /// `descendingInto` exists above: walking the window spends the depth
+    /// budget on chrome and bookmarks, and stores them instead of the page.
+    ///
     /// Blocking — call it off the main actor.
     func focusedWindowText(
         forProcessID pid: pid_t,
@@ -127,34 +131,37 @@ struct AccessibilityReader {
             ?? copyElement(application, kAXMainWindowAttribute)
         else { return nil }
 
+        let title = copyString(window, kAXTitleAttribute) ?? ""
+        guard Self.isBrowser(bundleID: bundleID) else {
+            return (title, nil, texts(under: window))
+        }
+        // No web area is not a reason to fall back to the window: that is the
+        // furniture again. Returning nothing lets the caller's pixel read take
+        // the window instead, which is the right answer for a page
+        // accessibility cannot describe.
+        guard let area = firstDescendant(of: window, role: Self.webAreaRole) else {
+            return (title, nil, [])
+        }
+        let url = copyURL(area, kAXURLAttribute) ?? copyURL(window, kAXURLAttribute)
+        return (title, url, texts(under: area))
+    }
+
+    private func texts(under element: AXUIElement) -> [String] {
         var collected: [String] = []
         var visited = 0
-        walk(window, depth: 0, visited: &visited, into: &collected)
-        let url = Self.exposesPageURL(bundleID: bundleID) ? pageURL(of: window) : nil
-        return (copyString(window, kAXTitleAttribute) ?? "", url, collected)
+        walk(element, depth: 0, visited: &visited, into: &collected)
+        return collected
     }
 
-    /// The address of the page in a browser window, when there is one.
+    /// Whether this app holds its content in a web area rather than in the
+    /// window itself.
     ///
-    /// The blocklist matches on the window title, and a title is whatever the
-    /// page chose to call itself — a bank whose tab reads "Dashboard" slips
-    /// past every domain the user typed in. The web area names the actual URL,
-    /// so the exclusion can be checked against the thing the user excluded.
-    private func pageURL(of window: AXUIElement) -> String? {
-        if let direct = copyURL(window, kAXURLAttribute) { return direct }
-        guard let area = firstDescendant(of: window, role: Self.webAreaRole) else { return nil }
-        return copyURL(area, kAXURLAttribute)
-    }
-
-    /// Whether looking for a web area in this app is worth the search.
-    ///
-    /// Finding one costs a breadth-first walk of up to `descentBudget`
+    /// Finding that area costs a breadth-first walk of up to `descentBudget`
     /// elements, and in Word, Finder or a terminal that walk runs to the end
     /// and returns nothing — every tick, all day. A list of bundle ids goes
-    /// stale in the direction that costs nothing: an unlisted browser falls
-    /// back to matching the exclusion on the title, which is what every app did
-    /// before this existed.
-    static func exposesPageURL(bundleID: String) -> Bool {
+    /// stale in the direction that costs least: an unlisted browser is read the
+    /// way every app was read before this existed.
+    static func isBrowser(bundleID: String) -> Bool {
         browserBundleIDs.contains(bundleID)
     }
 
@@ -175,8 +182,9 @@ struct AccessibilityReader {
         "com.openai.atlas"
     ]
 
-    /// Not an SDK constant — `AXWebArea` is declared in no public header, so the
-    /// role travels as a string here the same way it does at the call sites.
+    /// AppKit declares this as `NSAccessibilityWebAreaRole`, but only from
+    /// macOS 26 — the string is its exact value, and it is what we can use at a
+    /// deployment target of 13.
     static let webAreaRole = "AXWebArea"
 
     private func walk(_ element: AXUIElement, depth: Int, visited: inout Int, into collected: inout [String]) {
