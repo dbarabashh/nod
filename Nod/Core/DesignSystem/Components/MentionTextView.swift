@@ -295,17 +295,29 @@ enum MentionText {
     /// Tokens back to plain text, so the binding always holds what the person
     /// would have typed.
     static func plain(from attributed: NSAttributedString) -> String {
-        let string = attributed.string as NSString
+        let text = attributed.string
         // The overwhelmingly common draft has no mention in it, and copying the
         // whole storage to discover that ran on every keystroke and again on
         // every SwiftUI update — which, while an answer streams, is dozens of
         // times a second.
-        guard string.range(of: "\u{FFFC}").location != NSNotFound else { return attributed.string }
+        guard text.contains("\u{FFFC}") else { return text }
+
+        // Snapshot, because the caller hands over the text view's live
+        // `NSTextStorage` — which is an `NSMutableAttributedString`, and whose
+        // `string` is a primitive read straight from the backing store rather
+        // than a stable copy. `enumerateAttribute` documents that mutation
+        // during enumeration is allowed *only* from inside the block, and
+        // AppKit edits the storage from outside it while laying out. The two
+        // reads then described different texts: `Range {0, 1000} out of bounds;
+        // string length 567`, thrown out of an NSTextView delegate, which
+        // wedged the composer rather than crashing.
+        let snapshot = NSAttributedString(attributedString: attributed)
+        let string = snapshot.string as NSString
 
         var result = ""
         result.reserveCapacity(string.length)
         var cursor = 0
-        attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: string.length)) { value, range, _ in
+        snapshot.enumerateAttribute(.attachment, in: NSRange(location: 0, length: string.length)) { value, range, _ in
             guard let mark = ((value as? NSTextAttachment)?.attachmentCell as? MentionCell)?.mark else { return }
             result += string.substring(with: NSRange(location: cursor, length: range.location - cursor))
             result += mark.token
