@@ -526,11 +526,11 @@ extension KnowledgeChatStore {
         let prepared: (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool)
         let routing: Routing
         if priorHistory.isEmpty {
-            async let routed = route(pinned: pinned, scope: scope, standalone: text)
+            async let routed = route(pinned: pinned, scope: scope, standalone: text, asked: text)
             (prepared, routing) = await (preparing, routed)
         } else {
             prepared = await preparing
-            routing = await route(pinned: pinned, scope: scope, standalone: prepared.standalone)
+            routing = await route(pinned: pinned, scope: scope, standalone: prepared.standalone, asked: text)
         }
         // Query prep and routing are two model round trips before a single
         // token is written — the longest stretch of a turn with nothing on
@@ -1285,11 +1285,29 @@ extension KnowledgeChatStore {
     /// can; otherwise the router decides ("the pricing one" resolves to
     /// specific rows, broad questions stay corpus-wide).
     ///
-    private func route(pinned: [SessionRef], scope: [SessionLabel], standalone: String) async -> Routing {
+    /// - Parameter asked: the question as typed. Separate from `standalone`
+    ///   because the rewrite that produces the latter drops the `@` tokens, and
+    ///   whether a tool was named is decided from what the person wrote.
+    private func route(
+        pinned: [SessionRef],
+        scope: [SessionLabel],
+        standalone: String,
+        asked: String
+    ) async -> Routing {
         if !pinned.isEmpty {
             return .search(.specific(pinned.map(\.id)))
         }
         guard !scope.isEmpty else {
+            // A named product is an instruction about where the answer comes
+            // from, the same way `MeetingLookup.objection` treats one. The
+            // routes below can answer outright, and one of them did: asked
+            // "@Slack шо ми там сьогодні обговорювали", the entity route
+            // matched the *project* named Slack in the user's own meetings,
+            // intersected it with today, found nothing, and replied "Nothing
+            // from that period involves them" — without Slack ever being asked.
+            guard MentionMark.namedTools(in: asked).isEmpty else {
+                return await routeQuery(standalone)
+            }
             let timed = timeRoute(for: standalone)
             if case .answered = timed, let timed { return timed }
             let window: [UUID]? = if case let .search(scope) = timed {
