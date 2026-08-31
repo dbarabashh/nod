@@ -13,6 +13,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     /// Watches for a call starting and ending. Lives with the notch's session,
     /// which is the thing it can act on.
     private var detector: MeetingDetector?
+    /// What the update feed offers, for the version footer. Owned by the app
+    /// delegate, which owns the Sparkle updater this is the delegate of.
+    var feed = UpdaterChannelDelegate()
     private var schedule: ScheduledMeetingWatcher?
     private var onboardingWindow: NSWindow?
     private var signInWindow: NSWindow?
@@ -397,6 +400,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     private var settingsPane: AnyView {
         AnyView(
             SettingsView(
+                feed: feed,
                 hotkey: services.hotkeys,
                 profileStore: services.profileStore,
                 panelSharing: services.panelSharing,

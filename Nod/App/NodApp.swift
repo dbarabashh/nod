@@ -56,6 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // the controller so the automatic check timer (SUScheduledCheckInterval)
     // keeps firing for the life of the app — and the delegate, which Sparkle
     // holds weakly, for the same reason.
+    // Built here rather than in `WindowCoordinator` because Sparkle holds its
+    // delegate weakly and this is the object that outlives everything.
     private let updaterChannelDelegate = UpdaterChannelDelegate()
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
@@ -71,6 +73,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             windows: windows,
             updaterController: updaterController
         )
+        // The version footer reads the newest build the feed offers, and the
+        // feed is Sparkle's — so the delegate that already answers Sparkle's
+        // channel question is the one that reports it.
+        windows.feed = updaterChannelDelegate
+        updaterChannelDelegate.refresh = { [weak self] in
+            self?.updaterController.updater.checkForUpdateInformation()
+        }
         self.services = services
         self.windows = windows
         self.statusBar = statusBar

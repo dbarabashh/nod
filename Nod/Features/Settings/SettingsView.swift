@@ -30,10 +30,12 @@ struct SettingsView: View {
     private let demoPlayback: DemoPlayback?
     private let captureSurface: CaptureSurfacePreference?
     private let audioCapture: AudioCaptureService?
+    @ObservedObject private var feed: UpdaterChannelDelegate
     private let permissions: PermissionManager?
     private let appearance: AppearancePreference?
 
     init(
+        feed: UpdaterChannelDelegate,
         hotkey: HotkeyManager,
         profileStore: ProfileStore? = nil,
         panelSharing: PanelSharingPreference? = nil,
@@ -89,6 +91,7 @@ struct SettingsView: View {
         self.demoPlayback = demoPlayback
         self.captureSurface = captureSurface
         self.audioCapture = audioCapture
+        self.feed = feed
         self.permissions = permissions
         self.appearance = appearance
         _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .general))
@@ -200,6 +203,12 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.Palette.muted)
                     .textSelection(.enabled)
+                if let latest = feed.latest, latest.build != AppVersion.build {
+                    Text("· latest \(latest.label)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .textSelection(.enabled)
+                }
                 if let channel = Self.buildChannel {
                     Text(channel)
                         .font(.system(size: 9, weight: .bold, design: .rounded))
@@ -213,6 +222,10 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 4)
+            // Asked for when the footer is on screen, not on a timer: it is a
+            // silent check with no prompt, and nobody reads this line unless
+            // they have Settings open.
+            .onAppear { feed.refresh() }
         }
         .padding(12)
         // Clear the traffic-light buttons that float over the transparent titlebar.
@@ -502,7 +515,7 @@ struct SettingsView: View {
 }
 
 #Preview {
-    SettingsView(hotkey: HotkeyManager())
+    SettingsView(feed: UpdaterChannelDelegate(), hotkey: HotkeyManager())
         .environmentObject(SettingsFocus())
         .frame(width: 740, height: 560)
 }
