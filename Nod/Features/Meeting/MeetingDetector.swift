@@ -47,6 +47,22 @@ struct CallSignals: Equatable {
 /// Free of AppKit, CoreAudio and CoreGraphics on purpose: the rules are the
 /// whole feature, and they have to be testable without a real meeting running.
 enum MeetingDetection {
+    /// Whether a call is running, or **nil when this tick could not tell**.
+    ///
+    /// Saying no requires having looked, and two things stop a tick from
+    /// having looked. A FaceTime or Telegram call is outside `ConferencingApp`
+    /// entirely, so "nothing to scan" is not evidence of a quiet room; and
+    /// without the Screen Recording grant the window scan comes back empty,
+    /// which a busy desktop and an idle one both do.
+    static func callVerdict(
+        evidence: DetectedEvidence?,
+        sawCandidates: Bool,
+        hasScreenAccess: Bool
+    ) -> Bool? {
+        if evidence != nil { return true }
+        return sawCandidates && hasScreenAccess ? false : nil
+    }
+
     /// The app whose call is on, or nil.
     static func call(in signals: CallSignals) -> DetectedEvidence? {
         if let app = signals.running.first(where: signals.helperBacked.contains) {
@@ -315,6 +331,10 @@ final class MeetingDetector: ObservableObject {
     /// to ask is how one meeting gets offered twice.
     @Published private(set) var candidate: DetectedCall?
 
+    /// Whether a call is running, or nil while that cannot be established.
+    /// Read by the live lookup's room gate — see `MeetingDetection.callVerdict`.
+    @Published private(set) var callInProgress: Bool?
+
     private let session: MeetingSession
     private let exclusions: ScreenExclusions
     private let preference: MeetingDetectionPreference
@@ -403,6 +423,10 @@ final class MeetingDetector: ObservableObject {
         timerTask = nil
         state = MeetingDetectionState()
         withdraw()
+        // A detector that has stopped ticking still holds whatever it last
+        // saw, and a stale `false` would leave the room gate open through a
+        // real call for anyone who switched detection off.
+        callInProgress = nil
         Log.screen.info("detect: meeting detection off")
     }
 
@@ -425,6 +449,12 @@ final class MeetingDetector: ObservableObject {
         let isRecording = session.meeting != .idle
         let (signals, seen) = await signals()
         let call = MeetingDetection.call(in: signals)
+
+        callInProgress = MeetingDetection.callVerdict(
+            evidence: call,
+            sawCandidates: !signals.running.isEmpty,
+            hasScreenAccess: hadScreenAccess == true
+        )
 
         // Per tick, so one reproduction answers "did it see the call at all?".
         // Split by what it carries, not by verbosity: app names and counts are

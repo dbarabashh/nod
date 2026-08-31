@@ -31,15 +31,22 @@ enum RoomComposition: Equatable {
     ///   - attendees: the calendar entry's invitees, the user included. Empty
     ///     when there is no invitation, which is most recordings.
     ///   - colleagues: every address the organization directory knows.
-    ///   - hasRemoteVoice: whether any speech has arrived on the system-audio
-    ///     stream. The only live signal that somebody else is actually present:
-    ///     a call means voices coming out of the speakers, and no call means
-    ///     nothing has come out of them.
+    ///   - anyRemoteSpeech: whether anything has arrived on the system-audio
+    ///     stream.
+    ///   - callInProgress: whether a call is running, or nil when that could
+    ///     not be established. The speakers alone are not the test — a video or
+    ///     a podcast puts a stranger's voice through them with nobody in the
+    ///     room — so the two are taken raw and combined here, where the
+    ///     conservative direction is the contract.
     static func of(
         attendees: [CalendarAttendee],
         colleagues: Set<String>,
-        hasRemoteVoice: Bool
+        anyRemoteSpeech: Bool,
+        callInProgress: Bool?
     ) -> RoomComposition {
+        // `!= false` and not `== true`: not knowing has to count as somebody
+        // being there, the same way every other unknown here does.
+        let hasRemoteParticipant = anyRemoteSpeech && callInProgress != false
         let others = attendees.filter { !$0.isSelf }
 
         // Nobody invited and nobody audible. There is no audience to disclose
@@ -52,7 +59,7 @@ enum RoomComposition: Equatable {
         // commoner thing, somebody recording alone. The two are told apart by
         // the speakers: a call Nod was not invited to still puts voices through
         // them.
-        if others.isEmpty, !hasRemoteVoice { return .solo }
+        if others.isEmpty, !hasRemoteParticipant { return .solo }
 
         // Somebody is here — audible, invited, or both — and the invitation is
         // the only thing that can name them. Without one, or with one name on

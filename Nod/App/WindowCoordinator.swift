@@ -326,6 +326,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             preference: services.meetingDetection
         )
         self.detector = detector
+        // The live lookup's room gate asks whether a call is running before it
+        // reads anything out. Weak, because the detector holds the session.
+        meetingSession.callInProgress = { [weak detector] in detector.flatMap(\.callInProgress) }
 
         // The calendar's own offer, raised from the invitation rather than from
         // anything running on the Mac — see `ScheduledMeetingWatcher`. It starts

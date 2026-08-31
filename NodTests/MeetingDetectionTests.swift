@@ -200,4 +200,27 @@ final class MeetingDetectionTests: XCTestCase {
         XCTAssertEqual(prompt.title, "Zoom call ended")
         XCTAssertEqual(prompt.detail, "Wrapping up and summarising in 0:30")
     }
+
+    func testACallSeenIsReportedWhateverElseIsMissing() {
+        let zoom = DetectedEvidence(app: .zoom, kind: .helper)
+
+        XCTAssertEqual(MeetingDetection.callVerdict(evidence: zoom, sawCandidates: true, hasScreenAccess: true), true)
+        XCTAssertEqual(MeetingDetection.callVerdict(evidence: zoom, sawCandidates: false, hasScreenAccess: false), true)
+    }
+
+    /// The case from the report: Chrome and Slack up, the grant in place, no
+    /// call — the one combination that may tell the room gate to open.
+    func testNoCallIsReportedOnlyAfterActuallyLooking() {
+        XCTAssertEqual(MeetingDetection.callVerdict(evidence: nil, sawCandidates: true, hasScreenAccess: true), false)
+    }
+
+    /// A FaceTime or Telegram call is outside `ConferencingApp`, so nothing is
+    /// scanned and nothing is seen — which must not read as "nobody is here".
+    func testNothingToScanIsNotProofOfNoCall() {
+        XCTAssertNil(MeetingDetection.callVerdict(evidence: nil, sawCandidates: false, hasScreenAccess: true))
+    }
+
+    func testAMissingScreenGrantIsNotProofOfNoCall() {
+        XCTAssertNil(MeetingDetection.callVerdict(evidence: nil, sawCandidates: true, hasScreenAccess: false))
+    }
 }

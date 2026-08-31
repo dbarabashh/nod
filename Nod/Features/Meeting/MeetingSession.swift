@@ -126,6 +126,14 @@ enum RecordingStartOutcome: Equatable {
 @MainActor
 final class MeetingSession: ObservableObject {
     @Published private(set) var meeting: MeetingState = .idle
+
+    /// Whether `MeetingDetector` currently sees a call, or nil while it cannot
+    /// tell. Wired at the composition root like `colleagues` and `scope`,
+    /// because the detector is built after this object.
+    ///
+    /// Defaults to the closed position: with no detector wired, a voice on the
+    /// system stream is still treated as somebody being present.
+    var callInProgress: () -> Bool? = { nil }
     /// What the next recording will be. Chosen while idle; fixed for the
     /// duration of a recording so the recap framing + audio streams stay
     /// consistent from start to stop.
@@ -675,10 +683,11 @@ final class MeetingSession: ObservableObject {
                 attendees: calendar.meetings(overlapping: DateInterval(start: now, duration: 1))
                     .first?.attendees ?? [],
                 colleagues: colleagues(),
-                // Anything on the system-audio stream is a voice that is not in
-                // this room — a call is running, whether or not Nod was invited
-                // to it.
-                hasRemoteVoice: store.entries.contains { $0.source == .them }
+                // The stream alone used to be the whole test, which made a
+                // video playing in the background into a room full of
+                // strangers.
+                anyRemoteSpeech: store.entries.contains { $0.source == .them },
+                callInProgress: callInProgress()
             )
         }
         analyst.roomComposition = room

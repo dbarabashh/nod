@@ -15,7 +15,7 @@ final class RoomCompositionTests: XCTestCase {
         let room = RoomComposition.of(
             attendees: [attendee("me@acme.com", isSelf: true), attendee("anna@acme.com"), attendee("tom@acme.com")],
             colleagues: colleagues,
-            hasRemoteVoice: true
+            anyRemoteSpeech: true, callInProgress: true
         )
 
         XCTAssertEqual(room, .colleaguesOnly)
@@ -28,7 +28,7 @@ final class RoomCompositionTests: XCTestCase {
         let room = RoomComposition.of(
             attendees: [attendee("me@acme.com", isSelf: true), attendee("anna@acme.com"), attendee("buyer@other.com")],
             colleagues: colleagues,
-            hasRemoteVoice: true
+            anyRemoteSpeech: true, callInProgress: true
         )
 
         XCTAssertEqual(room, .outsidersPresent)
@@ -41,7 +41,7 @@ final class RoomCompositionTests: XCTestCase {
         let room = RoomComposition.of(
             attendees: [attendee("me@acme.com", isSelf: true), attendee("ANNA@acme.com")],
             colleagues: colleagues,
-            hasRemoteVoice: true
+            anyRemoteSpeech: true, callInProgress: true
         )
 
         XCTAssertEqual(room, .colleaguesOnly)
@@ -53,7 +53,7 @@ final class RoomCompositionTests: XCTestCase {
         let room = RoomComposition.of(
             attendees: [attendee("me@acme.com", isSelf: true), attendee(nil)],
             colleagues: colleagues,
-            hasRemoteVoice: true
+            anyRemoteSpeech: true, callInProgress: true
         )
 
         XCTAssertEqual(room, .outsidersPresent)
@@ -64,14 +64,14 @@ final class RoomCompositionTests: XCTestCase {
     /// them, which is the one thing that could have made this safe.
     func testAnUninvitedCallIsExternal() {
         XCTAssertEqual(
-            RoomComposition.of(attendees: [], colleagues: colleagues, hasRemoteVoice: true),
+            RoomComposition.of(attendees: [], colleagues: colleagues, anyRemoteSpeech: true, callInProgress: true),
             .outsidersPresent
         )
         XCTAssertEqual(
             RoomComposition.of(
                 attendees: [attendee("me@acme.com", isSelf: true)],
                 colleagues: colleagues,
-                hasRemoteVoice: true
+                anyRemoteSpeech: true, callInProgress: true
             ),
             .outsidersPresent
         )
@@ -82,7 +82,7 @@ final class RoomCompositionTests: XCTestCase {
     /// most recordings, which is why the first cut refusing here made the whole
     /// feature look broken to the person testing it alone.
     func testRecordingAloneReadsFreely() {
-        let room = RoomComposition.of(attendees: [], colleagues: colleagues, hasRemoteVoice: false)
+        let room = RoomComposition.of(attendees: [], colleagues: colleagues, anyRemoteSpeech: false, callInProgress: nil)
 
         XCTAssertEqual(room, .solo)
         XCTAssertTrue(room.mayReadFreely)
@@ -93,7 +93,7 @@ final class RoomCompositionTests: XCTestCase {
         let room = RoomComposition.of(
             attendees: [attendee("me@acme.com", isSelf: true)],
             colleagues: colleagues,
-            hasRemoteVoice: false
+            anyRemoteSpeech: false, callInProgress: nil
         )
 
         XCTAssertEqual(room, .solo)
@@ -105,7 +105,7 @@ final class RoomCompositionTests: XCTestCase {
         let room = RoomComposition.of(
             attendees: [attendee("me@acme.com", isSelf: true), attendee("buyer@other.com")],
             colleagues: colleagues,
-            hasRemoteVoice: false
+            anyRemoteSpeech: false, callInProgress: nil
         )
 
         XCTAssertEqual(room, .outsidersPresent)
@@ -116,7 +116,7 @@ final class RoomCompositionTests: XCTestCase {
         let room = RoomComposition.of(
             attendees: [attendee("me@acme.com", isSelf: true), attendee("anna@acme.com")],
             colleagues: [],
-            hasRemoteVoice: true
+            anyRemoteSpeech: true, callInProgress: true
         )
 
         XCTAssertEqual(room, .outsidersPresent)
@@ -127,5 +127,39 @@ final class RoomCompositionTests: XCTestCase {
             RoomComposition.colleagueAddresses([" Anna@Acme.com ", nil, "", "  "]),
             ["anna@acme.com"]
         )
+    }
+
+    /// The reported bug: a YouTube video playing during a recording made every
+    /// integration in the notch answer "Not everyone here is from your team".
+    func testMediaPlayingIsNotAnAudience() {
+        XCTAssertEqual(
+            RoomComposition.of(attendees: [], colleagues: [], anyRemoteSpeech: true, callInProgress: false),
+            .solo
+        )
+    }
+
+    func testAVoiceDuringACallIsStillAnAudience() {
+        XCTAssertEqual(
+            RoomComposition.of(attendees: [], colleagues: [], anyRemoteSpeech: true, callInProgress: true),
+            .outsidersPresent
+        )
+    }
+
+    /// The gate has to shut on every way of not knowing — a detector that has
+    /// not looked yet, or that lost the Screen Recording grant, reports nil.
+    func testADetectorThatCannotTellKeepsTheGateShut() {
+        XCTAssertEqual(
+            RoomComposition.of(attendees: [], colleagues: [], anyRemoteSpeech: true, callInProgress: nil),
+            .outsidersPresent
+        )
+    }
+
+    func testSilenceIsNeverAnAudienceWhateverTheDetectorSays() {
+        for verdict in [true, false, nil] {
+            XCTAssertEqual(
+                RoomComposition.of(attendees: [], colleagues: [], anyRemoteSpeech: false, callInProgress: verdict),
+                .solo
+            )
+        }
     }
 }
