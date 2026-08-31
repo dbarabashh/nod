@@ -128,10 +128,11 @@ final class ChatStore: ObservableObject {
     /// `.sending` state. Call this BEFORE building the (slow) grounding prompt
     /// so the bubble and typing indicator appear instantly; then call `reply`.
     /// Returns false if the turn is empty or a send is already in flight.
-    func appendUserTurn(text: String, meetingID: UUID, userID: UUID) async -> Bool {
+    func appendUserTurn(text: String, meetingID: UUID) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, sendState != .sending else { return false }
 
+        guard let userID = authorID else { return false }
         let userMessage = ChatMessage.new(meetingID: meetingID, userID: userID, role: .user, content: trimmed)
         messages.append(userMessage)
         sendState = .sending
@@ -183,7 +184,8 @@ final class ChatStore: ObservableObject {
     /// `cachePrompt` must be false whenever the caller's `systemPrompt` isn't
     /// the same text turn to turn — see `LLMProxyClient.chat(cachePrompt:)`
     /// for why a varying prefix turns caching into a pure surcharge.
-    func reply(systemPrompt: String, meetingID: UUID, userID: UUID, cachePrompt: Bool = true) async {
+    func reply(systemPrompt: String, meetingID: UUID, cachePrompt: Bool = true) async {
+        guard let userID = authorID else { return }
         guard sendState == .sending else { return }
         toolGate.beginQuestion()
         turnSteps = []
@@ -359,6 +361,19 @@ final class ChatStore: ObservableObject {
 
     /// Best-effort persistence — a network blip shouldn't drop the turn from
     /// the on-screen conversation, so a failed insert is logged, not surfaced.
+    /// Who a row written now belongs to: whoever is signed in, asked rather
+    /// than passed.
+    ///
+    /// The call site used to hand over `meeting.userID`, which is the same
+    /// person right up until the session is one somebody shared — and then the
+    /// insert carries the owner's id while `chat_messages` checks
+    /// `auth.uid() = user_id`, so every turn on a colleague's session came back
+    /// "Not saved to this session". The read policy already says a chat belongs
+    /// to the person having it; this makes the write agree.
+    private var authorID: UUID? {
+        supabase.auth.currentSession?.user.id
+    }
+
     private func persist(_ message: ChatMessage) async {
         #if DEBUG
             if DemoMode.isEnabled { return }

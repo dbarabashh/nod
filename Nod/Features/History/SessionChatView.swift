@@ -344,7 +344,7 @@ struct SessionChatView: View {
             // chat never looks empty between pressing send and the reply landing.
             let started = resend
                 ? chatStore.beginRetry()
-                : await chatStore.appendUserTurn(text: question, meetingID: meeting.id, userID: meeting.userID)
+                : await chatStore.appendUserTurn(text: question, meetingID: meeting.id)
             guard started else { return }
             await answer(question, priorHistory: priorHistory)
         }
@@ -355,7 +355,6 @@ struct SessionChatView: View {
         await chatStore.reply(
             systemPrompt: built.system,
             meetingID: meeting.id,
-            userID: meeting.userID,
             cachePrompt: built.cacheable
         )
         if chatStore.sendState == .idle {
