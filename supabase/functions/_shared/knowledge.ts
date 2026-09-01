@@ -262,6 +262,8 @@ WRITE a claim only when it is ALL of:
 
 NEVER:
 - restate the summary, or write what a session merely discussed
+- write a claim whose own body, in whatever language, reports a discussion state — "is being discussed", "under consideration", "a need was acknowledged". That is the session thinking out loud, not a fact that became true
+- call something a "decision" unless someone settled it; call something a "commitment" only when a named person promised to do a thing
 - write about an entity not in the list
 - rewrite a known claim the session did not change
 - invent a date or number the transcript does not state
