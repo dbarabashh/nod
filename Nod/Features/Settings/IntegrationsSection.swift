@@ -169,23 +169,23 @@ struct IntegrationsSection: View {
         case .linear:
             "Nod stops filing action items in Linear. Issues already filed stay where they are."
         case .googleCalendar:
-            "Nod stops reading your calendar, and everything it has already read is deleted. Nothing in your calendar changes."
+            "Nod stops reading and acting in your calendar, and everything it has already read is deleted. Events it created or changed stay as they are."
         case .slack:
             "Nod stops creating channels and adding people. Channels it already created stay, and everyone in them stays in them."
         case .github:
-            "Nod stops reading your issues and pull requests. Nothing on GitHub changes — it never wrote anything."
+            "Nod stops reading and filing issues. Issues and comments already filed stay where they are."
         case .jira:
             "Nod stops filing action items in Jira. Issues already filed stay where they are."
         case .notion:
-            "Nod stops reading your Notion pages. Nothing in Notion changes — it never wrote anything."
+            "Nod stops reading and writing pages. Pages it already created stay where they are."
         case .asana:
             "Nod stops filing action items in Asana. Tasks already filed stay where they are."
         case .hubspot:
-            "Nod stops reading your CRM. Nothing in HubSpot changes — it never wrote anything."
+            "Nod stops reading your CRM and logging notes. Notes already logged stay on their records."
         case .gmail:
-            "Nod stops reading your mail. Nothing is sent, deleted or marked read — it never could."
+            "Nod stops reading your mail and saving drafts. Drafts already saved stay in Gmail, unsent."
         case .googleDrive:
-            "Nod stops finding your documents. Nothing in Drive changes — it only ever listed them."
+            "Nod stops finding and reading your documents. Nothing in Drive changes — it never wrote anything."
         case .googleAds:
             "Nod stops reading your campaigns. Nothing in Google Ads changes — it never spent anything."
         }

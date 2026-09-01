@@ -229,15 +229,15 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     var summary: String {
         switch self {
         case .linear: "Turn action items into Linear issues."
-        case .googleCalendar: "Know which meeting is starting, so notes land on the right one."
+        case .googleCalendar: "Know which meeting is starting, and set up, move or cancel one from chat."
         case .slack: "Read what a channel decided, and open one for what a meeting did."
-        case .github: "Look up issues and pull requests while you're talking about them."
+        case .github: "Look up, file, comment on and close issues without leaving the meeting."
         case .jira: "Turn action items into Jira issues, and find the ones already there."
-        case .notion: "Find what the team already wrote about what you're discussing."
+        case .notion: "Find what the team already wrote, and file the notes you just made."
         case .asana: "Turn action items into Asana tasks, and find the ones already there."
-        case .hubspot: "Know whether you've talked to this company before, and where it got to."
-        case .gmail: "Find what somebody actually wrote back, without leaving the meeting."
-        case .googleDrive: "Find the document somebody just named out loud."
+        case .hubspot: "Know whether you've talked to this company before, and log how it went."
+        case .gmail: "Find what somebody wrote back, and draft the follow-up — you press send."
+        case .googleDrive: "Find the document somebody just named out loud, and read what it says."
         case .googleAds: "Know what the campaigns did before you talk about what to change."
         }
     }
@@ -259,7 +259,8 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
             [
                 "Know which meeting is starting, so a recording lands on the right one.",
                 "Name the people who were invited, so notes can say who said what.",
-                "Read-only — Nod never writes to your calendar."
+                "Put a meeting on your calendar, move or retitle one, or cancel it — when you ask in chat.",
+                "Every change is shown to you first; nothing reaches your calendar or a guest's inbox without your say-so."
             ]
         case .slack:
             [
@@ -272,8 +273,8 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
             [
                 "Search issues and pull requests across everything this account can see.",
                 "Read one in full, with the last few comments, so \"where did that get to\" has an answer.",
-                "List the repositories you work in, so \"the api repo\" means something.",
-                "Read-only — Nod never opens, closes or comments on anything."
+                "File an issue, comment on one, or close it — when you ask in chat.",
+                "Every change is shown to you first; nothing lands on GitHub without your say-so."
             ]
         case .jira:
             [
@@ -287,7 +288,8 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
                 "Find the page the team already wrote about what you're discussing.",
                 "Read one, so an answer can quote the spec rather than guess at it.",
                 "Search matches page titles, not their contents — that is Notion's own search.",
-                "Read-only — Nod never writes a page or edits one."
+                "Create a page of notes, or add to one — shown to you first, and only where you point it.",
+                "Nothing already written is ever edited or deleted."
             ]
         case .asana:
             [
@@ -300,19 +302,21 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
             [
                 "Look up a company, a contact or a deal while you're talking about them.",
                 "Answer \"have we spoken to these people before\" from the record rather than from memory.",
-                "Read-only — Nod never changes a deal, a stage or a contact."
+                "Log a note on a record — a call outcome, a meeting summary — when you ask, shown to you first.",
+                "Notes only add context: Nod never changes a deal, a stage or a contact."
             ]
         case .gmail:
             [
                 "Search your mail with Gmail's own syntax — from:, subject:, newer_than:.",
                 "Read one message, so an answer can quote what was written.",
-                "Read-only — Nod never sends, replies or deletes."
+                "Draft the follow-up into your Drafts folder — shown to you first.",
+                "Nod never sends, replies or deletes. Pressing send stays yours."
             ]
         case .googleDrive:
             [
                 "Find a document by its name or by what is inside it, including shared drives.",
-                "Hand back the link, so you can open the thing itself.",
-                "Read-only, and only the file list — Nod does not open your documents' contents."
+                "Read a doc, sheet or text file, so an answer can quote it — and hand back the link.",
+                "Read-only — Nod never creates, edits or shares a file."
             ]
         case .googleAds:
             [

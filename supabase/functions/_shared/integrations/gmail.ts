@@ -1,19 +1,20 @@
 // Gmail, over its REST API.
 //
-// Read-only, and deliberately shallow. What a meeting needs is "what did they
-// write back", which a subject line and a snippet usually answer; a tool that
-// could send mail from a conversation is a different product with a different
-// approval story.
+// Reads, plus one write that stops short on purpose: a draft. "Write the
+// follow-up" is the sentence every meeting ends with, and a draft answers it
+// while leaving the send button — the only irrevocable part — in the person's
+// own mail client. Nod never sends mail.
 //
 // Gmail's list endpoint returns ids and nothing else, so a search is one request
 // plus one per message. That is the API's shape, not a choice — the only lever
 // is how many, and it is set low on purpose.
 import { ActionError, type Connection, proxy } from "./pipedream.ts";
 import type { ActionHandlers } from "./registry.ts";
-import { requireString } from "./params.ts";
+import { requireList, requireString } from "./params.ts";
 
 const SEARCH_LIMIT = 5;
 const HEADERS = ["Subject", "From", "To", "Date"];
+const RECIPIENT_LIMIT = 20;
 
 interface Message {
     id?: string;
@@ -67,6 +68,87 @@ async function message(connection: Connection, id: string, format: string, extra
     }) as Message | null;
 }
 
+/// Bytes as base64, in chunks small enough for the call stack.
+function base64(bytes: Uint8Array): string {
+    let binary = "";
+    for (let at = 0; at < bytes.length; at += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+    }
+    return btoa(binary);
+}
+
+/// A header value, RFC 2047-encoded when it steps outside *printable* ASCII.
+/// Printable, not all of ASCII: a control character in a header value is a
+/// header injection — a CR-LF in a subject would end the Subject line and let
+/// whatever follows pose as a header of its own — and B-encoding neutralises
+/// it. Non-ASCII takes the same path so a bare Ukrainian subject arrives
+/// intact.
+export function headerValue(value: string): string {
+    return /^[\x20-\x7e]*$/.test(value)
+        ? value
+        : `=?UTF-8?B?${base64(new TextEncoder().encode(value))}?=`;
+}
+
+/// One RFC 822 message, ready for Gmail's `raw` field once base64url-encoded.
+/// The body travels base64 too, so no line of it can be mistaken for a header
+/// and nothing depends on the transport being 8-bit clean.
+///
+/// `inReplyTo` is the original's own Message-ID header: `threadId` alone
+/// threads the draft in the sender's mailbox, but only these headers thread
+/// the sent mail in the recipients'.
+export function draftMIME(
+    to: string[],
+    cc: string[],
+    subject: string,
+    body: string,
+    inReplyTo?: string,
+): string {
+    const encoded = base64(new TextEncoder().encode(body));
+    const lines = [
+        `To: ${to.join(", ")}`,
+        ...(cc.length > 0 ? [`Cc: ${cc.join(", ")}`] : []),
+        `Subject: ${headerValue(subject)}`,
+        ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`, `References: ${inReplyTo}`] : []),
+        "MIME-Version: 1.0",
+        'Content-Type: text/plain; charset="UTF-8"',
+        "Content-Transfer-Encoding: base64",
+        "",
+        // RFC 2045 caps encoded lines at 76 characters.
+        ...(encoded.match(/.{1,76}/g) ?? [""]),
+    ];
+    return lines.join("\r\n");
+}
+
+/// Addresses only — no display names, no whitespace of any kind. A tab or a
+/// linebreak inside an address would land verbatim in the To header, which is
+/// the same injection the subject line guards against.
+function recipients(params: Record<string, unknown>, key: string, required: boolean): string[] {
+    // "" is how a model says "none" for an optional list; failing the whole
+    // approved draft over it would be refusing an empty cc line.
+    if (!required && (params[key] === undefined || params[key] === "")) return [];
+    const list = requireList(params, key, RECIPIENT_LIMIT);
+    for (const email of list) {
+        if (!/^[^\s@,]+@[^\s@,]+$/.test(email)) {
+            throw new ActionError("invalid_params", `"${email}" is not a bare email address.`);
+        }
+    }
+    return list;
+}
+
+/// The Message-ID of the newest message in a thread, for reply headers.
+/// Best-effort: a thread we cannot read still gets a draft, just one that
+/// relies on Gmail's own threading alone.
+async function lastMessageID(connection: Connection, threadId: string): Promise<string | undefined> {
+    const thread = await proxy(connection, `gmail/v1/users/me/threads/${encodeURIComponent(threadId)}`, null, {
+        method: "GET",
+        query: { format: "metadata", metadataHeaders: "Message-ID" },
+    }).catch(() => null) as { messages?: Message[] } | null;
+    const last = thread?.messages?.at(-1);
+    // A provider-returned value still lands in a header line; strip the one
+    // thing that could split it.
+    return last ? header(last, "Message-ID")?.replace(/[\r\n]/g, "") : undefined;
+}
+
 export const GMAIL_ACTIONS: ActionHandlers = {
     /// Messages matching a Gmail query.
     ///
@@ -89,6 +171,7 @@ export const GMAIL_ACTIONS: ActionHandlers = {
         return {
             results: messages.filter((entry): entry is Message => entry !== null).map((entry) => ({
                 id: entry.id,
+                thread_id: entry.threadId,
                 subject: header(entry, "Subject"),
                 from: header(entry, "From"),
                 date: header(entry, "Date"),
@@ -106,11 +189,38 @@ export const GMAIL_ACTIONS: ActionHandlers = {
         }
         return {
             id: found.id,
+            thread_id: found.threadId,
             subject: header(found, "Subject"),
             from: header(found, "From"),
             to: header(found, "To"),
             date: header(found, "Date"),
             text: plainText(found.payload) || found.snippet || "",
         };
+    },
+
+    /// Saves one draft in the person's own mailbox. Nothing is sent — the
+    /// draft sits in Gmail's Drafts folder until they open, edit and send it
+    /// themselves, which is the entire point of stopping here.
+    create_draft: async (connection, params) => {
+        const to = recipients(params, "to", true);
+        const cc = recipients(params, "cc", false);
+        const subject = requireString(params, "subject");
+        const body = requireString(params, "body");
+        const threadId = typeof params.thread_id === "string" && params.thread_id.trim()
+            ? params.thread_id.trim()
+            : undefined;
+
+        const inReplyTo = threadId ? await lastMessageID(connection, threadId) : undefined;
+        const mime = draftMIME(to, cc, subject, body, inReplyTo);
+        const raw = base64(new TextEncoder().encode(mime))
+            .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+        const created = await proxy(connection, "gmail/v1/users/me/drafts", {
+            message: { raw, ...(threadId ? { threadId } : {}) },
+        }) as { id?: string; message?: { id?: string } } | null;
+        if (!created?.id) {
+            throw new ActionError("provider_error", "Gmail did not return the created draft.", 502);
+        }
+        return { draft_id: created.id, to, subject, sent: false };
     },
 };

@@ -1,8 +1,8 @@
-// Creating a calendar event on the user's own instruction.
+// Acting in the user's calendar on their own instruction.
 //
-// The only write Nod performs against a connected account. It exists because
-// "set up a follow-up with Alina on Thursday" is the sentence people actually
-// say after a meeting, and making them leave for a browser to act on it is where
+// The writes exist because "set up a follow-up with Alina on Thursday" — and
+// "move it to Friday", and "cancel it" — are the sentences people actually say
+// after a meeting, and making them leave for a browser to act on them is where
 // the follow-up dies.
 //
 // Reading is here as well as in the scheduled sync, because the two answer
@@ -10,13 +10,14 @@
 // and the chat context are instant, while this reaches past that window when
 // somebody asks about a date the device has never seen.
 //
-// Still no updating and no deleting. A tool that could delete would be a model
-// one misunderstanding away from removing somebody's week.
+// Every write stops at the desktop's approval card, and the two destructive
+// ones are held to the title the person read there — see `confirmedEvent`,
+// which is what keeps one misunderstanding from removing somebody's week.
 
 import { ActionError, proxy } from "./pipedream.ts";
 import { adminClient } from "../supabase.ts";
 import type { ActionContext, ActionHandlers } from "./registry.ts";
-import { requireString } from "./params.ts";
+import { requireList, requireString } from "./params.ts";
 
 const EVENTS_PATH = "calendar/v3/calendars/primary/events";
 const MAX_ATTENDEES = 20;
@@ -106,7 +107,10 @@ export function attendeesFrom(event: GoogleEvent): Array<{ email: string; displa
 /// a field added for one of them is a field the other silently keeps missing.
 export interface GoogleEvent {
     id?: string;
+    etag?: string;
     iCalUID?: string;
+    recurringEventId?: string;
+    recurrence?: string[];
     summary?: string;
     status?: string;
     location?: string;
@@ -149,6 +153,77 @@ function attendeesOf(params: Record<string, unknown>): Array<{ email: string }> 
     return list.map((email) => ({ email }));
 }
 
+function eventPath(id: string): string {
+    return `${EVENTS_PATH}/${encodeURIComponent(id)}`;
+}
+
+/// Whether the title the person confirmed is the title the id points at.
+///
+/// An untitled event is listed as "(no title)", so that is also the words a
+/// person approves for one — without this, an untitled event could never be
+/// acted on, and the "list again" hint would loop forever.
+export function titleMatches(expected: string, summary: string | null | undefined): boolean {
+    const actual = (summary ?? "").trim().toLowerCase();
+    const wanted = expected.trim().toLowerCase();
+    return actual === wanted || (actual === "" && wanted === "(no title)");
+}
+
+/// The event `event_id` names, checked against the title and start the person
+/// approved.
+///
+/// The card shows words while the wire carries an id, and this is what keeps a
+/// model from pairing the right words with the wrong event. The title alone
+/// cannot: every occurrence of a recurring meeting shares it, so the start time
+/// is what separates Thursday's standup from Tuesday's. A cancelled event is
+/// refused too: updating one resurrects it, and deleting one implies to the
+/// person that it was still standing.
+async function confirmedEvent(
+    connection: Parameters<typeof proxy>[0],
+    params: Record<string, unknown>,
+): Promise<GoogleEvent> {
+    const id = requireString(params, "event_id");
+    const expectedTitle = requireString(params, "event_title");
+    const expectedStart = requireString(params, "event_starts_at");
+
+    const event = await proxy(connection, eventPath(id), null, { method: "GET" }) as GoogleEvent | null;
+    if (!event?.id) {
+        throw new ActionError("provider_error", "Google did not return that event.", 502);
+    }
+    if (event.status === "cancelled") {
+        throw new ActionError("invalid_params", "That event is already cancelled.");
+    }
+    // A series master. `list_events` can never return one (`singleEvents`
+    // expands them), so this id was shortened by hand — and acting on it would
+    // hit every occurrence when the person approved what read as one.
+    if (event.recurrence !== undefined) {
+        throw new ActionError(
+            "invalid_params",
+            "That id names a whole recurring series. List events and use the id of the one occurrence meant.",
+        );
+    }
+    const relist = "List events again and use the id, title and start shown next to the right event.";
+    if (!titleMatches(expectedTitle, event.summary)) {
+        const summary = event.summary?.trim();
+        const actual = summary ? `"${summary}"` : "untitled";
+        throw new ActionError("invalid_params", `That event is ${actual}, not "${expectedTitle}". ${relist}`);
+    }
+    if (!startMatches(expectedStart, event)) {
+        const actual = event.start?.dateTime ?? event.start?.date ?? "unknown";
+        throw new ActionError("invalid_params", `That event starts at ${actual}, not ${expectedStart}. ${relist}`);
+    }
+    return event;
+}
+
+/// Whether the start the person approved is the start the id points at. An
+/// all-day event carries a date rather than an instant, and is matched on it.
+export function startMatches(expected: string, event: GoogleEvent): boolean {
+    if (event.start?.date) return expected.trim() === event.start.date;
+    const actual = event.start?.dateTime;
+    if (!actual) return false;
+    const wanted = Date.parse(expected);
+    return !Number.isNaN(wanted) && wanted === Date.parse(actual);
+}
+
 const MAX_RESULTS = 25;
 
 export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
@@ -177,6 +252,7 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
         const events = (listed?.items ?? []).filter((event) => event.status !== "cancelled");
         return {
             events: events.map((event) => ({
+                id: event.id ?? null,
                 title: event.summary ?? "(no title)",
                 starts_at: event.start?.dateTime ?? event.start?.date ?? null,
                 ends_at: event.end?.dateTime ?? event.end?.date ?? null,
@@ -185,9 +261,14 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
                 all_day: event.start?.date !== undefined,
                 location: event.location ?? null,
                 conference_url: event.hangoutLink ?? null,
+                // Name and address both: the name is what a person means,
+                // the address is what update_event's guest edits take.
                 attendees: (event.attendees ?? [])
                     .filter((attendee) => !attendee.resource && attendee.email)
-                    .map((attendee) => attendee.displayName?.trim() || attendee.email),
+                    .map((attendee) => {
+                        const display = attendee.displayName?.trim();
+                        return display ? `${display} <${attendee.email}>` : attendee.email;
+                    }),
             })),
         };
     },
@@ -238,7 +319,7 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
             throw new ActionError("provider_error", "Google did not return the created event.", 502);
         }
 
-        await cache(created as GoogleEvent, context);
+        await cache(created as GoogleEvent, context, { colleagues: true });
 
         return {
             id: created.id,
@@ -248,7 +329,177 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
             invited: attendees.map((attendee) => attendee.email),
         };
     },
+
+    /// Changes one event the person confirmed by title and start.
+    /// `sendUpdates=all` again: a moved meeting the guests were not told about
+    /// is a meeting they miss.
+    ///
+    /// Guests are edited as deltas, never as a replacement list. A replacement
+    /// would have to be assembled by the model from a listing, and one address
+    /// it left out would be a person silently uninvited; a delta can only do
+    /// what it says. The merge also keeps each remaining guest's RSVP, which a
+    /// rewritten list would reset.
+    update_event: async (connection, params, context) => {
+        const event = await confirmedEvent(connection, params);
+
+        const patch: Record<string, unknown> = {};
+        if (params.new_title !== undefined) {
+            patch.summary = requireString(params, "new_title");
+        }
+        if (params.description !== undefined) {
+            if (typeof params.description !== "string") {
+                throw new ActionError("invalid_params", "`description` must be a string.");
+            }
+            patch.description = params.description;
+        }
+        if ((params.starts_at === undefined) !== (params.ends_at === undefined)) {
+            throw new ActionError("invalid_params", "Move `starts_at` and `ends_at` together.");
+        }
+        if (params.starts_at !== undefined) {
+            if (event.start?.date) {
+                throw new ActionError("invalid_params", "That is an all-day entry; it has no time to move.");
+            }
+            const start = requireInstant(params, "starts_at");
+            const end = requireInstant(params, "ends_at");
+            if (Date.parse(end) <= Date.parse(start)) {
+                throw new ActionError("invalid_params", "`ends_at` must be after `starts_at`.");
+            }
+            patch.start = { dateTime: start };
+            patch.end = { dateTime: end };
+        }
+        const guests = guestEdits(params, event);
+        if (guests) patch.attendees = guests;
+        if (Object.keys(patch).length === 0) {
+            throw new ActionError(
+                "invalid_params",
+                "Nothing to change — pass `new_title`, `starts_at`/`ends_at`, `description`, `add_attendees`, or `remove_attendees`.",
+            );
+        }
+
+        const updated = await proxy(connection, eventPath(event.id as string), patch, {
+            method: "PATCH",
+            query: { sendUpdates: "all" },
+            ...(event.etag ? { headers: { "If-Match": event.etag } } : {}),
+        }) as GoogleEvent & { htmlLink?: string } | null;
+
+        if (!updated?.id) {
+            throw new ActionError("provider_error", "Google did not return the updated event.", 502);
+        }
+
+        await cache(updated as GoogleEvent, context, { colleagues: false });
+
+        return {
+            id: updated.id,
+            url: updated.htmlLink ?? null,
+            title: updated.summary ?? null,
+            starts_at: updated.start?.dateTime ?? null,
+            ends_at: updated.end?.dateTime ?? null,
+            attendees: (updated.attendees ?? [])
+                .filter((attendee) => attendee.email && !attendee.resource)
+                .map((attendee) => attendee.email),
+            ...occurrenceScope(event),
+        };
+    },
+
+    /// Removes one event the person confirmed by title and start. Google mails
+    /// the guests the cancellation; an attendee without delete rights only
+    /// leaves their own copy, which is Google's rule, not a choice made here.
+    delete_event: async (connection, params, context) => {
+        const event = await confirmedEvent(connection, params);
+
+        await proxy(connection, eventPath(event.id as string), undefined, {
+            method: "DELETE",
+            query: { sendUpdates: "all" },
+            ...(event.etag ? { headers: { "If-Match": event.etag } } : {}),
+        });
+
+        await forget(event.id as string, context);
+
+        return { id: event.id, title: event.summary ?? null, deleted: true, ...occurrenceScope(event) };
+    },
 };
+
+/// Says when an action landed on one occurrence of a recurring meeting rather
+/// than the series — with `singleEvents` listing, an occurrence is the only
+/// thing an id can ever name, and a person told "cancelled" about a weekly
+/// meeting will otherwise be surprised next week.
+function occurrenceScope(event: GoogleEvent): Record<string, string> {
+    return event.recurringEventId
+        ? { scope: "one occurrence of a recurring meeting — the other occurrences still stand" }
+        : {};
+}
+
+/// The guest list after the asked-for additions and removals, or null when
+/// neither was asked for. Built on the live list so everyone not named keeps
+/// their place and their RSVP.
+function guestEdits(params: Record<string, unknown>, event: GoogleEvent): Array<Record<string, unknown>> | null {
+    if (params.add_attendees === undefined && params.remove_attendees === undefined) return null;
+
+    const additions = params.add_attendees === undefined
+        ? []
+        : requireList(params, "add_attendees", MAX_ATTENDEES);
+    const removals = params.remove_attendees === undefined
+        ? []
+        : requireList(params, "remove_attendees", MAX_ATTENDEES).map((email) => email.toLowerCase());
+    for (const email of [...additions, ...removals]) {
+        if (!email.includes("@") || email.includes(" ")) {
+            throw new ActionError("invalid_params", `"${email}" is not an email address.`);
+        }
+    }
+
+    const current = (event.attendees ?? []).filter((attendee) => attendee.email);
+    const missing = removals.filter((email) =>
+        !current.some((attendee) => (attendee.email as string).toLowerCase() === email)
+    );
+    if (missing.length > 0) {
+        throw new ActionError("invalid_params", `${missing.join(", ")} is not on the guest list.`);
+    }
+
+    const kept = current.filter((attendee) =>
+        !removals.includes((attendee.email as string).toLowerCase())
+    ) as Array<Record<string, unknown>>;
+    const seen = new Set(kept.map((attendee) => (attendee.email as string).toLowerCase()));
+    const added: Array<Record<string, unknown>> = [];
+    for (const email of additions) {
+        if (seen.has(email.toLowerCase())) continue;
+        seen.add(email.toLowerCase());
+        added.push({ email });
+    }
+
+    const list = [...kept, ...added];
+    // The cap applies to growth only. An event that arrived from outside Nod
+    // already over the cap must still allow a removal — refusing it would make
+    // the largest guest lists the only ones nobody can take a name off.
+    if (list.length > MAX_ATTENDEES && added.length > 0) {
+        throw new ActionError("invalid_params", `At most ${MAX_ATTENDEES} attendees per event.`);
+    }
+    return list;
+}
+
+/// Drops a deleted event from the deleter's own `calendar_events` rows without
+/// waiting for the sweep.
+///
+/// The deleter's rows only. Whether anyone else's copy of the meeting still
+/// stands is Google's call, not this function's — an attendee's delete leaves
+/// the meeting running for everyone but them — and colleagues' rows are theirs:
+/// their own sweeps prune what Google stops listing. Best-effort for the same
+/// reason `cache` is — the event is gone in Google whatever happens here, and
+/// the sweep remains the backstop.
+async function forget(externalEventId: string, context?: ActionContext): Promise<void> {
+    if (!context?.userId) return;
+    try {
+        const { error } = await adminClient()
+            .from("calendar_events")
+            .delete()
+            .eq("user_id", context.userId)
+            .eq("provider", PROVIDER)
+            .eq("calendar_id", CALENDAR_ID)
+            .eq("external_event_id", externalEventId);
+        if (error) console.warn(`calendar cache delete failed: ${error.message}`);
+    } catch (error) {
+        console.warn(`calendar cache delete threw: ${error}`);
+    }
+}
 
 /// Writes an event we just created straight into `calendar_events`.
 ///
@@ -271,14 +522,24 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
 /// meeting when both of their rows exist — the host's lease takes its identity
 /// from theirs, and the listener asks with theirs — so caching only the
 /// organizer's copy would leave the invitee exactly as blind as before.
-async function cache(event: GoogleEvent, context?: ActionContext): Promise<void> {
+/// `colleagues` is true only for creation, where the invitee has no row at all
+/// yet. On an update every synced colleague already holds a real copy under
+/// their own id, and writing a provisional row beside it would show them the
+/// same meeting twice — with two different times — until their sweep prunes it.
+async function cache(
+    event: GoogleEvent,
+    context: ActionContext | undefined,
+    options: { colleagues: boolean },
+): Promise<void> {
     if (!context?.userId) return;
     const stampedAt = new Date().toISOString();
     const own = toRow(context.userId, event, stampedAt);
     if (!own) return;
 
     const admin = adminClient();
-    const rows = [own, ...await invitedColleagueRows(admin, event, context.userId, stampedAt)];
+    const rows = options.colleagues
+        ? [own, ...await invitedColleagueRows(admin, event, context.userId, stampedAt)]
+        : [own];
 
     try {
         const { error } = await admin

@@ -56,9 +56,9 @@ enum CalendarCopy {
 
     /// True of both sources, so it is said once under them rather than twice
     /// inside them. Bound to `privacy.md` § 3.11 — (b) "Writing: Never" and
-    /// (a) "One thing, and only when you confirm it".
-    static let assurance = "Nod reads your calendar and never changes it on its own. It can create an "
-        + "event only from a draft you have confirmed."
+    /// (a) "Only when you confirm it, and only what you confirmed".
+    static let assurance = "Nod reads your calendar and never changes it on its own. It can create, "
+        + "move or cancel an event only from a card you have confirmed."
 }
 
 /// Each source's own mark — the Calendar app's icon and Google's logo.

@@ -1,11 +1,9 @@
 // GitHub, over its REST API.
 //
-// Read-only, all of it. That is a property of this file rather than a policy
-// somewhere: Nod has nothing to say about a repository that a meeting decided,
-// and an adapter that could open an issue would need the whole approval path to
-// be worth having. Being read-only is also what lets these run in the live
-// meeting lookup, which never asks anybody's permission because it cannot
-// change anything.
+// Reads, and the three writes a meeting actually produces: file an issue,
+// comment on one, close or reopen one. Every write stops at the desktop's
+// approval card — the same catalogue flag that keeps the reads free to run in
+// the live meeting lookup keeps the writes out of it entirely.
 //
 // Every result is trimmed to what a model needs to answer or to cite, and
 // nothing more. Tool *results* — not tool definitions — are where an agent loop
@@ -13,7 +11,7 @@
 // result is fresh input on every subsequent turn.
 import { ActionError, proxy } from "./pipedream.ts";
 import type { ActionHandlers } from "./registry.ts";
-import { requireString } from "./params.ts";
+import { requireBoolean, requireString } from "./params.ts";
 
 const SEARCH_LIMIT = 10;
 const REPO_LIMIT = 30;
@@ -22,6 +20,29 @@ const COMMENT_LIMIT = 3;
 /// `owner/repo#123`, which is how a person writes one and how GitHub prints it.
 /// The API has no lookup by that string, so every read has to take it apart.
 const REFERENCE = /^([\w.-]+)\/([\w.-]+)#(\d+)$/;
+
+/// `owner/repo`, as `list_repositories` returns it. A segment of bare dots is
+/// refused separately: `../user` matches the character class and would be
+/// normalised by the URL join into a request at an endpoint this adapter never
+/// meant to address.
+const REPOSITORY = /^[\w.-]+\/[\w.-]+$/;
+
+function dotSegment(name: string): boolean {
+    return name.split("/").some((segment) => /^\.+$/.test(segment));
+}
+
+function issuePath(params: Record<string, unknown>): { path: string; reference: string } {
+    const reference = requireString(params, "reference");
+    const parts = REFERENCE.exec(reference);
+    if (!parts || dotSegment(`${parts[1]}/${parts[2]}`)) {
+        throw new ActionError(
+            "invalid_params",
+            `"${reference}" is not a GitHub reference. Use owner/repo#123.`,
+        );
+    }
+    const [, owner, repo, number] = parts;
+    return { path: `repos/${owner}/${repo}/issues/${number}`, reference };
+}
 
 interface Issue {
     number?: number;
@@ -91,16 +112,7 @@ export const GITHUB_ACTIONS: ActionHandlers = {
     /// hundred-comment thread would also be the single largest thing this
     /// adapter could put into a turn.
     read_issue: async (connection, params) => {
-        const reference = requireString(params, "reference");
-        const parts = REFERENCE.exec(reference);
-        if (!parts) {
-            throw new ActionError(
-                "invalid_params",
-                `"${reference}" is not a GitHub reference. Use owner/repo#123.`,
-            );
-        }
-        const [, owner, repo, number] = parts;
-        const path = `repos/${owner}/${repo}/issues/${number}`;
+        const { path, reference } = issuePath(params);
 
         // Both addressed by the reference alone, so neither waits on the other.
         const [issue, comments] = await Promise.all([
@@ -151,5 +163,55 @@ export const GITHUB_ACTIONS: ActionHandlers = {
                 updated: repo.updated_at,
             })),
         };
+    },
+
+    /// Files one issue, in the meeting's own words.
+    create_issue: async (connection, params) => {
+        const repository = requireString(params, "repository");
+        if (!REPOSITORY.test(repository) || dotSegment(repository)) {
+            throw new ActionError("invalid_params", `"${repository}" is not owner/repo.`);
+        }
+        const title = requireString(params, "title");
+        const body = typeof params.body === "string" ? params.body : undefined;
+
+        const created = await proxy(connection, `repos/${repository}/issues`, {
+            title,
+            ...(body ? { body } : {}),
+        }) as Issue | null;
+        if (!created?.number) {
+            throw new ActionError("provider_error", "GitHub did not return the created issue.", 502);
+        }
+        return { reference: `${repository}#${created.number}`, title: created.title, url: created.html_url };
+    },
+
+    /// Adds one comment to an issue or pull request.
+    comment_issue: async (connection, params) => {
+        const { path, reference } = issuePath(params);
+        const body = requireString(params, "body");
+
+        const comment = await proxy(connection, `${path}/comments`, { body }) as
+            { id?: number; html_url?: string } | null;
+        if (!comment?.id) {
+            throw new ActionError("provider_error", "GitHub did not return the comment.", 502);
+        }
+        return { reference, url: comment.html_url };
+    },
+
+    /// Closes or reopens one issue. State is the whole surface on purpose —
+    /// titles, labels and assignees belong to the people working the tracker,
+    /// while "close it, that shipped" is a sentence a meeting actually says.
+    update_issue: async (connection, params) => {
+        const { path, reference } = issuePath(params);
+        const closed = requireBoolean(params, "closed");
+
+        const updated = await proxy(connection, path, {
+            state: closed ? "closed" : "open",
+        }, { method: "PATCH" }) as Issue | null;
+        if (!updated?.number) {
+            throw new ActionError("provider_error", "GitHub did not return the updated issue.", 502);
+        }
+        // Issues and pull requests share the endpoint, so the caller learns
+        // which one it just closed.
+        return { reference, kind: kindOf(updated), state: updated.state, url: updated.html_url };
     },
 };

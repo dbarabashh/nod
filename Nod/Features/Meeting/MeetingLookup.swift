@@ -78,7 +78,7 @@ struct MeetingLookup {
         }
     }
 
-    /// A read-only tool that would serve this request, chosen but not yet run.
+    /// The tool that would serve this request, chosen but not yet run.
     ///
     /// Routing is its own step because the caller has to answer a question
     /// between choosing a tool and running it — whether this is a question for
@@ -273,8 +273,8 @@ struct MeetingLookup {
     /// Distinct from anything a provider says, because it is not about them.
     static let couldNotPhrase = "Nod couldn't put that into an answer"
 
-    /// A follow-up read the model asked for, checked back against the same
-    /// read-only catalogue the first choice came from. The model answers with a
+    /// A follow-up call the model asked for, checked back against the same
+    /// catalogue the first choice came from. The model answers with a
     /// string; a string that is not in the list it was given is not a tool,
     /// whatever it looks like.
     private func follow(_ choice: PromptLibrary.LookupChoice, naming named: [IntegrationProvider]) async -> Routed? {

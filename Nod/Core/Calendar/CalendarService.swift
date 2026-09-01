@@ -16,7 +16,8 @@ import Foundation
 /// Google or Microsoft API, nothing on our servers: this is `EventKit` reading
 /// the accounts already set up in the user's own Calendar app, on the device.
 /// Off until the user switches it on, and read-only for the life of the app —
-/// Nod never writes an event.
+/// nothing ever writes through EventKit. (Writing exists only on the separate
+/// connected-account path, one confirmed change at a time.)
 @MainActor
 final class CalendarService: ObservableObject {
     /// The user's switch, independent of the system grant. Both have to be on:

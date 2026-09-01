@@ -26,10 +26,13 @@ final class ChatToolGate: ObservableObject {
         }
     }
 
-    /// Two rounds is enough for search-then-answer or search-then-create. A
-    /// third is a model looping, and every round re-sends the whole prompt.
-    /// Both chats spend the same budget: it is a cost, not a per-surface taste.
-    static let maxRounds = 2
+    /// Three rounds: search-then-answer and search-then-create fit in two, and
+    /// the calendar's destructive tools legitimately need a third — they demand
+    /// a `list_events` first, and a refused write (wrong occurrence, stale
+    /// title) is told to list again. A fourth is a model looping, and every
+    /// round re-sends the whole prompt. Both chats spend the same budget: it is
+    /// a cost, not a per-surface taste.
+    static let maxRounds = 3
 
     /// Said to the person by whichever chat the model surprised. One sentence,
     /// one place — it is the same refusal wherever it happens.

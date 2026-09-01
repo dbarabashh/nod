@@ -161,6 +161,10 @@ export interface ProxyOptions {
     /// Defaults to POST, which is what a GraphQL provider wants. A REST one that
     /// reads — a calendar — is a GET with no body at all.
     method?: "GET" | "POST" | "PATCH" | "DELETE";
+    /// How to read the provider's answer. Almost everything speaks JSON; the
+    /// exception is an export endpoint — a Google Doc's text — whose answer is
+    /// the document itself.
+    parse?: "json" | "text";
     query?: Record<string, string | undefined>;
     /// Headers for the provider rather than for Connect. Notion refuses every
     /// request that does not name an API version, and there is no other way to
@@ -220,7 +224,14 @@ export async function proxy(
         body: method === "GET" ? undefined : JSON.stringify(body),
     });
 
-    const payload = await response.json().catch(() => null);
+    const raw = await response.text().catch(() => "");
+    let payload: unknown = null;
+    try {
+        payload = JSON.parse(raw);
+    } catch {
+        // A non-JSON answer. Fine for a text parse; null for everyone else,
+        // exactly as response.json().catch(() => null) behaved before.
+    }
     if (!response.ok) {
         const detail = providerDetail(payload);
         console.error(
@@ -234,7 +245,7 @@ export async function proxy(
         const said = detail ? `: ${detail}` : ` (HTTP ${response.status})`;
         throw new ActionError(code, `${connection.provider} rejected the request${said}.`, 502);
     }
-    return payload;
+    return options.parse === "text" ? raw : payload;
 }
 
 /// However long the provider was, this is a tool result the model re-reads on

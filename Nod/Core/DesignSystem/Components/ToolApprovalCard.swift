@@ -75,6 +75,14 @@ struct ToolApprovalCard: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
+                if tool.mutating {
+                    ForEach(call.detailArguments(for: tool), id: \.name) { argument in
+                        Text("\(argument.name): \(argument.value)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.Palette.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }
     }

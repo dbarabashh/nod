@@ -377,7 +377,7 @@ private func connectedToolsRules(_ tools: [ChatTool]) -> String {
 
 
     [CONNECTED TOOLS]
-    - Connected: \(products). You can read from and write to them with the tools you were given.
+    - Connected: \(products). Reach them only through the tools you were given — what you can do there is exactly what the tool list says, no more.
     - Never say you lack a tool you were given. If one is in your list, call it; if the answer is already in a block above, answer from that. "I can't check that" is only true when neither is the case — it is a statement about what you were handed, never a guess about whether the product is working.
     - A call that comes back with an error is a different matter: say plainly that it failed and what it said. Reporting a broken connection is right; a failure dressed up as "nothing found" is how a user keeps trusting an integration that stopped working.
     - Sessions and OPEN ACTION ITEMS record what was SAID. They are not evidence of what is TRACKED. Never answer whether something is filed, ticketed, assigned or already exists as a task from them alone.

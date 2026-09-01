@@ -38,6 +38,12 @@ struct ChatTool: Equatable {
         case "create": "Created in"
         case "list": "Listed from"
         case "update": "Updated in"
+        case "delete": "Cancelled in"
+        case "comment": "Commented in"
+        case "append": "Added to"
+        case "post": "Posted to"
+        case "invite": "Invited to"
+        case "find": "Searched"
         case "read": "Read from"
         default: "Used"
         }
@@ -80,6 +86,24 @@ struct ChatToolCall: Equatable, Identifiable, Codable {
     /// parameter. Empty when the call carried nothing recognisable.
     func recognisableArgument(for tool: ChatTool) -> String {
         tool.primaryParameter.flatMap { arguments[$0] } ?? ""
+    }
+
+    /// Everything this call carries beyond its primary parameter, for the
+    /// approval card of a write. A person shown only "Updated in / Standup" is
+    /// approving a change they cannot evaluate — the new time, the guest being
+    /// removed — so a mutating card lists every argument. Required parameters
+    /// come first in the schema's own order, the rest alphabetically, so the
+    /// same call always reads the same way.
+    func detailArguments(for tool: ChatTool) -> [(name: String, value: String)] {
+        let sent = arguments
+        let required = tool.parameters.required.filter { $0 != tool.primaryParameter }
+        let optional = sent.keys
+            .filter { !tool.parameters.required.contains($0) && $0 != tool.primaryParameter }
+            .sorted()
+        return (required + optional).compactMap { key in
+            guard let value = sent[key], !value.isEmpty else { return nil }
+            return (name: key.replacingOccurrences(of: "_", with: " "), value: value)
+        }
     }
 
     /// The arguments as a dictionary of strings. A model that emits a number or
@@ -241,6 +265,25 @@ enum ChatTools {
                 required: ["query"]
             ),
             mutating: false
+        ),
+        ChatTool(
+            provider: .hubspot,
+            name: "hubspot_create_note",
+            description: [
+                "Log a note on a company, contact or deal — a meeting summary, a call outcome.",
+                "It only adds context; nothing about the record changes.",
+                "Only after a find: the server refuses a record id whose name doesn't match record_name."
+            ].joined(separator: " "),
+            parameters: ChatToolSchema(
+                properties: [
+                    "record_name": .init(description: "The record's name, exactly as the find result showed it."),
+                    "attach_to": .init(description: "One of contact, company, deal."),
+                    "record_id": .init(description: "The record's id from a find result."),
+                    "body": .init(description: "The note's text.")
+                ],
+                required: ["record_name", "attach_to", "record_id", "body"]
+            ),
+            mutating: true
         )
     ]
 
@@ -264,6 +307,26 @@ enum ChatTools {
                 required: ["message_id"]
             ),
             mutating: false
+        ),
+        ChatTool(
+            provider: .gmail,
+            name: "gmail_create_draft",
+            description: [
+                "Save a draft in the user's Gmail. Nothing is sent — the user reviews and sends it themselves,",
+                "so tell them the draft is waiting in their Drafts folder.",
+                "For a reply, pass the thread_id from search or read results and keep the original subject, prefixed Re:."
+            ].joined(separator: " "),
+            parameters: ChatToolSchema(
+                properties: [
+                    "subject": .init(description: "The subject line."),
+                    "to": .init(description: "Comma-separated recipient emails."),
+                    "body": .init(description: "The message text."),
+                    "cc": .init(description: "Optional comma-separated cc emails."),
+                    "thread_id": .init(description: "Optional thread to reply in, from search/read results.")
+                ],
+                required: ["subject", "to", "body"]
+            ),
+            mutating: true
         )
     ]
 
@@ -275,6 +338,16 @@ enum ChatTools {
             parameters: ChatToolSchema(
                 properties: ["query": .init(description: "Words in the file's name or body.")],
                 required: ["query"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .googleDrive,
+            name: "google-drive_read_file",
+            description: "Read a Drive file's text — docs, sheets, slides, and plain text files. Use after a search, to answer from the document rather than its name.",
+            parameters: ChatToolSchema(
+                properties: ["file_id": .init(description: "The file id from a search result.")],
+                required: ["file_id"]
             ),
             mutating: false
         )
@@ -385,6 +458,42 @@ enum ChatTools {
                 required: ["page_id"]
             ),
             mutating: false
+        ),
+        ChatTool(
+            provider: .notion,
+            name: "notion_create_page",
+            description: [
+                "Create a Notion page under an existing one. Only when the user asked for it;",
+                "find the parent with search_pages first — the server refuses a parent id whose title",
+                "doesn't match parent_page_title."
+            ].joined(separator: " "),
+            parameters: ChatToolSchema(
+                properties: [
+                    "title": .init(description: "The new page's title."),
+                    "parent_page_title": .init(description: "The parent's title, exactly as search_pages returned it."),
+                    "parent_page_id": .init(description: "The parent's id from search_pages."),
+                    "content": .init(description: "The page's text. Plain paragraphs, one per line.")
+                ],
+                required: ["title", "parent_page_title", "parent_page_id", "content"]
+            ),
+            mutating: true
+        ),
+        ChatTool(
+            provider: .notion,
+            name: "notion_append_page",
+            description: [
+                "Add paragraphs to the end of an existing Notion page. Nothing already on the page changes.",
+                "Only after search_pages: the server refuses a page id whose title doesn't match page_title."
+            ].joined(separator: " "),
+            parameters: ChatToolSchema(
+                properties: [
+                    "page_title": .init(description: "The page's title, exactly as search_pages returned it."),
+                    "page_id": .init(description: "The page's id from search_pages."),
+                    "content": .init(description: "The text to add. Plain paragraphs, one per line.")
+                ],
+                required: ["page_title", "page_id", "content"]
+            ),
+            mutating: true
         )
     ]
 
@@ -423,6 +532,46 @@ enum ChatTools {
             description: "List the repositories this account works in. Use to turn a spoken name like \"the api repo\" into one a search can filter on.",
             parameters: ChatToolSchema(properties: [:], required: []),
             mutating: false
+        ),
+        ChatTool(
+            provider: .github,
+            name: "github_create_issue",
+            description: "File a GitHub issue. Only after searching, and only when the user asked for it.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "title": .init(description: "One line, in the meeting's own wording."),
+                    "repository": .init(description: "owner/repo, from list_repositories or a search result."),
+                    "body": .init(description: "Optional detail.")
+                ],
+                required: ["title", "repository"]
+            ),
+            mutating: true
+        ),
+        ChatTool(
+            provider: .github,
+            name: "github_comment_issue",
+            description: "Comment on an issue or pull request, in the user's words.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "reference": .init(description: "owner/repo#123"),
+                    "body": .init(description: "The comment.")
+                ],
+                required: ["reference", "body"]
+            ),
+            mutating: true
+        ),
+        ChatTool(
+            provider: .github,
+            name: "github_update_issue",
+            description: "Close or reopen a GitHub issue. Nothing else about it changes.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "reference": .init(description: "owner/repo#123"),
+                    "closed": .init(description: "`true` to close, `false` to reopen.")
+                ],
+                required: ["reference", "closed"]
+            ),
+            mutating: true
         )
     ]
 
@@ -603,10 +752,15 @@ enum ChatTools {
     /// answers "anything today" with no round trip, and this reaches past that
     /// window for a date the device has never held.
     ///
-    /// `mutating` marks the write so its confirmation reads as one — the person
-    /// sees the date and the guest list before an invitation reaches anyone's
-    /// inbox. Both still stop at `ToolApprovalCard`; nothing leaves Nod
-    /// unapproved, and the flag only decides how the card is worded.
+    /// `mutating` marks the writes so their confirmations read as ones — the
+    /// person sees what is created, moved, or cancelled before guests are
+    /// emailed about it. All still stop at `ToolApprovalCard`; nothing leaves
+    /// Nod unapproved, and the flag only decides how the card is worded. The
+    /// two destructive writes are additionally held to the title and start on
+    /// the card: the server refuses an `event_id` whose live title or start
+    /// differs from what was approved, so the words the person read are the
+    /// event acted on — a title alone couldn't tell Thursday's standup from
+    /// Tuesday's.
     private static let calendarTools: [ChatTool] = [
         ChatTool(
             provider: .googleCalendar,
@@ -615,6 +769,8 @@ enum ChatTools {
                 "Read the user's calendar over a date range.",
                 "Use it for any question about what they have scheduled beyond the coming week;",
                 "nearer days are already in the prompt.",
+                "Also the only source of event ids for update_event and delete_event —",
+                "call it first even for a day the prompt already shows.",
                 "Results cover the whole window asked for, so a window that opens before the current time",
                 "comes back holding events that already finished —",
                 "check each one's end time against the clock before calling it upcoming."
@@ -643,6 +799,52 @@ enum ChatTools {
                     "description": .init(description: "Optional agenda or context.")
                 ],
                 required: ["title", "starts_at", "ends_at"]
+            ),
+            mutating: true
+        ),
+        ChatTool(
+            provider: .googleCalendar,
+            name: "google-calendar_update_event",
+            description: [
+                "Change one event on the user's calendar — retitle it, move it, rewrite its description, or add/remove guests.",
+                "Only after list_events in this conversation: `event_id`, `event_title` and `event_starts_at` must come",
+                "from its results, and the server refuses a title or start that doesn't match the id.",
+                "For a recurring meeting this changes only the one occurrence named.",
+                "Guests are emailed about the change."
+            ].joined(separator: " "),
+            parameters: ChatToolSchema(
+                properties: [
+                    "event_title": .init(description: "The event's current title, exactly as list_events returned it."),
+                    "event_id": .init(description: "The event's id from list_events."),
+                    "event_starts_at": .init(description: "The event's current start, exactly as list_events returned it."),
+                    "new_title": .init(description: "New title. Omit to keep the current one."),
+                    "starts_at": .init(description: "New RFC3339 start. Always pass `ends_at` with it."),
+                    "ends_at": .init(description: "New RFC3339 end. Always pass `starts_at` with it, even when only the end moves."),
+                    "description": .init(description: "Replacement description."),
+                    "add_attendees": .init(description: "Comma-separated emails to invite. Everyone already on the event stays."),
+                    "remove_attendees": .init(description: "Comma-separated emails to take off the event. Everyone else stays.")
+                ],
+                required: ["event_title", "event_id", "event_starts_at"]
+            ),
+            mutating: true
+        ),
+        ChatTool(
+            provider: .googleCalendar,
+            name: "google-calendar_delete_event",
+            description: [
+                "Cancel one event on the user's calendar.",
+                "Only after list_events in this conversation: `event_id`, `event_title` and `event_starts_at` must come",
+                "from its results, and the server refuses a title or start that doesn't match the id.",
+                "For a recurring meeting this cancels only the one occurrence named — say so to the user.",
+                "Guests are emailed the cancellation, and it cannot be undone."
+            ].joined(separator: " "),
+            parameters: ChatToolSchema(
+                properties: [
+                    "event_title": .init(description: "The event's title, exactly as list_events returned it."),
+                    "event_id": .init(description: "The event's id from list_events."),
+                    "event_starts_at": .init(description: "The event's start, exactly as list_events returned it.")
+                ],
+                required: ["event_title", "event_id", "event_starts_at"]
             ),
             mutating: true
         )

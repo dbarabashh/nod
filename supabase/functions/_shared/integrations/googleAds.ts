@@ -1,10 +1,10 @@
 // Google Ads, through the broker's own proxy for it.
 //
-// Read-only, and not for the reason the others are. Notion and HubSpot could
-// have had writes and were left without them; this one could not have. A
-// campaign's status and budget are money leaving an account by the hour, and the
-// distance between "Nod proposed it" and "somebody skimmed a card and pressed
-// approve" is not a distance to spend real money across.
+// Read-only, and not for the reason a read-only provider usually is. Notion
+// and HubSpot grew writes once the approval path could carry them; this one
+// never will. A campaign's status and budget are money leaving an account by
+// the hour, and the distance between "Nod proposed it" and "somebody skimmed a
+// card and pressed approve" is not a distance to spend real money across.
 //
 // It is also the one provider Nod cannot address directly. Google Ads refuses
 // every request that does not carry a developer token, and a developer token is
