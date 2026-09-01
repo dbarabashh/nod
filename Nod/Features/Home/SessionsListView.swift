@@ -29,6 +29,8 @@ struct SessionsListView: View {
     @State private var owner: Owner = .everyone
     @State private var reindexProgress: ReindexProgress?
     @State private var pendingHardDelete: Meeting?
+    @State private var isEmptyTrashRequested = false
+    @State private var emptyTrashFailure: String?
 
     /// Which of the two lists this is. Not a control any more — the window
     /// picks it from the sidebar destination.
@@ -78,6 +80,21 @@ struct SessionsListView: View {
                     ?? "this meeting"
                 Text("This permanently deletes \(label). This action can't be undone.")
             }
+            .alert("Empty Trash?", isPresented: $isEmptyTrashRequested) {
+                Button("Empty Trash", role: .destructive) {
+                    Task { await performEmptyTrash() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(
+                    "This permanently deletes everything in the Trash, including sessions trashed on your other devices. This action can't be undone."
+                )
+            }
+            .alert("Couldn't empty the Trash", isPresented: emptyTrashFailureVisible, presenting: emptyTrashFailure) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { message in
+                Text(message)
+            }
     }
 
     private var sessionsList: some View {
@@ -109,7 +126,7 @@ struct SessionsListView: View {
 
     private var title: String {
         guard mode == .all else { return "Trash" }
-        return activeProject?.name ?? "Sessions"
+        return activeProject?.name ?? "Memory"
     }
 
     private var activeProject: SessionLabel? {
@@ -119,7 +136,7 @@ struct SessionsListView: View {
 
     /// A filter can outlive the folder it points at — somebody stops sharing a
     /// project while you are standing inside it. The list then matches nothing,
-    /// the header falls back to "Sessions", and "Clear filter" disappears along
+    /// the header falls back to "Memory", and "Clear filter" disappears along
     /// with the project it belonged to, leaving no way out of an empty screen.
     /// Dropping the filter puts the person back where they can see their work.
     private func clearFilterIfProjectVanished() {
@@ -287,6 +304,9 @@ struct SessionsListView: View {
             if mode == .all {
                 reindexControl
             }
+            if mode == .trash {
+                emptyTrashButton
+            }
             Button(action: refreshActive) {
                 Image("nc-refresh-2")
                     .icon(13)
@@ -297,6 +317,32 @@ struct SessionsListView: View {
             .disabled(currentLoadState == .loading)
             .help("Refresh")
         }
+    }
+
+    /// Disabled rather than hidden on an empty trash so the control stays
+    /// where the eye last found it.
+    private var emptyTrashButton: some View {
+        Button(role: .destructive) {
+            isEmptyTrashRequested = true
+        } label: {
+            HStack(spacing: 4) {
+                Image("nc-trash")
+                    .icon(11)
+                Text("Empty Trash")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(Theme.Palette.danger)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Theme.Palette.danger.opacity(0.1))
+                    .overlay(Capsule().stroke(Theme.Palette.danger.opacity(0.3), lineWidth: 0.5))
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(meetingStore.trashedMeetings.isEmpty || currentLoadState == .loading)
+        .help("Permanently delete everything in the Trash")
     }
 
     @ViewBuilder
@@ -668,8 +714,22 @@ struct SessionsListView: View {
         }
     }
 
+    private func performEmptyTrash() async {
+        do {
+            try await meetingStore.emptyTrash()
+        } catch {
+            Log.ui.error("emptyTrash failed: \(error.localizedDescription)")
+            emptyTrashFailure = error.localizedDescription
+            await meetingStore.refreshTrash(silent: true)
+        }
+    }
+
     private var hardDeleteAlertVisible: Binding<Bool> {
         .isPresented(by: $pendingHardDelete)
+    }
+
+    private var emptyTrashFailureVisible: Binding<Bool> {
+        .isPresented(by: $emptyTrashFailure)
     }
 }
 

@@ -199,6 +199,14 @@ final class ActionItemStore: ObservableObject {
         )
         do {
             try await supabase.from(Self.tableName).insert(inserts).execute()
+            // Into the cache too, not only the server: every surface reading
+            // `items` — Today above all — otherwise learns about the meeting's
+            // tasks only on the next full refresh, which nothing triggers once
+            // the recap has already landed.
+            if didLoad {
+                let known = Set(items.map(\.id))
+                items.append(contentsOf: inserts.filter { !known.contains($0.id) })
+            }
             return inserts
         } catch {
             Log.ui.error("ActionItemStore.saveExtracted failed (non-fatal): \(error.localizedDescription)")

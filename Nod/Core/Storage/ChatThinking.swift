@@ -24,7 +24,7 @@ enum ChatThinking {
     /// decided there is something to search.
     static let searching: [String] = [
         "Searching everything you've captured…",
-        "Sessions, tasks, and what was on your screen…",
+        "Memory, tasks, and what was on your screen…",
         "Following a few more threads…",
         "Pulling the details together…"
     ]

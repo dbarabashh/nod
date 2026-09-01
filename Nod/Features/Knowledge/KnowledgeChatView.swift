@@ -78,6 +78,16 @@ struct KnowledgeChatView: View {
             chat.pendingDraft = nil
             inputFocused = true
         }
+        // Also on appear: a draft handed over from another surface (Today's
+        // composer, "Ask about this project") is set while this view is not
+        // mounted, and `onChange` never fires for a value that was already
+        // there when the view arrived — the question typed elsewhere vanished.
+        .onAppear {
+            guard let pending = chat.pendingDraft else { return }
+            draft = pending
+            chat.pendingDraft = nil
+            inputFocused = true
+        }
         // The link coming back is the one thing that fixes an offline turn, and
         // it fixes it without anybody clicking. `NetworkPathMonitor` exists to
         // decide *when to retry what already failed* — never to gate a send,

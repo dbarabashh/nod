@@ -340,7 +340,7 @@ struct ChatMentionPicker: View {
                     // Tools lead: they are the thing the trigger is reached for
                     // most, and the thing the person has just named half of.
                     section("Tools", items: tools) { toolRow($0, selected: selected) }
-                    section("Sessions", items: sessions) { sessionRow($0, selected: selected) }
+                    section("Memory", items: sessions) { sessionRow($0, selected: selected) }
                     section("Projects", items: projects) { projectRow($0, selected: selected) }
                     section("Connected", items: apps, row: appRow)
                 }

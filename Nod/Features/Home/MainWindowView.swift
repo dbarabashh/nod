@@ -29,7 +29,7 @@ struct MainWindowView: View {
     @EnvironmentObject private var demoPlayback: DemoPlayback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var surface: Surface = .chat
+    @State private var surface: Surface = .today
     /// Active project filter on the sessions list; nil shows every session.
     @State private var filterLabelID: UUID?
     @State private var undoToastID: UUID = .init()
@@ -42,6 +42,9 @@ struct MainWindowView: View {
 
     /// What the centre column is showing when nothing is focused over it.
     enum Surface: String {
+        /// What needs attention before anything is asked — the default, because
+        /// a memory that waits to be queried reads as a chat with an archive.
+        case today
         case chat
         case sessions
         /// Deleted sessions. A destination rather than a segment above the
@@ -204,6 +207,14 @@ struct MainWindowView: View {
     @ViewBuilder
     private var surfaceContent: some View {
         switch surface {
+        case .today:
+            TodayView(
+                onCapture: capture,
+                onOpenMeeting: { focus = $0 },
+                onOpenBeats: { show(.beats) },
+                onAsk: askFromToday
+            )
+            .transition(.opacity)
         case .chat:
             chatHome.transition(.opacity)
         case .sessions, .trash:
@@ -334,6 +345,16 @@ struct MainWindowView: View {
     /// filtering it further.
     private func askAboutProject(_ label: SessionLabel) {
         knowledgeChat.pendingDraft = "\(MentionMark(project: label).token) "
+        show(.chat)
+    }
+
+    /// A question typed on Today lands in the chat mid-flight: the composer
+    /// there is the real one, this only saves retyping the thought.
+    private func askFromToday(_ text: String) {
+        // A fresh thread: a question raised from Today is its own subject,
+        // not a continuation of whatever chat happened to be open last.
+        knowledgeChat.startNewThread()
+        knowledgeChat.pendingDraft = text
         show(.chat)
     }
 

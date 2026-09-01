@@ -44,23 +44,40 @@ struct HomeSidebar: View {
             OrgSidebarRow()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
-                    captureButton
-                    captureHint
-                    // A wider gap than the rows keep between themselves: the
-                    // primary action and a list of places are not peers.
-                    Color.clear.frame(height: 20)
+                    // Today carries the capture door itself — the meeting-named
+                    // Start on its card, "New capture" when nothing is coming —
+                    // so beside it this button was the same action twice.
+                    if surface != .today {
+                        captureButton
+                        captureHint
+                        // A wider gap than the rows keep between themselves:
+                        // the primary action and a list of places are not
+                        // peers.
+                        Color.clear.frame(height: 20)
+                    } else {
+                        Color.clear.frame(height: 8)
+                    }
+                    SidebarNavRow(
+                        title: "Today",
+                        icon: "nc-sparkle-3",
+                        isSelected: surface == .today,
+                        action: { onSelect(.today) }
+                    )
                     chatRow
                     demoDailyModesRow
+                    // "Memory" rather than "Sessions": the list is the same,
+                    // but the product's claim is a working memory, and the
+                    // sidebar is where that claim is either made or dropped.
                     SidebarNavRow(
-                        title: "Sessions",
+                        title: "Memory",
                         icon: "nc-layers-3",
                         isSelected: surface == .sessions,
                         action: { onSelect(.sessions) }
                     )
-                    // A destination beside Sessions rather than a segment above
+                    // A destination beside Memory rather than a segment above
                     // it: restoring and destroying are not things you do to a
                     // live session, so this is a different place to be, and it
-                    // costs the sessions list nothing to sit here.
+                    // costs the list nothing to sit here.
                     SidebarNavRow(
                         title: "Beats",
                         icon: "nc-stopwatch",
@@ -131,7 +148,10 @@ struct HomeSidebar: View {
             HStack(spacing: 8) {
                 Image("nc-plus")
                     .icon(13)
-                Text("Start Nod")
+                // "New capture", not "Start Nod": Today carries its own,
+                // meeting-named Start button, and two dark buttons doing one
+                // thing taught people the sidebar one was something else.
+                Text("New capture")
                     .font(.system(size: 13.5, weight: .semibold))
                 Spacer(minLength: 0)
             }
@@ -199,7 +219,7 @@ struct HomeSidebar: View {
         // belongs.
         SidebarNavRow(
             title: "Ask NOD",
-            icon: "nc-sparkle-3",
+            icon: "nc-magnifier",
             isSelected: surface == .chat && chat.threadID == nil,
             action: onNewChat
         )
