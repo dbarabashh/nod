@@ -58,8 +58,16 @@ struct ProposalReviewCard: View {
 
     @EnvironmentObject private var proposals: ActionProposalStore
     @EnvironmentObject private var organizations: OrganizationService
+    @EnvironmentObject private var agents: AgentStore
     @State private var title: String = ""
     @State private var isDeciding = false
+
+    /// Who prepared this, when it wasn't the meeting pipeline. Authorship on
+    /// the card is what makes an agent's work answerable — and correctable.
+    private var draftedBy: String? {
+        guard let agentID = proposal.raisedByAgent else { return nil }
+        return agents.agents.first { $0.id == agentID }?.title ?? "an agent"
+    }
 
     /// Who this can be handed to: everybody the organization knows about,
     /// reachable in the product this proposal targets. Somebody Nod cannot find
@@ -82,6 +90,11 @@ struct ProposalReviewCard: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Theme.Palette.ink)
                     .onSubmit { decide(approve: true) }
+            }
+            if let draftedBy {
+                Text("Drafted by \(draftedBy)")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.Palette.muted)
             }
             detail
             actions

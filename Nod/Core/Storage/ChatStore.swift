@@ -60,12 +60,13 @@ final class ChatStore: ObservableObject {
         supabase: SupabaseClient,
         llm: LLMProxyClient,
         integrations: IntegrationService,
-        toolApproval: ToolApprovalPreference? = nil
+        toolApproval: ToolApprovalPreference? = nil,
+        toolLog: ToolApprovalLog? = nil
     ) {
         self.supabase = supabase
         self.llm = llm
         self.integrations = integrations
-        toolGate = ChatToolGate(approval: toolApproval)
+        toolGate = ChatToolGate(approval: toolApproval, log: toolLog)
         // The gate holds state this store publishes as its own, and a nested
         // object's changes don't reach a view observing the owner.
         gateChanges = toolGate.objectWillChange.sink { [weak self] _ in

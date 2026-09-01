@@ -212,12 +212,21 @@ final class LauncherModel: ObservableObject {
     }
 
     private func mergeSemanticResults(for text: String) async {
-        let chunks = await knowledge.search(query: text)
+        let hits = await knowledge.searchWithConcepts(query: text)
         guard !Task.isCancelled, question == text else { return }
         let byID = meetings.byID
         var merged = results
         var seen = Set(merged.map(\.id))
-        for chunk in chunks where seen.insert(chunk.meetingID).inserted {
+        // Concepts first: "Pricing moved to $59 (since 26 Aug)" is a better
+        // reason to open a session than the transcript fragment it was
+        // distilled from — and it claims the row before the chunk pass can.
+        for concept in hits.concepts {
+            guard let meetingID = concept.meetingID, seen.insert(meetingID).inserted,
+                  let meeting = byID[meetingID] else { continue }
+            let dated = concept.validFromLabel.map { "\(concept.body) · \($0)" } ?? concept.body
+            merged.append(result(for: meeting, excerpt: dated))
+        }
+        for chunk in hits.chunks where seen.insert(chunk.meetingID).inserted {
             guard let meeting = byID[chunk.meetingID] else { continue }
             merged.append(result(for: meeting, excerpt: chunk.content))
         }

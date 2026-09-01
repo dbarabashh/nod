@@ -27,6 +27,13 @@ struct ActionProposal: Codable, Identifiable, Equatable {
     var externalKey: String?
     var externalURL: String?
     var failureMessage: String?
+    /// The agent that prepared it, when one did. Authorship, not authority:
+    /// an agent's draft takes exactly the approve path a pipeline draft takes.
+    var raisedByAgent: UUID?
+    /// True when a standing grant approved it with nobody watching — the card
+    /// has to say so, because "filed" and "filed by itself" are different
+    /// promises kept.
+    var autoApproved: Bool?
 
     /// `provider.action` — the same split `registry.ts` dispatches on, so
     /// nothing between here and the adapter has to learn a provider's name.
@@ -90,6 +97,8 @@ struct ActionProposal: Codable, Identifiable, Equatable {
         case externalKey = "external_key"
         case externalURL = "external_url"
         case failureMessage = "failure_message"
+        case raisedByAgent = "raised_by_agent"
+        case autoApproved = "auto_approved"
     }
 }
 

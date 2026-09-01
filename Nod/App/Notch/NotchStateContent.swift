@@ -88,7 +88,8 @@ struct NotchStateContent: View {
             NotchRecall(
                 recall: recall,
                 onOpenSource: { model.openRecallSource(recall) },
-                onDismiss: model.dismissRecall
+                onDismiss: model.dismissRecall,
+                onReplace: recall.offersReplacement ? { model.confirmReplacement(recall) } : nil
             )
         case let .offer(offer):
             NotchOffer(

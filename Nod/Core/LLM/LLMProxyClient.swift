@@ -988,7 +988,7 @@ final class LLMProxyClient: ObservableObject {
         meetingID: UUID? = nil,
         meetingIDs: [UUID]? = nil,
         embedText: String? = nil
-    ) async throws -> [RetrievedChunk] {
+    ) async throws -> KnowledgeHits {
         struct Payload: Encodable {
             let query: String
             let match_count: Int
@@ -1008,9 +1008,33 @@ final class LLMProxyClient: ObservableObject {
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "search", payload: payload))
         let data = try await postToProxyWithRetry(body: body)
-        struct Wrapper: Decodable { let matches: [RetrievedChunk] }
+        // `concepts` is absent from a proxy that predates the knowledge layer
+        // and empty while reading ships dark — both decode to the same nothing.
+        struct Wrapper: Decodable {
+            let matches: [RetrievedChunk]
+            let concepts: [RetrievedConcept]?
+        }
         do {
-            return try JSONDecoder().decode(Wrapper.self, from: data).matches
+            let decoded = try JSONDecoder().decode(Wrapper.self, from: data)
+            return KnowledgeHits(chunks: decoded.matches, concepts: decoded.concepts ?? [])
+        } catch {
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+
+    /// Asks the proxy to distill a finished session into concepts. Server-side
+    /// end to end: the function reads the transcript and the session's
+    /// entities itself, so the call carries nothing but the id.
+    func distill(meetingID: UUID) async throws -> DistillCounts {
+        struct Payload: Encodable {
+            let meeting_id: String
+        }
+        let body = try JSONEncoder().encode(
+            ProxyEnvelope(kind: "distill", payload: Payload(meeting_id: meetingID.uuidString))
+        )
+        let data = try await postToProxyWithRetry(body: body)
+        do {
+            return try JSONDecoder().decode(DistillCounts.self, from: data)
         } catch {
             throw ClientError.decodingFailed(error.localizedDescription)
         }

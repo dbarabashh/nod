@@ -1,5 +1,32 @@
 import Foundation
 
+/// One judge candidate carrying its own source — the model's returned index
+/// maps straight back without arithmetic across two arrays.
+private enum RecallCandidate {
+    case concept(RetrievedConcept)
+    case chunk(RetrievedChunk)
+
+    var text: String {
+        switch self {
+        case let .concept(concept):
+            concept.validFromLabel.map { "[\($0)] \(concept.body)" } ?? concept.body
+        case let .chunk(chunk):
+            chunk.content
+        }
+    }
+
+    var sourceMeetingID: UUID? {
+        switch self {
+        case let .concept(concept): concept.meetingID
+        case let .chunk(chunk): chunk.meetingID
+        }
+    }
+
+    var conceptID: UUID? {
+        if case let .concept(concept) = self { concept.id } else { nil }
+    }
+}
+
 /// Bringing back what an earlier session already settled, while a new one is
 /// running.
 ///
@@ -41,13 +68,21 @@ extension LiveMeetingAnalyst {
         do {
             // Excludes the meeting in progress: what was said ten minutes ago is
             // not a recall, and the live pass already owns it.
-            let matches = try await llm.searchKnowledge(query: window, matchCount: 6)
+            let hits = try await llm.searchKnowledge(query: window, matchCount: 6)
+            let matches = hits.chunks
                 .filter { $0.meetingID != session && $0.similarity >= Self.recallFloor }
-            guard !matches.isEmpty else { return }
+            // Concepts go ahead of the chunks: a distilled decision with a date
+            // beats the passage it was distilled from, and only a concept can
+            // be corrected from the card. Ones without a session to open are
+            // left out — a recall the user cannot check is not raised.
+            let concepts = hits.concepts
+                .filter { $0.meetingID != nil && $0.meetingID != session }
+            guard !matches.isEmpty || !concepts.isEmpty else { return }
 
+            let candidates = concepts.map(RecallCandidate.concept) + matches.map(RecallCandidate.chunk)
             let (system, user) = PromptLibrary.buildMemoryRecall(
                 window: window,
-                candidates: matches.map(\.content),
+                candidates: candidates.map(\.text),
                 language: recallLanguage
             )
             let verdict = try await llm.completeJSON(
@@ -56,7 +91,7 @@ extension LiveMeetingAnalyst {
                 as: PromptLibrary.MemoryRecallResult.self
             )
             guard verdict.surface,
-                  let index = verdict.source, index >= 1, index <= matches.count,
+                  let index = verdict.source, index >= 1, index <= candidates.count,
                   let text = verdict.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty,
                   let kind = verdict.kind.flatMap(LiveRecall.Kind.init(rawValue:))
             else {
@@ -64,11 +99,22 @@ extension LiveMeetingAnalyst {
                 return
             }
 
-            let source = matches[index - 1].meetingID
-            guard let label = recallSourceLabel?(source) else { return }
+            let chosen = candidates[index - 1]
+            guard let source = chosen.sourceMeetingID,
+                  let label = recallSourceLabel?(source)
+            else { return }
             recallsUsed += 1
-            Log.llm.info("live: recall surfaced kind=\(kind.rawValue) (\(recallsUsed)/\(Self.recallsPerMeeting))")
-            raise(LiveRecall(kind: kind, text: text, sourceMeetingID: source, sourceLabel: label))
+            Log.llm.info(
+                "live: recall surfaced kind=\(kind.rawValue) concept=\(chosen.conceptID != nil) (\(recallsUsed)/\(Self.recallsPerMeeting))"
+            )
+            raise(LiveRecall(
+                kind: kind,
+                text: text,
+                sourceMeetingID: source,
+                sourceLabel: label,
+                conceptID: chosen.conceptID,
+                replacement: verdict.replacement?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ))
         } catch {
             Log.llm.error("live: recall failed: \(error.localizedDescription)")
         }

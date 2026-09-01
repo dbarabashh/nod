@@ -386,6 +386,7 @@ struct MeetingLookup {
                 matchCount: Self.memoryMatches,
                 meetingIDs: scope.meetingIDs
             )
+            .chunks
             .filter { $0.similarity >= LiveMeetingAnalyst.recallFloor }
             Log.llm.info("live: lookup memory scope=\(scope.label ?? "all") hits=\(matches.count)")
             return matches.map { Remembered(text: $0.content, source: sessionLabel($0.meetingID)) }

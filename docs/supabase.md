@@ -405,10 +405,12 @@ Supabase secrets.
 Still to do at deploy time, deliberately not done ahead:
 
 - **Vault** on each branch: `supabase_project_url` and `internal_job_secret`
-  (the same value as the branch's `INTERNAL_JOB_SECRET`). Sandbox has both;
-  production does not, on purpose — with an empty vault
-  `invoke_internal_edge_job` returns null and stays silent, so the schedules that
-  arrive with the migrations cannot hammer functions that are not deployed yet.
+  (the same value as the branch's `INTERNAL_JOB_SECRET`). Both branches carry
+  both (verified on production 2026-09-01: the vault holds them and the resend/
+  billing schedules run through them), so any schedule arriving with a future
+  migration — `answer-stale-beats` included — goes live the moment its function
+  is deployed. Anything that must stay dark needs its own gate, not an empty
+  vault.
 - **Verify the live referral discount.** Production already has
   `PADDLE_REFERRAL_DISCOUNT_ID`. Its `restrict_to` must list the live Pro monthly
   price — Paddle rejects a transaction whose item the discount does not cover, and

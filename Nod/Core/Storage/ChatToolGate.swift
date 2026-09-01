@@ -67,10 +67,14 @@ final class ChatToolGate: ObservableObject {
     /// Optional so a store built without one keeps the strictest behaviour:
     /// a gate that cannot read the preference asks, it does not assume.
     private let approvalPreference: ToolApprovalPreference?
+    /// Where an answered card is counted, when the surface counts them at all.
+    /// Optional so the live analyst's gate keeps working without one.
+    private let approvalLog: ToolApprovalLog?
 
-    init(unattended: Bool = false, approval: ToolApprovalPreference? = nil) {
+    init(unattended: Bool = false, approval: ToolApprovalPreference? = nil, log: ToolApprovalLog? = nil) {
         self.unattended = unattended
         approvalPreference = approval
+        approvalLog = log
     }
 
     /// Called when a new question starts, so the last one's scaffolding doesn't
@@ -108,6 +112,7 @@ final class ChatToolGate: ObservableObject {
         // its card exactly as before.
         if approvalPreference?.runsUnasked(tools, from: provider) == true {
             Log.ui.info("\(calls.count) \(provider.rawValue) read(s) allowed without asking")
+            approvalLog?.record(provider: provider, tools: tools, allowed: true, unasked: true)
             return await settle(calls, tools: tools, provider: provider, using: integrations, allowed: true, onApproved: onApproved)
         }
         Log.ui.info("awaiting approval for \(calls.count) \(provider.rawValue) call(s)")
@@ -135,6 +140,7 @@ final class ChatToolGate: ObservableObject {
             Task { @MainActor [weak self] in self?.cancelPending() }
         }
         pending = nil
+        approvalLog?.record(provider: provider, tools: tools, allowed: allowed, unasked: false)
         return await settle(calls, tools: tools, provider: provider, using: integrations, allowed: allowed, onApproved: onApproved)
     }
 

@@ -57,7 +57,7 @@ final class ActionProposalStore: ObservableObject {
     /// finalized twice — a retry, a relaunch replay — proposes the same work
     /// once. That is the whole reason the constraint is in the database rather
     /// than in a check here.
-    func raise(_ drafts: [ProposalDraft], meetingID: UUID, userID: UUID) async {
+    func raise(_ drafts: [ProposalDraft], meetingID: UUID, userID: UUID, agentID: UUID? = nil) async {
         guard let supabase, !drafts.isEmpty else { return }
         struct Row: Encodable {
             let userID: UUID
@@ -69,6 +69,7 @@ final class ActionProposalStore: ObservableObject {
             let confidence: Double
             let confidenceParts: [String: Double]
             let evidenceIdx: Int?
+            let raisedByAgent: UUID?
 
             enum CodingKeys: String, CodingKey {
                 case userID = "user_id"
@@ -80,6 +81,7 @@ final class ActionProposalStore: ObservableObject {
                 case confidence
                 case confidenceParts = "confidence_parts"
                 case evidenceIdx = "evidence_idx"
+                case raisedByAgent = "raised_by_agent"
             }
         }
 
@@ -93,7 +95,8 @@ final class ActionProposalStore: ObservableObject {
                 parameters: $0.parameters,
                 confidence: $0.confidence.overall,
                 confidenceParts: $0.confidence.stored,
-                evidenceIdx: $0.evidenceIdx
+                evidenceIdx: $0.evidenceIdx,
+                raisedByAgent: agentID
             )
         }
         do {
@@ -136,6 +139,45 @@ final class ActionProposalStore: ObservableObject {
             _ = try await supabase
                 .rpc("reject_proposal", params: Params(p_proposal: proposal.id))
                 .execute()
+        }
+    }
+
+    /// What the server said when asked to approve with nobody watching.
+    enum AutoApproval {
+        case approved
+        /// The standing authority lapsed or was spent — the agent goes back to
+        /// asking, which is the whole design of an expiry.
+        case authorityLapsed
+        case refused
+    }
+
+    /// Asks the server to approve an agent's draft under its standing grant.
+    /// The server re-checks everything at the moment of use and answers with a
+    /// verdict word — never an exception to parse prose out of.
+    func autoApprove(_ proposal: ActionProposal) async -> AutoApproval {
+        guard let supabase else { return .refused }
+        struct Params: Encodable {
+            let p_proposal: String
+        }
+        do {
+            let verdict: String = try await supabase
+                .rpc("agent_approve_proposal", params: Params(p_proposal: proposal.id.uuidString))
+                .execute()
+                .value
+            switch verdict {
+            case "approved":
+                apply(.approved, to: proposal.id)
+                return .approved
+            case "grant_expired", "grant_budget_spent":
+                Log.ui.info("auto-approve declined: \(verdict)")
+                return .authorityLapsed
+            default:
+                Log.ui.info("auto-approve declined: \(verdict)")
+                return .refused
+            }
+        } catch {
+            Log.ui.error("auto-approve failed: \(error.localizedDescription)")
+            return .refused
         }
     }
 

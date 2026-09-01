@@ -66,6 +66,7 @@ final class MeetingEnrichment {
     private let llm: LLMProxyClient
     private let meetingStore: MeetingStore
     private let entityStore: EntityStore
+    private let agents: AgentStore
     private let knowledgeStore: KnowledgeStore
     private let actionItemStore: ActionItemStore
 
@@ -73,12 +74,14 @@ final class MeetingEnrichment {
         llm: LLMProxyClient,
         meetingStore: MeetingStore,
         entityStore: EntityStore,
+        agents: AgentStore,
         knowledgeStore: KnowledgeStore,
         actionItemStore: ActionItemStore
     ) {
         self.llm = llm
         self.meetingStore = meetingStore
         self.entityStore = entityStore
+        self.agents = agents
         self.knowledgeStore = knowledgeStore
         self.actionItemStore = actionItemStore
     }
@@ -216,7 +219,24 @@ final class MeetingEnrichment {
         // WORKER_RESOURCE_LIMIT (HTTP 546) when it shares a worker instance with
         // the entity call. Nothing waits on it — least of all the transcript's
         // speaker chips, which are final by now.
-        Task { await knowledgeStore.index(meetingID: meeting.id, transcript: transcript) }
+        // Distillation follows in the same task, not beside it: it wants the
+        // entities this pass just saved, and running it after the index keeps
+        // the two edge calls off one worker instance.
+        let producedWork = !saved.isEmpty
+        Task { [agents] in
+            await knowledgeStore.index(meetingID: meeting.id, transcript: transcript)
+            await knowledgeStore.distill(meetingID: meeting.id)
+            // Agents run last: their grounded turn wants the session already
+            // searchable, and their on-change gate wants to know whether it
+            // produced work at all. Mining follows — a landed meeting is the
+            // only moment a habit's support can have grown.
+            await agents.runAfterMeeting(
+                meeting: meeting,
+                producedWork: producedWork,
+                itemTitles: saved.map(\.text)
+            )
+            await agents.refreshCandidates()
+        }
         return saved
     }
 

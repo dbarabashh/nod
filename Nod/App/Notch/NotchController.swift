@@ -20,6 +20,11 @@ struct NotchCardEnvironment {
     let meetingGrants: MeetingGrantStore
     let organizations: OrganizationService
     let meetings: MeetingStore
+    /// The recap card's knowledge line reads the distillation outcome from the
+    /// same store the main window searches with.
+    let knowledge: KnowledgeStore
+    /// The recap card's pattern offer, and the agents it creates.
+    let agents: AgentStore
 }
 
 @MainActor
@@ -54,6 +59,8 @@ final class NotchController {
             .environmentObject(cards.meetingGrants)
             .environmentObject(cards.organizations)
             .environmentObject(cards.meetings)
+            .environmentObject(cards.knowledge)
+            .environmentObject(cards.agents)
         let panel = NotchPanel(content: content, sharing: sharing)
         self.panel = panel
         anchor()

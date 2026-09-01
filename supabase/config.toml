@@ -366,6 +366,10 @@ verify_jwt = false
 [functions.send-beat-push]
 verify_jwt = false
 
+# Woken by pg_cron with the internal job secret; no user session exists.
+[functions.beat-worker]
+verify_jwt = false
+
 # Resend signs deliveries with Svix (HMAC over the raw body), verified in the
 # function itself.
 [functions.resend-webhook]

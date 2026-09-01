@@ -68,6 +68,13 @@ struct LiveRecall: Identifiable, Equatable {
     let sourceLabel: String
     let origin: Origin
     let foundAt: Date
+    /// Set when the recalled claim is a distilled concept rather than a raw
+    /// passage. It is what makes the card correctable: a concept can be marked
+    /// superseded in one tap, a paraphrased chunk cannot.
+    let conceptID: UUID?
+    /// Only for a contradiction over a concept: the sentence that becomes the
+    /// claim's current version if the user confirms the room is right.
+    let replacement: String?
 
     init(
         kind: Kind,
@@ -75,7 +82,9 @@ struct LiveRecall: Identifiable, Equatable {
         sourceMeetingID: UUID,
         sourceLabel: String,
         origin: Origin = .memory,
-        foundAt: Date = Date()
+        foundAt: Date = Date(),
+        conceptID: UUID? = nil,
+        replacement: String? = nil
     ) {
         id = UUID()
         self.kind = kind
@@ -84,6 +93,15 @@ struct LiveRecall: Identifiable, Equatable {
         self.sourceLabel = sourceLabel
         self.origin = origin
         self.foundAt = foundAt
+        self.conceptID = conceptID
+        self.replacement = replacement
+    }
+
+    /// Whether the card may offer "this replaces it": the room contradicted a
+    /// concept, and the judge wrote down what the room said instead.
+    var offersReplacement: Bool {
+        kind == .contradiction && conceptID != nil
+            && !(replacement ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// How long it has been open, as the card says it. Nil for anything that is

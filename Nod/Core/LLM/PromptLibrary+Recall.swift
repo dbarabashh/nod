@@ -49,8 +49,11 @@ extension PromptLibrary {
 
         WRITE the text as one sentence, in \(lang), in the user's own terms — what they decided or promised or said, not "the transcript mentions". No preamble, no hedging, no quotes around it.
 
+        For "contradiction" ONLY, also WRITE `replacement`: one sentence, in \(lang), stating what is being said NOW \
+        — the new position that contradicts the old one, as a standalone fact. Empty for every other kind.
+
         [OUTPUT] Respond with ONLY this JSON object, no prose, no code fence:
-        {"surface": false, "source": 0, "kind": "", "text": ""}
+        {"surface": false, "source": 0, "kind": "", "text": "", "replacement": ""}
         `surface` is false unless every bar above is cleared. When true, `source` is the number of the excerpt you used.
         """
 
@@ -75,5 +78,8 @@ extension PromptLibrary {
         let source: Int?
         let kind: String?
         let text: String?
+        /// Only for a contradiction: what the room is saying now, as the
+        /// sentence that would replace the recalled fact if the user agrees.
+        let replacement: String?
     }
 }

@@ -274,6 +274,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             entityStore: services.entityStore,
             knowledgeStore: services.knowledgeStore,
             actionItemStore: services.actionItemStore,
+            agents: services.agentStore,
             language: services.languagePreference,
             proactivity: services.proactivityPreference,
             auth: services.auth,
@@ -369,6 +370,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 entitlements: services.entitlements,
                 billing: services.billing,
                 meetingStore: services.meetingStore,
+                knowledge: services.knowledgeStore,
                 permissions: services.permissions,
                 analytics: services.productAnalytics
             ),
@@ -379,7 +381,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 drafts: services.taskDrafts,
                 meetingGrants: services.meetingGrants,
                 organizations: services.organizations,
-                meetings: services.meetingStore
+                meetings: services.meetingStore,
+                knowledge: services.knowledgeStore,
+                agents: services.agentStore
             ),
             sharing: services.panelSharing.sharingType
         )
@@ -488,6 +492,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                     .environmentObject(services.knowledgeThreads)
                     .environmentObject(services.beats)
                     .environmentObject(services.beatRunner)
+                    .environmentObject(services.agentStore)
                     .environmentObject(services.actionItemStore)
                     .environmentObject(services.integrations)
                     .environmentObject(services.integrationCatalogue)

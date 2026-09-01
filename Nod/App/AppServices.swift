@@ -43,6 +43,7 @@ struct AppServices {
     let knowledgeChat: KnowledgeChatStore
     /// Saved cross-session conversations, listed and reopened from the rail.
     let knowledgeThreads: KnowledgeThreadStore
+    let agentStore: AgentStore
     /// Saved questions that ask themselves on a schedule, and what came of
     /// each run.
     let beats: BeatStore
@@ -236,25 +237,45 @@ struct AppServices {
         let modeStore = ModeStore()
         let beats = BeatStore(supabase: supabase, auth: auth)
         let toolApproval = ToolApprovalPreference()
-        // A second chat store, not the one on screen. A beat answering at 09:00
-        // must not clear the conversation somebody is in the middle of typing —
-        // and `unattended` is what takes every mutating tool off its table.
-        let beatChat = KnowledgeChatStore(
-            llm: llmClient,
-            knowledge: knowledgeStore,
-            meetings: meetingStore,
-            labels: labelStore,
-            profile: profileStore,
-            language: languagePreference,
-            entities: entityStore,
-            actionItems: actionItemStore,
+        let toolApprovalLog = ToolApprovalLog(supabase: supabase)
+        // Three chats, one recipe: the attended one on screen, and one
+        // unattended store per background writer (beats, agents) so a run at
+        // 09:00 can't clear a conversation somebody is typing into — and so a
+        // new dependency is threaded in exactly one place.
+        func makeChat(
+            unattended: Bool,
+            toolApproval: ToolApprovalPreference? = nil,
+            toolLog: ToolApprovalLog? = nil
+        ) -> KnowledgeChatStore {
+            KnowledgeChatStore(
+                llm: llmClient,
+                knowledge: knowledgeStore,
+                meetings: meetingStore,
+                labels: labelStore,
+                profile: profileStore,
+                language: languagePreference,
+                entities: entityStore,
+                actionItems: actionItemStore,
+                threads: knowledgeThreads,
+                feedback: retrievalFeedback,
+                integrations: integrations,
+                screenContext: screenContext,
+                calendar: calendar,
+                organizations: organizations,
+                unattended: unattended,
+                toolApproval: toolApproval,
+                toolLog: toolLog
+            )
+        }
+        let beatChat = makeChat(unattended: true)
+        // The agents' own unattended chat — see `makeChat`.
+        let agentChat = makeChat(unattended: true)
+        let agentStore = AgentStore(
+            supabase: supabase,
+            chat: agentChat,
             threads: knowledgeThreads,
-            feedback: retrievalFeedback,
-            integrations: integrations,
-            screenContext: screenContext,
-            calendar: calendar,
-            organizations: organizations,
-            unattended: true
+            llm: llmClient,
+            proposals: actionProposals
         )
 
         return AppServices(
@@ -273,28 +294,20 @@ struct AppServices {
             meetingStore: meetingStore,
             meetingOutbox: MeetingOutbox(),
             profileStore: profileStore,
-            chatStore: ChatStore(supabase: supabase, llm: llmClient, integrations: integrations, toolApproval: toolApproval),
+            chatStore: ChatStore(
+                supabase: supabase,
+                llm: llmClient,
+                integrations: integrations,
+                toolApproval: toolApproval,
+                toolLog: toolApprovalLog
+            ),
             reachability: NetworkReachability(),
             entityStore: entityStore,
             actionItemStore: actionItemStore,
             knowledgeStore: knowledgeStore,
-            knowledgeChat: KnowledgeChatStore(
-                llm: llmClient,
-                knowledge: knowledgeStore,
-                meetings: meetingStore,
-                labels: labelStore,
-                profile: profileStore,
-                language: languagePreference,
-                entities: entityStore,
-                actionItems: actionItemStore,
-                threads: knowledgeThreads,
-                feedback: retrievalFeedback,
-                integrations: integrations,
-                screenContext: screenContext,
-                calendar: calendar,
-                organizations: organizations
-            ),
+            knowledgeChat: makeChat(unattended: false, toolLog: toolApprovalLog),
             knowledgeThreads: knowledgeThreads,
+            agentStore: agentStore,
             beats: beats,
             beatRunner: BeatRunner(
                 beats: beats,

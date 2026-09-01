@@ -212,6 +212,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // already turned it on, and is a no-op otherwise.
         services.screenContext.refresh()
         services.beatRunner.start()
+        // One-time catch-up: sessions recorded before the distiller existed
+        // get their facts extracted now, so the knowledge layer doesn't start
+        // empty for everyone who upgrades into it.
+        Task { await services.knowledgeStore.backfillDistill() }
 
         panelSharingObserveTask = Task { @MainActor [weak windows] in
             // `@Published` fires in willSet, so use the yielded value rather

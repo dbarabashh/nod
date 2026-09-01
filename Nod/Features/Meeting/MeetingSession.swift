@@ -327,6 +327,7 @@ final class MeetingSession: ObservableObject {
         entityStore: EntityStore,
         knowledgeStore: KnowledgeStore,
         actionItemStore: ActionItemStore,
+        agents: AgentStore,
         language: LanguagePreference,
         proactivity: ProactivityPreference,
         auth: AuthService,
@@ -373,6 +374,7 @@ final class MeetingSession: ObservableObject {
             llm: llm,
             meetingStore: meetingStore,
             entityStore: entityStore,
+            agents: agents,
             knowledgeStore: knowledgeStore,
             actionItemStore: actionItemStore
         )

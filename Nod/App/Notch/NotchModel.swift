@@ -60,6 +60,7 @@ final class NotchModel: ObservableObject {
     /// generating/finished state `MeetingDetailView` already reads, just
     /// surfaced in the notch too instead of only in the full window.
     private let meetingStore: MeetingStore
+    let knowledge: KnowledgeStore
     private let profiles: ProfileStore
     private let briefing: CallBriefing
     private let consent: ConsentPreference
@@ -152,6 +153,7 @@ final class NotchModel: ObservableObject {
         entitlements: EntitlementService,
         billing: BillingService,
         meetingStore: MeetingStore,
+        knowledge: KnowledgeStore,
         permissions: PermissionManager,
         analytics: ProductAnalytics,
         defaults: UserDefaults = .standard
@@ -172,6 +174,7 @@ final class NotchModel: ObservableObject {
         self.entitlements = entitlements
         self.billing = billing
         self.meetingStore = meetingStore
+        self.knowledge = knowledge
         self.permissions = permissions
         self.analytics = analytics
         self.defaults = defaults
@@ -291,6 +294,29 @@ final class NotchModel: ObservableObject {
 
     func dismissRecall() {
         session.analyst.dismissRecall()
+    }
+
+    /// The recall card's "this replaces it": the room contradicted a distilled
+    /// fact and the user confirmed the room is right. Marks the old concept
+    /// superseded, records the new sentence as current, and only then takes
+    /// the card down — a correction that failed leaves the card standing
+    /// rather than pretending it happened.
+    func confirmReplacement(_ recall: LiveRecall) {
+        guard let conceptID = recall.conceptID,
+              let replacement = recall.replacement,
+              !replacement.isEmpty
+        else { return }
+        let meetingID = session.analyst.currentMeetingID
+        Task { [knowledge, session] in
+            let landed = await knowledge.supersede(
+                conceptID: conceptID,
+                with: replacement,
+                meetingID: meetingID
+            )
+            if landed {
+                session.analyst.dismissRecall()
+            }
+        }
     }
 
     /// Opens the session the recall came from. Takes the card down first: it

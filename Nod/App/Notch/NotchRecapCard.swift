@@ -26,6 +26,13 @@ struct NotchRecapCard: View {
     /// Only to answer whether the meeting has reached the server yet — sharing
     /// it before then would ask the backend about a row it does not have.
     @EnvironmentObject private var meetingStore: MeetingStore
+    /// For the knowledge line alone: what this session's distillation changed.
+    /// Zero changes — the expected case — renders nothing at all.
+    @EnvironmentObject private var knowledge: KnowledgeStore
+    /// For the pattern offer: a habit the miner counted, shown exactly where
+    /// the repetition happens — under the proposals the user keeps approving —
+    /// and nowhere else.
+    @EnvironmentObject private var agents: AgentStore
 
     private static let maxHeight: CGFloat = 300
 
@@ -112,6 +119,10 @@ struct NotchRecapCard: View {
                             }
                         }
                     }
+
+                    knowledgeLine(for: meeting.id)
+                    patternOffer
+                    grantOffer
                 }
                 .padding(.trailing, 4)
             }
@@ -141,6 +152,124 @@ struct NotchRecapCard: View {
                 NotchGlyphButton(icon: "nc-arrow-up-right", help: "Open in Nod") { onExpand(meeting.id) }
             }
         }
+    }
+
+    /// What this session taught the knowledge layer, said in one line. Shown
+    /// only when distillation for THIS meeting changed something: most
+    /// sessions restate what is already known, and a "0 facts" line every time
+    /// would teach the user the line means nothing.
+    @ViewBuilder
+    private func knowledgeLine(for meetingID: UUID) -> some View {
+        if let outcome = knowledge.lastDistillation,
+           outcome.meetingID == meetingID,
+           outcome.counts.changed > 0 {
+            HStack(spacing: 5) {
+                Image("nc-sparkle-3")
+                    .icon(10)
+                    .foregroundStyle(Theme.Palette.violet)
+                Text(Self.knowledgeSummary(outcome.counts))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.muted)
+            }
+        }
+    }
+
+    /// One habit, with its receipts and three answers. Appears only for a
+    /// person whose own history earned it, and never twice for a dismissed
+    /// one — `answer_pattern_candidate` refuses to resurrect those.
+    @ViewBuilder
+    private var patternOffer: some View {
+        if let candidate = agents.offerableCandidate {
+            VStack(alignment: .leading, spacing: 5) {
+                SectionLabel("A habit Nod noticed", size: .compact)
+                Text(Self.patternOfferLine(candidate))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.Palette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    Text(candidate.evidenceLabel)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.muted)
+                    Spacer(minLength: 0)
+                    Button("Not useful") {
+                        Task { await agents.dismiss(candidate) }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .linkCursor()
+                    Button("Try it") {
+                        Task { await agents.accept(candidate) }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.brand)
+                    .linkCursor()
+                }
+            }
+        }
+    }
+
+    /// The offer of standing authority, earned by arithmetic: this agent's
+    /// drafts keep being approved untouched. Granting names the exact scope —
+    /// one action, five a week, ninety days — and declining costs nothing:
+    /// the agent keeps asking, which is what it was already doing.
+    @ViewBuilder
+    private var grantOffer: some View {
+        if let offer = agents.grantOffer {
+            VStack(alignment: .leading, spacing: 5) {
+                SectionLabel("Standing grant", size: .compact)
+                Text(Self.grantOfferLine(offer.agent, approvals: offer.approvals))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.Palette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    Spacer(minLength: 0)
+                    Button("Keep asking") {
+                        agents.declineStanding(offer.agent)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .linkCursor()
+                    Button("Grant \(AgentStore.grantDays) days") {
+                        Task { await agents.grantStanding(offer.agent) }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.brand)
+                    .linkCursor()
+                }
+            }
+        }
+    }
+
+    static func grantOfferLine(_ agent: Agent, approvals: Int) -> String {
+        let what = [agent.draftActionPhrase, agent.draftProviderName.map { "in \($0)" }]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        return "\(agent.title) has drafted right \(approvals) times, nothing rejected. "
+            + "Let it file \(what.isEmpty ? "these" : what) itself — "
+            + "up to \(AgentStore.grantPerWeek) a week, expires in \(AgentStore.grantDays) days?"
+    }
+
+    static func patternOfferLine(_ candidate: PatternCandidate) -> String {
+        "You've approved \(candidate.actionPhrase) in \(candidate.providerName) "
+            + "\(candidate.support) times. Want a brief after sessions that produce more?"
+    }
+
+    static func knowledgeSummary(_ counts: DistillCounts) -> String {
+        var parts: [String] = []
+        if counts.added > 0 {
+            parts.append(counts.added == 1 ? "1 fact learned" : "\(counts.added) facts learned")
+        }
+        if counts.updated > 0 {
+            parts.append(counts.updated == 1 ? "1 updated" : "\(counts.updated) updated")
+        }
+        if counts.retired > 0 {
+            parts.append(counts.retired == 1 ? "1 retired" : "\(counts.retired) retired")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func actionRow(_ item: ActionItem) -> some View {

@@ -235,6 +235,10 @@ struct NotchRecall: View {
     let recall: LiveRecall
     let onOpenSource: () -> Void
     let onDismiss: () -> Void
+    /// Present only when the recalled claim is a concept the room just
+    /// contradicted: one tap records the room's version as current. Everything
+    /// else keeps the two actions this card has always had.
+    var onReplace: (() -> Void)?
 
     /// A loop reads as its own kind of moment, not as a recall that happens to
     /// be about a task. It is the one thing on this surface that is *owed* —
@@ -270,6 +274,13 @@ struct NotchRecall: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(tint)
                         .linkCursor()
+                    if let onReplace {
+                        Button("This replaces it", action: onReplace)
+                            .buttonStyle(.plain)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Theme.Palette.brand)
+                            .linkCursor()
+                    }
                 }
                 .padding(.top, 1)
             }

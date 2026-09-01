@@ -184,6 +184,22 @@ final class KnowledgeThreadStore: ObservableObject {
     /// Marks a finished thread as a beat's answer and names it after the beat.
     /// Done after the run rather than before, so a beat that fails leaves no
     /// half-written thread claiming to be its answer.
+    /// Titles a thread an agent just wrote, so the Ask list shows the agent's
+    /// name rather than the first words of its prompt. Unlike a beat's
+    /// `attach`, the thread stays in the list — an after-meeting brief is
+    /// meant to be seen there.
+    func rename(threadID: UUID, title: String) async {
+        do {
+            try await supabase
+                .from(Self.threadsTable)
+                .update(["title": Self.trimmedTitle(title)])
+                .eq("id", value: threadID.uuidString)
+                .execute()
+        } catch {
+            Log.ui.error("thread rename failed: \(error.localizedDescription)")
+        }
+    }
+
     func attach(threadID: UUID, to beatID: UUID, title: String) async {
         struct Attachment: Encodable {
             let beat_id: String

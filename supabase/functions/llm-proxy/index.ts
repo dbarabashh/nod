@@ -26,6 +26,7 @@ import { forwardChat } from "../_shared/chat.ts";
 import { recordUsage } from "../_shared/usage.ts";
 import { audioSecondsFromPayload, reportedCostUsd, sttRates, transcribeCostUsd } from "../_shared/stt-cost.ts";
 import { handleIndex, handleSearch, requiredSearchFeature } from "../_shared/search.ts";
+import { handleDistill } from "../_shared/knowledge.ts";
 import { leaseConflictStatus, meetingIdFromPayload, transcribeLeasePayload } from "../_shared/meeting-lease.ts";
 
 const OPENROUTER_API_KEY        = Deno.env.get("OPENROUTER_API_KEY");
@@ -46,6 +47,7 @@ type Kind =
     | "transcribe"
     | "index"
     | "search"
+    | "distill"
     | "device_claim"
     | "device_release"
     | "meeting_start"
@@ -347,6 +349,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
             return handleIndex(body.payload, user.id);
         case "search":
             return handleSearch(body.payload, user.id);
+        case "distill":
+            return handleDistill(body.payload, user.id);
         default:
             return json({ error: `Unknown kind: ${body.kind}` }, 400);
     }

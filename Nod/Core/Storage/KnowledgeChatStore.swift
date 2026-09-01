@@ -233,10 +233,11 @@ final class KnowledgeChatStore: ObservableObject {
         calendar: CalendarService? = nil,
         organizations: OrganizationService? = nil,
         unattended: Bool = false,
-        toolApproval: ToolApprovalPreference? = nil
+        toolApproval: ToolApprovalPreference? = nil,
+        toolLog: ToolApprovalLog? = nil
     ) {
         self.unattended = unattended
-        toolGate = ChatToolGate(unattended: unattended, approval: toolApproval)
+        toolGate = ChatToolGate(unattended: unattended, approval: toolApproval, log: toolLog)
         self.integrations = integrations
         self.llm = llm
         self.knowledge = knowledge
@@ -1500,8 +1501,8 @@ extension KnowledgeChatStore {
             // Its own round trip, independent of the corpus search — so it runs
             // alongside rather than after it, as in the `.specific` branch.
             async let screening = observed(for: query, aboutScreen: aboutScreen)
-            let chunks = await knowledge.search(query: query, meetingIDs: scopedIDs, embedText: embedText)
-            let relevant = Self.worthGrounding(chunks)
+            let hits = await knowledge.searchWithConcepts(query: query, meetingIDs: scopedIDs, embedText: embedText)
+            let relevant = Self.worthGrounding(hits.chunks)
             let grounded = Array(Set(relevant.map(\.meetingID)))
             // Started before the screen leg is joined: it depends on `chunks`
             // alone, and its two round trips would otherwise queue behind a
@@ -1514,12 +1515,20 @@ extension KnowledgeChatStore {
             // after the entity read, that the answer waits on.
             let linked = await crossed(sessions: grounded, with: screen)
             let byID = meetingsByID
+            // Distilled facts go ahead of every passage: they carry the date a
+            // thing became true, which is exactly what a passage cannot say.
+            let conceptBlock = establishedFactsBlock(hits.concepts, in: byID)
+            let conceptEvidence = hits.concepts.compactMap { concept in
+                concept.meetingID.flatMap { byID[$0] }.map {
+                    excerpt(for: $0, text: concept.body, similarity: concept.similarity)
+                }
+            }
             return Grounding(
-                excerpts: relevant.map { labeledExcerpt($0, in: byID) },
+                excerpts: conceptBlock + relevant.map { labeledExcerpt($0, in: byID) },
                 sources: resolveSources(relevant, in: byID) + screen.apps + linked.apps,
                 evidence:
                 // A row we can't name can't be opened either, so it isn't shown.
-                Self.strongestPerSession(relevant.compactMap { chunk in
+                conceptEvidence + Self.strongestPerSession(relevant.compactMap { chunk in
                     byID[chunk.meetingID].map {
                         excerpt(for: $0, text: chunk.content, similarity: chunk.similarity)
                     }
@@ -1725,5 +1734,28 @@ extension KnowledgeChatStore {
     private func labeledExcerpt(_ chunk: RetrievedChunk, in byID: [UUID: Meeting]) -> String {
         let label = byID[chunk.meetingID].map { groundingLabel(for: $0) } ?? "a past session"
         return "[From: \(label)]\n\(chunk.content)"
+    }
+
+    /// The concept stage's contribution to the prompt: one block, a dated line
+    /// per fact, ahead of the passages. Empty while reading ships dark, and
+    /// for every question that names no tracked entity — the block simply
+    /// doesn't exist then.
+    private func establishedFactsBlock(
+        _ concepts: [RetrievedConcept],
+        in byID: [UUID: Meeting]
+    ) -> [String] {
+        guard !concepts.isEmpty else { return [] }
+        let lines = concepts.map { concept in
+            let date = concept.validFromLabel.map { " (since \($0))" } ?? ""
+            let origin = if let meetingID = concept.meetingID, let meeting = byID[meetingID] {
+                " — \(groundingLabel(for: meeting))"
+            } else if let provider = concept.provider, let key = concept.externalKey {
+                " — \(provider) \(key)"
+            } else {
+                ""
+            }
+            return "- [\(concept.kind)]\(date) \(concept.body)\(origin)"
+        }
+        return [PromptLibrary.establishedFactsHeader + "\n" + lines.joined(separator: "\n")]
     }
 }

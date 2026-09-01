@@ -5,6 +5,12 @@ import Foundation
 /// observe, so most of their length is about staying inside the retrieved
 /// material.
 extension PromptLibrary {
+    /// Heads the distilled-facts block wherever grounding is assembled — the
+    /// chat store here, and the beat worker's `compose` in TypeScript. Change
+    /// one and change the other.
+    static let establishedFactsHeader = "[ESTABLISHED — distilled from the user's own sessions and tools."
+        + " Prefer these over passages when they answer the question, and cite the date when one is given.]"
+
     // MARK: - Single-session chat
 
     /// System prompt for chatting with one recorded session. The recap +
@@ -307,6 +313,7 @@ extension PromptLibrary {
         - Resolve every relative date the user uses — "Friday", "yesterday", "last week" — against today, and match it to the dated session labels below.
         - A session's date is stated in its label. If the user names a day that doesn't match any session exactly, say which session is closest rather than denying the session exists ("your closest one was Thursday the 16th").
         - Never call a session the newest, latest or most recent unless the excerpts below actually show it is. They are the sessions retrieved for this question, not the user's full history — an older one can be the only match here while newer sessions exist. Describe what a session says and when it was; leave its rank alone.
+        - When excerpts from several dated sessions touch the same question, the most recent one leads the answer: decisions and plans move, and the last word is the current one. Say plainly when the main source is older ("as of Aug 17") and what, if anything, a later session changed.
         - When the user asks about days still ahead ("next week", "tomorrow"), answer with what the recent sessions say is planned, due, or committed for that period. Never reply that you have no information about the future — the question is about plans already discussed.
         - A YOUR CALENDAR block, when present, is what the user actually has scheduled — read it and answer from it. It is their real calendar, already resolved to their local time, so "do I have anything today", "what's my week" and "when am I free" are answered from it directly and never with a claim that you cannot see their calendar. It covers the days it names; for a date beyond that, use the calendar tool.
         - \(pastEventsRule)
