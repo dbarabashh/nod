@@ -786,6 +786,24 @@ enum ChatTools {
         ),
         ChatTool(
             provider: .googleCalendar,
+            name: "google-calendar_check_availability",
+            description: [
+                "Read when people are busy, from their calendars' free/busy — no titles, just blocks.",
+                "Use before proposing or scheduling a meeting with anyone, so the slot doesn't overlap.",
+                "A person marked unreadable could not be checked — say so rather than assuming they're free."
+            ].joined(separator: " "),
+            parameters: ChatToolSchema(
+                properties: [
+                    "attendees": .init(description: "Comma-separated emails to check."),
+                    "starts_at": .init(description: "RFC3339 start of the window to check."),
+                    "ends_at": .init(description: "RFC3339 end of the window, at most a week later.")
+                ],
+                required: ["attendees", "starts_at", "ends_at"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .googleCalendar,
             // Hyphen, not underscore: `action` is this string minus
             // `provider.rawValue`, and the raw value is `google-calendar`.
             name: "google-calendar_create_event",

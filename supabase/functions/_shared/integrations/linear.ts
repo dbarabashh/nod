@@ -73,12 +73,16 @@ async function stateOfType(connection: Connection, teamID: string, type: string)
         `query($team: ID!, $type: String!) {
             workflowStates(
                 filter: { team: { id: { eq: $team } }, type: { eq: $type } }
-                first: 1
-            ) { nodes { id } }
+                first: 10
+            ) { nodes { id position } }
         }`,
         { team: teamID, type },
     );
-    const state = (data.workflowStates as { nodes?: { id: string }[] } | undefined)?.nodes?.[0];
+    // The leftmost column of that type, not whichever Linear listed first: a
+    // team with "In Progress" and "In Review" both typed `started` should land
+    // work in the one people mean by "started".
+    const state = ((data.workflowStates as { nodes?: { id: string; position?: number }[] } | undefined)?.nodes ?? [])
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
     if (!state) {
         throw new ActionError("no_state", `This Linear team has no "${type}" column.`);
     }
@@ -298,6 +302,16 @@ export const LINEAR_ACTIONS: ActionHandlers = {
         const assigneeId = typeof params.assigneeId === "string" && params.assigneeId.trim()
             ? params.assigneeId.trim()
             : undefined;
+        // Optional starting column, named by workflow *type* — the one
+        // vocabulary every Linear team shares. Absent means the team's default,
+        // exactly as before this parameter existed.
+        const stateType = typeof params.state === "string" && params.state.trim()
+            ? params.state.trim().toLowerCase()
+            : undefined;
+        if (stateType && !["backlog", "unstarted", "started", "completed"].includes(stateType)) {
+            throw new ActionError("invalid_params", "`state` must be backlog, unstarted, started or completed.");
+        }
+        const stateId = stateType ? await stateOfType(connection, teamId, stateType) : undefined;
 
         const data = await graphql(
             connection,
@@ -307,7 +321,7 @@ export const LINEAR_ACTIONS: ActionHandlers = {
                     issue { identifier title url }
                 }
             }`,
-            { input: { title, description, teamId, assigneeId } },
+            { input: { title, description, teamId, assigneeId, stateId } },
         );
         const result = data.issueCreate as {
             success?: boolean;

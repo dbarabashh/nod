@@ -40,13 +40,17 @@ final class ChatToolActionTests: XCTestCase {
 
     func testCalendarReadsWithoutApprovalAndWritesWithIt() {
         let tools = ChatTools.definitions(for: [.googleCalendar])
-        XCTAssertEqual(Set(tools.map(\.action)), ["list_events", "create_event", "update_event", "delete_event"])
+        XCTAssertEqual(
+            Set(tools.map(\.action)),
+            ["list_events", "check_availability", "create_event", "update_event", "delete_event"]
+        )
         // Reading back the user's own calendar needs no confirmation. Every
         // write does: `sendUpdates=all` puts mail in other people's inboxes and
         // changes their calendars, and none of it can be recalled. `mutating`
         // is also what keeps these off the unattended chat and outside "always
         // allow", so a write mislabelled here would run without a card.
         XCTAssertEqual(tools.first { $0.action == "list_events" }?.mutating, false)
+        XCTAssertEqual(tools.first { $0.action == "check_availability" }?.mutating, false)
         XCTAssertEqual(tools.first { $0.action == "create_event" }?.mutating, true)
         XCTAssertEqual(tools.first { $0.action == "update_event" }?.mutating, true)
         XCTAssertEqual(tools.first { $0.action == "delete_event" }?.mutating, true)

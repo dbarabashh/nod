@@ -143,7 +143,7 @@ function attendeesOf(params: Record<string, unknown>): Array<{ email: string }> 
         ? raw.map((entry) => String(entry).trim()).filter(Boolean)
         : [];
     if (list.length > MAX_ATTENDEES) {
-        throw new ActionError("invalid_params", `At most ${MAX_ATTENDEES} attendees per event.`);
+        throw new ActionError("invalid_params", `At most ${MAX_ATTENDEES} addresses at a time.`);
     }
     for (const email of list) {
         if (!email.includes("@") || email.includes(" ")) {
@@ -270,6 +270,60 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
                         return display ? `${display} <${attendee.email}>` : attendee.email;
                     }),
             })),
+        };
+    },
+
+    /// Who is busy when, for the people a meeting is about to invite.
+    ///
+    /// Free/busy, not events: Google answers with opaque busy blocks and no
+    /// titles, which is exactly the right amount of somebody else's calendar
+    /// to read — enough to avoid an overlap, nothing to gossip about. A
+    /// calendar the caller may not query comes back marked unreadable rather
+    /// than silently free, because "no answer" and "free all day" schedule
+    /// very different meetings.
+    check_availability: async (connection, params) => {
+        const start = requireInstant(params, "starts_at");
+        const end = requireInstant(params, "ends_at");
+        if (Date.parse(end) <= Date.parse(start)) {
+            throw new ActionError("invalid_params", "`ends_at` must be after `starts_at`.");
+        }
+        if (Date.parse(end) - Date.parse(start) > 7 * 24 * 3600 * 1000) {
+            throw new ActionError("invalid_params", "Ask about at most a week at a time.");
+        }
+        const attendees = attendeesOf(params).map((attendee) => attendee.email);
+        if (attendees.length === 0) {
+            throw new ActionError("invalid_params", "`attendees` is required — whose availability?");
+        }
+
+        const answer = await proxy(connection, "calendar/v3/freeBusy", {
+            timeMin: start,
+            timeMax: end,
+            items: attendees.map((email) => ({ id: email })),
+        }) as {
+            calendars?: Record<string, {
+                busy?: { start?: string; end?: string }[];
+                errors?: { reason?: string }[];
+            }>;
+        } | null;
+
+        // Keyed by the identifier as Google chose to write it; matched without
+        // case so a readable calendar can never read as unreadable over
+        // capitalisation the person typed.
+        const calendars = Object.entries(answer?.calendars ?? {})
+            .map(([id, calendar]) => [id.toLowerCase(), calendar] as const);
+        return {
+            window: { starts_at: start, ends_at: end },
+            people: attendees.map((email) => {
+                const calendar = calendars.find(([id]) => id === email.toLowerCase())?.[1];
+                const unreadable = !calendar || (calendar.errors ?? []).length > 0;
+                return {
+                    email,
+                    readable: !unreadable,
+                    busy: (calendar?.busy ?? [])
+                        .filter((block) => block.start && block.end)
+                        .map((block) => ({ starts_at: block.start, ends_at: block.end })),
+                };
+            }),
         };
     },
 

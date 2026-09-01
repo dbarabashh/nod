@@ -434,13 +434,18 @@ final class IntegrationService: ObservableObject {
     /// Takes the draft rather than the item: what a task says is composed and
     /// approved before this is called, and re-deriving anything here would mean
     /// sending something other than what was on screen.
-    func file(_ draft: TaskDraft, in provider: IntegrationProvider) async -> ProviderLinkItem? {
+    func file(
+        _ draft: TaskDraft,
+        in provider: IntegrationProvider,
+        extra: [String: String] = [:]
+    ) async -> ProviderLinkItem? {
         guard let action = provider.taskActions?.create else { return nil }
         return await createTask(
             title: draft.title,
             description: draft.description.isEmpty ? nil : draft.description,
             in: provider,
-            action: action
+            action: action,
+            extra: extra
         )
     }
 
@@ -453,7 +458,8 @@ final class IntegrationService: ObservableObject {
         title: String,
         description: String?,
         in provider: IntegrationProvider,
-        action: String
+        action: String,
+        extra: [String: String] = [:]
     ) async -> ProviderLinkItem? {
         struct FiledTask: Decodable {
             let key: String
@@ -466,6 +472,7 @@ final class IntegrationService: ObservableObject {
 
         var params = ["title": title]
         if let description, !description.isEmpty { params["description"] = description }
+        params.merge(extra) { current, _ in current }
 
         do {
             let data = try await invokeAction(provider: provider, action: action, params: params)
@@ -550,10 +557,26 @@ final class IntegrationService: ObservableObject {
     /// exactly as far — enough to ask, not enough to link on its own. A search
     /// that fails returns nothing, so filing degrades to creating rather than
     /// stopping.
-    func existingTask(for item: ActionItem, in provider: IntegrationProvider) async -> TaskMatch? {
+    /// `alsoMatching` is a second phrasing of the same work — the drafted
+    /// title, usually — because the ticket that already exists was created
+    /// from the draft's words, not the transcript's, and searching only the
+    /// transcript's is how the twin slips past.
+    func existingTask(
+        for item: ActionItem,
+        in provider: IntegrationProvider,
+        alsoMatching phrasing: String? = nil
+    ) async -> TaskMatch? {
         guard let action = provider.taskActions?.search else { return nil }
-        let candidates = await taskSearch(query: item.text, in: provider, action: action)
-            .filter { ActionItemDedup.same($0.title, item.text) }
+        var found = await taskSearch(query: item.text, in: provider, action: action)
+        if let phrasing, !phrasing.isEmpty, !ActionItemDedup.same(phrasing, item.text) {
+            let more = await taskSearch(query: phrasing, in: provider, action: action)
+            found += more.filter { candidate in !found.contains(where: { $0.key == candidate.key }) }
+        }
+        let candidates = found
+            .filter { candidate in
+                ActionItemDedup.same(candidate.title, item.text) ||
+                    (phrasing.map { ActionItemDedup.same(candidate.title, $0) } ?? false)
+            }
         // An open ticket is the one worth linking to. A closed match is still
         // offered — the work may simply be done — but it loses to a live one.
         guard let match = candidates.first(where: { !$0.closed }) ?? candidates.first,
