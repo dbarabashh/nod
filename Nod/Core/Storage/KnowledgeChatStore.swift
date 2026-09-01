@@ -558,8 +558,21 @@ extension KnowledgeChatStore {
         // its answer lives — taking this path answered it from Slack and Linear
         // alone. Read from the model's flag and from the phrase list alike, for
         // the reason `observed(for:aboutScreen:)` keeps both.
+        //
+        // So does anything the person pointed at. An @-mentioned session or a
+        // folder token is `route()`'s most specific intent, and the standalone
+        // rewrite drops the @ tokens — so the flag deciding this was made
+        // without ever seeing them. Two sessions were tagged, the model judged
+        // the remaining words self-contained, and the answer came back from
+        // the product blurb: "I can only see their titles."
         let asksAboutScreen = prepared.aboutScreen || ScreenRecall.window(for: prepared.standalone) != nil
-        if !prepared.needsSessions, !asksAboutScreen, !turnTools.isEmpty {
+        if Self.actsWithoutRetrieval(
+            needsSessions: prepared.needsSessions,
+            asksAboutScreen: asksAboutScreen,
+            hasTools: !turnTools.isEmpty,
+            pinned: pinned,
+            scope: scope
+        ) {
             Log.ui.info("chat: acting without retrieval")
             thinkingScript = ChatThinking.acting
             let system = PromptLibrary.buildKnowledgeSystem(
@@ -1613,6 +1626,22 @@ extension KnowledgeChatStore {
 
     private var meetingsByID: [UUID: Meeting] {
         meetings.byID
+    }
+
+    /// Whether a turn may skip retrieval entirely and go straight to acting.
+    ///
+    /// Never when the person pointed at anything: an @-mentioned session or a
+    /// folder token is the most specific intent `route()` knows, and the flag
+    /// this reads was produced from a rewrite that drops those tokens — so it
+    /// cannot overrule them.
+    nonisolated static func actsWithoutRetrieval(
+        needsSessions: Bool,
+        asksAboutScreen: Bool,
+        hasTools: Bool,
+        pinned: [SessionRef],
+        scope: [SessionLabel]
+    ) -> Bool {
+        !needsSessions && !asksAboutScreen && hasTools && pinned.isEmpty && scope.isEmpty
     }
 
     /// The chunks the answer is allowed to be built from.
