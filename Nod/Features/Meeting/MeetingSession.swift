@@ -1,22 +1,12 @@
 import AppKit
+import Combine
 import CoreGraphics
 import Foundation
-import SwiftUI
 
 enum MeetingState: Equatable {
     case idle
     case recording
     case paused
-
-    /// Header status word. While capturing it names what Nod is doing for the
-    /// user — varying by `SessionKind` — rather than a stark "REC".
-    func statusLabel(for kind: SessionKind) -> String {
-        switch self {
-        case .idle: "Ready"
-        case .recording: kind.activeStatusLabel
-        case .paused: "Paused"
-        }
-    }
 }
 
 /// Non-nil while the "still recording?" prompt is showing. `secondsRemaining`
@@ -160,8 +150,8 @@ final class MeetingSession: ObservableObject {
     /// Held as state rather than posted as a notification because the panel's
     /// SwiftUI content is not necessarily mounted at the moment the card is
     /// clicked (the panel is built at launch but only shown on request), and a
-    /// notification posted then reaches nobody. `ContentView` consumes it
-    /// whenever it next appears, so the request survives that gap.
+    /// notification posted then reaches nobody. `NotchModel` observes it and
+    /// starts the recording, so the request survives that gap.
     @Published private(set) var wantsAutoStart = false
 
     /// The meeting `endMeeting()` just handed to `meetingStore` for
@@ -306,8 +296,7 @@ final class MeetingSession: ObservableObject {
     private let makeLookup: (
         ChatToolGate,
         @escaping () -> RoomComposition,
-        @escaping () -> LookupScope,
-        @escaping (UUID) -> String?
+        @escaping () -> LookupScope
     ) -> MeetingLookup
     /// Which earlier sessions "what did we say about this" should search, given
     /// the recording in progress and the calendar entry behind it.
@@ -342,8 +331,7 @@ final class MeetingSession: ObservableObject {
         lookup: @escaping (
             ChatToolGate,
             @escaping () -> RoomComposition,
-            @escaping () -> LookupScope,
-            @escaping (UUID) -> String?
+            @escaping () -> LookupScope
         ) -> MeetingLookup,
         colleagues: @escaping () -> Set<String>,
         scope: @escaping (UUID?, String?) -> LookupScope
@@ -514,8 +502,6 @@ final class MeetingSession: ObservableObject {
         return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
     }
 
-    // MARK: - Recording lifecycle
-
     /// Ask the panel to start a meeting — the auto-detect card's only power.
     ///
     /// It deliberately stops one step short of recording: the subscription
@@ -648,7 +634,7 @@ final class MeetingSession: ObservableObject {
         // holding itself: which session to exclude from its own search, how to
         // turn a session id into something a person can read, and the output
         // language.
-        analyst.currentMeetingID = recordingDraft?.id
+        analyst.currentMeetingID = meetingID
         analyst.recallLanguage = language.current
         analyst.recallSourceLabel = { [weak meetingStore] id in
             guard let meeting = meetingStore?.meetings.first(where: { $0.id == id }) else { return nil }
@@ -692,17 +678,12 @@ final class MeetingSession: ObservableObject {
                 callInProgress: callInProgress()
             )
         }
-        analyst.roomComposition = room
         analyst.meetingLookup = makeLookup(
             analyst.askToolGate,
             room,
             { [weak self] in
                 guard let self else { return .everything }
                 return scope(recordingDraft?.id, recordingDraft?.icalUID)
-            },
-            { [weak meetingStore] id in
-                guard let meeting = meetingStore?.meetings.first(where: { $0.id == id }) else { return nil }
-                return meeting.displayTitle(dateFormatter: Meeting.listDateFormatter)
             }
         )
         if selectedKind.extractsActionItems {
@@ -1451,8 +1432,6 @@ final class MeetingSession: ObservableObject {
         audioCapture.setMicMuted(micMuted)
         Log.ui.info(micMuted ? "mic muted" : "mic unmuted")
     }
-
-    // MARK: - Meeting persistence (issue #14)
 
     /// Pushes the durable outbox to the server and refreshes the retry-toast
     /// mirror. The outbox is idempotent (upsert by id) and survives restarts,
