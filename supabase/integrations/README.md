@@ -90,15 +90,17 @@ scopes and this table is a ceiling nobody reaches — `search_messages` fails wi
 does not change that on its own; the custom client above is what makes these the
 scopes a person is actually asked for. Whether Connect's proxy then presents the
 **user** token rather than the bot one is unverified: if it does not,
-`search.messages` answers `not_allowed_token_type` even with the scope granted.
+`assistant.search.context` answers `not_allowed_token_type` even with the scope
+granted.
 
 **`search:read` is the one scope wider than what it is used for.** Slack does
 not divide search by conversation type, so a token that can search channels can
 search direct messages too. `privacy.md` § 3.16 promises those are never read,
 and with this scope granted that promise can no longer rest on the scope list —
-it rests on `isDirect()` in `slack.ts`, which drops every direct and group
-match, and treats a conversation it cannot positively identify as a channel as
-direct. Anything that weakens that function breaks a published claim.
+it rests on `fromAChannel()` and `isDirect()` in `slack.ts`, which drop every
+direct and group match, and treat a conversation they cannot positively identify
+as a channel as direct. Anything that weakens those functions breaks a published
+claim.
 
 **Scopes are declared twice.** Here, which is the ceiling of what the app may
 ever ask for, and in whichever OAuth client actually runs the flow, which is

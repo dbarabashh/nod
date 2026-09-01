@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "jsr:@std/assert@1.0.14";
 import { diff } from "./diff.ts";
 
 const dev = { provider: "linear", accountId: "apn_old" };

@@ -1,4 +1,4 @@
-import { assert, assertFalse } from "jsr:@std/assert";
+import { assert, assertFalse } from "jsr:@std/assert@1.0.14";
 import { startMatches, titleMatches } from "./googleCalendar.ts";
 
 // The approval card shows a title while the wire carries an id, and this check

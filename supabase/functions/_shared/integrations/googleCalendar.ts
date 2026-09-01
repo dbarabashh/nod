@@ -17,13 +17,13 @@
 import { ActionError, proxy } from "./pipedream.ts";
 import { adminClient } from "../supabase.ts";
 import type { ActionContext, ActionHandlers } from "./registry.ts";
-import { requireList, requireString } from "./params.ts";
+import { emailsOf, requireEmails, requireString } from "./params.ts";
 
-const EVENTS_PATH = "calendar/v3/calendars/primary/events";
 const MAX_ATTENDEES = 20;
 
 export const PROVIDER = "google-calendar";
 export const CALENDAR_ID = "primary";
+export const EVENTS_PATH = `calendar/v3/calendars/${CALENDAR_ID}/events`;
 
 /// One Google event as `calendar_events` stores it.
 export interface EventRow {
@@ -77,7 +77,7 @@ export function toRow(userId: string, event: GoogleEvent, stampedAt: string): Ev
 /// Where the meeting actually happens. `hangoutLink` is Google's own shortcut
 /// and is present for a Meet link; `conferenceData` is the general form and
 /// carries Zoom and Teams when the organizer added one.
-export function conferenceURL(event: GoogleEvent): string | null {
+function conferenceURL(event: GoogleEvent): string | null {
     if (event.hangoutLink) return event.hangoutLink;
     const video = event.conferenceData?.entryPoints
         ?.find((entry) => entry.entryPointType === "video" && entry.uri);
@@ -90,7 +90,7 @@ export function conferenceURL(event: GoogleEvent): string | null {
 /// to us. Everything past the address and the answer is left behind rather than
 /// stored: a display name adds nothing the address does not, and this table is
 /// already the most personal thing the sync writes.
-export function attendeesFrom(event: GoogleEvent): Array<{ email: string; display?: string; response: string }> {
+function attendeesFrom(event: GoogleEvent): Array<{ email: string; display?: string; response: string }> {
     return (event.attendees ?? [])
         .filter((attendee) => attendee.email && !attendee.resource)
         .map((attendee) => ({
@@ -122,7 +122,6 @@ export interface GoogleEvent {
     conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
 }
 
-
 /// An RFC3339 instant. The client sends absolute times — it holds the user's
 /// clock and their calendar's timezone, and a server guessing either would put
 /// the meeting an hour out for exactly the people who travel.
@@ -135,22 +134,23 @@ function requireInstant(params: Record<string, unknown>, key: string): string {
     return new Date(parsed).toISOString();
 }
 
+/// `starts_at` and `ends_at` as one window, refused when it runs backwards.
+function requireWindow(params: Record<string, unknown>): { start: string; end: string } {
+    const start = requireInstant(params, "starts_at");
+    const end = requireInstant(params, "ends_at");
+    if (Date.parse(end) <= Date.parse(start)) {
+        throw new ActionError("invalid_params", "`ends_at` must be after `starts_at`.");
+    }
+    return { start, end };
+}
+
+const notAnEmail = (email: string) => `"${email}" is not an email address.`;
+
 function attendeesOf(params: Record<string, unknown>): Array<{ email: string }> {
-    const raw = params.attendees;
-    const list = typeof raw === "string"
-        ? raw.split(",").map((entry) => entry.trim()).filter(Boolean)
-        : Array.isArray(raw)
-        ? raw.map((entry) => String(entry).trim()).filter(Boolean)
-        : [];
-    if (list.length > MAX_ATTENDEES) {
-        throw new ActionError("invalid_params", `At most ${MAX_ATTENDEES} addresses at a time.`);
-    }
-    for (const email of list) {
-        if (!email.includes("@") || email.includes(" ")) {
-            throw new ActionError("invalid_params", `"${email}" is not an email address.`);
-        }
-    }
-    return list.map((email) => ({ email }));
+    return emailsOf(params, "attendees", MAX_ATTENDEES, {
+        tooMany: `At most ${MAX_ATTENDEES} addresses at a time.`,
+        invalid: notAnEmail,
+    }).map((email) => ({ email }));
 }
 
 function eventPath(id: string): string {
@@ -230,11 +230,7 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
     /// Lists events in a window, expanded so a recurring meeting comes back as
     /// the occurrence that falls inside it rather than as its rule.
     list_events: async (connection, params) => {
-        const start = requireInstant(params, "starts_at");
-        const end = requireInstant(params, "ends_at");
-        if (Date.parse(end) <= Date.parse(start)) {
-            throw new ActionError("invalid_params", "`ends_at` must be after `starts_at`.");
-        }
+        const { start, end } = requireWindow(params);
 
         const listed = await proxy(connection, EVENTS_PATH, null, {
             method: "GET",
@@ -282,11 +278,7 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
     /// than silently free, because "no answer" and "free all day" schedule
     /// very different meetings.
     check_availability: async (connection, params) => {
-        const start = requireInstant(params, "starts_at");
-        const end = requireInstant(params, "ends_at");
-        if (Date.parse(end) <= Date.parse(start)) {
-            throw new ActionError("invalid_params", "`ends_at` must be after `starts_at`.");
-        }
+        const { start, end } = requireWindow(params);
         if (Date.parse(end) - Date.parse(start) > 7 * 24 * 3600 * 1000) {
             throw new ActionError("invalid_params", "Ask about at most a week at a time.");
         }
@@ -334,11 +326,7 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
     /// inboxes and an entry in their calendars, and neither can be recalled.
     create_event: async (connection, params, context) => {
         const summary = requireString(params, "title");
-        const start = requireInstant(params, "starts_at");
-        const end = requireInstant(params, "ends_at");
-        if (Date.parse(end) <= Date.parse(start)) {
-            throw new ActionError("invalid_params", "`ends_at` must be after `starts_at`.");
-        }
+        const { start, end } = requireWindow(params);
         const attendees = attendeesOf(params);
         const description = typeof params.description === "string" ? params.description : undefined;
         // A meeting with people in it gets a room, because an invitation without
@@ -413,11 +401,7 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
             if (event.start?.date) {
                 throw new ActionError("invalid_params", "That is an all-day entry; it has no time to move.");
             }
-            const start = requireInstant(params, "starts_at");
-            const end = requireInstant(params, "ends_at");
-            if (Date.parse(end) <= Date.parse(start)) {
-                throw new ActionError("invalid_params", "`ends_at` must be after `starts_at`.");
-            }
+            const { start, end } = requireWindow(params);
             patch.start = { dateTime: start };
             patch.end = { dateTime: end };
         }
@@ -491,15 +475,11 @@ function guestEdits(params: Record<string, unknown>, event: GoogleEvent): Array<
 
     const additions = params.add_attendees === undefined
         ? []
-        : requireList(params, "add_attendees", MAX_ATTENDEES);
+        : requireEmails(params, "add_attendees", MAX_ATTENDEES, { invalid: notAnEmail });
     const removals = params.remove_attendees === undefined
         ? []
-        : requireList(params, "remove_attendees", MAX_ATTENDEES).map((email) => email.toLowerCase());
-    for (const email of [...additions, ...removals]) {
-        if (!email.includes("@") || email.includes(" ")) {
-            throw new ActionError("invalid_params", `"${email}" is not an email address.`);
-        }
-    }
+        : requireEmails(params, "remove_attendees", MAX_ATTENDEES, { invalid: notAnEmail })
+            .map((email) => email.toLowerCase());
 
     const current = (event.attendees ?? []).filter((attendee) => attendee.email);
     const missing = removals.filter((email) =>

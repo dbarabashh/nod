@@ -57,7 +57,6 @@ interface Issue {
     repository_url?: string;
 }
 
-
 /// `https://api.github.com/repos/owner/name` → `owner/name`. Search results
 /// carry the repository only as that URL, and a bare issue number is not
 /// something anybody can look up.

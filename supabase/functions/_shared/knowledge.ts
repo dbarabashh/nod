@@ -25,7 +25,7 @@ const MAX_TRANSCRIPT_CHARS = 24_000;
 
 const MAX_CONCEPTS_IN_ANSWER = 6;
 
-export function knowledgeReadEnabled(): boolean {
+function knowledgeReadEnabled(): boolean {
     return Deno.env.get("KNOWLEDGE_READ_ENABLED") === "true";
 }
 

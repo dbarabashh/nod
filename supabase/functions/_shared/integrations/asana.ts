@@ -41,7 +41,6 @@ async function workspaceID(connection: Connection): Promise<string> {
     return gid;
 }
 
-
 interface Task {
     gid?: string;
     name?: string;

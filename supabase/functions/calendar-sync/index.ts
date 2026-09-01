@@ -24,14 +24,13 @@ import { apiBase } from "../_shared/integrations/registry.ts";
 import {
     CALENDAR_ID,
     type EventRow,
+    EVENTS_PATH,
     type GoogleEvent,
     PROVIDER,
     toRow,
 } from "../_shared/integrations/googleCalendar.ts";
 
 const INTERNAL_JOB_SECRET = Deno.env.get("INTERNAL_JOB_SECRET");
-
-const EVENTS_PATH = `calendar/v3/calendars/${CALENDAR_ID}/events`;
 
 // Behind, so a meeting already running is still matchable; ahead, so "what is
 // next" has an answer without holding a quarter of somebody's year.
@@ -46,7 +45,6 @@ const CONCURRENCY = 8;
 // than a short one: pg_net stops listening and every account after the cut-off
 // is swept with nothing recorded.
 const MAX_ACCOUNTS_PER_RUN = 200;
-
 
 Deno.serve(async (request: Request): Promise<Response> => {
     if (request.method !== "POST") return json({ error: "Method Not Allowed" }, 405);
@@ -202,9 +200,6 @@ async function fetchWindow(connection: Connection, from: Date, to: Date): Promis
     console.warn(`calendar-sync stopped at ${MAX_PAGES} pages`);
     return events;
 }
-
-
-
 
 /// Drops what the provider no longer returns for a window it was asked about.
 ///

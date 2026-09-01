@@ -10,7 +10,8 @@
 // is how many, and it is set low on purpose.
 import { ActionError, type Connection, proxy } from "./pipedream.ts";
 import type { ActionHandlers } from "./registry.ts";
-import { requireList, requireString } from "./params.ts";
+import { emailsOf, requireEmails, requireString } from "./params.ts";
+import { base64URL } from "../crypto.ts";
 
 const SEARCH_LIMIT = 5;
 const HEADERS = ["Subject", "From", "To", "Date"];
@@ -27,7 +28,6 @@ interface Message {
         parts?: Message["payload"][];
     };
 }
-
 
 function header(message: Message, name: string): string | undefined {
     return message.payload?.headers
@@ -119,20 +119,12 @@ export function draftMIME(
     return lines.join("\r\n");
 }
 
-/// Addresses only — no display names, no whitespace of any kind. A tab or a
-/// linebreak inside an address would land verbatim in the To header, which is
-/// the same injection the subject line guards against.
-function recipients(params: Record<string, unknown>, key: string, required: boolean): string[] {
-    // "" is how a model says "none" for an optional list; failing the whole
-    // approved draft over it would be refusing an empty cc line.
-    if (!required && (params[key] === undefined || params[key] === "")) return [];
-    const list = requireList(params, key, RECIPIENT_LIMIT);
-    for (const email of list) {
-        if (!/^[^\s@,]+@[^\s@,]+$/.test(email)) {
-            throw new ActionError("invalid_params", `"${email}" is not a bare email address.`);
-        }
-    }
-    return list;
+/// An empty optional list — `""`, `[]`, `","` — is how a model says "none";
+/// failing the whole approved draft over it would be refusing an empty cc line.
+export function recipients(params: Record<string, unknown>, key: string, required: boolean): string[] {
+    return required
+        ? requireEmails(params, key, RECIPIENT_LIMIT)
+        : emailsOf(params, key, RECIPIENT_LIMIT);
 }
 
 /// The Message-ID of the newest message in a thread, for reply headers.
@@ -212,8 +204,7 @@ export const GMAIL_ACTIONS: ActionHandlers = {
 
         const inReplyTo = threadId ? await lastMessageID(connection, threadId) : undefined;
         const mime = draftMIME(to, cc, subject, body, inReplyTo);
-        const raw = base64(new TextEncoder().encode(mime))
-            .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        const raw = base64URL(mime);
 
         const created = await proxy(connection, "gmail/v1/users/me/drafts", {
             message: { raw, ...(threadId ? { threadId } : {}) },

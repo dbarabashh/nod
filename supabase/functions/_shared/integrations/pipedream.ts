@@ -3,6 +3,7 @@
 // and the OAuth client stay in exactly one place no matter how many providers we
 // add.
 import { adminClient } from "../supabase.ts";
+import { base64URL } from "../crypto.ts";
 import { ActionError } from "./errors.ts";
 import { assertProviderPermitted } from "./policy.ts";
 
@@ -21,7 +22,6 @@ const OAUTH_URL = "https://api.pipedream.com/v1/oauth/token";
 const API_BASE = "https://api.pipedream.com/v1/connect";
 
 export const isConfigured = Boolean(CLIENT_ID && CLIENT_SECRET && PROJECT_ID);
-
 
 export interface Connection {
     /// Connect's account id (`apn_…`).
@@ -172,12 +172,6 @@ export interface ProxyOptions {
     headers?: Record<string, string>;
 }
 
-/// One proxied call to the provider's own API. Connect injects the access token
-/// and refreshes it when it has expired, which is why no token appears here.
-///
-/// `path` stays provider-relative, as it was under the previous broker: the base
-/// comes from `APPS` rather than from a dashboard, so an adapter reads the same
-/// whichever broker is underneath.
 /// The workspace's own OAuth client for one provider, when there is one.
 ///
 /// Per-provider and read at call time rather than a table in code, because
@@ -193,6 +187,12 @@ export function customOAuthAppID(provider: string): string | null {
     return Deno.env.get(key)?.trim() || null;
 }
 
+/// One proxied call to the provider's own API. Connect injects the access token
+/// and refreshes it when it has expired, which is why no token appears here.
+///
+/// `path` stays provider-relative, as it was under the previous broker: the base
+/// comes from `PROVIDERS` rather than from a dashboard, so an adapter reads the
+/// same whichever broker is underneath.
 export async function proxy(
     connection: Connection,
     path: string,
@@ -298,9 +298,4 @@ function firstString(value: unknown, depth: number): string | null {
         if (found) return found;
     }
     return null;
-}
-
-/// The proxy addresses the upstream API by url-safe base64, unpadded.
-function base64URL(value: string): string {
-    return btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }

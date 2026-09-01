@@ -29,7 +29,6 @@ const KINDS: Record<string, string> = {
     "application/pdf": "pdf",
 };
 
-
 /// How each kind of file yields text: Google's own formats export, anything
 /// already textual downloads as itself, and everything else — an image, a video,
 /// a binary — has no text to read.

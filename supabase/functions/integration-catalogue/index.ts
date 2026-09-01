@@ -33,7 +33,6 @@ interface CatalogueApp {
     description?: string | null;
     img_src?: string | null;
     categories?: string[] | null;
-    auth_type?: string | null;
 }
 
 Deno.serve(async (req) => {
@@ -78,9 +77,9 @@ function isSlug(value: unknown): value is string {
     return typeof value === "string" && /^[a-z0-9_-]+$/.test(value);
 }
 
-/// One app by slug. `seeds`, the logo route and the resolve-by-slug path all
-/// want exactly this, and the guard belongs with the fetch rather than beside
-/// one of its callers.
+/// One app by slug. The resolve-by-slug path and the logo route both want
+/// exactly this, and the guard belongs with the fetch rather than beside one of
+/// its callers.
 async function app(slug: string): Promise<CatalogueApp | null> {
     if (!isSlug(slug)) return null;
     const payload = await brokerGET(appsURL(`/${slug}`)) as { data?: CatalogueApp } | null;

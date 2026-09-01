@@ -1,5 +1,5 @@
-import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
-import { draftMIME, headerValue } from "./gmail.ts";
+import { assert, assertEquals, assertStringIncludes, assertThrows } from "jsr:@std/assert@1.0.14";
+import { draftMIME, headerValue, recipients } from "./gmail.ts";
 
 Deno.test("an ascii subject travels as itself", () => {
     assertEquals(headerValue("Follow-up on pricing"), "Follow-up on pricing");
@@ -50,4 +50,19 @@ Deno.test("a long body folds into legal line lengths", () => {
         Uint8Array.from(atob(body.split("\r\n").join("")), (c) => c.charCodeAt(0)),
     );
     assertEquals(decoded, "x".repeat(9000));
+});
+
+Deno.test("an optional recipient list that is empty in any shape is no recipients", () => {
+    for (const cc of [undefined, "", "  ", ",", [], [""]]) {
+        assertEquals(recipients({ cc }, "cc", false), []);
+    }
+});
+
+Deno.test("a required recipient list that is empty is refused", () => {
+    assertThrows(() => recipients({ to: [] }, "to", true));
+    assertThrows(() => recipients({ to: "," }, "to", true));
+});
+
+Deno.test("only the strings of an array are recipients", () => {
+    assertEquals(recipients({ cc: ["a@x.com", 7, null, {}, " b@x.com "] }, "cc", false), ["a@x.com", "b@x.com"]);
 });

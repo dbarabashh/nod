@@ -62,13 +62,16 @@ async function api(
     );
 }
 
-
-function requireKey(params: Record<string, unknown>, name: string): string {
-    const key = requireString(params, name).toUpperCase();
+function issueKey(raw: string): string {
+    const key = raw.toUpperCase();
     if (!KEY.test(key)) {
         throw new ActionError("invalid_params", `"${key}" is not a Jira issue key.`);
     }
     return key;
+}
+
+function requireKey(params: Record<string, unknown>, name: string): string {
+    return issueKey(requireString(params, name));
 }
 
 interface Issue {
@@ -129,12 +132,7 @@ export const JIRA_ACTIONS: ActionHandlers = {
     /// `statusCategory` is Jira's own three-way vocabulary and the only part
     /// that means the same thing in every project.
     read_issues: async (connection, params) => {
-        const keys = requireList(params, "keys", STATUS_LIMIT).map((key) => key.toUpperCase());
-        for (const key of keys) {
-            if (!KEY.test(key)) {
-                throw new ActionError("invalid_params", `"${key}" is not a Jira issue key.`);
-            }
-        }
+        const keys = requireList(params, "keys", STATUS_LIMIT).map(issueKey);
 
         const payload = await api(connection, "search/jql", null, {
             query: {

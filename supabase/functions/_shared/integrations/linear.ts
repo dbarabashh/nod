@@ -6,7 +6,7 @@
 // while every result is fresh input on every subsequent turn.
 import { ActionError, type Connection, proxy } from "./pipedream.ts";
 import type { ActionHandlers } from "./registry.ts";
-import { requireBoolean, requireString } from "./params.ts";
+import { requireBoolean, requireList, requireString } from "./params.ts";
 
 const SEARCH_LIMIT = 10;
 const STATUS_LIMIT = 50;
@@ -89,8 +89,6 @@ async function stateOfType(connection: Connection, teamID: string, type: string)
     return state.id;
 }
 
-
-
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /// Turns whatever the model offered into a team UUID.
@@ -136,17 +134,9 @@ export const LINEAR_ACTIONS: ActionHandlers = {
     /// issue deleted, or moved out of reach — are simply not reported, so an
     /// item Nod can no longer see is left as the user last had it.
     read_issues: async (connection, params) => {
-        const keys = requireString(params, "keys")
-            .split(",")
-            .map((key) => key.trim())
-            .filter(Boolean);
-        if (keys.length === 0) {
-            throw new ActionError("invalid_params", "`keys` is required.");
-        }
-        if (keys.length > STATUS_LIMIT) {
-            throw new ActionError("invalid_params", `At most ${STATUS_LIMIT} keys per call.`);
-        }
-
+        const keys = requireList(params, "keys", STATUS_LIMIT, {
+            tooMany: `At most ${STATUS_LIMIT} keys per call.`,
+        });
         const or = keys.map((key) => {
             const parts = IDENTIFIER.exec(key);
             if (!parts) {

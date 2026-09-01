@@ -28,22 +28,85 @@ export function requireBoolean(params: Record<string, unknown>, key: string): bo
     throw new ActionError("invalid_params", `\`${key}\` must be true or false.`);
 }
 
-/// A comma-separated list, bounded.
+/// The refusals a caller may word in its own terms — "people per invitation",
+/// "addresses at a time" — so a shared helper does not flatten every adapter's
+/// message into one.
+export interface ListWording {
+    tooMany?: string;
+    invalid?: (item: string) => string;
+}
+
+/// A list the model may have sent comma-separated or as an array, trimmed.
+/// Empty when absent — whether that is allowed is the caller's call. Only the
+/// strings of an array are kept: anything else is a shape the model got wrong,
+/// and stringifying it would forward "[object Object]" to a provider.
 ///
 /// The bound is required rather than optional: each of these becomes at least
 /// one request to a provider, and an adapter that forgot to cap it fanned out as
 /// wide as the model felt like asking.
-export function requireList(params: Record<string, unknown>, key: string, max: number): string[] {
-    const items = requireString(params, key)
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
+export function listOf(
+    params: Record<string, unknown>,
+    key: string,
+    max: number,
+    wording: ListWording = {},
+): string[] {
+    const raw = params[key];
+    const items = typeof raw === "string"
+        ? raw.split(",").map((item) => item.trim()).filter(Boolean)
+        : Array.isArray(raw)
+        ? raw.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean)
+        : [];
 
+    if (items.length > max) {
+        throw new ActionError("invalid_params", wording.tooMany ?? `At most ${max} per call.`);
+    }
+    return items;
+}
+
+export function requireList(
+    params: Record<string, unknown>,
+    key: string,
+    max: number,
+    wording: ListWording = {},
+): string[] {
+    const items = listOf(params, key, max, wording);
     if (items.length === 0) {
         throw new ActionError("invalid_params", `\`${key}\` is required.`);
     }
-    if (items.length > max) {
-        throw new ActionError("invalid_params", `At most ${max} per call.`);
-    }
     return items;
+}
+
+/// Addresses only — no display names, no whitespace of any kind. A tab or a
+/// linebreak inside an address would land verbatim in a mail header, which is
+/// the same injection a subject line has to guard against.
+const EMAIL = /^[^\s@,]+@[^\s@,]+$/;
+
+function checkedEmails(list: string[], wording: ListWording): string[] {
+    for (const email of list) {
+        if (!EMAIL.test(email)) {
+            throw new ActionError(
+                "invalid_params",
+                wording.invalid?.(email) ?? `"${email}" is not a bare email address.`,
+            );
+        }
+    }
+    return list;
+}
+
+export function emailsOf(
+    params: Record<string, unknown>,
+    key: string,
+    max: number,
+    wording: ListWording = {},
+): string[] {
+    return checkedEmails(listOf(params, key, max, wording), wording);
+}
+
+export function requireEmails(
+    params: Record<string, unknown>,
+    key: string,
+    max: number,
+    wording: ListWording = {},
+): string[] {
+    return checkedEmails(requireList(params, key, max, wording), wording);
 }

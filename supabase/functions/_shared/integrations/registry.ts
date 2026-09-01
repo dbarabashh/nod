@@ -23,7 +23,7 @@ export interface ActionContext {
     userId: string;
 }
 
-export type ActionHandler = (
+type ActionHandler = (
     connection: Connection,
     params: Record<string, unknown>,
     context?: ActionContext,
@@ -120,10 +120,6 @@ export function isConnectableProvider(provider: string): boolean {
     return Object.hasOwn(PROVIDERS, provider);
 }
 
-export function connectableProviders(): string[] {
-    return Object.keys(PROVIDERS);
-}
-
 /// `integration-action` asks this rather than `isConnectableProvider`, so a
 /// provider that only ever gets read cannot be addressed as though it took
 /// commands.
@@ -146,5 +142,5 @@ export function appSlug(provider: string): string | undefined {
 /// trusting the slug, so an account for an app we never offered cannot land in
 /// `integration_connections` and be addressed later.
 export function providerForSlug(slug: string): string | undefined {
-    return connectableProviders().find((provider) => PROVIDERS[provider].slug === slug);
+    return Object.keys(PROVIDERS).find((provider) => PROVIDERS[provider].slug === slug);
 }

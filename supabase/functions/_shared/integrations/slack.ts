@@ -6,18 +6,19 @@
 // takes Slack member ids, resolved from `people` by the executor, and this file
 // never sees a name it has to guess about.
 //
-// Reads and additive writes, and nothing else. Creating a channel and inviting
-// colleagues are visible and reversible — everybody invited can see what
-// happened and leave — and reading answers a question from what the team
-// already said. Posting messages, archiving channels and removing members are
-// none of those things, and none of them is needed to turn a meeting into work.
+// Reads, additive writes, and one write that speaks. Creating a channel and
+// inviting colleagues are visible and reversible — everybody invited can see
+// what happened and leave — and reading answers a question from what the team
+// already said. `post_message` puts words in front of other people, which is
+// why it never runs without the approval card. Archiving channels and removing
+// members stay out: neither is needed to turn a meeting into work.
 //
 // Reading a public channel means joining it, because Slack gives a bot no other
 // way in. That is the one read here that leaves a trace, and the trace is a
 // "Nod joined" line the whole channel can see.
 import { ActionError, type Connection, proxy } from "./pipedream.ts";
 import type { ActionHandlers } from "./registry.ts";
-import { requireString } from "./params.ts";
+import { listOf, requireString } from "./params.ts";
 
 /// Slack answers 200 with `{ ok: false, error: "…" }`, so the transport being
 /// fine says nothing about the call.
@@ -114,20 +115,10 @@ function channelName(raw: string): string {
 }
 
 const MAX_INVITES = 50;
+const TOO_MANY_INVITES = { tooMany: `At most ${MAX_INVITES} people per invitation.` };
 
 function memberIDs(params: Record<string, unknown>, key: string): string[] {
-    const raw = params[key];
-    const list = typeof raw === "string"
-        ? raw.split(",").map((entry) => entry.trim()).filter(Boolean)
-        : Array.isArray(raw)
-        ? raw.map((entry) => String(entry).trim()).filter(Boolean)
-        : [];
-    if (list.length > MAX_INVITES) {
-        throw new ActionError(
-            "invalid_params",
-            `At most ${MAX_INVITES} people per invitation.`,
-        );
-    }
+    const list = listOf(params, key, MAX_INVITES, TOO_MANY_INVITES);
     // Member ids, never names or addresses. Anything else reaching this point
     // means the executor failed to resolve somebody and the call must not go
     // ahead with a string Slack would either reject or, worse, match loosely.
@@ -157,7 +148,10 @@ function memberIDs(params: Record<string, unknown>, key: string): string[] {
 async function invitees(connection: Connection, params: Record<string, unknown>): Promise<string[]> {
     const ids = memberIDs(params, "invite_member_ids");
     // `invite_emails` is the older name and still arrives from the chat.
-    const named = [...list(params, "invite_people"), ...list(params, "invite_emails")];
+    const named = [
+        ...listOf(params, "invite_people", MAX_INVITES, TOO_MANY_INVITES),
+        ...listOf(params, "invite_emails", MAX_INVITES, TOO_MANY_INVITES),
+    ];
     if (named.length === 0) return ids;
     if (ids.length + named.length > MAX_INVITES) {
         throw new ActionError("invalid_params", `At most ${MAX_INVITES} people per invitation.`);
@@ -172,13 +166,6 @@ async function invitees(connection: Connection, params: Record<string, unknown>)
         resolved.push(member.id);
     }
     return [...new Set([...ids, ...resolved])];
-}
-
-function list(params: Record<string, unknown>, key: string): string[] {
-    const raw = params[key];
-    if (typeof raw === "string") return raw.split(",").map((entry) => entry.trim()).filter(Boolean);
-    if (Array.isArray(raw)) return raw.map((entry) => String(entry).trim()).filter(Boolean);
-    return [];
 }
 
 /// A channel's messages, letting Nod in first if it isn't a member yet.

@@ -20,7 +20,6 @@ interface Record_ {
     properties?: Record<string, string | null>;
 }
 
-
 /// A free-text search over one object type.
 ///
 /// `query` rather than `filterGroups`: the caller has a name somebody said out

@@ -20,16 +20,7 @@ import { adminClient, authenticate } from "../_shared/supabase.ts";
 import { ActionError, resolveConnection } from "../_shared/integrations/pipedream.ts";
 import { assertProviderPermitted } from "../_shared/integrations/policy.ts";
 import { apiBase, handlerFor } from "../_shared/integrations/registry.ts";
-import { resolveAssignee } from "./assignee.ts";
-
-interface Proposal {
-    id: string;
-    org_id: string | null;
-    action_item_id: string | null;
-    type: string;
-    status: string;
-    parameters: Record<string, unknown>;
-}
+import { type Proposal, resolveAssignee } from "./assignee.ts";
 
 /// Parameters that describe *who* rather than *what*, stripped before the call.
 /// A provider has no use for a `people.id`, and `assignee_name` is the copy the

@@ -38,7 +38,6 @@ interface Page {
     properties?: Record<string, { type?: string; title?: RichText[] }>;
 }
 
-
 /// A page's title.
 ///
 /// Notion has no `title` field: the title is whichever property happens to be

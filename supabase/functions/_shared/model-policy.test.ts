@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "jsr:@std/assert@1.0.14";
 import { applyModelPolicy, reasoningDisabled, sttRoutingMode, supportsExplicitPromptCache } from "./model-policy.ts";
 
 function withEnv(vars: Record<string, string>, body: () => void) {

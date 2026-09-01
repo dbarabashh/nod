@@ -13,9 +13,12 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.1
 import { ActionError, type Connection } from "../_shared/integrations/pipedream.ts";
 import { importDirectory } from "../_shared/integrations/directory.ts";
 
-interface Proposal {
+export interface Proposal {
+    id: string;
     org_id: string | null;
+    action_item_id: string | null;
     type: string;
+    status: string;
     parameters: Record<string, unknown>;
 }
 

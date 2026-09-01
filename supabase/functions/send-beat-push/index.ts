@@ -14,6 +14,7 @@
 // every beat forever otherwise, and APNs treats that as abuse.
 import { isObject, json } from "../_shared/http.ts";
 import { adminClient } from "../_shared/supabase.ts";
+import { base64URL } from "../_shared/crypto.ts";
 
 const INTERNAL_JOB_SECRET = Deno.env.get("INTERNAL_JOB_SECRET");
 // The .p8 contents, including the BEGIN/END lines. Base64 of the file is also
@@ -153,8 +154,8 @@ async function providerJWT(): Promise<string> {
     const now = Date.now();
     if (cachedToken && now - cachedToken.mintedAt < TOKEN_TTL_MS) return cachedToken.value;
 
-    const header = base64url(JSON.stringify({ alg: "ES256", kid: APNS_KEY_ID }));
-    const claims = base64url(JSON.stringify({ iss: APNS_TEAM_ID, iat: Math.floor(now / 1000) }));
+    const header = base64URL(JSON.stringify({ alg: "ES256", kid: APNS_KEY_ID }));
+    const claims = base64URL(JSON.stringify({ iss: APNS_TEAM_ID, iat: Math.floor(now / 1000) }));
     const signingInput = `${header}.${claims}`;
 
     const key = await crypto.subtle.importKey(
@@ -169,7 +170,7 @@ async function providerJWT(): Promise<string> {
         key,
         new TextEncoder().encode(signingInput),
     );
-    const token = `${signingInput}.${base64urlBytes(new Uint8Array(signature))}`;
+    const token = `${signingInput}.${base64URL(new Uint8Array(signature))}`;
     cachedToken = { value: token, mintedAt: now };
     return token;
 }
@@ -190,14 +191,4 @@ function pkcs8Bytes(key: string): Uint8Array<ArrayBuffer> {
     const bytes = new Uint8Array(new ArrayBuffer(binary.length));
     for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
     return bytes;
-}
-
-function base64url(text: string): string {
-    return base64urlBytes(new TextEncoder().encode(text));
-}
-
-function base64urlBytes(bytes: Uint8Array<ArrayBuffer>): string {
-    let binary = "";
-    for (const byte of bytes) binary += String.fromCharCode(byte);
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
