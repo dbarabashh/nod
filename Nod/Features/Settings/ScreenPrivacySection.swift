@@ -34,12 +34,17 @@ struct ScreenPrivacySection: View {
     }
 
     @AppStorage(ScreenContextDefaults.retentionDaysKey) private var retentionDays = ScreenContextDefaults.defaultRetentionDays
+    @AppStorage(AmbientScopes.todaySuggestionsKey) private var todaySuggestions = false
+    @AppStorage(AmbientScopes.draftingKey) private var draftingSuggestions = false
     @State private var isReviewingExclusions = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
             ambientContextCard
+            if ambientEnabled {
+                scopesCard
+            }
             exclusionsCard
         }
         .sheet(isPresented: $isReviewingExclusions) {
@@ -119,6 +124,46 @@ struct ScreenPrivacySection: View {
                     .labelsHidden()
                     .frame(width: 110)
                 }
+            }
+        }
+    }
+
+    /// Where what was captured may appear. Asking has always been the one use;
+    /// each further surface is its own opt-in, because "Nod read my screen so I
+    /// could ask about it" and "Nod brings my screen up on its own" are two
+    /// different agreements — see `AmbientScopes`.
+    private var scopesCard: some View {
+        SettingsCard {
+            SettingsRow(
+                icon: "nc-magnifier",
+                title: "Answering your questions",
+                subtitle: "Ask Nod can draw on ambient context. This is what capturing is for, and it is on whenever ambient is."
+            ) {
+                Text("Always")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.muted)
+            }
+            SettingsRowDivider()
+            SettingsRow(
+                icon: "nc-sparkle-3",
+                title: "Private Today suggestions",
+                subtitle: "Show \"you worked on this\" next to your own commitments. Visible only to you, never shared."
+            ) {
+                Toggle("", isOn: $todaySuggestions)
+                    .nodSwitch()
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsRowDivider()
+            SettingsRow(
+                icon: "nc-pen-writing",
+                title: "Suggestions while drafting",
+                subtitle: "Offer related work as additions to a message you're writing. Nothing is added or sent without your click."
+            ) {
+                Toggle("", isOn: $draftingSuggestions)
+                    .nodSwitch()
+                    .labelsHidden()
+                    .controlSize(.small)
             }
         }
     }
