@@ -31,10 +31,6 @@ struct AskThread: Equatable {
     /// was said, not to re-read all of it.
     private static let maxAnswerChars = 500
 
-    var isEmpty: Bool {
-        turns.isEmpty
-    }
-
     mutating func append(question: String, answer: String) {
         let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
         let answer = answer.trimmingCharacters(in: .whitespacesAndNewlines)

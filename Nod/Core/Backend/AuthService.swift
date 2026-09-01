@@ -40,13 +40,6 @@ final class AuthService: NSObject, ObservableObject {
         client.auth.currentSession
     }
 
-    /// Who is signed in. The one place that answers it — six stores used to
-    /// re-derive it from their own `SupabaseClient`, which is why "is this row
-    /// mine" had six independent implementations.
-    var currentUserID: UUID? {
-        client.auth.currentUser?.id
-    }
-
     init(client: SupabaseClient) {
         self.client = client
         let cached = client.auth.currentSession

@@ -3,7 +3,7 @@ import XCTest
 
 final class AskThreadTests: XCTestCase {
     func testEmptyThreadContributesNothingToAPrompt() {
-        XCTAssertTrue(AskThread().isEmpty)
+        XCTAssertTrue(AskThread().turns.isEmpty)
         XCTAssertEqual(AskThread().block, "")
     }
 
@@ -30,7 +30,7 @@ final class AskThreadTests: XCTestCase {
         thread.append(question: "Anything?", answer: "   ")
         thread.append(question: "  ", answer: "Something")
 
-        XCTAssertTrue(thread.isEmpty)
+        XCTAssertTrue(thread.turns.isEmpty)
     }
 
     func testOnlyTheLastTurnsAreKept() {

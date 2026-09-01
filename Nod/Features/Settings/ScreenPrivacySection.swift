@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// The one switch in Nod that widens what it reads beyond a recording, and the

@@ -134,8 +134,6 @@ struct HomeSidebar: View {
         }
     }
 
-    // MARK: - Primary action
-
     /// The app's main verb. A plain button, not the pull-down it used to be:
     /// there is one kind of capture now, and a chevron over a one-item menu
     /// promises a choice that isn't there.
@@ -196,8 +194,6 @@ struct HomeSidebar: View {
         }
     }
 
-    // MARK: - Navigation rows
-
     /// Asking is the verb; the Chats list below is the history.
     ///
     /// This was two controls — a row that returned you to the chat you had, and
@@ -246,8 +242,6 @@ struct HomeSidebar: View {
             .padding(.top, 16)
             .padding(.bottom, 4)
     }
-
-    // MARK: - Projects
 
     private var projectsSection: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -389,8 +383,6 @@ struct HomeSidebar: View {
             ProjectSheet(mode: .create)
         }
     }
-
-    // MARK: - Recent chats
 
     @ViewBuilder
     private var threadsSection: some View {

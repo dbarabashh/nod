@@ -48,8 +48,6 @@ final class ProductAnalytics: ObservableObject {
         case notch
         case home
         case library
-        case quickCapture = "quick_capture"
-        case liveActivity = "live_activity"
         case meetingDetail = "meeting_detail"
         case ask
         case settings
@@ -74,12 +72,8 @@ final class ProductAnalytics: ObservableObject {
         case permissionDenied = "permission_denied"
         case entitlementRequired = "entitlement_required"
         case hoursExhausted = "hours_exhausted"
-        case vadUnavailable = "vad_unavailable"
         case audioStartFailed = "audio_start_failed"
         case interrupted
-        case routeChanged = "route_changed"
-        case transcriptionFailed = "transcription_failed"
-        case persistenceFailed = "persistence_failed"
         case userCancelled = "user_cancelled"
         case authenticationFailed = "authentication_failed"
         case unknown

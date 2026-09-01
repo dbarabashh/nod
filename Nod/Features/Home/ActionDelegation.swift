@@ -1,5 +1,4 @@
-import AppKit
-import SwiftUI
+import Foundation
 
 /// What the person wants to happen — named by outcome, never by tool. The
 /// integrations underneath are picked per intent, so the twelfth connected
@@ -134,8 +133,6 @@ enum ActionDelegation {
         return message.isEmpty ? addition : message + "\n" + addition
     }
 
-    // MARK: - Directory
-
     private struct UserRow: Decodable {
         let name: String?
         let email: String?
@@ -217,8 +214,6 @@ enum ActionDelegation {
         }
     }
 
-    // MARK: - Tool plumbing
-
     /// The same catalogue entry the chat uses when it exists, built inline when
     /// it does not — `list_users` is a read the chat never needed a tool for.
     static func tool(action: String, of provider: IntegrationProvider) -> ChatTool {
@@ -242,8 +237,6 @@ enum ActionDelegation {
             function: .init(name: "\(provider.rawValue)_\(action)", arguments: encode(arguments))
         )
     }
-
-    // MARK: - Delegation record
 
     /// Per-item, on this Mac. A delegation is a message that already exists in
     /// the messenger; this only reminds the person they sent it, so defaults is
@@ -295,8 +288,6 @@ enum ActionDelegation {
             return Person(id: id, name: name)
         }
     }
-
-    // MARK: - Mentioning tools in a plan
 
     /// The `@`-fragment being typed at the end of `text`, if one is open —
     /// "ask @Sl" gives "Sl", "no at-sign here" gives nil. Only a trailing

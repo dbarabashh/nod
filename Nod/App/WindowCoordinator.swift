@@ -291,7 +291,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 meetings: services.meetingStore
             ),
             rooms: services.rooms,
-            lookup: { [services] gate, room, scope, sessionLabel in
+            lookup: { [services] gate, room, scope in
                 MeetingLookup(
                     llm: services.llmClient,
                     integrations: services.integrations,
@@ -299,7 +299,6 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                     gate: gate,
                     room: room,
                     scope: scope,
-                    sessionLabel: sessionLabel,
                     analytics: services.productAnalytics
                 )
             },

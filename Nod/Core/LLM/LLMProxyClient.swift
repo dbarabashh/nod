@@ -559,30 +559,6 @@ final class LLMProxyClient: ObservableObject {
         }
     }
 
-    /// Streaming counterpart to `chat` — same grounding + running history, but
-    /// the answer arrives token by token. A cross-session answer takes seconds
-    /// to generate; streaming doesn't make it faster, it makes the user stop
-    /// waiting on a spinner for all of it.
-    ///
-    /// Runs on `chatModel` with the same fallback chain and prompt caching as
-    /// `chat`, so switching a caller to the stream doesn't change which model
-    /// answers or what the grounding costs.
-    func streamChat(
-        system: String,
-        history: [ChatTurn],
-        temperature: Double? = nil,
-        cachePrompt: Bool = true
-    ) -> AsyncThrowingStream<String, Error> {
-        Log.llm.info("→ streaming chat via proxy model=\(chatModel) system.len=\(system.count) turns=\(history.count)")
-        return Self.textOnly(streamChat(
-            system: system,
-            history: history,
-            tools: [],
-            temperature: temperature,
-            cachePrompt: cachePrompt
-        ))
-    }
-
     /// The wire messages for a system prompt and a history.
     ///
     /// One mapping for the streamed and the one-shot path alike. They had two,
@@ -1583,10 +1559,6 @@ private struct ToolCallAccumulator {
     }
 
     private var byIndex: [Int: Partial] = [:]
-
-    var isEmpty: Bool {
-        byIndex.isEmpty
-    }
 
     mutating func absorb(_ deltas: [StreamChunk.ToolCallDelta]) {
         for delta in deltas {

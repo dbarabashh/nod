@@ -56,7 +56,6 @@ actor MeetingOutbox {
     private let dir: URL
     private var entries: [UUID: OutboxEntry] = [:]
     private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
 
     /// Serialises flushes: each `flush` chains behind the previous one and
     /// awaits its turn, so a caller always observes a real attempt at its own

@@ -139,19 +139,8 @@ struct Entitlement: Decodable {
         limits = try c.decodeIfPresent([String: Double].self, forKey: .limits) ?? [:]
         // The RPC returns timestamptz as ISO-8601 strings; parse leniently so a
         // null/absent date is simply "no date", not a decode failure.
-        trialEndsAt = try Self.date(from: c.decodeIfPresent(String.self, forKey: .trialEndsAt))
-        renewalDate = try Self.date(from: c.decodeIfPresent(String.self, forKey: .renewalDate))
-    }
-
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-
-    private static func date(from string: String?) -> Date? {
-        guard let string else { return nil }
-        return isoFormatter.date(from: string) ?? ISO8601DateFormatter().date(from: string)
+        trialEndsAt = try c.decodeIfPresent(String.self, forKey: .trialEndsAt).flatMap(ServerTimestamp.date)
+        renewalDate = try c.decodeIfPresent(String.self, forKey: .renewalDate).flatMap(ServerTimestamp.date)
     }
 }
 

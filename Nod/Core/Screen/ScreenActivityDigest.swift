@@ -28,10 +28,6 @@ struct ScreenActivityDigest: Equatable {
 
     let apps: [App]
 
-    var isEmpty: Bool {
-        apps.isEmpty
-    }
-
     /// Apps beyond this are a long tail of glances — a Finder window, a
     /// notification — and each one costs prompt room a real one could use.
     static let maximumApps = 6

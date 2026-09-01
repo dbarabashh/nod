@@ -44,10 +44,6 @@ struct MeetingLookup {
     /// Which earlier sessions to search, asked at the moment of the request —
     /// a meeting can be filed into a project while it is still running.
     let scope: () -> LookupScope
-    /// Turns a session id into "Product Sync · Aug 8". The same injection
-    /// `LiveMeetingAnalyst.recallSourceLabel` takes, and for the same reason:
-    /// an answer from memory that cannot be placed is one nobody can check.
-    let sessionLabel: (UUID) -> String?
     /// Reports where a live question got to. Optional so a test can build a
     /// lookup without one, the same way `gate` is optional.
     var analytics: ProductAnalytics?
@@ -237,7 +233,7 @@ struct MeetingLookup {
     /// by shape: a real Slack channel is `eng_releases`, so punctuation cannot
     /// tell the two apart.
     nonisolated static func mark(_ written: String?, notNaming toolNames: [String]) -> String? {
-        guard let subject = written?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty else { return nil }
+        guard let subject = written?.nilIfBlank else { return nil }
         guard !toolNames.contains(where: { $0.caseInsensitiveCompare(subject) == .orderedSame }) else { return nil }
         return subject
     }
@@ -370,7 +366,6 @@ struct MeetingLookup {
     /// An excerpt from an earlier session, with somewhere to put it.
     private struct Remembered {
         let text: String
-        let source: String?
     }
 
     /// What earlier sessions said about this.
@@ -389,7 +384,7 @@ struct MeetingLookup {
             .chunks
             .filter { $0.similarity >= LiveMeetingAnalyst.recallFloor }
             Log.llm.info("live: lookup memory scope=\(scope.label ?? "all") hits=\(matches.count)")
-            return matches.map { Remembered(text: $0.content, source: sessionLabel($0.meetingID)) }
+            return matches.map { Remembered(text: $0.content) }
         } catch {
             // Memory failing is not the lookup failing: a tool may still answer.
             Log.llm.error("live: lookup memory failed — \(error.localizedDescription)")
@@ -480,11 +475,5 @@ struct MeetingLookup {
     private static func encode(_ arguments: [String: String]) -> String? {
         guard let data = try? JSONEncoder().encode(arguments) else { return nil }
         return String(data: data, encoding: .utf8)
-    }
-}
-
-private extension String {
-    var nonEmpty: String? {
-        isEmpty ? nil : self
     }
 }

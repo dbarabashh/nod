@@ -241,10 +241,6 @@ final class IntegrationService: ObservableObject {
             .sorted { $0.rawValue < $1.rawValue }
     }
 
-    func providers(serving capability: IntegrationCapability) -> [IntegrationProvider] {
-        IntegrationProvider.all(serving: capability).filter(isUsable)
-    }
-
     /// Re-reads a connected workspace's member list into the organization.
     ///
     /// Connecting already does this once, which is what makes a company usable

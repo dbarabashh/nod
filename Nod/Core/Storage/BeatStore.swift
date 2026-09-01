@@ -194,12 +194,6 @@ final class BeatStore: ObservableObject {
         }
     }
 
-    func setEnabled(_ enabled: Bool, on beatID: UUID) async {
-        guard var beat = beats.first(where: { $0.id == beatID }) else { return }
-        beat.enabled = enabled
-        await update(beat)
-    }
-
     func delete(_ beatID: UUID) async {
         guard let supabase else { return }
         do {

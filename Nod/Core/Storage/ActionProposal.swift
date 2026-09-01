@@ -51,21 +51,6 @@ struct ActionProposal: Codable, Identifiable, Equatable {
         parameters["title"] ?? parameters["channel_name"] ?? action
     }
 
-    var assigneePersonID: UUID? {
-        parameters["assignee_person_id"].flatMap(UUID.init(uuidString:))
-    }
-
-    /// Where it landed, once it has. Same three fields, and the same rendering,
-    /// as an action item filed through the older per-item path.
-    var filed: ProviderLinkItem? {
-        guard let provider, let externalKey, let externalURL, let url = URL(string: externalURL) else { return nil }
-        return ProviderLinkItem(provider: provider, title: externalKey, url: url)
-    }
-
-    var isAwaitingDecision: Bool {
-        status == .proposed || status == .needsReview || status == .ready
-    }
-
     enum Status: String, Codable, Equatable {
         /// Found, and nobody has looked at it.
         case proposed

@@ -199,7 +199,7 @@ final class ScheduledMeetingWatcher: ObservableObject {
         }
         let now = Date()
 
-        askAboutLiveRooms(at: now)
+        askAboutLiveRooms()
 
         // A recording under way answers every candidate: the user is in a
         // meeting, whichever one it is.
@@ -227,7 +227,7 @@ final class ScheduledMeetingWatcher: ObservableObject {
     /// Only while nothing of our own is running, and only for an entry that can
     /// identify itself — the answer is about a specific meeting, not about being
     /// in the same company as somebody who is recording.
-    private func askAboutLiveRooms(at now: Date) {
+    private func askAboutLiveRooms() {
         // Logged on change, never per tick. Until now this whole path was silent
         // unless it threw, so a colleague who never saw the join card left no
         // trace anywhere — and three separate causes were diagnosed by reading

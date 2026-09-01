@@ -69,8 +69,6 @@ struct ActionItemDrawer: View {
         }
     }
 
-    // MARK: - Context
-
     /// The evidence behind the action, in three provenances: what the meeting
     /// said, what the screen saw (private, opt-in), where it was filed. The
     /// session stops being the destination once its words are right here.

@@ -21,13 +21,6 @@ final class ActionProposalStore: ObservableObject {
         self.supabase = supabase
     }
 
-    /// Everything still awaiting a decision, newest first. Completed and
-    /// rejected rows are left on the server — they are the audit trail, not a
-    /// work list.
-    var awaitingDecision: [ActionProposal] {
-        proposals.filter(\.isAwaitingDecision)
-    }
-
     func proposals(forMeeting meetingID: UUID) -> [ActionProposal] {
         proposals.filter { $0.meetingID == meetingID }
     }
@@ -285,7 +278,7 @@ final class ActionProposalStore: ObservableObject {
             lastError = nil
             return true
         } catch {
-            lastError = OrganizationService.rpcMessage(error) ?? "Couldn't save that."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't save that."
             Log.ui.error("ActionProposalStore.assign failed: \(error.localizedDescription)")
             return false
         }
@@ -314,7 +307,7 @@ final class ActionProposalStore: ObservableObject {
             Log.ui.info("proposal \(status.rawValue) type=\(proposal.type)")
             return true
         } catch {
-            lastError = OrganizationService.rpcMessage(error) ?? "Couldn't save that decision."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't save that decision."
             Log.ui.error("ActionProposalStore decision failed: \(error.localizedDescription)")
             return false
         }

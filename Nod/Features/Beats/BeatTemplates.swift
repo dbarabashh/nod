@@ -63,8 +63,6 @@ enum BeatTemplates {
     }
 
     static let every: [Template] = [
-        // MARK: Your day
-
         Template(
             title: "What's on me today?",
             summary: "The calendar, the promises and yesterday's loose ends, before the day starts moving.",
@@ -111,8 +109,6 @@ enum BeatTemplates {
             hour: 17,
             minute: 30
         ),
-
-        // MARK: Promises & people
 
         Template(
             title: "Who's waiting on me?",
@@ -166,8 +162,6 @@ enum BeatTemplates {
             weekday: 5
         ),
 
-        // MARK: What was decided
-
         Template(
             title: "What did we decide this week?",
             summary: "The week's decisions in one place, with what each one settled.",
@@ -207,8 +201,6 @@ enum BeatTemplates {
             minute: 0,
             weekday: 1
         ),
-
-        // MARK: Work in flight
 
         Template(
             title: "What's waiting on my review?",
@@ -266,8 +258,6 @@ enum BeatTemplates {
             requires: .github
         ),
 
-        // MARK: Inbox & channels
-
         Template(
             title: "Which threads are waiting on my reply?",
             summary: "Mail addressed to you that nobody else can answer.",
@@ -307,8 +297,6 @@ enum BeatTemplates {
             minute: 45,
             requires: .slack
         ),
-
-        // MARK: Week & month
 
         Template(
             title: "How did the week go?",

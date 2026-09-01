@@ -233,15 +233,6 @@ enum AskPhase: Equatable {
     /// Keeps the question that failed, so retrying doesn't ask the user to
     /// retype it.
     case failed(question: String)
-
-    var contentID: String {
-        switch self {
-        case .composing: "composing"
-        case .loading: "loading"
-        case .answered: "answered"
-        case .failed: "failed"
-        }
-    }
 }
 
 /// Where the recap card is, mirroring `MeetingStore`'s own generating/ready/

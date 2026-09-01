@@ -35,26 +35,8 @@ extension LiveMeetingAnalyst {
         return result.summary.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// "What should I ask next?" — reads the same size window the live pass
-    /// itself reads (recent turns matter here, not the whole meeting), grounded
-    /// the same way.
-    func suggestFollowUps(language: AppLanguage) async throws -> [String] {
-        let window = store.recentContext(maxEntries: Self.windowLines)
-        let known = LiveFinding.notes(from: findings)
-        let prompt = PromptLibrary.buildFollowUps(window: window, known: known, language: language)
-        let result = try await llm.completeJSON(
-            system: prompt.system,
-            user: prompt.user,
-            as: PromptLibrary.FollowUpsResult.self,
-            primaryModel: llm.chatModel
-        )
-        return result.questions
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-    }
-
     /// A free-form question about the meeting so far, typed by the user rather
-    /// than one of the two canned asks above. Same wide read as `catchUp` —
+    /// than the canned catch-up above. Same wide read as `catchUp` —
     /// the question could be about anything already said, not just the recent
     /// window.
     func ask(_ question: String, thread: AskThread = AskThread(), language: AppLanguage) async throws -> String {

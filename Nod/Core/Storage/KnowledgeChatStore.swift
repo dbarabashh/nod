@@ -11,7 +11,7 @@ import Foundation
 /// keyed to one meeting, so these live in their own tables and can be reopened
 /// from the Ask Nod list.
 @MainActor
-final class KnowledgeChatStore: ObservableObject {
+final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
     /// A session reference — either a source an answer drew on or a session the
     /// user pinned via @-mention. Both are just an id + display title.
     struct SessionRef: Codable, Identifiable, Equatable {
@@ -100,17 +100,6 @@ final class KnowledgeChatStore: ObservableObject {
     /// same question.
     let toolGate: ChatToolGate
 
-    /// The tool calls the model wants to make, waiting on the user. Nothing
-    /// leaves Nod while this is set.
-    var pendingApproval: ChatToolGate.Pending? {
-        toolGate.pending
-    }
-
-    /// Which product the chat is talking to right now, so the loader can say so.
-    var callingProvider: IntegrationProvider? {
-        toolGate.callingProvider
-    }
-
     private let integrations: IntegrationService?
     /// The visible half of the tool exchange: what to show under the answer once it
     /// lands. Cleared with them, at the start of every question.
@@ -175,7 +164,7 @@ final class KnowledgeChatStore: ObservableObject {
     private func groundingLabel(for meeting: Meeting, now: Date = Date()) -> String {
         let title = meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter)
         let when = Self.groundingDateFormatter.string(from: meeting.startedAt)
-        let age = switch PromptLibrary.daysBack(to: meeting.startedAt, from: now) {
+        let age = switch DayCount.between(meeting.startedAt, and: now) {
         case ..<1: "today"
         case 1: "yesterday"
         case let days: "\(days) days ago"
@@ -851,18 +840,6 @@ extension KnowledgeChatStore {
         await streamReply(context, round: round + 1)
     }
 
-    func approvePendingTools() {
-        toolGate.approve()
-    }
-
-    func approvePendingToolsAlways() {
-        toolGate.approveAlways()
-    }
-
-    func denyPendingTools() {
-        toolGate.deny()
-    }
-
     private static let streamFlushInterval: Duration = .milliseconds(50)
 
     #if DEBUG
@@ -1128,7 +1105,7 @@ extension KnowledgeChatStore {
         let people = others.isEmpty ? "" : " (with \(others.joined(separator: ", ")))"
         let title = event.title.isEmpty ? "(no title)" : event.title
         let when = calendarDayFormatter.string(from: event.startsAt)
-        let times = "\(calendarTimeFormatter.string(from: event.startsAt))–\(calendarTimeFormatter.string(from: event.endsAt))"
+        let times = "\(PromptLibrary.clockFormatter.string(from: event.startsAt))–\(PromptLibrary.clockFormatter.string(from: event.endsAt))"
         return "- \(when) \(times)\(calendarStatus(of: event, now: now)) — \(title)\(people)"
     }
 
@@ -1149,12 +1126,6 @@ extension KnowledgeChatStore {
     private static let calendarDayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEE d MMM"
-        return formatter
-    }()
-
-    private static let calendarTimeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
         return formatter
     }()
 

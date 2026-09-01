@@ -27,18 +27,6 @@ struct CallSignals: Equatable {
     /// notch reads it to recognise a call it has recorded before, entirely
     /// against sessions already on this Mac (`privacy.md` § 3.10(c)).
     var titles: [ConferencingApp: String] = [:]
-
-    /// Apps a strong signal puts in a call right now: a window titled like one,
-    /// or a helper process that exists only while a call is up.
-    ///
-    /// Derived, not stored. Held as its own set it had to be kept in step with
-    /// `titles` by whoever built it — the same invariant-nothing-enforces that
-    /// `DetectedCall` exists to kill one layer up, and the same failure: a new
-    /// evidence source that adds to one and forgets the other reads as a call
-    /// with no title, or a title for a call that isn't happening.
-    var inCall: Set<ConferencingApp> {
-        helperBacked.union(titles.keys)
-    }
 }
 
 /// The rules that turn system signals into "a call is happening", and back out
@@ -288,7 +276,7 @@ final class MeetingDetectionPreference: ObservableObject {
         mutedBundleIDs = Set(defaults.stringArray(forKey: Self.mutedAppsKey) ?? [])
     }
 
-    func setMuted(_ muted: Bool, bundleID: String) {
+    private func setMuted(_ muted: Bool, bundleID: String) {
         if muted { mutedBundleIDs.insert(bundleID) } else { mutedBundleIDs.remove(bundleID) }
         defaults.set(mutedBundleIDs.sorted(), forKey: Self.mutedAppsKey)
     }
@@ -353,14 +341,6 @@ final class MeetingDetector: ObservableObject {
     /// stops: every tick with a browser running costs an enumeration of every
     /// on-screen window on the machine.
     private static let interval: TimeInterval = 5
-
-    /// How long an unanswered card stays up. Past this the user has seen it and
-    /// chosen not to act; the panel's own Start button is two clicks away, and a
-    /// card that sits there for the whole call is just clutter.
-    /// Shared with `ScheduledMeetingWatcher`: both surfaces ask the same
-    /// question and an offer that lingers longer on one than the other is a
-    /// difference nobody chose.
-    static let offerLifetime: TimeInterval = 45
 
     init(session: MeetingSession, exclusions: ScreenExclusions, preference: MeetingDetectionPreference) {
         self.session = session

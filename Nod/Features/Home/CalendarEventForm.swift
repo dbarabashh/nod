@@ -185,8 +185,6 @@ struct CalendarEventForm: View {
         .shadow(color: Theme.Palette.scrim.opacity(0.35), radius: 14, y: 6)
     }
 
-    // MARK: - Availability
-
     /// Who the invited emails are, cleaned. The availability check keys on
     /// these plus the day, so retyping a comma does not refetch.
     private var invitedEmails: [String] {
@@ -272,8 +270,8 @@ struct CalendarEventForm: View {
         let result = await integrations.run(
             ActionDelegation.call(action: "check_availability", of: .googleCalendar, arguments: [
                 "attendees": emails.joined(separator: ","),
-                "starts_at": CalendarPlan.rfc3339(day),
-                "ends_at": CalendarPlan.rfc3339(day.addingTimeInterval(24 * 3600))
+                "starts_at": PromptLibrary.rfc3339String(day),
+                "ends_at": PromptLibrary.rfc3339String(day.addingTimeInterval(24 * 3600))
             ]),
             tool: ActionDelegation.tool(action: "check_availability", of: .googleCalendar)
         )
@@ -333,15 +331,6 @@ enum CalendarPlan {
         return URL(string: raw)
     }
 
-    /// RFC3339 with the local offset — the server's contract is absolute
-    /// times, because the client is the only one who knows the user's clock.
-    static func rfc3339(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
-        return formatter.string(from: date)
-    }
-
     static func arguments(
         title: String,
         startsAt: Date,
@@ -350,15 +339,13 @@ enum CalendarPlan {
     ) -> [String: String] {
         var arguments = [
             "title": title.trimmingCharacters(in: .whitespaces),
-            "starts_at": rfc3339(startsAt),
-            "ends_at": rfc3339(startsAt.addingTimeInterval(TimeInterval(durationMinutes * 60)))
+            "starts_at": PromptLibrary.rfc3339String(startsAt),
+            "ends_at": PromptLibrary.rfc3339String(startsAt.addingTimeInterval(TimeInterval(durationMinutes * 60)))
         ]
         let invited = attendees.trimmingCharacters(in: .whitespaces)
         if !invited.isEmpty { arguments["attendees"] = invited }
         return arguments
     }
-
-    // MARK: - Availability
 
     /// One invited person's answer: readable or not, and when they are busy.
     struct BusyPerson: Equatable {
@@ -496,20 +483,12 @@ enum CalendarPlan {
                 email: person.email,
                 readable: person.readable,
                 busy: person.busy.compactMap { block in
-                    guard let start = block.startsAt.flatMap(instant), let end = block.endsAt.flatMap(instant),
+                    guard let start = block.startsAt.flatMap(ServerTimestamp.date), let end = block.endsAt.flatMap(ServerTimestamp.date),
                           end > start else { return nil }
                     return DateInterval(start: start, end: end)
                 }
             )
         }
-    }
-
-    /// RFC3339 as Google writes it, with or without a Z.
-    static func instant(_ raw: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: raw) { return date }
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: raw)
     }
 
     /// Half-open overlap. `DateInterval.intersects` counts a shared endpoint,

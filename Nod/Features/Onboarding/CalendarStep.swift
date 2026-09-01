@@ -142,11 +142,7 @@ struct CalendarOptionList: View {
     private func control(_ state: CalendarSourceState, option: CalendarCopy.Option, action: @escaping () -> Void) -> some View {
         switch state {
         case .connected:
-            HStack(spacing: 4) {
-                Image("nc-check").icon(10)
-                Text("Connected").font(.system(size: 11.5, weight: .semibold))
-            }
-            .foregroundStyle(Theme.Palette.success)
+            StatusLabel(icon: "nc-check", title: "Connected", tint: Theme.Palette.success)
         case .pending:
             Text(option.pendingTitle)
                 .font(.system(size: 11.5, weight: .medium))

@@ -15,7 +15,6 @@ struct ChatFailure: Equatable {
     enum Recovery: Equatable {
         case retry
         case upgrade
-        case reconnect
         case none
     }
 
@@ -143,7 +142,6 @@ extension ChatFailure.Recovery {
         switch self {
         case .retry: "Try again"
         case .upgrade: "Upgrade"
-        case .reconnect: "Open settings"
         case .none: nil
         }
     }

@@ -76,19 +76,6 @@ enum IntegrationCapability: String, CaseIterable, Identifiable {
     }
 }
 
-/// The two calls a conversation product has to answer for Nod to act in it.
-///
-/// Named actions rather than a bool, for the same reason `TaskActions` is: the
-/// caller needs the names, and guessing them from a prefix is how
-/// `create_channel` in a wiki would have become a place to put a meeting.
-struct ConversationActions {
-    /// A channel in Slack, a group in Telegram, a team channel in Teams.
-    let createSpace: String
-    let invite: String
-    /// The workspace's members, for matching a person to their account there.
-    let listUsers: String
-}
-
 /// Which way the arrow points once a product is connected.
 ///
 /// Kept apart because the two are not the same request to the person granting
@@ -158,13 +145,6 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// Every product that could serve a capability, whether or not anyone has
-    /// connected one. What is actually reachable is `IntegrationService`'s
-    /// question — it depends on the connection and on the organization's policy.
-    static func all(serving capability: IntegrationCapability) -> [IntegrationProvider] {
-        allCases.filter { $0.capabilities.contains(capability) }.sorted { $0.rawValue < $1.rawValue }
-    }
-
     var role: IntegrationRole {
         switch self {
         case .linear, .slack, .jira, .asana: .actsIn
@@ -194,23 +174,10 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    var conversationActions: ConversationActions? {
-        switch self {
-        case .slack: ConversationActions(
-                createSpace: "create_channel",
-                invite: "invite_users",
-                listUsers: "list_users"
-            )
-        case .linear, .googleCalendar, .github, .jira, .notion,
-             .asana, .hubspot, .gmail, .googleDrive, .googleAds: nil
-        }
-    }
-
     /// Whether this product can say who is in its workspace, so a company's
     /// roster can be picked up from it.
     ///
-    /// Named, not derived. It used to be `taskActions != nil ||
-    /// conversationActions != nil` on the theory that every such product needs
+    /// Named, not derived. It used to be derived from `taskActions` on the theory that every such product needs
     /// `list_users` to resolve an assignee — which stopped being true the moment
     /// a tracker shipped without one, and put an "Import members" button on
     /// Jira and Asana that `directory-sync` answers 400 to. The server asks

@@ -42,14 +42,8 @@ struct CatalogueRow: View {
     }
 
     private var control: some View {
-        HStack(spacing: 5) {
-            Image("nc-check")
-                .icon(10)
-            Text("Connected")
-                .font(.system(size: 11.5, weight: .semibold))
-        }
-        .foregroundStyle(Theme.Palette.success)
-        .accessibilityLabel("\(app.name) connected")
+        StatusLabel(icon: "nc-check", title: "Connected", tint: Theme.Palette.success)
+            .accessibilityLabel("\(app.name) connected")
     }
 }
 

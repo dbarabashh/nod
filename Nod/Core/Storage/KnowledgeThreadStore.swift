@@ -285,25 +285,6 @@ final class KnowledgeThreadStore: ObservableObject {
         }
     }
 
-    /// Names an untitled thread from its first question, so the list is
-    /// readable without a second model call.
-    func setTitleIfEmpty(_ title: String, threadID: UUID) async {
-        guard let index = threads.firstIndex(where: { $0.id == threadID }),
-              threads[index].title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { return }
-        let trimmed = Self.trimmedTitle(title)
-        threads[index].title = trimmed
-        do {
-            try await supabase
-                .from(Self.threadsTable)
-                .update(["title": trimmed])
-                .eq("id", value: threadID.uuidString)
-                .execute()
-        } catch {
-            Log.ui.error("KnowledgeThreadStore.setTitle failed: \(error.localizedDescription)")
-        }
-    }
-
     /// Gone means gone — messages cascade. Optimistic, because a thread the
     /// user deleted should leave the list immediately.
     func delete(_ threadID: UUID) async {

@@ -20,7 +20,6 @@ private struct HoverTooltipModifier: ViewModifier {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isVisible = false
-    @State private var anchor: CGRect = .zero
     /// Cancelled on hover-exit, so a timer from a pointer that has already left
     /// can't pop the card open behind it.
     @State private var dwellTask: Task<Void, Never>?

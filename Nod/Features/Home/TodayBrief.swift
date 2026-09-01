@@ -82,8 +82,6 @@ enum TodayBrief {
             .first { !$0.isEmpty && !$0.hasPrefix("#") } ?? ""
     }
 
-    // MARK: - Seen watermark
-
     /// A beat result counts as new until the person has opened Beats from its
     /// row. Kept per beat in defaults rather than a column: which mornings this
     /// Mac has shown is this Mac's business.

@@ -23,7 +23,6 @@ struct SessionsListView: View {
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @EnvironmentObject private var labelStore: LabelStore
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var searchQuery: String = ""
     @State private var owner: Owner = .everyone
@@ -76,7 +75,7 @@ struct SessionsListView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: { meeting in
-                let label = meeting.title?.trimmingCharacters(in: .whitespaces).nonEmpty
+                let label = meeting.title?.trimmingCharacters(in: .whitespaces).nilIfEmpty
                     ?? "this meeting"
                 Text("This permanently deletes \(label). This action can't be undone.")
             }
@@ -502,8 +501,6 @@ struct SessionsListView: View {
         }
     }
 
-    // MARK: - States
-
     private var loadingState: some View {
         VStack(spacing: 12) {
             ProgressView()
@@ -611,8 +608,6 @@ struct SessionsListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 40)
     }
-
-    // MARK: - Lists
 
     private func allList(_ rows: [Meeting]) -> some View {
         List(rows) { meeting in
@@ -732,8 +727,6 @@ struct SessionsListView: View {
         .isPresented(by: $emptyTrashFailure)
     }
 }
-
-// MARK: - Row
 
 private struct MeetingRow: View {
     enum Mode { case all, trash }
@@ -918,12 +911,6 @@ private struct StatusFlagPill<Glyph: View>: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(Capsule(style: .continuous).fill(color.opacity(0.12)))
-    }
-}
-
-private extension String {
-    var nonEmpty: String? {
-        isEmpty ? nil : self
     }
 }
 

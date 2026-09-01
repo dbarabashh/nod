@@ -17,13 +17,11 @@ import SwiftUI
 /// chat unactionable, and showing it makes every failure unreadable.
 struct ChatErrorRow: View {
     let failure: ChatFailure
-    /// Only the retry. Upgrading and reconnecting are app-global navigations
-    /// that are the same act on every surface, so they are handled here rather
-    /// than reimplemented identically by each chat — asking a caller how to
-    /// open Settings is how the two surfaces drift apart.
+    /// Only the retry. Upgrading is an app-global navigation that is the same
+    /// act on every surface, so it is handled here rather than reimplemented
+    /// identically by each chat.
     let onRetry: () -> Void
 
-    @EnvironmentObject private var settingsFocus: SettingsFocus
     @State private var showsDetail = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -70,8 +68,6 @@ struct ChatErrorRow: View {
             onRetry()
         case .upgrade:
             NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
-        case .reconnect:
-            settingsFocus.open(.integrations)
         case .none:
             break
         }

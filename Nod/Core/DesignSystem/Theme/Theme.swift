@@ -14,7 +14,6 @@ import SwiftUI
 ///   graphite      →  cloud
 ///   muted         →  slateGray
 ///   violet        →  magentaBurst       (legacy slot — primary purple-ish)
-///   pink          →  fuchsiaFlare       (legacy slot — primary pink-ish)
 ///   cyan          →  electricBlue       (legacy slot — primary cool accent)
 ///   warning       →  goldenrod
 ///   success       →  vividGreen         (new)
@@ -24,7 +23,6 @@ enum Theme {
         // Surfaces / text
         static let bg = DesignTokens.Surface.level0
         static let bgSoft = DesignTokens.Surface.level1
-        static let bgDeep = DesignTokens.Surface.level2
         static let ink = Color.themed(light: DesignTokens.Palette.twilightInk, dark: DesignTokens.Palette.frost)
         static let graphite = Color.themed(light: DesignTokens.Palette.charcoal, dark: DesignTokens.Palette.cloud)
         static let muted = Color.themed(light: DesignTokens.Palette.stoneGray, dark: DesignTokens.Palette.slateGray)
@@ -65,11 +63,10 @@ enum Theme {
         /// pills, which have to be the same chrome and live in two files.
         static let userTurn = overlay.opacity(0.14)
 
-        // Brand accents — slot names preserved. Purple/pink retired app-wide in
-        // favour of a neutral accent (see GlassButton); both now resolve to
+        // Brand accents — slot names preserved. Purple retired app-wide in
+        // favour of a neutral accent (see GlassButton); it now resolves to
         // `ink` so every former-purple tint/glow reads neutral from one place.
         static let violet = ink
-        static let pink = ink
         static let cyan = Color.themed(light: DesignTokens.Palette.electricBlueDeep, dark: DesignTokens.Palette.electricBlue)
         static let warning = Color.themed(light: DesignTokens.Palette.goldenrodDeep, dark: DesignTokens.Palette.goldenrod)
         static let success = Color.themed(light: DesignTokens.Palette.vividGreenDeep, dark: DesignTokens.Palette.vividGreen)
@@ -82,14 +79,9 @@ enum Theme {
         // Meeting controls — the pause/resume/end/mute tints shared by the
         // status row and the collapsed capsule, centralised here so the two
         // surfaces can't drift.
-        static let controlResume = Color.themed(light: DesignTokens.Palette.mintGreenDeep, dark: DesignTokens.Palette.mintGreen)
         static let controlEnd = Color.themed(light: DesignTokens.Palette.coralRedDeep, dark: DesignTokens.Palette.coralRed)
         static let controlEndSurface = Color.themed(light: DesignTokens.Palette.blushSurface, dark: DesignTokens.Palette.maroon)
         static let controlMicMuted = Color.themed(light: DesignTokens.Palette.salmonPinkDeep, dark: DesignTokens.Palette.salmonPink)
-        static let controlSurface = Color.themed(light: DesignTokens.Palette.fogSurface, dark: DesignTokens.Palette.slateInk)
-
-        /// The amber eye in the screen-share visibility toggle.
-        static let shareEye = Color.themed(light: DesignTokens.Palette.amberDeep, dark: DesignTokens.Palette.amber)
     }
 
     /// Single source of truth for the primary "glass" button — the marketing
@@ -117,30 +109,10 @@ enum Theme {
     }
 
     enum Gradients {
-        /// Headline gradient — neutral sweep (purple retired). Reads as
-        /// near-white on dark surfaces and near-black on light ones.
-        static let textBrand = LinearGradient(
-            colors: [
-                Palette.ink,
-                Palette.graphite
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-
         /// Primary button fill — aliases the single `GlassButton` source so any
         /// remaining `buttonBrand` call site renders the same glass pill. Pair
         /// with `GlassButton.text` for the label colour.
         static let buttonBrand = GlassButton.fill
-
-        static let buttonSuccess = LinearGradient(
-            colors: [
-                Color.themed(light: DesignTokens.Palette.tealGlowDeep, dark: DesignTokens.Palette.tealGlow),
-                Palette.cyan
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
 
         /// The sky behind sign-in and onboarding — hellonod.app's hero blue.
         /// Deep at the top, sky at the bottom, and it never dissolves to white:
@@ -154,15 +126,6 @@ enum Theme {
             ],
             startPoint: .top,
             endPoint: .bottom
-        )
-
-        static let background = LinearGradient(
-            colors: [
-                DesignTokens.Surface.level0,
-                DesignTokens.Surface.level1
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
         )
     }
 

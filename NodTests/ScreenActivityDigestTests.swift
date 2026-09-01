@@ -122,7 +122,7 @@ final class ScreenActivityDigestTests: XCTestCase {
     }
 
     func testEmptyInputIsEmptyDigest() {
-        XCTAssertTrue(digest(from: []).isEmpty)
+        XCTAssertTrue(digest(from: []).apps.isEmpty)
     }
 
     /// The whole point of planning from an index: a window seen in the morning

@@ -207,10 +207,6 @@ final class OnboardingState: ObservableObject {
         move(by: 1, skipping: satisfied)
     }
 
-    func goPrevious(skipping satisfied: Set<OnboardingStep> = []) {
-        move(by: -1, skipping: satisfied)
-    }
-
     private func move(by offset: Int, skipping satisfied: Set<OnboardingStep>) {
         guard let next = status.currentStep.advanced(by: offset, skipping: satisfied) else { return }
         status.currentStep = next

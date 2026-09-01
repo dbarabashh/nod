@@ -21,10 +21,6 @@ enum AmbientScopes {
         UserDefaults.standard.bool(forKey: todaySuggestionsKey)
     }
 
-    static var drafting: Bool {
-        UserDefaults.standard.bool(forKey: draftingKey)
-    }
-
     /// "Today 14:32" / "Yesterday 15:04" / "Aug 28" — when a piece of related
     /// work was on the screen, in the words a hint line uses.
     static func when(_ date: Date, now: Date = Date()) -> String {

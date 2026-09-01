@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// Every app on the Mac, split by whether Nod may read it.
@@ -34,8 +33,6 @@ struct ExcludedAppsPane: View {
             }
     }
 
-    // MARK: - Apps
-
     /// Excluded first, under a heading that says what the switch means.
     ///
     /// One alphabetical list of identical switches could not answer "am I
@@ -44,7 +41,7 @@ struct ExcludedAppsPane: View {
     private var appsPane: some View {
         let readable = filteredApps.filter { !exclusions.excludes($0) }
         return VStack(alignment: .leading, spacing: 10) {
-            searchField
+            SearchField(prompt: "Search applications…", text: $appQuery)
 
             // The delete itself is server-side and nothing on screen shrinks, so
             // without this a per-app delete looks like it did nothing — same
@@ -64,10 +61,6 @@ struct ExcludedAppsPane: View {
                 appGroup("Can be read", apps: readable.map { ExcludedApp(bundleID: $0.bundleID, name: $0.name) })
             }
         }
-    }
-
-    private var searchField: some View {
-        SearchField(prompt: "Search applications…", text: $appQuery)
     }
 
     /// Built from the blocklist, not from the intersection with what happens to

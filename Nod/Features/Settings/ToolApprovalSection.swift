@@ -14,7 +14,7 @@ struct ToolApprovalSection: View {
             SettingsCard {
                 ForEach(Array(ToolApproval.allCases.enumerated()), id: \.element.id) { index, option in
                     if index > 0 {
-                        Divider().overlay(Theme.Palette.border)
+                        SettingsRowDivider(indent: 0)
                     }
                     row(option)
                 }

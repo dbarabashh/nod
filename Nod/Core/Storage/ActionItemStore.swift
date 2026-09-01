@@ -177,7 +177,7 @@ final class ActionItemStore: ObservableObject {
                 meetingID: meetingID,
                 userID: userID,
                 text: text,
-                deadline: action.deadline?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                deadline: action.deadline?.nilIfBlank,
                 position: position,
                 kind: action.isSomeoneElses ? .theirs : .action
             )
@@ -656,11 +656,5 @@ final class ActionItemStore: ObservableObject {
             .update(body)
             .eq("id", value: itemID.uuidString)
             .execute()
-    }
-}
-
-extension String {
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
     }
 }

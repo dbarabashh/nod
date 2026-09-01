@@ -99,18 +99,14 @@ struct OrganizationOverview: View {
     private var dangerZone: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel("Organization actions")
-            if service.isSoleOwner(of: membership.id) {
-                DeleteOrganizationCard(organization: membership.organization) {
-                    Task { await service.deleteOrganization(membership.id) }
-                }
-            } else {
+            if !service.isSoleOwner(of: membership.id) {
                 LeaveOrganizationCard(organization: membership.organization) {
                     Task { await service.leaveOrganization(membership.id) }
                 }
-                if membership.role == .owner {
-                    DeleteOrganizationCard(organization: membership.organization) {
-                        Task { await service.deleteOrganization(membership.id) }
-                    }
+            }
+            if membership.role == .owner {
+                DeleteOrganizationCard(organization: membership.organization) {
+                    Task { await service.deleteOrganization(membership.id) }
                 }
             }
         }

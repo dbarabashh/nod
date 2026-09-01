@@ -124,7 +124,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         observeSettingsPane(.nodOpenSettings, .general)
         observeSettingsPane(.nodOpenPrivacySettings, .privacy)
-        observeSettingsPane(.nodOpenModes, .modes)
         observeSettingsPane(.nodOpenRewards, .rewards)
         // Posted by upsell buttons and the post-checkout deep link.
         observeSettingsPane(.nodOpenSubscription, .subscription)
@@ -444,9 +443,6 @@ extension Notification.Name {
     /// Switch the Meetings window to the saved cross-session chats — posted
     /// when the launcher hands its thread over.
     static let nodOpenKnowledgeChats = Notification.Name("nod.history.openKnowledgeChats")
-    /// Posted by the panel's mode chip ("Manage Modes…") to open Settings on the
-    /// Modes tab.
-    static let nodOpenModes = Notification.Name("nod.app.openModes")
     /// Posted by the sidebar's ambient row: switching ambient capture ON has to
     /// happen where the disclosure is, not behind a tooltip.
     static let nodOpenPrivacySettings = Notification.Name("nod.app.openPrivacySettings")

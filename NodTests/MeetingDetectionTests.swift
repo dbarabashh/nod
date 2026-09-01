@@ -63,7 +63,7 @@ final class MeetingDetectionTests: XCTestCase {
     }
 
     func testAHelperBackedCallIsAlsoJustACall() {
-        // `helperBacked` is a narrowing of `inCall`, not a separate way in: the
+        // `helperBacked` is a narrowing of the running set, not a separate way in: the
         // helper still has to confirm the call before it can arm anything.
         let signals = CallSignals(running: [.zoom], helperBacked: [.zoom])
         XCTAssertEqual(MeetingDetection.call(in: signals)?.app, .zoom)

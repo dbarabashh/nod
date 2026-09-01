@@ -72,22 +72,12 @@ struct KnowledgeChatView: View {
         // a project from the panel and typing its name by hand are the same
         // act, and deleting the words unscopes the question again.
         .onChange(of: draft) { _ in syncScope() }
-        .onChange(of: chat.pendingDraft) { pending in
-            guard let pending else { return }
-            draft = pending
-            chat.pendingDraft = nil
-            inputFocused = true
-        }
+        .onChange(of: chat.pendingDraft) { _ in adoptPendingDraft() }
         // Also on appear: a draft handed over from another surface (Today's
         // composer, "Ask about this project") is set while this view is not
         // mounted, and `onChange` never fires for a value that was already
         // there when the view arrived — the question typed elsewhere vanished.
-        .onAppear {
-            guard let pending = chat.pendingDraft else { return }
-            draft = pending
-            chat.pendingDraft = nil
-            inputFocused = true
-        }
+        .onAppear(perform: adoptPendingDraft)
         // The link coming back is the one thing that fixes an offline turn, and
         // it fixes it without anybody clicking. `NetworkPathMonitor` exists to
         // decide *when to retry what already failed* — never to gate a send,
@@ -448,6 +438,13 @@ struct KnowledgeChatView: View {
         chat.scopeLabelIDs = next
     }
 
+    private func adoptPendingDraft() {
+        guard let pending = chat.pendingDraft else { return }
+        draft = pending
+        chat.pendingDraft = nil
+        inputFocused = true
+    }
+
     /// Derived rather than tracked: a stored list outlived the draft it
     /// described, so a tool named in one question came back as a pill in the
     /// next.
@@ -461,8 +458,6 @@ struct KnowledgeChatView: View {
     private var canSend: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
-
-    // MARK: - Send
 
     /// The view's only job at send time: work out which mentions are still
     /// live in the text (deleting the inline "@Title" drops the mention) and

@@ -329,8 +329,8 @@ final class CalendarPlanTests: XCTestCase {
         let starts = try XCTUnwrap(arguments["starts_at"])
         let rfc3339 = try NSRegularExpression(pattern: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$"#)
         XCTAssertNotNil(rfc3339.firstMatch(in: starts, range: NSRange(starts.startIndex..., in: starts)), starts)
-        XCTAssertEqual(CalendarPlan.instant(starts), start)
-        XCTAssertEqual(try CalendarPlan.instant(XCTUnwrap(arguments["ends_at"])), start.addingTimeInterval(1800))
+        XCTAssertEqual(ServerTimestamp.date(from: starts), start)
+        XCTAssertEqual(try ServerTimestamp.date(from: XCTUnwrap(arguments["ends_at"])), start.addingTimeInterval(1800))
     }
 
     func testReminderDefaultsToTomorrowMorning() {

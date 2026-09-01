@@ -93,7 +93,7 @@ struct IntegrationsSection: View {
         }
         .confirmationDialog(
             "Disconnect \(disconnecting?.displayName ?? "")?",
-            isPresented: isConfirmingDisconnect,
+            isPresented: .isPresented(by: $disconnecting),
             titleVisibility: .visible
         ) {
             Button("Disconnect", role: .destructive) {
@@ -104,16 +104,6 @@ struct IntegrationsSection: View {
         } message: {
             Text(disconnecting.map(Self.consequence) ?? "")
         }
-    }
-
-    /// Drives the dialog without a `Binding(get:set:)` in `body`: the identity of
-    /// what is being disconnected and whether the sheet is up are one fact, and
-    /// this keeps them from drifting apart.
-    private var isConfirmingDisconnect: Binding<Bool> {
-        Binding(
-            get: { disconnecting != nil },
-            set: { if !$0 { disconnecting = nil } }
-        )
     }
 
     /// The tools Nod does not support, which is all of them but these.
@@ -191,8 +181,6 @@ struct IntegrationsSection: View {
         }
     }
 
-    // MARK: - A product
-
     @ViewBuilder
     private func providerRow(_ provider: IntegrationProvider) -> some View {
         let isLinked = service.linked.contains(provider)
@@ -268,10 +256,10 @@ struct IntegrationsSection: View {
     @ViewBuilder
     private func connectControl(_ provider: IntegrationProvider, isLinked: Bool, isPending: Bool, isBlocked: Bool) -> some View {
         if isBlocked {
-            statusLabel("nc-lock", "Turned off", tint: Theme.Palette.warning)
+            StatusLabel(icon: "nc-lock", title: "Turned off", tint: Theme.Palette.warning)
                 .accessibilityLabel("\(provider.displayName) turned off for your organization")
         } else if isLinked {
-            statusLabel("nc-check", "Connected", tint: Theme.Palette.success)
+            StatusLabel(icon: "nc-check", title: "Connected", tint: Theme.Palette.success)
                 .accessibilityLabel("\(provider.displayName) connected")
         } else if isPending {
             Button("Cancel") { service.cancelPending() }
@@ -291,16 +279,6 @@ struct IntegrationsSection: View {
             }
             .buttonStyle(.plain)
         }
-    }
-
-    private func statusLabel(_ icon: String, _ title: String, tint: Color) -> some View {
-        HStack(spacing: 5) {
-            Image(icon)
-                .icon(10)
-            Text(title)
-                .font(.system(size: 11.5, weight: .semibold))
-        }
-        .foregroundStyle(tint)
     }
 
     private func details(_ provider: IntegrationProvider, isLinked: Bool) -> some View {

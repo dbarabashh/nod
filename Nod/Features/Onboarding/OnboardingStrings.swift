@@ -30,13 +30,7 @@ struct OnboardingStrings {
     let screenTitle: String
     let screenDescription: String
 
-    let screenPreemptiveTitle: String
     let screenPreemptiveBody: String
-
-    let guideStep1Title: String
-    let guideStep1Detail: String
-    let guideStep2Title: String
-    let guideStep2Detail: String
 
     let actionEnable: String
     let actionOpenSettings: String
@@ -45,7 +39,6 @@ struct OnboardingStrings {
     let actionSkip: String
     let actionContinue: String
     let actionContinueAnyway: String
-    let actionFinish: String
     let statusGranted: String
 }
 
@@ -71,13 +64,7 @@ extension OnboardingStrings {
         screenTitle: "Screen Recording",
         screenDescription: "Required to capture system audio — the other side of a call, or anything playing.",
 
-        screenPreemptiveTitle: "Why Screen Recording?",
         screenPreemptiveBody: "Screen Recording is what macOS calls the permission to hear your Mac's own audio — the other side of a call. Nod doesn't record or transmit your screen; only the audio mix from your speakers.",
-
-        guideStep1Title: "Open Privacy & Security",
-        guideStep1Detail: "In System Settings, scroll to Privacy & Security.",
-        guideStep2Title: "Enable Nod under Screen Recording",
-        guideStep2Detail: "Toggle Nod on. macOS will ask you to quit and reopen.",
 
         actionEnable: "Enable",
         actionOpenSettings: "Open Settings",
@@ -86,7 +73,6 @@ extension OnboardingStrings {
         actionSkip: "Skip for now",
         actionContinue: "Continue",
         actionContinueAnyway: "Continue Anyway",
-        actionFinish: "Continue",
         statusGranted: "Granted"
     )
 }

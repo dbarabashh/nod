@@ -82,7 +82,7 @@ struct LoopResolver {
             // twice is not more certain about it.
             guard seen.insert(loop.id).inserted else { continue }
 
-            let said = move.said?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            let said = move.said?.nilIfBlank
             await items.move(
                 loop,
                 to: state,

@@ -36,7 +36,7 @@ struct RetrievedConcept: Decodable, Identifiable, Equatable {
     }
 
     var validFrom: Date? {
-        validFromRaw.flatMap(Self.parseTimestamp)
+        validFromRaw.flatMap(ServerTimestamp.date)
     }
 
     /// "12 Aug" — the date an answer cites beside the fact, in the same shape
@@ -44,20 +44,6 @@ struct RetrievedConcept: Decodable, Identifiable, Equatable {
     var validFromLabel: String? {
         validFrom.map { Meeting.shortDateFormatter.string(from: $0) }
     }
-
-    /// Postgres emits fractional seconds; a plain ISO8601 formatter refuses
-    /// them, so try both shapes.
-    private static func parseTimestamp(_ raw: String) -> Date? {
-        withFractional.date(from: raw) ?? plain.date(from: raw)
-    }
-
-    private static let withFractional: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private static let plain = ISO8601DateFormatter()
 }
 
 /// One search response's two stages together: the distilled facts for the

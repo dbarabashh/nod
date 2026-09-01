@@ -220,3 +220,34 @@ final class ChatToolGate: ObservableObject {
         return (matched, provider)
     }
 }
+
+/// A store that owns a gate and publishes its state as its own.
+@MainActor
+protocol ChatToolGateHost: AnyObject {
+    var toolGate: ChatToolGate { get }
+}
+
+extension ChatToolGateHost {
+    /// What the model wants to use, waiting on the person. Nothing leaves Nod
+    /// while this is set.
+    var pendingApproval: ChatToolGate.Pending? {
+        toolGate.pending
+    }
+
+    /// Which product the chat is talking to right now, so the loader can say so.
+    var callingProvider: IntegrationProvider? {
+        toolGate.callingProvider
+    }
+
+    func approvePendingTools() {
+        toolGate.approve()
+    }
+
+    func approvePendingToolsAlways() {
+        toolGate.approveAlways()
+    }
+
+    func denyPendingTools() {
+        toolGate.deny()
+    }
+}

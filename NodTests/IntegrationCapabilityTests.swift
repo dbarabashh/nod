@@ -26,11 +26,6 @@ final class IntegrationCapabilityTests: XCTestCase {
                 provider.capabilities.contains(.tasks),
                 "\(provider.rawValue) disagrees with itself about being a task tracker"
             )
-            XCTAssertEqual(
-                provider.conversationActions != nil,
-                provider.capabilities.contains(.conversations),
-                "\(provider.rawValue) disagrees with itself about being a team chat"
-            )
         }
     }
 
@@ -38,20 +33,10 @@ final class IntegrationCapabilityTests: XCTestCase {
     /// one has at least one adapter behind it.
     func testEveryCapabilityHasAProviderBehindIt() {
         for capability in IntegrationCapability.allCases {
-            XCTAssertFalse(
-                IntegrationProvider.all(serving: capability).isEmpty,
+            XCTAssertTrue(
+                IntegrationProvider.allCases.contains { $0.capabilities.contains(capability) },
                 "nothing serves \(capability.rawValue)"
             )
-        }
-    }
-
-    /// The order decides which product a finalize files into when somebody has
-    /// connected two, so it must not depend on the order a `Set` happened to
-    /// iterate in this run.
-    func testTheChoiceBetweenTwoProvidersIsStable() {
-        let first = IntegrationProvider.all(serving: .tasks)
-        for _ in 0 ..< 20 {
-            XCTAssertEqual(IntegrationProvider.all(serving: .tasks), first)
         }
     }
 
@@ -61,7 +46,6 @@ final class IntegrationCapabilityTests: XCTestCase {
     func testReadOnlyProvidersAreNotSomewhereToActInAsTasks() {
         for provider in IntegrationProvider.all(.readsFrom) {
             XCTAssertNil(provider.taskActions, "\(provider.rawValue) is read-only")
-            XCTAssertNil(provider.conversationActions, "\(provider.rawValue) is read-only")
         }
     }
 

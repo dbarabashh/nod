@@ -204,7 +204,7 @@ final class BillingService: ObservableObject {
     /// which one turns a dead end into something the person can act on.
     private static func checkoutErrorMessage(_ error: Error) -> String {
         let fallback = "Couldn't start checkout. Please try again."
-        switch serverErrorCode(error) {
+        switch ServerError.functionCode(error) {
         case "invalid_referral":
             return "That referral code isn't valid. Check it and try again."
         case "self_referral":
@@ -237,7 +237,7 @@ final class BillingService: ObservableObject {
     }
 
     private static func topUpErrorMessage(_ error: Error) -> String {
-        switch serverErrorCode(error) {
+        switch ServerError.functionCode(error) {
         case "topup_not_eligible":
             "Extra capture hours are only available on an active Starter plan."
         case "no_active_usage_period":
@@ -247,13 +247,6 @@ final class BillingService: ObservableObject {
         default:
             "Couldn't start the capture-hours checkout. Please try again."
         }
-    }
-
-    private static func serverErrorCode(_ error: Error) -> String? {
-        guard let functionError = error as? FunctionsError,
-              case let .httpError(_, data) = functionError else { return nil }
-        struct Body: Decodable { let error: String? }
-        return try? JSONDecoder().decode(Body.self, from: data).error
     }
 
     /// Opens Paddle's hosted customer portal (cancel, update card, invoices).
@@ -280,7 +273,7 @@ final class BillingService: ObservableObject {
         // A plan granted by hand has no Paddle customer behind it, so the portal
         // has nothing to open. Telling that person to "try again" sends them round
         // a loop that cannot succeed.
-        if serverErrorCode(error) == "no_paddle_customer" {
+        if ServerError.functionCode(error) == "no_paddle_customer" {
             return "This plan wasn't bought through checkout, so there's no billing to manage. Email dmytro@hellonod.app if you need a change."
         }
         return "Couldn't open subscription management. Please try again."

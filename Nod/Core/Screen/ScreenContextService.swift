@@ -30,7 +30,6 @@ final class ScreenContextService: ObservableObject {
     /// — forgetting is how a feature quietly stops being used.
     @Published private(set) var pausedUntil: Date?
     @Published private(set) var isRunning = false
-    @Published private(set) var lastCaptureAt: Date?
     /// What the last deletion did, held briefly so a surface can say so.
     ///
     /// The deletion is server-side and there is no list on screen to visibly
@@ -524,7 +523,6 @@ final class ScreenContextService: ObservableObject {
                 .from("screen_observations")
                 .upsert(observation, onConflict: "user_id,source_app,content_hash")
                 .execute()
-            lastCaptureAt = observation.observedAt
             // Titles name the channel, the ticket, the document — the most
             // identifying part of an ambient capture, and the unified log is
             // persistent and collected by sysdiagnose.
@@ -783,12 +781,6 @@ extension ScreenContextService {
         "about", "there", "they", "have", "were", "been", "does", "did",
         "тому", "який", "яка", "було", "мене", "мені", "цього", "після"
     ]
-}
-
-/// Ids come back from a delete so the count can be reported; nothing reads the
-/// value.
-private struct DeletedRow: Decodable {
-    let id: UUID
 }
 
 /// User-facing switches for ambient capture. Off until the user turns it on —

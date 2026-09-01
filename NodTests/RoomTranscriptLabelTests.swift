@@ -6,9 +6,9 @@ import XCTest
 /// without mistaking whose words they are — and without changing what it says
 /// about the two streams it records itself.
 ///
-/// These pin both halves, because the failure is silent in both directions: a
-/// room line rendered as "Me" attributes a room full of people to the user, and
-/// a regression on `me`/`them` would rewrite every meeting the Mac ever made.
+/// These pin the room half; `TranscriptLabelTests` pins the two routed
+/// streams. A room line rendered as "Me" attributes a room full of people to
+/// the user, and the failure is silent.
 final class RoomTranscriptLabelTests: XCTestCase {
     private func record(source: String, speaker: Int?) -> TranscriptRecord {
         TranscriptRecord(
@@ -22,21 +22,6 @@ final class RoomTranscriptLabelTests: XCTestCase {
             idx: 0,
             speaker: speaker
         )
-    }
-
-    // MARK: - The two routed streams keep their meaning
-
-    func testRoutedStreamsAreUnchanged() {
-        XCTAssertEqual(record(source: "me", speaker: nil).displayLabel(), "Me")
-        XCTAssertEqual(record(source: "them", speaker: nil).displayLabel(), "Them")
-        // A name REPLACES the tag rather than narrowing it: "Them · Eric"
-        // reads as two people to everyone but us. Pinned by
-        // `TranscriptLabelTests` since long before rooms existed.
-        XCTAssertEqual(
-            record(source: "them", speaker: 2).displayLabel(names: ["2": "Eric"]),
-            "Eric"
-        )
-        XCTAssertEqual(record(source: "them", speaker: 2).displayLabel(), "Them · Speaker 2")
     }
 
     func testHostStillNarrowsTheUsersOwnMic() {

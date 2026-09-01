@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -65,8 +64,7 @@ struct SettingsView: View {
         audioCapture: AudioCaptureService? = nil,
         permissions: PermissionManager? = nil,
         appearance: AppearancePreference? = nil,
-        focusSubscription: Bool = false,
-        focusModes: Bool = false
+        focusSubscription: Bool = false
     ) {
         _hotkey = ObservedObject(wrappedValue: hotkey)
         self.profileStore = profileStore
@@ -97,7 +95,7 @@ struct SettingsView: View {
         self.feed = feed
         self.permissions = permissions
         self.appearance = appearance
-        _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .general))
+        _tab = State(initialValue: focusSubscription ? .subscription : .general)
     }
 
     /// Left-rail categories, ordered by how often they're opened: the everyday
@@ -148,7 +146,7 @@ struct SettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-            Divider().overlay(Theme.Palette.border)
+            SettingsRowDivider(indent: 0)
             detail
         }
         // Sized by the window it's a section of — Settings is no longer a
@@ -166,7 +164,6 @@ struct SettingsView: View {
         case .general: tab = .general
         case .subscription: tab = .subscription
         case .rewards: tab = .rewards
-        case .modes: tab = .modes
         case .privacy: tab = .privacy
         case .profile: tab = .profile
         case .organization: tab = .organization

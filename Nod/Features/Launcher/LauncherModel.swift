@@ -180,8 +180,6 @@ final class LauncherModel: ObservableObject {
         selection = min(max(selection + delta, 0), count - 1)
     }
 
-    // MARK: - Search
-
     private func queryChanged(from previous: String) {
         guard query != previous else { return }
         selection = 0

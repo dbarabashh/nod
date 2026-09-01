@@ -75,18 +75,11 @@ enum LookupScope: Equatable {
         if let icalUID, !icalUID.isEmpty {
             let ids = others.filter { $0.icalUID == icalUID }.map(\.id)
             if !ids.isEmpty {
-                let title = others.first { $0.icalUID == icalUID }?.title?.trimmedForScope
+                let title = others.first { $0.icalUID == icalUID }?.title?.nilIfBlank
                 return .series(title: title ?? "this meeting", meetingIDs: ids)
             }
         }
 
         return .everything
-    }
-}
-
-private extension String {
-    var trimmedForScope: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }

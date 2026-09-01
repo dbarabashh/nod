@@ -10,12 +10,6 @@ struct ExcludedSitesPane: View {
     @State private var showsCategories = true
 
     var body: some View {
-        websitesPane
-    }
-
-    // MARK: - Websites
-
-    private var websitesPane: some View {
         VStack(alignment: .leading, spacing: 10) {
             DisclosureGroup(isExpanded: $showsCategories) {
                 VStack(spacing: 8) {

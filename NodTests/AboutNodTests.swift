@@ -108,14 +108,6 @@ final class AboutNodTests: XCTestCase {
         XCTAssertEqual(ScreenContextDefaults.defaultRetentionDays, 14)
     }
 
-    /// "Off until you turn it on" has to be true of a fresh install, not of the
-    /// machine running the test — `isEnabled` reads a real file, so asking it
-    /// here would only report whether this developer switched ambient on.
-    /// The pure resolver is the seam its own author left for exactly this.
-    func testAFreshInstallHasAmbientContextOff() {
-        XCTAssertFalse(ScreenContextDefaults.resolveEnabled(fileByte: nil, legacyFlag: false))
-    }
-
     /// Nothing here may describe a feature that does not exist.
     func testTheCopyClaimsNothingNodCannotDo() {
         let copy = AboutNod.prepared.map(\.answer).joined(separator: "\n")

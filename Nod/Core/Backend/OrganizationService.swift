@@ -126,11 +126,6 @@ final class OrganizationService: ObservableObject {
         }
     }
 
-    func refreshIfNeeded() async {
-        guard !hasLoaded else { return }
-        await refresh()
-    }
-
     /// The caller's memberships, with the organization each one is in.
     ///
     /// Asked for the logo first and again without it if the column isn't there.
@@ -394,31 +389,10 @@ final class OrganizationService: ObservableObject {
             // owner" — and `org-invite` passes them through untouched. Replacing
             // them with something generic here would throw away the only part of
             // the message that tells them what to do next.
-            lastError = Self.serverMessage(error) ?? "Couldn't create that invite."
+            lastError = ServerError.functionMessage(error) ?? "Couldn't create that invite."
             Log.ui.error("OrganizationService.invite failed: \(error.localizedDescription)")
             return false
         }
-    }
-
-    /// The database writes its refusals for the person reading them — "an
-    /// organization must keep at least one owner" — so they are shown rather than
-    /// flattened into a generic failure.
-    static func rpcMessage(_ error: Error) -> String? {
-        guard let postgrest = error as? PostgrestError else { return nil }
-        let message = postgrest.message
-        guard !message.isEmpty else { return nil }
-        return message.prefix(1).uppercased() + message.dropFirst() + "."
-    }
-
-    private static func serverMessage(_ error: Error) -> String? {
-        guard let functionError = error as? FunctionsError,
-              case let .httpError(_, data) = functionError else { return nil }
-        struct Body: Decodable {
-            let error: String?
-        }
-        let message = try? JSONDecoder().decode(Body.self, from: data).error
-        guard let message, !message.isEmpty else { return nil }
-        return message.prefix(1).uppercased() + message.dropFirst() + "."
     }
 
     func loadMembers(in orgID: UUID) async {
@@ -466,7 +440,7 @@ final class OrganizationService: ObservableObject {
             await loadMembers(in: orgID)
             Log.ui.info("organization role changed")
         } catch {
-            lastError = Self.rpcMessage(error) ?? "Couldn't change that role."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't change that role."
             Log.ui.error("OrganizationService.setRole failed: \(error.localizedDescription)")
         }
     }
@@ -487,7 +461,7 @@ final class OrganizationService: ObservableObject {
             await loadMembers(in: orgID)
             Log.ui.info("organization member removed")
         } catch {
-            lastError = Self.rpcMessage(error) ?? "Couldn't remove that person."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't remove that person."
             Log.ui.error("OrganizationService.removeMember failed: \(error.localizedDescription)")
         }
     }
@@ -511,7 +485,7 @@ final class OrganizationService: ObservableObject {
             lastError = nil
             Log.ui.info("organization deleted")
         } catch {
-            lastError = Self.rpcMessage(error) ?? "Couldn't delete that organization."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't delete that organization."
             Log.ui.error("OrganizationService.deleteOrganization failed: \(error.localizedDescription)")
         }
     }
@@ -536,7 +510,7 @@ final class OrganizationService: ObservableObject {
             lastError = nil
             Log.ui.info("left organization")
         } catch {
-            lastError = Self.rpcMessage(error) ?? "Couldn't leave that organization."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't leave that organization."
             Log.ui.error("OrganizationService.leaveOrganization failed: \(error.localizedDescription)")
         }
     }

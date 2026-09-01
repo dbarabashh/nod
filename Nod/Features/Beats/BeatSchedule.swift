@@ -51,20 +51,6 @@ enum BeatSchedule {
         return formatter.string(from: NSNumber(value: day)) ?? "\(day)"
     }
 
-    /// What the row says under the schedule. A disabled beat has no next run,
-    /// and saying "Next: —" is worse than saying it is paused.
-    static func nextRun(_ date: Date?, now: Date = Date(), locale: Locale = .current) -> String {
-        guard let date else { return "Paused" }
-        let calendar = Calendar.current
-        let time = clock(from: date, locale: locale)
-        if calendar.isDateInToday(date) { return "Next today at \(time)" }
-        if calendar.isDateInTomorrow(date) { return "Next tomorrow at \(time)" }
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.setLocalizedDateFormatFromTemplate("EEEE")
-        return "Next \(formatter.string(from: date)) at \(time)"
-    }
-
     /// What became of the last run, in the words the row shows. Nil when a beat
     /// has never run — a row that says "never" reads as broken on the morning
     /// somebody created it.
@@ -79,11 +65,20 @@ enum BeatSchedule {
         }
     }
 
+    private static let currentLocaleRelativeFormatter = relativeFormatter(locale: .current)
+
     private static func relative(_ date: Date, now: Date, locale: Locale) -> String {
+        let formatter = locale == currentLocaleRelativeFormatter.locale
+            ? currentLocaleRelativeFormatter
+            : relativeFormatter(locale: locale)
+        return formatter.localizedString(for: date, relativeTo: now)
+    }
+
+    private static func relativeFormatter(locale: Locale) -> RelativeDateTimeFormatter {
         let formatter = RelativeDateTimeFormatter()
         formatter.locale = locale
         formatter.unitsStyle = .full
-        return formatter.localizedString(for: date, relativeTo: now)
+        return formatter
     }
 
     private static func clock(hour: Int, minute: Int, locale: Locale) -> String {

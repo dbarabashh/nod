@@ -15,7 +15,6 @@ final class SettingsFocus: ObservableObject {
         case profile
         case subscription
         case rewards
-        case modes
         case privacy
         case organization
         case integrations

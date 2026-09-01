@@ -11,7 +11,7 @@ import Supabase
 /// passes a ready `systemPrompt` to `send`, keeping this store unaware of how
 /// the context is built. RLS scopes every read/write to the owner.
 @MainActor
-final class ChatStore: ObservableObject {
+final class ChatStore: ObservableObject, ChatToolGateHost {
     enum SendState: Equatable {
         case idle
         case sending
@@ -72,27 +72,6 @@ final class ChatStore: ObservableObject {
         gateChanges = toolGate.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
-    }
-
-    /// What the model wants to use, waiting on the person.
-    var pendingApproval: ChatToolGate.Pending? {
-        toolGate.pending
-    }
-
-    var callingProvider: IntegrationProvider? {
-        toolGate.callingProvider
-    }
-
-    func approvePendingTools() {
-        toolGate.approve()
-    }
-
-    func approvePendingToolsAlways() {
-        toolGate.approveAlways()
-    }
-
-    func denyPendingTools() {
-        toolGate.deny()
     }
 
     /// Loads the saved conversation for a session. Re-opening the same

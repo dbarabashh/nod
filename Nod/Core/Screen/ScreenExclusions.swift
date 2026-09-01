@@ -215,14 +215,6 @@ final class ScreenExclusions: ObservableObject {
         excludesApp(bundleID: app.bundleID)
     }
 
-    func setExcluded(_ excluded: Bool, for app: InstalledApp) {
-        if excluded {
-            exclude(ExcludedApp(bundleID: app.bundleID, name: app.name))
-        } else {
-            removeApp(app.bundleID)
-        }
-    }
-
     func setExcluded(_ excluded: Bool, for category: WebsiteCategory) {
         if excluded {
             categories.insert(category)

@@ -190,8 +190,6 @@ struct TodayView: View {
         }
     }
 
-    // MARK: - Header
-
     private var attentionCount: Int {
         (nextMeeting == nil ? 0 : 1) + min(waitingOnYou.count, Self.rowLimit) + beatReports.filter(\.isNew).count
     }
@@ -240,8 +238,6 @@ struct TodayView: View {
         return parts.joined(separator: " · ")
     }
 
-    // MARK: - Open commitments
-
     private var commitmentsCard: some View {
         TodayCommitmentsCard(
             openItems: Array(waitingOnYou.prefix(Self.rowLimit)),
@@ -251,8 +247,6 @@ struct TodayView: View {
             onOpenMeeting: onOpenMeeting
         )
     }
-
-    // MARK: - All clear
 
     private var allClearCard: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -276,8 +270,6 @@ struct TodayView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .surfaceCard()
     }
-
-    // MARK: - Composer
 
     private var composer: some View {
         HStack(spacing: 10) {
@@ -303,8 +295,6 @@ struct TodayView: View {
         draft = ""
         onAsk(text)
     }
-
-    // MARK: - Data
 
     /// Every write below is fenced on cancellation: `reloadKey` flips twice
     /// when a meeting ends (the recording stops, then its recap lands), and

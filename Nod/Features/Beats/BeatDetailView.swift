@@ -214,7 +214,7 @@ struct BeatDetailView: View {
 
     /// "Today, 3:06 PM" — the reference format, and the one a person uses to
     /// tell two mornings apart.
-    static func stamp(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+    static func stamp(_ date: Date, calendar: Calendar = .current) -> String {
         let time = DateFormatter()
         time.setLocalizedDateFormatFromTemplate("j:mm")
         let clock = time.string(from: date)

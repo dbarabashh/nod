@@ -286,7 +286,7 @@ final class LabelStore: ObservableObject {
             lastError = nil
             Log.ui.info("folder shared")
         } catch {
-            lastError = Self.serverMessage(error) ?? "Couldn't share that project."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't share that project."
             Log.ui.error("LabelStore.share failed: \(error.localizedDescription)")
         }
     }
@@ -314,14 +314,9 @@ final class LabelStore: ObservableObject {
                 rows.insert(share, at: min(wasAt, rows.count))
                 shares[share.labelID] = rows
             }
-            lastError = Self.serverMessage(error) ?? "Couldn't stop sharing that project."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't stop sharing that project."
             Log.ui.error("LabelStore.unshare failed: \(error.localizedDescription)")
         }
-    }
-
-    private static func serverMessage(_ error: Error) -> String? {
-        guard let postgrest = error as? PostgrestError, !postgrest.message.isEmpty else { return nil }
-        return postgrest.message.prefix(1).uppercased() + postgrest.message.dropFirst() + "."
     }
 
     func clear() {

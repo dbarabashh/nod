@@ -8,7 +8,6 @@ final class FakeRemoteWriter: MeetingRemoteWriter, @unchecked Sendable {
     private(set) var upsertedMeetings: [Meeting] = []
     private(set) var upsertedTranscripts: [TranscriptRecord] = []
     var failMeetingUpsert = false
-    var failTranscriptUpsert = false
 
     enum Failure: Error { case forced }
 
@@ -19,7 +18,6 @@ final class FakeRemoteWriter: MeetingRemoteWriter, @unchecked Sendable {
     }
 
     func upsertTranscript(_ records: [TranscriptRecord]) async throws {
-        if failTranscriptUpsert { throw Failure.forced }
         lock.lock(); defer { lock.unlock() }
         upsertedTranscripts.append(contentsOf: records)
     }

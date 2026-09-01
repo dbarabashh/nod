@@ -27,11 +27,6 @@ struct PanelMaterial: View {
     /// content keeps.
     var scrim: Double = 0.32
 
-    /// The panel's small floating pills — the default weight.
-    static func pill(_ material: NSVisualEffectView.Material = .hudWindow) -> PanelMaterial {
-        PanelMaterial(material: material)
-    }
-
     /// A whole-window surface. Heavier scrim on purpose: the larger the area,
     /// the more desktop bleeds through and the less contrast the content
     /// keeps.

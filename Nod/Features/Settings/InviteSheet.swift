@@ -29,9 +29,9 @@ struct InviteSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider().overlay(Theme.Palette.border)
+            SettingsRowDivider(indent: 0)
             form
-            Divider().overlay(Theme.Palette.border)
+            SettingsRowDivider(indent: 0)
             footer
         }
         .frame(width: 420)

@@ -222,12 +222,6 @@ final class EmailPreferenceService: ObservableObject {
         self.analytics = analytics
     }
 
-    init(repository: any EmailPreferenceRepository, hasSession: @escaping () -> Bool) {
-        self.repository = repository
-        self.hasSession = hasSession
-        analytics = nil
-    }
-
     /// True once we know the server has never shown this person the current
     /// prompt. Never true before loading, so nobody sees it twice.
     var shouldPresentPrompt: Bool {

@@ -28,7 +28,7 @@ enum DemoTool: String, Equatable {
         case .calendar: "Calendar"
         case .gmail: "Gmail"
         case .github: "GitHub"
-        case .crm: "Salesforce"
+        case .crm: "HubSpot"
         case .support: "Support"
         }
     }
@@ -42,7 +42,7 @@ enum DemoTool: String, Equatable {
         case .calendar: "Brandgooglecalendar"
         case .gmail: "Brandgmail"
         case .github: "Brandgithub"
-        case .crm: "Brandsalesforce"
+        case .crm: "Brandhubspot"
         case .support: nil
         }
     }

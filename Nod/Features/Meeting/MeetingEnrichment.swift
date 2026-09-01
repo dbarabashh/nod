@@ -6,7 +6,7 @@ import Foundation
 /// Statics on purpose — a snapshot is the input, and nothing here may reach for
 /// the live `TranscriptStore` the next recording is already resetting.
 enum TranscriptSnapshot {
-    /// Array-based counterpart to `TranscriptStore.fullContext`. `names` maps a
+    /// Array-based counterpart to `TranscriptStore.recentContext(maxEntries: .max)`. `names` maps a
     /// cluster number to the person behind it, so a transcript handed to the
     /// recap reads `[Them · Andy]` rather than `[Them · Speaker 3]` — the recap
     /// can only write a name it was given one for.

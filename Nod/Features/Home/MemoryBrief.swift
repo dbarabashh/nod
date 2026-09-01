@@ -34,7 +34,7 @@ struct MemoryBrief: Equatable {
             captured: today.isEmpty ? week.count : today.count,
             capturedSpansWeek: today.isEmpty,
             decisions: SessionKnowledge.across(Array(week)).decisions,
-            mostActiveContext: live.first?.title?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyOrNil
+            mostActiveContext: live.first?.title?.nilIfBlank
         )
     }
 
@@ -53,11 +53,5 @@ struct MemoryBrief: Equatable {
             parts.append("\(decisions) \(decisions == 1 ? "decision" : "decisions") this week")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-}
-
-private extension String {
-    var nonEmptyOrNil: String? {
-        isEmpty ? nil : self
     }
 }

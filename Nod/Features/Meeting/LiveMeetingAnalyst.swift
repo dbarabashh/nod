@@ -72,10 +72,6 @@ final class LiveMeetingAnalyst: ObservableObject {
     /// here so it dies with the meeting: an approval nobody answered is not a
     /// question the next meeting should inherit.
     let askToolGate = ChatToolGate()
-    /// Who is in the room, asked at the moment of the request rather than held.
-    /// The analyst has no business owning the calendar or the directory, and
-    /// the answer changes as people join.
-    var roomComposition: (() -> RoomComposition)?
 
     /// The meeting in progress, so a search for what was said *before* can
     /// exclude what is being said now. Set by `MeetingSession` at start.
@@ -86,10 +82,10 @@ final class LiveMeetingAnalyst: ObservableObject {
     var recallSourceLabel: ((UUID) -> String?)?
     /// The user's still-open loops, asked for at the moment of the pass.
     ///
-    /// Injected and `async` for the same reason `roomComposition` is asked
-    /// rather than held: the list changes while the meeting runs, and the
-    /// closure is the only thing that can make sure it has been loaded at all —
-    /// a meeting can start with no window ever having been opened.
+    /// Injected and `async` rather than held: the list changes while the
+    /// meeting runs, and the closure is the only thing that can make sure it
+    /// has been loaded at all — a meeting can start with no window ever having
+    /// been opened.
     var openLoops: (() async -> [ActionItem])?
     /// The entity edges the candidate filter walks before it falls back to
     /// counting shared words. Empty is an account whose sessions have not been
@@ -134,8 +130,8 @@ final class LiveMeetingAnalyst: ObservableObject {
 
     /// The ceiling on how much transcript one pass reads — and what a first
     /// pass, or one after a long quiet stretch, actually gets.
-    /// Not `private`: `LiveMeetingAnalyst+Assist.swift`'s `suggestFollowUps`
-    /// reads the same width.
+    /// Not `private`: `LiveMeetingAnalyst+Assist.swift`'s `ask` reads the same
+    /// width.
     static let windowLines = 40
 
     /// How far back a pass reads *behind* the new material. Wider than the new
@@ -420,7 +416,7 @@ final class LiveMeetingAnalyst: ObservableObject {
             kind: kind,
             text: text,
             tier: tier,
-            deadline: item.deadline?.trimmingCharacters(in: .whitespacesAndNewlines).nilWhenEmpty,
+            deadline: item.deadline?.nilIfBlank,
             evidenceIdx: evidenceIdx,
             quote: quote,
             spokenAt: evidenceIdx.map { store.entries[$0].timestamp },
@@ -448,11 +444,5 @@ final class LiveMeetingAnalyst: ObservableObject {
     private func evidenceIndex(for quote: String) -> Int? {
         let needle = Self.normalized(quote)
         return store.entries.lastIndex { Self.normalized($0.text).contains(needle) }
-    }
-}
-
-private extension String {
-    var nilWhenEmpty: String? {
-        isEmpty ? nil : self
     }
 }

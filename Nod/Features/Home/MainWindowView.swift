@@ -175,8 +175,6 @@ struct MainWindowView: View {
         focus != nil
     }
 
-    // MARK: - Centre column
-
     /// An open session takes the centre edge to edge — the macOS split-view
     /// reading, where the detail replaces the list rather than floating over it.
     private var centreColumn: some View {
@@ -249,8 +247,6 @@ struct MainWindowView: View {
             .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Context column (right)
-
     /// The open session's chat, beside the session itself — the question you'd
     /// ask about what's on screen, in the same place every time.
     @ViewBuilder private func contextColumn(width: CGFloat) -> some View {
@@ -317,8 +313,6 @@ struct MainWindowView: View {
             .help("Clear chat history")
         }
     }
-
-    // MARK: - Navigation
 
     private func show(_ target: Surface) {
         guard surface != target || focus != nil || filterLabelID != nil else { return }
@@ -404,8 +398,6 @@ struct MainWindowView: View {
     }
 }
 
-// MARK: - Undo toast
-
 private struct UndoToast: View {
     let message: String
     let onUndo: () -> Void
@@ -450,8 +442,6 @@ private struct UndoToast: View {
         .shadow(color: DesignTokens.Shadow.ink(light: 0.16, dark: 0.35), radius: 14, x: 0, y: 6)
     }
 }
-
-// MARK: - Context column divider
 
 /// The context column's divider: the visible seam, the invisible grab strip,
 /// and the in-flight resize preview — all owned here so a drag mutates only this

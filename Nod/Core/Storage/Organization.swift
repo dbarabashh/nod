@@ -224,7 +224,7 @@ struct Person: Decodable, Identifiable, Equatable {
     }
 
     var name: String {
-        displayName?.trimmedOrNil ?? email.map { String($0.prefix(while: { $0 != "@" })) } ?? "Unknown"
+        displayName?.nilIfBlank ?? email.map { String($0.prefix(while: { $0 != "@" })) } ?? "Unknown"
     }
 
     func isReachable(in provider: IntegrationProvider) -> Bool {
@@ -259,7 +259,7 @@ struct Teammate: Decodable, Identifiable, Equatable {
     /// What to call them. The address is the fallback the whole product uses
     /// when somebody has never set a display name.
     var name: String {
-        displayName?.trimmedOrNil ?? String(email.prefix(while: { $0 != "@" }))
+        displayName?.nilIfBlank ?? String(email.prefix(while: { $0 != "@" }))
     }
 
     enum CodingKeys: String, CodingKey {
@@ -267,12 +267,5 @@ struct Teammate: Decodable, Identifiable, Equatable {
         case displayName = "display_name"
         case email
         case personID = "person_id"
-    }
-}
-
-private extension String {
-    var trimmedOrNil: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }

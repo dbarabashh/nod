@@ -21,7 +21,6 @@ struct ActionItemsView: View {
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var analytics: ProductAnalytics
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Loops from earlier meetings this conversation moved, newest first.
     @State private var moved: [Moved] = []

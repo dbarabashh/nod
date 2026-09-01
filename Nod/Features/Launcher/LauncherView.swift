@@ -49,8 +49,6 @@ struct LauncherView: View {
         .onAppear { fieldFocused = true }
     }
 
-    // MARK: - Field
-
     private var field: some View {
         HStack(spacing: 10) {
             Image(model.isAnswering ? "nc-sparkle-3" : "nc-magnifier")
@@ -91,8 +89,6 @@ struct LauncherView: View {
                 .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
         )
     }
-
-    // MARK: - Results
 
     private var resultList: some View {
         ScrollViewReader { proxy in
@@ -195,8 +191,6 @@ struct LauncherView: View {
         )
         .contentShape(Rectangle())
     }
-
-    // MARK: - Ask
 
     @ViewBuilder
     private var askPane: some View {
@@ -388,8 +382,6 @@ struct LauncherView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
     }
-
-    // MARK: - Footer
 
     private var footer: some View {
         HStack(spacing: 14) {

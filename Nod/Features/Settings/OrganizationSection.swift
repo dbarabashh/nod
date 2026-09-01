@@ -50,7 +50,7 @@ struct OrganizationSection: View {
             }
         }
         .task {
-            // `refresh`, not `refreshIfNeeded`: opening this pane is the one
+            // `refresh` every time: opening this pane is the one
             // moment somebody is asking who is in the organization, and the
             // answer may have changed on a colleague's Mac since it was cached.
             await service.refresh()

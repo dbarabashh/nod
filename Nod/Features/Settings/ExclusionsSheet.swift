@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// The full list of what Nod may and may not read, behind a door.
@@ -26,7 +25,7 @@ struct ExclusionsSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider().overlay(Theme.Palette.border)
+            SettingsRowDivider(indent: 0)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     tabs
@@ -37,7 +36,7 @@ struct ExclusionsSheet: View {
                 }
                 .padding(20)
             }
-            Divider().overlay(Theme.Palette.border)
+            SettingsRowDivider(indent: 0)
             footer
         }
         .frame(width: 560, height: 620)

@@ -24,7 +24,7 @@ extension OrganizationService {
             Log.ui.info("team created")
             return true
         } catch {
-            lastError = Self.rpcMessage(error) ?? "Couldn't create that team."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't create that team."
             Log.ui.error("OrganizationService.createTeam failed: \(error.localizedDescription)")
             return false
         }
@@ -42,7 +42,7 @@ extension OrganizationService {
             await reloadTeams()
             lastError = nil
         } catch {
-            lastError = Self.rpcMessage(error) ?? "Couldn't rename that team."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't rename that team."
             Log.ui.error("OrganizationService.renameTeam failed: \(error.localizedDescription)")
         }
     }
@@ -59,7 +59,7 @@ extension OrganizationService {
             lastError = nil
             Log.ui.info("team deleted")
         } catch {
-            lastError = Self.rpcMessage(error) ?? "Couldn't delete that team."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't delete that team."
             Log.ui.error("OrganizationService.deleteTeam failed: \(error.localizedDescription)")
         }
     }
@@ -67,15 +67,11 @@ extension OrganizationService {
     func addTeamMember(_ member: OrgMember, to team: Team) async {
         guard let supabase else { return }
         do {
-            struct Params: Encodable {
-                let p_team: UUID
-                let p_user: UUID
-            }
-            _ = try await supabase.rpc("add_team_member", params: Params(p_team: team.id, p_user: member.userID)).execute()
+            _ = try await supabase.rpc("add_team_member", params: TeamMemberParams(p_team: team.id, p_user: member.userID)).execute()
             await loadTeamMembers(team)
             lastError = nil
         } catch {
-            lastError = Self.rpcMessage(error) ?? "Couldn't add that person."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't add that person."
             Log.ui.error("OrganizationService.addTeamMember failed: \(error.localizedDescription)")
         }
     }
@@ -83,15 +79,11 @@ extension OrganizationService {
     func removeTeamMember(_ member: TeamMember, from team: Team) async {
         guard let supabase else { return }
         do {
-            struct Params: Encodable {
-                let p_team: UUID
-                let p_user: UUID
-            }
-            _ = try await supabase.rpc("remove_team_member", params: Params(p_team: team.id, p_user: member.userID)).execute()
+            _ = try await supabase.rpc("remove_team_member", params: TeamMemberParams(p_team: team.id, p_user: member.userID)).execute()
             await loadTeamMembers(team)
             lastError = nil
         } catch {
-            lastError = Self.rpcMessage(error) ?? "Couldn't remove that person."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't remove that person."
             Log.ui.error("OrganizationService.removeTeamMember failed: \(error.localizedDescription)")
         }
     }
@@ -131,8 +123,13 @@ extension OrganizationService {
             lastError = nil
             Log.ui.info("left team")
         } catch {
-            lastError = Self.rpcMessage(error) ?? "Couldn't leave that team."
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't leave that team."
             Log.ui.error("OrganizationService.leaveTeam failed: \(error.localizedDescription)")
         }
     }
+}
+
+private struct TeamMemberParams: Encodable {
+    let p_team: UUID
+    let p_user: UUID
 }
