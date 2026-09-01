@@ -106,6 +106,28 @@ what it asks for this time.
 That is OAuth's shape, not duplication of ours — but they have to agree, or the
 authorization succeeds and the first API call fails with `missing_scope`.
 
+## Write scopes the 2026-09-01 tool widening needs
+
+The chat gained writes against previously read-only providers, and each needs
+its OAuth grant to actually allow them. **Grants do not widen retroactively**:
+a connection made under read scopes answers a write with a 403 until the person
+reconnects, whichever consent screen the catalogue shows. Verify against the
+Connect app (or our custom client, where one exists) before calling any of
+these live, and expect a reconnect wave when scopes change:
+
+| Provider | Needs | For |
+|---|---|---|
+| Gmail | `gmail.compose` (or `gmail.modify`) alongside the read scope | `create_draft` |
+| Google Drive | a content-read scope (`drive.readonly` covers it; metadata-only does not) | `read_file` |
+| Google Calendar | `calendar.events` (read-write, already required by `create_event`) | `update_event`, `delete_event` |
+| GitHub | `repo` (issues write rides it) | `create_issue`, `comment_issue`, `update_issue` |
+| Notion | capabilities: insert content | `create_page`, `append_page` |
+| HubSpot | `crm.objects.notes.write` (plus the object read scopes) | `create_note` |
+
+Pipedream's own OAuth clients generally ask broadly, which is why today's
+read-only behavior was a property of our adapters rather than of the grants —
+the table above is what a *curated* client must not fall below.
+
 ## Connect environments — and what production needs
 
 Every Connect call carries `x-pd-environment`, set from `PIPEDREAM_ENVIRONMENT`

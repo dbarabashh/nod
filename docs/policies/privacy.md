@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-08-30_
+_Last updated: 2026-09-01_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -232,10 +232,13 @@ in the same `eu-west-1` region.
 - We do **not** send meeting content, transcript text, account email, name, or
   Supabase user ID to website analytics or Google Ads.
 - We do **not** connect to Google, Microsoft, or any other account to read your
-  email, calendar, or files. A coming version will be able to read the calendar
-  **already set up on your own Mac** — on the device, and only if you switch it
-  on (§ 3.11). That is a macOS permission, not a connected account, and nothing
-  read from it is stored or sent anywhere.
+  email, calendar, or files — unless **you connect that account yourself** in
+  Settings → Integrations, which nothing does for you. A coming version will be
+  able to read the calendar **already set up on your own Mac** — on the device,
+  and only if you switch it on (§ 3.11) — and, separately, to reach the
+  accounts you choose to connect: a calendar (§ 3.11(a)), and the mail, files,
+  pages and records § 3.16 describes, each read in answer to a question you
+  asked and none of it stored.
 - We do **not** collect your contacts or address book.
 - We do **not** create or store a **voice print**. Nod separates a recording
   into distinct voices so a transcript can say who said what within that one
@@ -433,11 +436,11 @@ the data goes. Neither is on by default and neither implies the other.
 | | |
 |---|---|
 | **Default** | **Off.** You connect it yourself, in onboarding or in Settings → Integrations. It is never connected by an app update. |
-| **What it is** | **A connected account.** Google's own authorization page opens in your browser and you grant Nod access to your calendar. Google's screen describes that access as managing your calendars — see **Writing** below for what Nod actually does with it, and why the permission is wider than today's behaviour. Your Google password never reaches Nod. The access and refresh tokens are held by **Pipedream**, our integration provider (see the Subprocessors list) — Nod never receives or stores them. |
+| **What it is** | **A connected account.** Google's own authorization page opens in your browser and you grant Nod access to your calendar. Google's screen describes that access as managing your calendars — see **Writing** below for what Nod actually does with it. Your Google password never reaches Nod. The access and refresh tokens are held by **Pipedream**, our integration provider (see the Subprocessors list) — Nod never receives or stores them. |
 | **When it reads** | On a schedule on our servers, about every ten minutes, for as long as the connection exists — including while your Mac is asleep. |
 | **What it reads** | Your **primary** calendar only, and only a moving window around now: from two hours ago to seven days ahead. Within that window: the title, start and end times, the video-call link, the organizer's address, and **who is invited** — each attendee's email address and whether they accepted. Meeting rooms and equipment are skipped, and all-day entries are ignored entirely. Nothing else about an event is read, and no other calendar is read. |
 | **What it stores** | This one **does** keep a record, which is the difference from (b). The fields listed above are stored on our servers so the app can answer "what is starting next" without your Mac being awake. An event leaves our database when it leaves the window, and in any case within **seven days** of the meeting ending. |
-| **Writing** | **One thing, and only when you confirm it.** Nod can create a calendar event and invite the people you name, when you ask it to in chat. It shows you the draft first — title, time, and every guest — and nothing is sent until you press the button on that card. Google then emails those guests an invitation, which is why the confirmation exists: an invitation cannot be recalled. Nod never updates or deletes an existing event, and never creates one on its own initiative. |
+| **Writing** | **Only when you confirm it, and only what you confirmed.** Nod can create a calendar event, and it can change or cancel an existing one, when you ask it to in chat. Each shows you a card first — what will be created, moved, or cancelled, and who is invited — and nothing happens until you press the button on that card. Google then emails the guests the invitation, the change, or the cancellation, which is why the confirmation exists: none of them can be recalled. For a change or a cancellation, the card names the event by its title and start time, and our server refuses the request when they no longer match the event it points at — the event acted on is the one you read. Nod never touches your calendar on its own initiative. |
 | **Turning it off** | **Disconnect** in Settings → Integrations. That ends the authorization — the stored credential is deleted at our integration provider, so nothing can read your calendar afterwards — and every event we had already read is deleted at the same moment. You can also revoke Nod from your Google account directly: that stops the reading just as completely, though events already stored then age out on the schedule above rather than going immediately. |
 
 #### (b) The macOS Calendars permission
@@ -654,11 +657,14 @@ This section is **advance notice**. Nothing described here is in the released
 app, and none of it happens for anyone who has not connected a tool themselves.
 
 When you connect a tool that Nod can act in (§ 3.11 describes the calendar; the
-same mechanism covers a task tracker such as Linear and a team chat such as
-Slack), a finished meeting can offer to do something in it — file a task, open a
-channel for what was decided. Every one of those offers is **prepared and shown
-to you, and nothing leaves Nod until you approve it individually**. There is no
-setting that performs them automatically, and we have not built one.
+same mechanism covers a task tracker such as Linear, Jira, Asana or GitHub, a
+team chat such as Slack, a wiki such as Notion, a CRM such as HubSpot, and your
+Gmail), a finished meeting — or a question you type — can offer to do something
+in it: file a task or an issue, comment on one, close one, open a channel, put
+a page of notes in the wiki, log a note on a CRM record, save a draft reply.
+Every one of those offers is **prepared and shown to you, and nothing leaves
+Nod until you approve it individually**. There is no setting that performs them
+automatically, and we have not built one.
 
 | **What is stored** | For each offer: what it would do, in which tool, the parameters it would use, and the position in the transcript that caused it. If the meeting named a colleague as the person taking something on, the offer carries **who** — as a reference to their record in your organization, plus their name as it will appear in the tool. |
 | **Reading who is in your workspace** | When an **administrator** of your organization connects a tool, Nod reads that tool's member list once and records, for each member with an address, their name, that address, and the identifier the tool uses for them. This is what lets a meeting assign work to a colleague on the day you set Nod up, instead of after everyone has been invited to Nod and accepted. It happens for administrators only — a member connecting their own account does not import anything, because their workspace is not the company's. |
@@ -667,6 +673,8 @@ setting that performs them automatically, and we have not built one.
 | **Speaker attribution** | Which voice in a recording belongs to which person, with a note of how that was decided — the conferencing app's participant list, a reading of the transcript, or your own correction — and how far it can be trusted. A name Nod worked out on its own is **never** enough to assign work to somebody; only a person you confirmed can be named as an owner. |
 | **What is never guessed** | If a meeting says "someone should look at this", the offer is created with **no owner** and asks you who. We do not infer an owner from who usually does that kind of work. |
 | **Reading a team chat** | A connected team chat can also be **read**, so a question can be answered from what colleagues actually said rather than only from what a meeting recorded. Nod reads the channels **you are a member of**, private ones included, under your own authorization in that chat — the same channels you would open yourself. It can additionally join a **public** channel you are not in, which that channel sees, as the "Nod joined" line every member can read. Searching for a phrase, a person or a day covers those same channels and no others. Reading happens in answer to a question you asked. In the chat, each read is shown to you and runs only if you allow it; in the Ask box during a meeting a **read** runs without asking, because a question typed mid-conversation cannot wait on a dialog — anything that would **change** something in a connected tool is still shown to you in full, with what it would do, and runs only if you allow it. The messages are **not stored**: they go into that one answer, and what remains afterwards is the answer you can see. |
+| **Reading mail, documents and pages** | The same question-driven reading covers the other tools you connect: a Gmail search and one message's text, a Notion page's text, a Drive document's text. Each read happens in answer to a question you asked, under your own authorization in that tool, and is **not stored** — it goes into that one answer, and what remains afterwards is the answer you can see. |
+| **Mail is drafted, never sent** | When you ask for a follow-up email and approve it, Nod saves a **draft** in your own Drafts folder. It never sends mail — pressing send remains yours, in your own mail client. |
 | **Direct messages are never read** | This holds for one-to-one and group direct messages alike, and it is worth saying how. Slack's search permission is not divisible: it returns whatever your account can see, direct messages among it. So the exclusion is not a permission we declined — it is enforced in Nod, on every result, before anything reads it: a match from a direct or group message is discarded, and so is any conversation Nod cannot positively identify as a channel. Nothing you can type into Nod changes that, because the filter looks at what the conversation *is* and never at what was asked for. |
 | **Your organization's say** | An administrator can turn any tool off for the whole organization. With it off, Nod will not act in that tool for anybody in the organization, whoever connected it. |
 | **What is written down** | Approving, declining, performing and failing to perform an offer are each recorded in the organization's audit log, with who did it and when. The record names the tool and the object created; it does not contain meeting content. |

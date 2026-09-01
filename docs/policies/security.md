@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-08-28_
+_Last updated: 2026-09-01_
 
 _[Calendar access](#calendar-access), [Organizations](#organizations), and the
 email-delivery section under [How data flows](#how-data-flows) are **advance
@@ -90,11 +90,13 @@ transcript comes back. The proxy runs in the EU; the inference providers it
 forwards to do not (see [Infrastructure](#infrastructure)). Transcription and summarization are not on-device. The
 transcript and the AI-generated summary are saved to your private Nod account.
 
-Nod doesn't join meetings as a bot. No Zoom/Meet/Teams hook, no automated chat
-message, and no connected calendar account — a coming version will be able to
-read the calendar already on your Mac, on the device and only if you switch it on
-([Calendar access](#calendar-access)), but it never signs in to Google or
-Microsoft on your behalf. It works with any app that plays audio on your Mac.
+Nod doesn't join meetings as a bot. No Zoom/Meet/Teams hook and no automated
+chat message. A coming version will be able to reach a calendar in two ways,
+each off until you turn it on: reading the calendar already on your Mac, on the
+device ([Calendar access](#calendar-access)), or a Google Calendar account you
+connect yourself in Settings — where Nod can also act, one confirmed change at
+a time (privacy policy § 3.11(a)). It works with any app that plays audio on
+your Mac.
 
 ---
 
@@ -240,7 +242,7 @@ tell you what you already discussed and what was left open.
   participant list described under Screen access, and a replacement for it.
   Nothing else is kept: the title is compared against your own past sessions on
   the device and dropped, and no record of the event is ever written.
-- **Read-only, always.** Nod never creates, edits, or deletes a calendar entry.
+- **Read-only through this permission.** Nod never writes to your calendar through the macOS Calendars permission. Creating, moving, or cancelling an event — each shown to you and confirmed first — happens only through a calendar account you connect yourself (privacy policy § 3.11(a)).
 
 ### What we do store
 
