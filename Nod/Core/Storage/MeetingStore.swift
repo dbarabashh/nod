@@ -1036,6 +1036,36 @@ final class MeetingStore: ObservableObject {
         onTrashChange.fire()
     }
 
+    /// The nightly purge, run now, for this account only. The server filters
+    /// by `deleted_at` rather than by the rows this client happens to have
+    /// loaded, so a session trashed on another device goes with the rest.
+    func emptyTrash() async throws {
+        Log.ui.info("MeetingStore.emptyTrash loaded=\(trashedMeetings.count)")
+        #if DEBUG
+            if DemoMode.isEnabled {
+                trashedMeetings.removeAll { $0.id != recordingMeetingID }
+                if pendingUndo?.id != recordingMeetingID { pendingUndo = nil }
+                onTrashChange.fire()
+                return
+            }
+        #endif
+        var query = supabase
+            .from(Self.tableName)
+            .delete(returning: .minimal)
+            .not("deleted_at", operator: .is, value: "null")
+        if let recordingMeetingID {
+            query = query.neq("id", value: recordingMeetingID.uuidString)
+        }
+        try await query.execute()
+
+        trashedMeetings.removeAll { $0.id != recordingMeetingID }
+        if pendingUndo?.id != recordingMeetingID { pendingUndo = nil }
+        onTrashChange.fire()
+        // A silent fetch started before the delete can land after it and put
+        // the rows back; queueing behind it reads the post-delete state.
+        await refreshTrash(silent: true)
+    }
+
     /// Dismiss the Undo toast without acting on it (user clicked the X
     /// or the 5s window elapsed). The meeting stays in Trash.
     func dismissUndo() {
