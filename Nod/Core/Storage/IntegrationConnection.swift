@@ -108,6 +108,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     case gmail
     case googleDrive = "google-drive"
     case googleAds = "google-ads"
+    case googleTasks = "google-tasks"
 
     var id: String {
         rawValue
@@ -126,6 +127,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         case .gmail: "Gmail"
         case .googleDrive: "Google Drive"
         case .googleAds: "Google Ads"
+        case .googleTasks: "Google Tasks"
         }
     }
 
@@ -136,7 +138,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .googleCalendar: [.calendar]
         case .slack: [.conversations]
-        case .linear, .jira, .asana: [.tasks]
+        case .linear, .jira, .asana, .googleTasks: [.tasks]
         case .github: [.code]
         case .notion, .googleDrive: [.documents]
         case .gmail: [.email]
@@ -147,7 +149,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
 
     var role: IntegrationRole {
         switch self {
-        case .linear, .slack, .jira, .asana: .actsIn
+        case .linear, .slack, .jira, .asana, .googleTasks: .actsIn
         case .googleCalendar, .github, .notion, .hubspot, .gmail, .googleDrive, .googleAds: .readsFrom
         }
     }
@@ -164,7 +166,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
                 search: "search_issues",
                 update: "update_issue"
             )
-        case .asana: TaskActions(
+        case .asana, .googleTasks: TaskActions(
                 create: "create_task",
                 readStatus: "read_tasks",
                 search: "search_tasks",
@@ -186,7 +188,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     var isDirectorySource: Bool {
         switch self {
         case .linear, .slack: true
-        case .googleCalendar, .github, .jira, .notion, .asana, .hubspot, .gmail, .googleDrive, .googleAds: false
+        case .googleCalendar, .github, .jira, .notion, .asana, .hubspot, .gmail, .googleDrive, .googleAds, .googleTasks: false
         }
     }
 
@@ -206,6 +208,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         case .gmail: "Find what somebody wrote back, and draft the follow-up — you press send."
         case .googleDrive: "Find the document somebody just named out loud, and read what it says."
         case .googleAds: "Know what the campaigns did before you talk about what to change."
+        case .googleTasks: "Turn action items and calendar entries into Google Tasks, and find the ones already there."
         }
     }
 
@@ -291,6 +294,13 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
                 "Name the campaigns and keywords the money went to, biggest first.",
                 "Read-only, and firmly so — Nod never changes a budget, a bid or a campaign's status."
             ]
+        case .googleTasks:
+            [
+                "File an action item, or a calendar entry from Today, as a task in your default list.",
+                "Check whether something is already tracked before filing it again.",
+                "Complete a task when you tick the action item off.",
+                "A due date is a day, not a time — Google Tasks keeps only the date."
+            ]
         }
     }
 
@@ -309,7 +319,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         case .linear: "nc-tasks-2"
         case .googleCalendar: "nc-calendar"
         case .slack: "nc-msgs"
-        case .github, .jira, .asana: "nc-tasks-2"
+        case .github, .jira, .asana, .googleTasks: "nc-tasks-2"
         case .notion: "nc-file"
         case .hubspot: "nc-users"
         case .gmail: "nc-inbox-arrow-down"
@@ -343,6 +353,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         case .googleCalendar: "google_calendar"
         case .googleDrive: "google_drive"
         case .googleAds: "google_ads"
+        case .googleTasks: "google_tasks"
         case .linear, .github, .jira, .notion, .asana, .hubspot, .gmail: rawValue
         }
     }
@@ -362,6 +373,7 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         case .gmail: "mail.google.com"
         case .googleDrive: "drive.google.com"
         case .googleAds: "ads.google.com"
+        case .googleTasks: "tasks.google.com"
         }
     }
 

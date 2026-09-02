@@ -27,7 +27,7 @@ enum ActionIntent: String, CaseIterable, Identifiable {
     var carriers: [IntegrationProvider] {
         switch self {
         case .sendMessage: [.slack]
-        case .createTask: [.linear, .jira, .asana]
+        case .createTask: [.linear, .jira, .asana, .googleTasks]
         case .scheduleMeeting, .addReminder: [.googleCalendar]
         }
     }

@@ -99,6 +99,87 @@ final class TodayViewTests: XCTestCase {
         XCTAssertNil(TodayBrief.lastSession(before: ed, in: [edward]))
     }
 
+    func testNextMeetingSkipsWhatThePersonIsNotGoingTo() {
+        let first = occurrence("Standup", startsIn: 10)
+        let second = occurrence("Design review", startsIn: 60)
+        let over = occurrence("Earlier", startsIn: -60)
+        let upcoming = [over, first, second]
+
+        XCTAssertEqual(MeetingAttendance.next(in: upcoming, now: now, skipping: []), first)
+        XCTAssertEqual(
+            MeetingAttendance.next(in: upcoming, now: now, skipping: [MeetingAttendance.fingerprint(first)]),
+            second
+        )
+        XCTAssertNil(MeetingAttendance.next(in: upcoming, now: now, skipping: Set([first, second].map(MeetingAttendance.fingerprint))))
+    }
+
+    func testNotGoingIsRememberedUntilTheMeetingIsOver() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "TodayViewTests.attendance"))
+        defaults.removePersistentDomain(forName: "TodayViewTests.attendance")
+        let meeting = occurrence("Standup", startsIn: 10)
+        MeetingAttendance.mark(meeting, as: .notGoing, now: now, defaults: defaults)
+        XCTAssertEqual(MeetingAttendance.answer(for: meeting, defaults: defaults), .notGoing)
+        XCTAssertEqual(MeetingAttendance.skipped(defaults: defaults), [MeetingAttendance.fingerprint(meeting)])
+
+        MeetingAttendance.clear(meeting, now: now, defaults: defaults)
+        XCTAssertNil(MeetingAttendance.answer(for: meeting, defaults: defaults))
+
+        MeetingAttendance.mark(meeting, as: .notGoing, now: now, defaults: defaults)
+        MeetingAttendance.mark(
+            occurrence("Later", startsIn: 120), as: .notGoing,
+            now: meeting.endsAt.addingTimeInterval(1), defaults: defaults
+        )
+        XCTAssertNil(MeetingAttendance.answer(for: meeting, defaults: defaults), "an ended meeting's mark is pruned on the next write")
+    }
+
+    /// A mark written before answers had a reason still reads as "not going",
+    /// and a task mark skips the entry the same way without becoming one.
+    func testTaskMarkSkipsTheEntryAndKeepsOldMarksReadable() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "TodayViewTests.task"))
+        defaults.removePersistentDomain(forName: "TodayViewTests.task")
+        let legacy = occurrence("Old mark", startsIn: 30)
+        defaults.set([MeetingAttendance.fingerprint(legacy): legacy.endsAt.timeIntervalSince1970], forKey: "calendar.notAttending")
+        XCTAssertEqual(MeetingAttendance.answer(for: legacy, defaults: defaults), .notGoing)
+
+        let meeting = occurrence("Standup", startsIn: 10)
+        MeetingAttendance.mark(meeting, as: .task, now: now, defaults: defaults)
+        XCTAssertEqual(MeetingAttendance.answer(for: meeting, defaults: defaults), .task)
+        XCTAssertEqual(MeetingAttendance.answers(defaults), [
+            MeetingAttendance.fingerprint(legacy): .notGoing,
+            MeetingAttendance.fingerprint(meeting): .task
+        ])
+        XCTAssertEqual(
+            MeetingAttendance.next(in: [meeting, legacy], now: now, skipping: MeetingAttendance.skipped(defaults: defaults)),
+            nil
+        )
+
+        MeetingAttendance.mark(meeting, as: .notGoing, now: now, defaults: defaults)
+        XCTAssertEqual(MeetingAttendance.answer(for: meeting, defaults: defaults), .notGoing, "one answer per entry")
+        XCTAssertNil((defaults.dictionary(forKey: "calendar.madeTask") ?? [:])[MeetingAttendance.fingerprint(meeting)])
+    }
+
+    func testTaskArgumentsCarryTheDayAndTheContext() {
+        let sync = occurrence(
+            "Design review",
+            startsIn: 60,
+            attendees: [
+                CalendarAttendee(display: "Me", isSelf: true, email: nil),
+                CalendarAttendee(display: "Sasha", isSelf: false, email: nil)
+            ]
+        )
+        let arguments = TodayBrief.taskArguments(for: sync)
+        XCTAssertEqual(arguments["title"], "Design review")
+        XCTAssertEqual(arguments["due"], PromptLibrary.rfc3339String(sync.startsAt))
+        XCTAssertEqual(
+            arguments["notes"],
+            "\(sync.startsAt.formatted(date: .abbreviated, time: .shortened)) · from your calendar with Sasha"
+        )
+        XCTAssertFalse(TodayBrief.taskArguments(for: occurrence("Solo", startsIn: 5))["notes"]?.contains(" with ") ?? true)
+        XCTAssertTrue(TodayBrief.taskConsequence(for: sync).hasPrefix("Due "))
+        XCTAssertTrue(TodayBrief.taskConsequence(for: sync).contains(TodayBrief.taskNotes(for: sync)))
+        XCTAssertTrue(ActionIntent.createTask.carriers.contains(.googleTasks))
+    }
+
     func testCaptureLabelNamesTheMeeting() {
         XCTAssertEqual(TodayBrief.captureLabel(for: occurrence("Перегляд кв", startsIn: 10)), "Start “Перегляд кв”")
         let long = occurrence(String(repeating: "a", count: 40), startsIn: 10)

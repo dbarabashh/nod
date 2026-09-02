@@ -178,6 +178,8 @@ struct IntegrationsSection: View {
             "Nod stops finding and reading your documents. Nothing in Drive changes — it never wrote anything."
         case .googleAds:
             "Nod stops reading your campaigns. Nothing in Google Ads changes — it never spent anything."
+        case .googleTasks:
+            "Nod stops filing action items in Google Tasks. Tasks already filed stay where they are."
         }
     }
 

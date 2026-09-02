@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-09-01_
+_Last updated: 2026-09-02_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -658,7 +658,7 @@ This section is **advance notice**. Nothing described here is in the released
 app, and none of it happens for anyone who has not connected a tool themselves.
 
 When you connect a tool that Nod can act in (§ 3.11 describes the calendar; the
-same mechanism covers a task tracker such as Linear, Jira, Asana or GitHub, a
+same mechanism covers a task tracker such as Linear, Jira, Asana, Google Tasks or GitHub, a
 team chat such as Slack, a wiki such as Notion, a CRM such as HubSpot, and your
 Gmail), a finished meeting — or a question you type — can offer to do something
 in it: file a task or an issue, comment on one, close one, open a channel, put
@@ -667,6 +667,7 @@ Every one of those offers is **prepared and shown to you, and nothing leaves
 Nod until you approve it individually**. There is no setting that performs them
 automatically, and we have not built one.
 
+| **A calendar entry that is really a task** | On the Today screen you can turn an entry on your calendar into a task in **Google Tasks** — an errand that was put on the calendar but is not a meeting. Pressing it shows you the task that would be created — its title, its due day, and the note it carries (the entry's time and who was invited) — and creates it only when you confirm. The calendar entry itself is **not** changed, deleted or declined; Nod only stops treating it as a meeting on your Mac. A Google Tasks connection is used for this and for filing action items; when Nod looks a task up or searches for one, it reads your **default** task list only — the task's title, notes, due day and whether it is done. Nothing from a search is kept except the link to the task you chose to file into, and a filed item's done state follows what Google says about that task. |
 | **What is stored** | For each offer: what it would do, in which tool, the parameters it would use, and the position in the transcript that caused it. If the meeting named a colleague as the person taking something on, the offer carries **who** — as a reference to their record in your organization, plus their name as it will appear in the tool. |
 | **Reading who is in your workspace** | When an **administrator** of your organization connects a tool, Nod reads that tool's member list once and records, for each member with an address, their name, that address, and the identifier the tool uses for them. This is what lets a meeting assign work to a colleague on the day you set Nod up, instead of after everyone has been invited to Nod and accepted. It happens for administrators only — a member connecting their own account does not import anything, because their workspace is not the company's. |
 | **Colleagues who do not use Nod** | Someone in that member list who has no Nod account still gets a record, marked as having come from a connected workspace. They can be named as the owner of a task, and nothing else: they cannot sign in, they are sent nothing, and they have no access to anything. If they later create a Nod account with the same address, the record becomes theirs rather than a second one being made. |

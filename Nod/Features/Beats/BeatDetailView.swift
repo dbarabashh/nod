@@ -15,6 +15,9 @@ struct BeatDetailView: View {
     /// Continues the report as a conversation, in Ask Nod.
     let onOpenThread: (UUID) -> Void
     let onEdit: () -> Void
+    /// The run to land on when nothing has been picked yet — the one whose
+    /// report the person came here for.
+    var focusRunID: UUID?
 
     @State private var selectedRun: BeatRun?
     @State private var isRunning = false
@@ -24,7 +27,7 @@ struct BeatDetailView: View {
     }
 
     private var shown: BeatRun? {
-        selectedRun ?? runs.first { $0.status == .done } ?? runs.first
+        selectedRun ?? runs.first { $0.id == focusRunID } ?? runs.first { $0.status == .done } ?? runs.first
     }
 
     var body: some View {

@@ -14,7 +14,7 @@ import SwiftUI
 struct TodayView: View {
     let onCapture: () -> Void
     let onOpenMeeting: (Meeting) -> Void
-    let onOpenBeats: () -> Void
+    let onOpenReport: (BeatReportRow) -> Void
     let onAsk: (String) -> Void
 
     @EnvironmentObject private var meetingStore: MeetingStore
@@ -24,10 +24,17 @@ struct TodayView: View {
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var screenContext: ScreenContextService
+    @EnvironmentObject private var integrations: IntegrationService
+    @EnvironmentObject private var settingsFocus: SettingsFocus
 
     /// The rest of the day's calendar, kept whole so the card can move to the
     /// next entry on the clock without another load.
     @State private var upcoming: [CalendarOccurrence] = []
+    /// Entries the person has stepped out of, by fingerprint, with the reason.
+    @State private var answers: [String: MeetingAttendance.Answer] = [:]
+    /// The entry waiting on "Add task" in the confirmation.
+    @State private var taskCandidate: CalendarOccurrence?
+    @State private var taskError: String?
     /// The last conversation with the same people, per upcoming entry.
     @State private var lastTimeByStart: [Date: Meeting] = [:]
     @State private var beatReports: [BeatReportRow] = []
@@ -93,7 +100,15 @@ struct TodayView: View {
     }
 
     private var nextMeeting: CalendarOccurrence? {
-        upcoming.first { $0.endsAt > now }
+        MeetingAttendance.next(in: upcoming, now: now, skipping: Set(answers.keys))
+    }
+
+    /// Everything else still ahead today, answered entries included so an
+    /// answer can be taken back.
+    private var laterToday: [TodayMeetingRow] {
+        upcoming
+            .filter { $0.endsAt > now && $0 != nextMeeting }
+            .map { TodayMeetingRow(occurrence: $0, answer: answers[MeetingAttendance.fingerprint($0)]) }
     }
 
     private var lastTime: Meeting? {
@@ -140,14 +155,8 @@ struct TodayView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     header
-                    if let nextMeeting {
-                        TodayMeetingCard(
-                            occurrence: nextMeeting,
-                            lastTime: lastTime,
-                            now: now,
-                            onCapture: onCapture,
-                            onOpenMeeting: onOpenMeeting
-                        )
+                    if nextMeeting != nil || !laterToday.isEmpty {
+                        meetingCard
                     }
                     if !waitingOnYou.isEmpty {
                         // Above the cards that follow: an open drawer's pickers
@@ -159,7 +168,7 @@ struct TodayView: View {
                         TodayWaitingOnOthersCard(items: Array(waitingOnOthers.prefix(3)))
                     }
                     if !beatReports.isEmpty {
-                        TodayBeatsCard(reports: beatReports, onOpenBeats: onOpenBeats)
+                        TodayBeatsCard(reports: beatReports, onOpenReport: onOpenReport)
                     }
                     if hasLoaded, attentionCount == 0, waitingOnOthers.isEmpty {
                         allClearCard
@@ -238,6 +247,34 @@ struct TodayView: View {
         return parts.joined(separator: " · ")
     }
 
+    private var meetingCard: some View {
+        TodayMeetingCard(
+            occurrence: nextMeeting,
+            lastTime: lastTime,
+            rest: laterToday,
+            now: now,
+            taskError: taskError,
+            onCapture: onCapture,
+            onOpenMeeting: onOpenMeeting,
+            onSkip: skip,
+            onMakeTask: offerTask,
+            onClear: clearAnswer
+        )
+        .confirmationDialog(
+            "Add “\(taskCandidate?.title ?? "")” to Google Tasks?",
+            isPresented: .isPresented(by: $taskCandidate),
+            titleVisibility: .visible
+        ) {
+            Button("Add task") {
+                guard let occurrence = taskCandidate else { return }
+                Task { await fileTask(occurrence) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(taskCandidate.map(TodayBrief.taskConsequence) ?? "")
+        }
+    }
+
     private var commitmentsCard: some View {
         TodayCommitmentsCard(
             openItems: Array(waitingOnYou.prefix(Self.rowLimit)),
@@ -289,6 +326,45 @@ struct TodayView: View {
         .padding(.bottom, 20)
     }
 
+    private func skip(_ occurrence: CalendarOccurrence) {
+        mark(occurrence, as: .notGoing)
+    }
+
+    private func mark(_ occurrence: CalendarOccurrence, as answer: MeetingAttendance.Answer) {
+        MeetingAttendance.mark(occurrence, as: answer, now: now)
+        answers[MeetingAttendance.fingerprint(occurrence)] = answer
+        taskError = nil
+    }
+
+    /// Clearing says nothing about the Google task: it is the person's now,
+    /// and deleting it would be a write they did not ask for.
+    private func clearAnswer(_ occurrence: CalendarOccurrence) {
+        MeetingAttendance.clear(occurrence, now: now)
+        answers.removeValue(forKey: MeetingAttendance.fingerprint(occurrence))
+        taskError = nil
+    }
+
+    private func offerTask(_ occurrence: CalendarOccurrence) {
+        guard integrations.isUsable(.googleTasks) else {
+            settingsFocus.open(.integrations)
+            return
+        }
+        taskError = nil
+        taskCandidate = occurrence
+    }
+
+    private func fileTask(_ occurrence: CalendarOccurrence) async {
+        let result = await integrations.run(
+            ActionDelegation.call(action: "create_task", of: .googleTasks, arguments: TodayBrief.taskArguments(for: occurrence)),
+            tool: ActionDelegation.tool(action: "create_task", of: .googleTasks)
+        )
+        if let failure = IntegrationService.failure(in: result) {
+            taskError = failure
+            return
+        }
+        mark(occurrence, as: .task)
+    }
+
     private func submit() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -309,8 +385,10 @@ struct TodayView: View {
             .filter { $0.endsAt > now }
             .sorted { $0.startsAt < $1.startsAt }
         upcoming = ahead
+        answers = MeetingAttendance.answers()
+        taskError = nil
         lastTimeByStart = Dictionary(
-            ahead.prefix(3).compactMap { occurrence in
+            ahead.prefix(6).compactMap { occurrence in
                 TodayBrief.lastSession(before: occurrence, in: meetingStore.meetings).map { (occurrence.startsAt, $0) }
             },
             uniquingKeysWith: { first, _ in first }

@@ -36,6 +36,33 @@ enum TodayBrief {
         return "Start “\(shown)”"
     }
 
+    /// What Google Tasks gets for a calendar entry. The due date is the start
+    /// instant in the local offset; the server keeps the day as written, so the
+    /// time survives only in the notes.
+    static func taskArguments(for occurrence: CalendarOccurrence) -> [String: String] {
+        [
+            "title": occurrence.title,
+            "due": PromptLibrary.rfc3339String(occurrence.startsAt),
+            "notes": taskNotes(for: occurrence)
+        ]
+    }
+
+    /// The note the task carries — shown in the confirmation word for word,
+    /// because the names in it leave Nod.
+    static func taskNotes(for occurrence: CalendarOccurrence) -> String {
+        var notes = "\(occurrence.startsAt.formatted(date: .abbreviated, time: .shortened)) · from your calendar"
+        if !occurrence.others.isEmpty {
+            notes += " with \(occurrence.others.map(\.display).joined(separator: ", "))"
+        }
+        return notes
+    }
+
+    static func taskConsequence(for occurrence: CalendarOccurrence) -> String {
+        "Due \(occurrence.startsAt.formatted(date: .abbreviated, time: .omitted)), "
+            + "with the note “\(taskNotes(for: occurrence))”. "
+            + "The calendar entry stays as it is; Nod stops treating it as a meeting."
+    }
+
     /// What the last conversation left behind, in one line.
     static func knowledgeLine(for meeting: Meeting) -> String {
         let summary = SessionKnowledge.of(meeting).summary

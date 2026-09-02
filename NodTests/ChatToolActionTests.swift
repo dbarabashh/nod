@@ -75,7 +75,8 @@ final class ChatToolActionTests: XCTestCase {
             .hubspot: ["create_note"],
             .gmail: ["create_draft"],
             .googleDrive: [],
-            .googleAds: []
+            .googleAds: [],
+            .googleTasks: ["create_task", "update_task"]
         ]
         XCTAssertEqual(Set(writes.keys), Set(IntegrationProvider.allCases), "a provider is missing from the map")
         for (provider, actions) in writes {

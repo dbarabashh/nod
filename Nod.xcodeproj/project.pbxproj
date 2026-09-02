@@ -254,6 +254,7 @@
 		89598505C0948AFF427CB0D3 /* AccountExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C330DD6CB3A6C8BE0237DA52 /* AccountExportService.swift */; };
 		89FE74A773DA8D4390EDB120 /* NotchStateResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE59204272C5F0D01447320B /* NotchStateResolver.swift */; };
 		8A3B17B44B362E07ADF45597 /* ActionItemMatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06B697F7832C46F767AA38B8 /* ActionItemMatchTests.swift */; };
+		8A9EDD71C69F3B13E5DD61DE /* MeetingAttendance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C4ED67CDED9B8CE1CA42C0 /* MeetingAttendance.swift */; };
 		8AB9DF935E5B626686243AB4 /* MeetingRosterSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AED1DFD956CB9D43FE8E53BD /* MeetingRosterSampler.swift */; };
 		8BDBC563F9E34D4186CA4B9F /* IconButtonChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4BEF0198D68E799494BEB36 /* IconButtonChrome.swift */; };
 		8D32857B1FE2D4F7D9A27BD9 /* ChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCA30DF5B98CDB6D9948EAF8 /* ChatStore.swift */; };
@@ -606,6 +607,7 @@
 		349F56465A11457F5CED1E39 /* OrganizationSlugTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrganizationSlugTests.swift; sourceTree = "<group>"; };
 		35BEF7C7BBAF07A58FEBEC5F /* ThemedColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemedColorTests.swift; sourceTree = "<group>"; };
 		35C3AE41335A1F54ABE41B4F /* silero_vad.onnx */ = {isa = PBXFileReference; path = silero_vad.onnx; sourceTree = "<group>"; };
+		36C4ED67CDED9B8CE1CA42C0 /* MeetingAttendance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingAttendance.swift; sourceTree = "<group>"; };
 		37448AC9EC09078EF72C8F09 /* BeatRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeatRunner.swift; sourceTree = "<group>"; };
 		3945E2F6E438FBEBE9BE3B5A /* GlyphIconInkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlyphIconInkTests.swift; sourceTree = "<group>"; };
 		39A09FBE62C4EFB394C785E4 /* DemoStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoStage.swift; sourceTree = "<group>"; };
@@ -1329,6 +1331,7 @@
 				7C88CFA99B1176872FDC7567 /* CalendarOccurrence.swift */,
 				DA6667FF07EBCEE7BA10E51C /* CalendarService.swift */,
 				82386F87AF5C9593617BE703 /* CalendarSourceState.swift */,
+				36C4ED67CDED9B8CE1CA42C0 /* MeetingAttendance.swift */,
 				C097573DC1B1AD9FB14D63D8 /* RemoteCalendar.swift */,
 			);
 			path = Calendar;
@@ -2297,6 +2300,7 @@
 				91514BC452F279A2FFD7D18B /* LoopResolver.swift in Sources */,
 				AEFD65223AB58E5BDE635CA6 /* MainWindowView.swift in Sources */,
 				98B2905254779E89A9483FA0 /* Meeting.swift in Sources */,
+				8A9EDD71C69F3B13E5DD61DE /* MeetingAttendance.swift in Sources */,
 				671ED4123EE39647F39BEAB5 /* MeetingAutoEnd.swift in Sources */,
 				4642F1D3FCF051D58459A38C /* MeetingDetailHeader.swift in Sources */,
 				5306CE7F62F7D16EC1339EBC /* MeetingDetailToolbar.swift in Sources */,

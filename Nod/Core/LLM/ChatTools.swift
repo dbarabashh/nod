@@ -193,6 +193,7 @@ enum ChatTools {
         case .gmail: gmailTools
         case .googleDrive: driveTools
         case .googleAds: adsTools
+        case .googleTasks: googleTasksTools
         }
     }
 
@@ -230,6 +231,59 @@ enum ChatTools {
                     "completed": .init(description: "`true` to complete, `false` to reopen.")
                 ],
                 required: ["id", "completed"]
+            ),
+            mutating: true
+        )
+    ]
+
+    private static let googleTasksTools: [ChatTool] = [
+        ChatTool(
+            provider: .googleTasks,
+            name: "google-tasks_search_tasks",
+            description: "Search the user's Google Tasks, in their default list, by words in the title or notes.",
+            parameters: ChatToolSchema(
+                properties: ["query": .init(description: "Keywords to search for.")],
+                required: ["query"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .googleTasks,
+            name: "google-tasks_read_tasks",
+            description: "Read whether the given Google Tasks are still open.",
+            parameters: ChatToolSchema(
+                properties: ["keys": .init(description: "Comma-separated task ids from a search result.")],
+                required: ["keys"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .googleTasks,
+            name: "google-tasks_create_task",
+            description: "File a new task in the user's default Google Tasks list. Only after searching, and only when they asked for it. A due date is a day, not a time.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "title": .init(description: "One line, in the meeting's own wording."),
+                    "notes": .init(description: "Optional detail."),
+                    "due": .init(description: "Optional due date, RFC 3339; only the date part is kept.")
+                ],
+                required: ["title"]
+            ),
+            mutating: true
+        ),
+        ChatTool(
+            provider: .googleTasks,
+            name: "google-tasks_update_task",
+            description: "Retitle, annotate, re-date, complete or reopen a Google Task. A due date is a day, not a time.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "key": .init(description: "Task id from a search result."),
+                    "title": .init(description: "New title, if it changes."),
+                    "notes": .init(description: "New notes, if they change."),
+                    "due": .init(description: "New due date, RFC 3339; only the date part is kept."),
+                    "status": .init(description: "`completed` to complete, `needsAction` to reopen.")
+                ],
+                required: ["key"]
             ),
             mutating: true
         )

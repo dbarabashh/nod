@@ -13,26 +13,40 @@ struct BeatsView: View {
 
     /// Opens the thread a run wrote, in the chat surface.
     let onOpenThread: (UUID) -> Void
+    /// A report another surface asked to land on, straight past the grid.
+    let open: BeatOpenRequest?
 
     @State private var editor: BeatEditor.Mode?
     @State private var opened: Beat?
     @State private var category: BeatTemplates.Category = .day
+
+    init(open: BeatOpenRequest? = nil, onOpenThread: @escaping (UUID) -> Void) {
+        self.open = open
+        self.onOpenThread = onOpenThread
+        _opened = State(initialValue: open?.beat)
+    }
 
     /// Wide enough for two cards side by side at the window's usual size, and
     /// one when the sidebar and a focused session have taken the rest.
     private let columns = [GridItem(.adaptive(minimum: 268), spacing: 12)]
 
     var body: some View {
-        if let opened {
-            BeatDetailView(
-                beat: beats.beats.first { $0.id == opened.id } ?? opened,
-                onBack: { self.opened = nil },
-                onOpenThread: onOpenThread,
-                onEdit: { editor = .edit(beats.beats.first { $0.id == opened.id } ?? opened) }
-            )
-            .sheet(item: $editor) { mode in BeatEditor(mode: mode) }
-        } else {
-            grid
+        Group {
+            if let opened {
+                BeatDetailView(
+                    beat: beats.beats.first { $0.id == opened.id } ?? opened,
+                    onBack: { self.opened = nil },
+                    onOpenThread: onOpenThread,
+                    onEdit: { editor = .edit(beats.beats.first { $0.id == opened.id } ?? opened) },
+                    focusRunID: open?.beat.id == opened.id ? open?.runID : nil
+                )
+                .sheet(item: $editor) { mode in BeatEditor(mode: mode) }
+            } else {
+                grid
+            }
+        }
+        .onChange(of: open) { request in
+            if let request { opened = request.beat }
         }
     }
 
@@ -298,3 +312,10 @@ private struct BeatCard: View {
             .background(Theme.Palette.bg)
     }
 #endif
+
+/// What Today hands over when a row is a report, not the Beats page: the beat
+/// to open and the run whose report the person clicked.
+struct BeatOpenRequest: Equatable {
+    let beat: Beat
+    let runID: UUID?
+}

@@ -208,14 +208,21 @@ final class ScheduledMeetingWatcher: ObservableObject {
             return clear()
         }
         guard candidate == nil else {
-            // Stop offering once its window has passed, even if nobody answered.
-            if let candidate, !candidate.isStarting(at: now) { answered(candidate) }
+            // Stop offering once its window has passed, even if nobody answered —
+            // and the moment Today is told the person is not going.
+            if let candidate, !candidate.isStarting(at: now) || MeetingAttendance.answers()[candidate.fingerprint] != nil {
+                answered(candidate)
+            }
             return
         }
 
         let starting = calendar
             .meetingsStarting(at: now)
-            .first { ScheduledMeeting.isStarting($0.startsAt, at: now) && !answered.contains(Self.key($0)) }
+            .first {
+                ScheduledMeeting.isStarting($0.startsAt, at: now)
+                    && !answered.contains(MeetingAttendance.fingerprint($0))
+                    && MeetingAttendance.answer(for: $0) == nil
+            }
         guard let starting else { return }
 
         Log.screen.info("scheduled: \(starting.title) starts now")
@@ -256,13 +263,6 @@ final class ScheduledMeetingWatcher: ObservableObject {
         guard message != lastRoomNote else { return }
         lastRoomNote = message
         Log.screen.info("\(message)")
-    }
-
-    /// The fingerprint of an entry that has not been turned into a
-    /// `ScheduledMeeting` yet — checked before the attendee names are read, so a
-    /// meeting already answered costs nothing to skip.
-    private static func key(_ occurrence: CalendarOccurrence) -> String {
-        "\(occurrence.title)@\(occurrence.startsAt.timeIntervalSince1970)"
     }
 
     /// No meeting starts on a sleeping Mac, and a loop that keeps its schedule

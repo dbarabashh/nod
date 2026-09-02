@@ -36,6 +36,9 @@ struct MainWindowView: View {
     /// The session open *over* the current surface. The surface underneath is
     /// remembered, so closing returns to it.
     @State private var focus: Meeting?
+    /// A beat report Today asked to open; cleared by any other navigation so
+    /// the Beats row in the sidebar still opens the grid.
+    @State private var beatRequest: BeatOpenRequest?
     @State private var confirmingClearChat = false
     @StateObject private var contextWidth = ContextColumnWidth()
     @State private var windowWidth: CGFloat = 1180
@@ -209,7 +212,7 @@ struct MainWindowView: View {
             TodayView(
                 onCapture: capture,
                 onOpenMeeting: { focus = $0 },
-                onOpenBeats: { show(.beats) },
+                onOpenReport: openReport,
                 onAsk: askFromToday
             )
             .transition(.opacity)
@@ -226,7 +229,7 @@ struct MainWindowView: View {
             )
             .transition(.opacity)
         case .beats:
-            BeatsView(onOpenThread: openThread).transition(.opacity)
+            BeatsView(open: beatRequest, onOpenThread: openThread).transition(.opacity)
         case .settings:
             settings.transition(.opacity)
         case .demoDailyModes:
@@ -321,6 +324,12 @@ struct MainWindowView: View {
         if target == .sessions { filterLabelID = nil }
         surface = target
         focus = nil
+        beatRequest = nil
+    }
+
+    private func openReport(_ row: TodayView.BeatReportRow) {
+        show(.beats)
+        beatRequest = BeatOpenRequest(beat: row.beat, runID: row.run.id)
     }
 
     /// Open a session over whatever is in the centre. The context column
