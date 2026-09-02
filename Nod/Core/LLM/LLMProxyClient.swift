@@ -913,10 +913,11 @@ final class LLMProxyClient: ObservableObject {
         query: String,
         language: AppLanguage = .english,
         personalContext: String = ""
-    ) async -> (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool) {
+    ) async -> (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool, screenTerms: [String]) {
         struct HyDEResult: Decodable {
             let standalone_query: String
             let hypothetical_answer: String
+            let screen_terms: [String]?
             /// Absent on an older response; true then, because answering from
             /// the recordings when they weren't needed is a wasted search, and
             /// skipping them when they were needed is a wrong answer.
@@ -945,11 +946,12 @@ final class LLMProxyClient: ObservableObject {
                 standalone.isEmpty ? query : standalone,
                 hyde.isEmpty ? nil : hyde,
                 result.about_screen ?? false,
-                result.needs_sessions ?? true
+                result.needs_sessions ?? true,
+                (result.screen_terms ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
             )
         } catch {
             Log.llm.error("query prep failed (using raw query): \(error.localizedDescription)")
-            return (query, nil, false, true)
+            return (query, nil, false, true, [])
         }
     }
 

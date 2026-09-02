@@ -94,6 +94,15 @@ struct ScreenObservationIndex: Decodable, Equatable {
 /// Turns the strings an accessibility walk returns into something worth
 /// storing, or into nothing at all.
 enum ScreenObservationBuilder {
+    /// A browser's own surfaces — the omnibox dropdown, a new tab, settings —
+    /// answer accessibility like a page and are not one. Storing them buries
+    /// the page the person was actually on under the browser's furniture.
+    static func isBrowserChrome(url: String?) -> Bool {
+        guard let url = url?.lowercased() else { return false }
+        return ["chrome://", "chrome-extension://", "about:", "edge://", "brave://", "arc://", "safari-resource:"]
+            .contains { url.hasPrefix($0) }
+    }
+
     /// Below this, a window carries no answerable content — a toolbar, an empty
     /// panel, a loading state. Storing it costs retrieval quality.
     static let minimumCharacters = 120

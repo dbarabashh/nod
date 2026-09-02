@@ -251,9 +251,11 @@ extension PromptLibrary {
 
         4. "needs_sessions": false when the answer lives somewhere other than the recordings. Two cases: the request carries everything it needs ("create a ticket titled X", "file this in Linear", "put a meeting in my calendar at 13:30 with alina@acme.com", "when am I free on Thursday"), or the user names a connected product as the SOURCE — "based on what we have in Linear", "what's on my Linear board", "my progress today according to Linear". A request to DO something is never true, however many names or dates it carries — "book time with Dima today" is an instruction, not a question about what Dima and the user discussed today. Say true only when the answer depends on what was actually said, decided or promised in a session, including requests that name a meeting ("do we have tickets for what we discussed here"). When neither reading is clear, say true.
 
+        5. "screen_terms": two to six short search keys for the record of windows the user had open — the proper nouns, product names, acronyms and title words the page they mean would carry, in the page's own language (usually English, whatever the question's language) plus the user's. For "я дивився відео з пітчами від YC, дай посилання": ["YC", "Demo Day", "pitch", "YouTube", "пітч"]. Empty when the question is not about something they had open.
+
         [OUTPUT FORMAT]
         Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
-        {"standalone_query": "<the self-contained question>", "hypothetical_answer": "<the transcript-style passage>", "about_screen": <true|false>, "needs_sessions": <true|false>}
+        {"standalone_query": "<the self-contained question>", "hypothetical_answer": "<the transcript-style passage>", "about_screen": <true|false>, "needs_sessions": <true|false>, "screen_terms": ["<key>", ...]}
         """
         let system = personalContext.isEmpty ? base : personalContext + "\n\n" + base
 
@@ -423,7 +425,7 @@ private let screenContextRules = """
 - Read the window, not just the title: what the thread is about, who it shows as posting, what the disagreement was, what broke.
 - Attribute only where the window's own text names the author. A name that is addressed, @-mentioned, quoted or listed as a member is content, not that person acting — and never report that someone answered, agreed or delivered unless their words stand after the thing they answer. Silence is the normal case: "nothing back from them yet" is an answer, an invented reply is not.
 - A name a page merely lists — a suggestion, a story row, a search result, a member list — is text on the page, not something the user did. Say the page listed it; never say they viewed, opened, reviewed or looked someone up unless the window title itself names that person or page.
-- When the user asks for a link, an address or a URL, give the one that appears in the block exactly as written. If no address appears, name the page by its title and say the address itself wasn't captured — never reconstruct or guess one.
+- When the user asks for a link, an address or a URL, give the one that appears in the block exactly as written. If the page they mean is here without an address, name it by its title and say the address itself wasn't captured — never reconstruct or guess one. If no window here matches what they described, say you have nothing on that page; another page of the same kind (a different video, a different article) is not the one they asked for, so never offer it as if it were.
 - Times inside a window ("25 minutes ago", "Yesterday at 5:52 PM") are the app's own, written relative to when it was captured — never to now, and never the capture stamp itself.
 - Round the clock unless the exact minute is itself the point — a deadline, when a call started, two things open at once. "Just after four" carries everything "16:21" does without reading like a log.
 - Never invent activity between captures, and never claim to know why they were looking at something. If a window is unreadable chrome, leave it out instead of narrating it.

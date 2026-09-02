@@ -495,7 +495,7 @@ final class ScreenContextService: ObservableObject {
             return (focused.title, focused.url, ScreenObservationBuilder.text(from: focused.texts))
         }.value
 
-        guard let read,
+        guard let read, !ScreenObservationBuilder.isBrowserChrome(url: read.url),
               let captured = await recognizedIfAccessibilityIsThin((read.title, read.text), pid: pid, rules: rules) else { return }
         let observation = ScreenObservation(
             userID: userID,
@@ -543,8 +543,8 @@ extension ScreenContextService {
     /// keyword-shaped ("which ticket did Leo move?"), and giving them their own
     /// embedding pipeline would mean a second index with its own retention and
     /// its own way to go stale. Returns nothing when ambient context is off.
-    func recentContext(matching query: String, limit: Int = 4) async -> [ScreenObservation] {
-        let terms = Self.searchTerms(in: query)
+    func recentContext(matching query: String, extraTerms: [String] = [], limit: Int = 4) async -> [ScreenObservation] {
+        let terms = Self.searchTerms(in: query, extra: extraTerms)
         guard !terms.isEmpty, let rows = await matches(terms: terms, fetching: limit * 4) else { return [] }
         let relevant = Array(Self.relevant(rows, for: terms).prefix(limit))
         Log.screen.info("context: \(relevant.count)/\(rows.count) observation(s) kept for \(terms.count) term(s)")
@@ -746,7 +746,21 @@ extension ScreenContextService {
     /// Words worth matching on. Short and very common words are dropped: they
     /// match everything, which is the same as matching nothing.
     static func searchTerms(in query: String) -> [String] {
-        Array(searchable(query).prefix(termLimit))
+        Array(asked(query).prefix(termLimit))
+    }
+
+    /// The question's own words plus what the query-prep model thinks the page
+    /// would carry — the page is usually in English whatever the question was
+    /// asked in, and "пітчі від YC" shares no word with a YouTube title.
+    static func searchTerms(in query: String, extra: [String]) -> [String] {
+        var seen = Set<String>()
+        let own = asked(query).prefix(termLimit)
+        // A lower floor than the question's own words: the model already
+        // chose these as page keys, and "Demo Day" is two of them.
+        let added = extra
+            .flatMap { TextTokens.acronyms(in: $0) + TextTokens.contentWords(in: $0, longerThan: 3, excluding: stopWords) }
+            .prefix(termLimit)
+        return (Array(own) + Array(added)).filter { seen.insert($0).inserted }
     }
 
     /// The same reduction over the projects the grounded sessions are about —
@@ -771,6 +785,14 @@ extension ScreenContextService {
     /// `textSearch` query.
     private static func searchable(_ text: String) -> [String] {
         TextTokens.contentWords(in: text, longerThan: 4, excluding: stopWords)
+    }
+
+    /// A question's words, acronyms first: "YC" is the most specific thing in
+    /// "the video from YC" and the one the length floor would drop. Project
+    /// names go through `searchable` alone — "API" names nothing there.
+    private static func asked(_ text: String) -> [String] {
+        var seen = Set<String>()
+        return (TextTokens.acronyms(in: text) + searchable(text)).filter { seen.insert($0).inserted }
     }
 
     /// Terms per query. Past a handful they stop narrowing and start matching

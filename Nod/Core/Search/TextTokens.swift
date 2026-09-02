@@ -31,4 +31,13 @@ enum TextTokens {
     ) -> [String] {
         words(in: text).filter { $0.count >= minimum && !stopWords.contains($0) }
     }
+
+    /// Short all-caps words — "YC", "PR", "NOD-7"'s "NOD" — lowercased. They
+    /// fall under any sensible length floor and are the most specific thing a
+    /// question carries.
+    static func acronyms(in text: String) -> [String] {
+        text.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .filter { (2 ... 5).contains($0.count) && $0.allSatisfy { $0.isUppercase || $0.isNumber } && $0.contains(where: \.isLetter) }
+            .map { $0.lowercased() }
+    }
 }

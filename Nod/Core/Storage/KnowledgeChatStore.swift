@@ -514,7 +514,7 @@ extension KnowledgeChatStore {
         // schedule does not get to file tickets on its own.
         turnTools = await tools.filter { unattended ? !$0.mutating : true }
 
-        let prepared: (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool)
+        let prepared: (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool, screenTerms: [String])
         let routing: Routing
         if priorHistory.isEmpty {
             async let routed = route(pinned: pinned, scope: scope, standalone: text, asked: text)
@@ -600,7 +600,8 @@ extension KnowledgeChatStore {
             for: scope,
             query: prepared.standalone,
             embedText: prepared.hyde,
-            aboutScreen: prepared.aboutScreen
+            aboutScreen: prepared.aboutScreen,
+            screenTerms: prepared.screenTerms
         )
         if Task.isCancelled { await saved; return }
         let sources = grounding.sources
@@ -1185,7 +1186,7 @@ extension KnowledgeChatStore {
     /// Phrase matching alone missed real questions twice ("які останні новини",
     /// "що було за останні 20 хвилин"): the ways people ask what they were
     /// doing don't enumerate.
-    private func observed(for query: String, aboutScreen: Bool) async -> Observed {
+    private func observed(for query: String, aboutScreen: Bool, screenTerms: [String] = []) async -> Observed {
         guard let screenContext else { return Observed() }
         let recap = ScreenRecall.window(for: query) ?? (aboutScreen ? ScreenRecall.defaultWindow() : nil)
         if let window = recap {
@@ -1193,7 +1194,7 @@ extension KnowledgeChatStore {
             // match answers the specific thing the question names — and a page
             // open for ten seconds is in the second and never in the first.
             async let recapping = screenContext.activity(in: window)
-            async let matching = screenContext.recentContext(matching: query)
+            async let matching = screenContext.recentContext(matching: query, extraTerms: screenTerms)
             let (digest, matched) = await (recapping, matching)
             let extra = ScreenActivityDigest.uncovered(matched, by: digest)
             let blocks = digest.apps.map { app in
@@ -1208,7 +1209,7 @@ extension KnowledgeChatStore {
                 coversAWindow: true
             )
         }
-        let matched = await screenContext.recentContext(matching: query)
+        let matched = await screenContext.recentContext(matching: query, extraTerms: screenTerms)
         return Observed(blocks: matched.map(Self.labeledObservation), apps: Self.appSources(of: matched), ids: Set(matched.map(\.id)))
     }
 
@@ -1482,7 +1483,8 @@ extension KnowledgeChatStore {
         for scope: Scope,
         query: String,
         embedText: String?,
-        aboutScreen: Bool = false
+        aboutScreen: Bool = false,
+        screenTerms: [String] = []
     ) async -> Grounding {
         switch scope {
         case .all, .scoped:
@@ -1493,7 +1495,7 @@ extension KnowledgeChatStore {
             // that was never said out loud. Empty unless ambient context is on.
             // Its own round trip, independent of the corpus search — so it runs
             // alongside rather than after it, as in the `.specific` branch.
-            async let screening = observed(for: query, aboutScreen: aboutScreen)
+            async let screening = observed(for: query, aboutScreen: aboutScreen, screenTerms: screenTerms)
             let hits = await knowledge.searchWithConcepts(query: query, meetingIDs: scopedIDs, embedText: embedText)
             let relevant = Self.worthGrounding(hits.chunks)
             let grounded = Array(Set(relevant.map(\.meetingID)))
@@ -1543,7 +1545,7 @@ extension KnowledgeChatStore {
             // the user was also asking what they'd been doing. Leaving it out of
             // this branch meant "шо нового?" — which the router sends to a
             // single session — could never see the screen record.
-            async let screening = observed(for: query, aboutScreen: aboutScreen)
+            async let screening = observed(for: query, aboutScreen: aboutScreen, screenTerms: screenTerms)
             async let people: Void = loadPeople(for: ids)
             let byID = meetingsByID
             let inScope = ids.compactMap { byID[$0] }

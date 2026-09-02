@@ -395,13 +395,13 @@ final class ScreenActivityDigestTests: XCTestCase {
         let glanced = observation(
             userID: UUID(),
             app: "com.google.Chrome",
-            title: "I Tried Littlebird - YouTube",
+            title: "Daft Punk - Get Lucky (Official Audio) - YouTube",
             content: "youtube.com/watch?v=abc"
         )
         let twice = observation(
             userID: UUID(),
             app: "com.google.Chrome",
-            title: "I Tried Littlebird - YouTube",
+            title: "Daft Punk - Get Lucky (Official Audio) - YouTube",
             content: "YouTube Video Player"
         )
 
@@ -417,7 +417,7 @@ final class ScreenActivityDigestTests: XCTestCase {
     func testABrowserWindowCarriesItsLinkIntoThePrompt() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let window = ScreenActivityDigest.Window(
-            title: "I Tried Littlebird - YouTube", content: "YouTube Video Player",
+            title: "Daft Punk - Get Lucky (Official Audio) - YouTube", content: "YouTube Video Player",
             firstSeen: now, lastSeen: now, captures: 2, url: "https://youtube.com/watch?v=abc"
         )
         let app = ScreenActivityDigest.App(bundleID: "com.google.Chrome", windows: [window], captures: 2)
@@ -435,6 +435,21 @@ final class ScreenActivityDigestTests: XCTestCase {
 
         XCTAssertEqual(decoded.sourceURL, "https://example.com/doc")
         XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("\"source_url\""))
+    }
+
+    @MainActor
+    func testAcronymsSurviveTheLengthFloorAndExtraTermsJoin() {
+        XCTAssertTrue(ScreenContextService.searchTerms(in: "the video from YC about pitches").contains("yc"))
+        let joined = ScreenContextService.searchTerms(in: "я загубив посилання", extra: ["YC", "Demo Day", "YouTube"])
+        XCTAssertTrue(joined.contains("yc") && joined.contains("youtube") && joined.contains("demo"), joined.joined(separator: ","))
+        XCTAssertEqual(Set(joined).count, joined.count)
+    }
+
+    func testBrowserChromeIsNotAPage() {
+        XCTAssertTrue(ScreenObservationBuilder.isBrowserChrome(url: "chrome://omnibox-popup.top-chrome/"))
+        XCTAssertTrue(ScreenObservationBuilder.isBrowserChrome(url: "about:blank"))
+        XCTAssertFalse(ScreenObservationBuilder.isBrowserChrome(url: "https://youtube.com/watch?v=abc"))
+        XCTAssertFalse(ScreenObservationBuilder.isBrowserChrome(url: nil))
     }
 
     func testPromptBlockNamesTheAppAndItsWindows() {
