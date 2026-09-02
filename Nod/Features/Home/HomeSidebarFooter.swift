@@ -43,29 +43,13 @@ struct HomeSidebarFooter: View {
     /// Goes to the profile, where the row above it goes to General. Two rows
     /// that opened the same pane read as one of them being broken.
     private var accountRow: some View {
-        Button { settingsFocus.open(.profile) } label: {
-            HStack(spacing: 9) {
-                Image("nc-user")
-                    .icon(15)
-                    .foregroundStyle(Theme.Palette.muted)
-                    .frame(width: 16)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(displayName)
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(Theme.Palette.ink.opacity(0.85))
-                        .lineLimit(1)
-                    Text(planLabel)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.Palette.muted)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
+        SidebarNavRow(title: displayName, subtitle: planLabel, verticalPadding: 6) {
+            settingsFocus.open(.profile)
+        } leading: {
+            Image("nc-user")
+                .icon(15)
+                .foregroundStyle(Theme.Palette.muted)
         }
-        .buttonStyle(.plain)
         .help("Your profile")
     }
 

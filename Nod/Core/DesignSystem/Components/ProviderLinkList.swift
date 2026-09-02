@@ -58,32 +58,7 @@ struct ProviderLinkList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(items) { item in
-                Button { NSWorkspace.shared.open(item.url) } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 7) {
-                        ProviderMark(provider: item.provider, size: 12)
-                            // The mark sits on the text's baseline rather than
-                            // the line box, so titles that wrap keep their first
-                            // line level with it.
-                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
-                        Text(item.title)
-                            .font(.system(size: 13.5, weight: .semibold))
-                            .foregroundStyle(Theme.Palette.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .multilineTextAlignment(.leading)
-                        Image("nc-arrow-up-right")
-                            .icon(9)
-                            .foregroundStyle(Theme.Palette.muted)
-                            // Tighter than the row's spacing — it belongs to
-                            // the title, not beside it — and centred on the
-                            // text's x-height instead of dropped to its
-                            // baseline, where a glyph this small reads as
-                            // falling off the line.
-                            .padding(.leading, -3)
-                            .alignmentGuide(.firstTextBaseline) { $0.height / 2 + 4 }
-                    }
-                }
-                .buttonStyle(.plain)
-                .linkCursor()
+                ProviderLink(item: item)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

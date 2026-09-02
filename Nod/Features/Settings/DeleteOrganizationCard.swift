@@ -9,34 +9,16 @@ struct DeleteOrganizationCard: View {
     let organization: Organization
     let delete: () -> Void
 
-    @State private var isConfirming = false
-
     var body: some View {
-        SettingsCard {
-            SettingsRow(
-                icon: "nc-trash",
-                title: "Delete organization",
-                subtitle: "Everyone loses access. Sessions recorded here keep belonging to the organization and stay readable by whoever recorded them."
-            ) {
-                Button("Delete…") {
-                    isConfirming = true
-                }
-                .font(.system(size: 12.5, weight: .semibold))
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.Palette.danger)
-            }
-        }
-        .confirmationDialog(
-            "Delete \(organization.name)?",
-            isPresented: $isConfirming,
-            titleVisibility: .visible
-        ) {
-            Button("Delete organization", role: .destructive, action: delete)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(
-                "Every member loses access immediately and goes back to their personal space. Pending invites stop working. This can't be undone from the app."
-            )
-        }
+        DestructiveActionCard(
+            icon: "nc-trash",
+            title: "Delete organization",
+            subtitle: "Everyone loses access. Sessions recorded here keep belonging to the organization and stay readable by whoever recorded them.",
+            buttonTitle: "Delete…",
+            dialogTitle: "Delete \(organization.name)?",
+            dialogMessage: "Every member loses access immediately and goes back to their personal space. Pending invites stop working. This can't be undone from the app.",
+            confirmTitle: "Delete organization",
+            action: delete
+        )
     }
 }

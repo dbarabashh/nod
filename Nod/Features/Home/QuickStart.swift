@@ -102,15 +102,8 @@ struct QuickStart: View {
                 .padding(.top, 1)
         } trailing: {
             if !isDone, let action {
-                Button(action: action) {
-                    Text("Start")
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 5)
-                        .glassButtonSurface(Capsule(style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .linkCursor()
+                GlassPillButton("Start", size: .row, action: action)
+                    .linkCursor()
             }
         }
     }

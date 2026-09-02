@@ -127,18 +127,12 @@ struct ActionItemDrawer: View {
     private var actionsRow: some View {
         HStack(spacing: 8) {
             if !intents.isEmpty {
-                Button("Take action") {
+                GlassPillButton("Take action", size: .compact) {
                     isChoosingIntent = true
                 }
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(Theme.GlassButton.text)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .glassButtonSurface(Capsule(style: .continuous))
-                .buttonStyle(.plain)
                 .linkCursor()
             }
-            secondaryButton("Ask Nod") {
+            SecondaryPillButton("Ask Nod") {
                 onAsk(ActionDelegation.askPrompt(for: item, source: sourceTitle))
             }
             Spacer(minLength: 0)
@@ -155,23 +149,8 @@ struct ActionItemDrawer: View {
     /// recommendation, never the intent's identity.
     private var intentMenu: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("What should happen?")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                Spacer(minLength: 0)
-                Button("Close") { isChoosingIntent = false }
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .buttonStyle(.plain)
-                    .linkCursor()
-            }
-            TextField("Describe the outcome… @ names a tool", text: $plan)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
+            InlineFormHeader("What should happen?") { isChoosingIntent = false }
+            InlineTextField("Describe the outcome… @ names a tool", text: $plan)
                 .onSubmit {
                     // Return while a tool is being named completes the name;
                     // sending "@Sl" as a plan is never what Return meant.
@@ -185,7 +164,6 @@ struct ActionItemDrawer: View {
                 .overlay(alignment: .topLeading) {
                     if let fragment = ActionDelegation.mentionFragment(in: plan) {
                         mentionRows(matching: fragment)
-                            .offset(y: 32)
                     }
                 }
                 .zIndex(1)
@@ -201,7 +179,7 @@ struct ActionItemDrawer: View {
                     intentRow(offered)
                 }
             }
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
+            .inlineFieldSurface()
         }
     }
 
@@ -216,35 +194,17 @@ struct ActionItemDrawer: View {
     }
 
     private func mentionRows(matching fragment: String) -> some View {
-        let offered = mentionCandidates(matching: fragment)
-        return VStack(spacing: 0) {
-            ForEach(offered.prefix(5), id: \.self) { provider in
-                Button {
-                    plan = ActionDelegation.inserting(mention: provider, into: plan)
-                } label: {
-                    HStack(spacing: 8) {
-                        ProviderMark(provider: provider, size: 12)
-                        Text(provider.displayName)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.Palette.ink)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .linkCursor()
+        SuggestionPopover(
+            items: Array(mentionCandidates(matching: fragment).prefix(5)),
+            width: 220,
+            onPick: { plan = ActionDelegation.inserting(mention: $0, into: plan) },
+            row: { provider in
+                ProviderMark(provider: provider, size: 12)
+                Text(provider.displayName)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.ink)
             }
-        }
-        .frame(width: 220)
-        .background(
-            RoundedRectangle(cornerRadius: 7)
-                .fill(Theme.Palette.bg)
-                .overlay(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
         )
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.Palette.border, lineWidth: 1))
-        .shadow(color: Theme.Palette.scrim.opacity(0.35), radius: 14, y: 6)
     }
 
     private func intentRow(_ offered: ActionIntent) -> some View {
@@ -316,17 +276,6 @@ struct ActionItemDrawer: View {
             },
             onClose: { intent = nil }
         )
-    }
-
-    private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(Theme.Palette.ink)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 5)
-            .background(Capsule(style: .continuous).fill(Theme.Palette.surfaceStrong))
-            .buttonStyle(.plain)
-            .linkCursor()
     }
 
     /// The result, openable: created things get clicked, not just believed.

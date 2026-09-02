@@ -15,21 +15,27 @@ import SwiftUI
 struct ProviderMark: View {
     let provider: IntegrationProvider
     var size: CGFloat = 17
+    /// Drawn on a tile in Settings, where it sits in a row of tiles; bare
+    /// everywhere else, where it sits among glyphs.
+    var tiled = false
 
     var body: some View {
-        if Self.ships.contains(provider) {
-            Image(provider.iconName)
-                // The stand-in is a Nucleo glyph drawn on the same 18pt grid as
-                // the rest of the interface, so it sits a size smaller than a
-                // brand mark that fills its own square.
-                .icon(Self.tinted.contains(provider) ? size * 0.82 : size)
-                .foregroundStyle(Theme.Palette.ink)
-        } else {
-            // No asset shipped for this one. Now that a connection can be to any
-            // of three thousand products, that is the ordinary case rather than
-            // an oversight, and the broker's catalogue is where the mark is.
-            CatalogueMark(slug: provider.brokerSlug, size: size)
+        Group {
+            if Self.ships.contains(provider) {
+                Image(provider.iconName)
+                    // The stand-in is a Nucleo glyph drawn on the same 18pt grid as
+                    // the rest of the interface, so it sits a size smaller than a
+                    // brand mark that fills its own square.
+                    .icon(Self.tinted.contains(provider) ? size * 0.82 : size)
+                    .foregroundStyle(Theme.Palette.ink)
+            } else {
+                // No asset shipped for this one. Now that a connection can be to any
+                // of three thousand products, that is the ordinary case rather than
+                // an oversight, and the broker's catalogue is where the mark is.
+                CatalogueMark(slug: provider.brokerSlug, size: size)
+            }
         }
+        .markTile(tiled)
     }
 
     /// Which providers ship a brand asset. Resolved once — whether an asset is
@@ -80,7 +86,7 @@ struct CatalogueMark: View {
                     .foregroundStyle(Theme.Palette.muted)
             }
         }
-        .modifier(CatalogueMarkTile(tiled: tiled))
+        .markTile(tiled)
         // Keyed on the slug: the row is reused as results change, and without
         // this a scrolled-to product keeps the mark of the one it replaced.
         .task(id: slug) {
@@ -89,19 +95,20 @@ struct CatalogueMark: View {
     }
 }
 
-private struct CatalogueMarkTile: ViewModifier {
-    let tiled: Bool
-
-    func body(content: Content) -> some View {
+/// The 32pt chip a settings row draws a product's mark in — the same tile
+/// `SettingsRowIcon` gives a glyph, so a row of products and a row of
+/// settings line up.
+extension View {
+    @ViewBuilder
+    func markTile(_ tiled: Bool = true) -> some View {
         if tiled {
-            content
-                .frame(width: 32, height: 32)
+            frame(width: 32, height: 32)
                 .background(
                     RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                         .fill(Theme.Palette.surfaceStrong)
                 )
         } else {
-            content
+            self
         }
     }
 }

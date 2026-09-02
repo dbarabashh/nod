@@ -62,16 +62,7 @@ struct ExclusionsSheet: View {
     private var footer: some View {
         HStack {
             Spacer(minLength: 0)
-            Button { dismiss() } label: {
-                Text("Done")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 8)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
+            GlassPillButton("Done", size: .sheet, shortcut: .defaultAction) { dismiss() }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)

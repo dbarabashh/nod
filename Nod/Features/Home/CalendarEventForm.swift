@@ -42,24 +42,8 @@ struct CalendarEventForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                ProviderMark(provider: .googleCalendar, size: 12)
-                Text(kind.heading)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                Spacer(minLength: 0)
-                Button("Close", action: onClose)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .buttonStyle(.plain)
-                    .linkCursor()
-            }
-            TextField("Title", text: $title)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
+            InlineFormHeader(kind.heading, provider: .googleCalendar, onDismiss: onClose)
+            InlineTextField("Title", text: $title)
             HStack(spacing: 10) {
                 DatePicker("", selection: $startsAt, displayedComponents: [.date, .hourAndMinute])
                     .labelsHidden()
@@ -74,12 +58,7 @@ struct CalendarEventForm: View {
                 }
             }
             if kind == .meeting {
-                TextField("Invite — type a name, or leave empty for a hold", text: $attendees)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12.5))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
+                InlineTextField("Invite — type a name, or leave empty for a hold", text: $attendees)
                     .overlay(alignment: .topLeading) {
                         let matches = CalendarPlan.matches(
                             for: attendees,
@@ -88,7 +67,6 @@ struct CalendarEventForm: View {
                         )
                         if !matches.isEmpty {
                             contactRows(matches)
-                                .offset(y: 32)
                         }
                     }
                     .zIndex(1)
@@ -105,15 +83,9 @@ struct CalendarEventForm: View {
                     .foregroundStyle(Theme.Palette.danger)
             }
             HStack(spacing: 8) {
-                Button(isSending ? "Adding…" : kind.submitLabel) {
+                GlassPillButton(isSending ? "Adding…" : kind.submitLabel, size: .compact) {
                     Task { await submit() }
                 }
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(Theme.GlassButton.text)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .glassButtonSurface(Capsule(style: .continuous))
-                .buttonStyle(.plain)
                 .linkCursor()
                 .disabled(isSending || title.trimmingCharacters(in: .whitespaces).isEmpty)
                 if kind == .meeting, !invitedEmails.isEmpty {
@@ -148,41 +120,24 @@ struct CalendarEventForm: View {
     /// The people the typed fragment could mean, floating under the field so
     /// the form's height never jumps while someone types.
     private func contactRows(_ matches: [CalendarPlan.Contact]) -> some View {
-        VStack(spacing: 0) {
-            ForEach(matches, id: \.email) { contact in
-                Button {
-                    attendees = CalendarPlan.completing(attendees, with: contact.email)
-                } label: {
-                    HStack(spacing: 8) {
-                        Image("nc-user")
-                            .icon(11)
-                            .foregroundStyle(Theme.Palette.muted)
-                            .frame(width: 14)
-                        Text(contact.name)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.Palette.ink)
-                        Text(contact.email)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.Palette.muted)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .linkCursor()
+        SuggestionPopover(
+            items: matches,
+            width: 300,
+            onPick: { attendees = CalendarPlan.completing(attendees, with: $0.email) },
+            row: { contact in
+                Image("nc-user")
+                    .icon(11)
+                    .foregroundStyle(Theme.Palette.muted)
+                    .frame(width: 14)
+                Text(contact.name)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.ink)
+                Text(contact.email)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .lineLimit(1)
             }
-        }
-        .frame(width: 300)
-        .background(
-            RoundedRectangle(cornerRadius: 7)
-                .fill(Theme.Palette.bg)
-                .overlay(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
         )
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.Palette.border, lineWidth: 1))
-        .shadow(color: Theme.Palette.scrim.opacity(0.35), radius: 14, y: 6)
     }
 
     /// Who the invited emails are, cleaned. The availability check keys on
@@ -386,9 +341,13 @@ enum CalendarPlan {
 
     /// One person an invite can name: how they read, and the address that
     /// actually goes on the event.
-    struct Contact: Equatable {
+    struct Contact: Equatable, Identifiable {
         let name: String
         let email: String
+
+        var id: String {
+            email
+        }
     }
 
     /// The directory and the calendar's own attendees, merged by address. A

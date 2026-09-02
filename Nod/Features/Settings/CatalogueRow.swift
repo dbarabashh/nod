@@ -19,12 +19,7 @@ struct CatalogueRow: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Theme.Palette.ink)
                     ForEach(app.categories, id: \.self) { category in
-                        Text(category)
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundStyle(Theme.Palette.muted)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(Theme.Palette.surfaceStrong))
+                        TagPill(category)
                     }
                 }
                 Text("Authorized. Nod can't act in it yet.")

@@ -42,23 +42,10 @@ struct TodayMeetingCard: View {
                 }
             }
             HStack(spacing: 8) {
-                Button(TodayBrief.captureLabel(for: occurrence), action: onCapture)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundColor(Theme.GlassButton.text)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .glassButtonSurface(Capsule(style: .continuous))
-                    .buttonStyle(.plain)
+                GlassPillButton(TodayBrief.captureLabel(for: occurrence), size: .compact, action: onCapture)
                     .linkCursor()
                 if let lastTime {
-                    Button("Open last session") { onOpenMeeting(lastTime) }
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.ink)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Capsule(style: .continuous).fill(Theme.Palette.surfaceStrong))
-                        .buttonStyle(.plain)
-                        .linkCursor()
+                    SecondaryPillButton("Open last session") { onOpenMeeting(lastTime) }
                 }
             }
         }
@@ -74,18 +61,7 @@ struct TodayBeatsCard: View {
     let onOpenBeats: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel("From your beats")
-            VStack(spacing: 0) {
-                ForEach(Array(reports.enumerated()), id: \.element.id) { index, row in
-                    if index > 0 {
-                        Divider().overlay(Theme.Palette.border).padding(.leading, 44)
-                    }
-                    beatRow(row)
-                }
-            }
-            .surfaceCard()
-        }
+        TodayCardList(title: "From your beats", items: reports, row: beatRow)
     }
 
     private func beatRow(_ row: TodayView.BeatReportRow) -> some View {

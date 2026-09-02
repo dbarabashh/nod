@@ -80,27 +80,11 @@ struct BeatEditor: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(mode.beat == nil ? "New beat" : "Edit beat")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                Text("Asked on a schedule, answered where you'll see it.")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Theme.Palette.ink.opacity(0.6))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 12)
-            Button { dismiss() } label: {
-                Image("nc-xmark")
-                    .icon(11)
-                    .foregroundStyle(Theme.Palette.muted)
-            }
-            .buttonStyle(.plain)
-            .linkCursor()
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        SheetHeader(
+            title: mode.beat == nil ? "New beat" : "Edit beat",
+            subtitle: "Asked on a schedule, answered where you'll see it.",
+            onClose: { dismiss() }
+        )
     }
 
     private var settings: some View {
@@ -216,7 +200,7 @@ struct BeatEditor: View {
             .focused($titleFocused)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(fieldSurface(focused: titleFocused))
+            .fieldSurface(focused: titleFocused)
     }
 
     /// A `TextEditor` has no placeholder of its own, and an empty box under a
@@ -240,50 +224,15 @@ struct BeatEditor: View {
                 .padding(.vertical, 8)
                 .frame(height: 136)
         }
-        .background(fieldSurface(focused: promptFocused))
+        .fieldSurface(focused: promptFocused)
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
-            if mode.beat != nil {
-                Button(isDeleting ? "Deleting…" : "Delete", action: delete)
-                    .font(.system(size: 12.5))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.Palette.danger)
-                    .linkCursor()
-                    .disabled(isDeleting)
-            }
-            Spacer(minLength: 0)
-            Button("Cancel") { dismiss() }
-                .font(.system(size: 12.5))
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.Palette.muted)
-                .keyboardShortcut(.cancelAction)
-            Button(action: save) {
-                Text(mode.beat == nil ? "Create beat" : "Save")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
-            .disabled(!isAsked)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-    }
-
-    private func fieldSurface(focused: Bool) -> some View {
-        RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-            .fill(Theme.Palette.surface)
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                    .stroke(
-                        focused ? Theme.Palette.borderStrong : Theme.Palette.border,
-                        lineWidth: focused ? 1 : 0.5
-                    )
-            )
+        SheetFooter(
+            delete: mode.beat == nil ? nil : TitledAction(isDeleting ? "Deleting…" : "Delete", isEnabled: !isDeleting, action: delete),
+            cancel: { dismiss() },
+            primary: TitledAction(mode.beat == nil ? "Create beat" : "Save", isEnabled: isAsked, action: save)
+        )
     }
 
     private func save() {

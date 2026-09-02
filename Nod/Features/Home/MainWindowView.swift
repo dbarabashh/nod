@@ -412,15 +412,7 @@ private struct UndoToast: View {
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(Theme.Palette.ink)
             Spacer(minLength: 8)
-            Button(action: onUndo) {
-                Text("Undo")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
+            GlassPillButton("Undo", size: .compact, action: onUndo)
             Button(action: onDismiss) {
                 Image("nc-xmark")
                     .icon(9)

@@ -52,25 +52,7 @@ struct OrganizationTeams: View {
     }
 
     private var newTeamField: some View {
-        HStack(spacing: 10) {
-            TextField("Team name", text: $newTeamName)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12.5))
-            Button {
-                createTeam()
-            } label: {
-                Text("Add team")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(newTeamName.trimmingCharacters(in: .whitespaces).isEmpty)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        InlineCreateRow(prompt: "Team name", text: $newTeamName, buttonTitle: "Add team", action: createTeam)
     }
 
     private func createTeam() {

@@ -122,21 +122,9 @@ struct BeatsView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(BeatTemplates.Category.allCases) { option in
-                    let isSelected = option == category
-                    Button { category = option } label: {
-                        Text(option.rawValue)
-                            .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                            .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.6))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(isSelected ? Theme.Palette.surfaceStrong : Color.clear)
-                            )
-                            .contentShape(Capsule())
+                    SecondaryPillButton(option.rawValue, size: .tab, isSelected: option == category) {
+                        category = option
                     }
-                    .buttonStyle(.plain)
-                    .linkCursor()
                 }
             }
             .padding(.bottom, 2)
@@ -154,17 +142,7 @@ struct BeatsView: View {
                     .foregroundStyle(Theme.Palette.ink.opacity(0.6))
             }
             Spacer(minLength: 12)
-            Button { editor = .create } label: {
-                HStack(spacing: 5) {
-                    Image("nc-plus").icon(9)
-                    Text("New beat")
-                }
-                .font(.system(size: 12.5, weight: .semibold))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
+            GlassPillButton("New beat", leadingIcon: "nc-plus") { editor = .create }
         }
     }
 

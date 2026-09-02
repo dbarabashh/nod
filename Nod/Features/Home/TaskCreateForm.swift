@@ -63,17 +63,7 @@ struct TaskCreateForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text("Create a task")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                Spacer(minLength: 0)
-                Button("Close", action: onClose)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .buttonStyle(.plain)
-                    .linkCursor()
-            }
+            InlineFormHeader("Create a task", onDismiss: onClose)
             if let filed = item.filed, !creatingAnother {
                 filedBanner(filed)
             } else {
@@ -101,20 +91,9 @@ struct TaskCreateForm: View {
                 Spacer(minLength: 8)
             }
             HStack(spacing: 8) {
-                Button {
+                GlassPillButton("Open \(filed.title)", size: .compact, trailingIcon: "nc-arrow-up-right") {
                     NSWorkspace.shared.open(filed.url)
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("Open \(filed.title)")
-                        Image("nc-arrow-up-right").icon(8)
-                    }
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(Theme.GlassButton.text)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                    .glassButtonSurface(Capsule(style: .continuous))
                 }
-                .buttonStyle(.plain)
                 .linkCursor()
                 Button("Create another anyway") { creatingAnother = true }
                     .font(.system(size: 11.5))
@@ -125,7 +104,7 @@ struct TaskCreateForm: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
+        .inlineFieldSurface()
     }
 
     @ViewBuilder private var form: some View {
@@ -144,20 +123,10 @@ struct TaskCreateForm: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)
             .padding(.vertical, 18)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
+            .inlineFieldSurface()
         } else {
-            TextField("Title", text: $title)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5, weight: .medium))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
-            TextEditor(text: $details)
-                .font(.system(size: 12))
-                .scrollContentBackground(.hidden)
-                .frame(minHeight: 48, maxHeight: 100)
-                .padding(6)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
+            InlineTextField("Title", text: $title, weight: .medium)
+            InlineTextEditor(text: $details, minHeight: 48, maxHeight: 100)
         }
         if supportsAssignment {
             HStack(spacing: 10) {
@@ -180,15 +149,9 @@ struct TaskCreateForm: View {
                 .foregroundStyle(Theme.Palette.danger)
         }
         HStack(spacing: 8) {
-            Button(isFiling ? "Creating…" : "Create in \(tracker?.displayName ?? "tracker")") {
+            GlassPillButton(isFiling ? "Creating…" : "Create in \(tracker?.displayName ?? "tracker")", size: .compact) {
                 Task { await create() }
             }
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundColor(Theme.GlassButton.text)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .glassButtonSurface(Capsule(style: .continuous))
-            .buttonStyle(.plain)
             .linkCursor()
             .disabled(isFiling || isDrafting || tracker == nil || title.trimmingCharacters(in: .whitespaces).isEmpty)
             Text("Files as you, with the meeting as context.")
@@ -312,7 +275,7 @@ struct TaskCreateForm: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
+        .inlineFieldSurface()
     }
 
     private func create() async {

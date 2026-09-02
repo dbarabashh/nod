@@ -17,10 +17,7 @@ struct ProfileSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("WHAT NOD REMEMBERS ABOUT YOU")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(Theme.Palette.muted)
+            SectionLabel("What Nod remembers about you")
 
             Text("Stored privately to your account; nothing here is shared.")
                 .font(.system(size: 12))
@@ -88,10 +85,7 @@ struct ProfileSettingsSection: View {
 
     private func field(label: String, placeholder: String, text: Binding<String>, helper: String? = nil, multiline: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(label.uppercased())
-                .font(.system(size: 9.5, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(Theme.Palette.muted)
+            SectionLabel(label, size: .compact)
             if let helper {
                 Text(helper)
                     .font(.system(size: 11.5))

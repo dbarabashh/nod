@@ -179,25 +179,13 @@ struct OrganizationSection: View {
                 EmptyView()
             }
             SettingsRowDivider()
-            HStack(spacing: 10) {
-                TextField("Organization name", text: $newName)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12.5))
-                Button {
-                    createOrganization()
-                } label: {
-                    Text("Create")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(Theme.GlassButton.text)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .glassButtonSurface(Capsule(style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || service.isLoading)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            InlineCreateRow(
+                prompt: "Organization name",
+                text: $newName,
+                buttonTitle: "Create",
+                isBusy: service.isLoading,
+                action: createOrganization
+            )
         }
     }
 

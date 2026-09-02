@@ -230,14 +230,8 @@ struct BeatDetailView: View {
     static func summary(of run: BeatRun, report: String?) -> String {
         switch run.status {
         case .done:
-            guard let report else { return "Report" }
-            let first = report
-                .components(separatedBy: .newlines)
-                .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? "Report"
-            return first
-                .replacingOccurrences(of: "#", with: "")
-                .replacingOccurrences(of: "*", with: "")
-                .trimmingCharacters(in: .whitespaces)
+            let headline = report.map { BeatRun.headline(of: $0) } ?? ""
+            return headline.isEmpty ? "Report" : headline
         case .failed: return run.error ?? "Failed"
         case .expired: return "Missed — this Mac was asleep"
         case .due, .claimed: return "Running now…"

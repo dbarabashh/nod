@@ -41,10 +41,7 @@ struct ConnectionsSection: View {
 
     private var officialConnectors: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("OFFICIAL CONNECTORS")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(Theme.Palette.muted)
+            SectionLabel("Official connectors")
 
             SettingsCard {
                 officialConnectorRow(.chatgpt, url: service.rollout.chatGPTURL)
@@ -169,10 +166,7 @@ struct ConnectionsSection: View {
     private var legacyConnections: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("LEGACY CONNECTIONS")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(0.8)
-                    .foregroundStyle(Theme.Palette.muted)
+                SectionLabel("Legacy connections")
                 Spacer()
                 if let sunset = service.rollout.legacyPATSunsetAt {
                     Text("Sunset \(sunset.formatted(date: .abbreviated, time: .omitted))")
@@ -234,11 +228,7 @@ struct ConnectionsSection: View {
     private func providerChip(_ client: ConnectionClient) -> some View {
         providerIcon(client, size: 18)
             .foregroundStyle(Theme.Palette.ink.opacity(0.85))
-            .frame(width: 32, height: 32)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                    .fill(Theme.Palette.surfaceStrong)
-            )
+            .markTile()
     }
 
     private func subtitle(for connection: Connection) -> String {

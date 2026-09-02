@@ -37,33 +37,12 @@ struct EmailConsentStep: View {
                     .padding(.top, 10)
             }
 
-            HStack(spacing: 12) {
-                Link("Privacy policy", destination: EmailConsentLinks.privacy)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(Theme.Palette.inkSecondary)
-
-                Spacer(minLength: 12)
-
-                Button("Not now") { save(nothing: true) }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(Theme.Palette.inkSecondary)
-                    .disabled(preferences.isBusy)
-                    .linkCursor()
-
-                Button { save(nothing: false) } label: {
-                    Text(preferences.isSavingPrompt ? "Saving…" : "Finish setup")
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(Theme.GlassButton.text)
-                        .frame(width: 150)
-                        .padding(.vertical, 10)
-                        .glassButtonSurface(Capsule(style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.defaultAction)
-                .disabled(preferences.isBusy)
-                .linkCursor()
-            }
+            PolicyFooter(
+                primary: TitledAction(preferences.isSavingPrompt ? "Saving…" : "Finish setup") { save(nothing: false) },
+                secondary: TitledAction("Not now") { save(nothing: true) },
+                isBusy: preferences.isBusy,
+                style: .onboarding
+            )
             .frame(maxWidth: 440)
             .padding(.top, 16)
         }

@@ -121,18 +121,10 @@ struct ProjectSheet: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(editing == nil ? "New project" : "Edit project")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.Palette.ink)
-            Text("A project groups sessions, and scopes what Ask Nod reads when you ask about it.")
-                .font(.system(size: 11.5))
-                .foregroundStyle(Theme.Palette.muted)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        SheetHeader(
+            title: editing == nil ? "New project" : "Edit project",
+            subtitle: "A project groups sessions, and scopes what Ask Nod reads when you ask about it."
+        )
     }
 
     private var form: some View {
@@ -210,31 +202,8 @@ struct ProjectSheet: View {
     }
 
     private var teamSearchField: some View {
-        HStack(spacing: 7) {
-            Image("nc-magnifier")
-                .icon(11)
-                .foregroundStyle(Theme.Palette.muted)
-            TextField("Search \(teams.count) teams", text: $teamQuery)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.Palette.ink)
-            if !teamQuery.isEmpty {
-                Button { teamQuery = "" } label: {
-                    Image("nc-circle-xmark")
-                        .icon(11)
-                        .foregroundStyle(Theme.Palette.muted)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(
-            Capsule(style: .continuous)
-                .fill(Theme.Palette.surface)
-                .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
-        )
-        .padding(.vertical, 2)
+        SearchField(prompt: "Search \(teams.count) teams", text: $teamQuery, size: .compact)
+            .padding(.vertical, 2)
     }
 
     /// The app's field, not the system's. `.roundedBorder` draws AppKit's blue
@@ -249,17 +218,7 @@ struct ProjectSheet: View {
             .onSubmit(commit)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                    .fill(Theme.Palette.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                            .stroke(
-                                nameFocused ? Theme.Palette.borderStrong : Theme.Palette.border,
-                                lineWidth: nameFocused ? 1 : 0.5
-                            )
-                    )
-            )
+            .fieldSurface(focused: nameFocused)
     }
 
     private func audienceRow(_ title: String, audience: Audience) -> some View {
@@ -295,33 +254,11 @@ struct ProjectSheet: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
-            if editing != nil {
-                Button("Delete", action: delete)
-                    .font(.system(size: 12.5))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.Palette.danger)
-                    .linkCursor()
-            }
-            Spacer(minLength: 0)
-            Button("Cancel") { dismiss() }
-                .font(.system(size: 12.5))
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.Palette.muted)
-                .keyboardShortcut(.cancelAction)
-            Button(action: commit) {
-                Text(editing == nil ? "Create" : "Save")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
-            .disabled(!isNamed)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        SheetFooter(
+            delete: editing == nil ? nil : TitledAction("Delete", action: delete),
+            cancel: { dismiss() },
+            primary: TitledAction(editing == nil ? "Create" : "Save", isEnabled: isNamed, action: commit)
+        )
     }
 
     private func seedAudiences() {

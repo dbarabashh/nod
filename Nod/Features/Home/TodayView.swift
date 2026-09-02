@@ -354,7 +354,7 @@ struct TodayView: View {
             rows.append(BeatReportRow(
                 beat: beat,
                 run: run,
-                preview: TodayBrief.firstLine(of: report),
+                preview: BeatRun.headline(of: report, skippingHeadings: true),
                 isNew: TodayBrief.isUnseen(run, of: beat)
             ))
         }

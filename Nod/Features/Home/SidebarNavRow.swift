@@ -1,35 +1,197 @@
 import SwiftUI
 
-/// One destination in the window's sidebar. Shared by the list above and the
-/// footer band below, which used to hold two copies of the same seven modifiers.
-struct SidebarNavRow: View {
+enum SidebarRowTone {
+    case standard
+    /// A row that offers rather than goes somewhere — "Add project".
+    case quiet
+}
+
+/// The look of one sidebar row, without the click: a 16pt leading slot, the
+/// title with an optional second line, and whatever trails it, on a chip that
+/// only shows while the row is the place you are.
+///
+/// Split from `SidebarNavRow` for the one row that cannot be a button — a chat
+/// row's delete confirmation has to sit *beside* the row's hit area, not inside
+/// it, or confirming a delete also opens the chat being deleted.
+struct SidebarRowLabel<Leading: View, Trailing: View>: View {
     let title: String
-    let icon: String
+    let subtitle: String?
     let isSelected: Bool
-    let action: () -> Void
+    let tone: SidebarRowTone
+    /// Two lines already give a row its height, so a row with a subtitle asks
+    /// for less than the single-line default.
+    let verticalPadding: CGFloat
+    private let leading: Leading
+    private let trailing: Trailing
+
+    init(
+        title: String,
+        subtitle: String? = nil,
+        isSelected: Bool = false,
+        tone: SidebarRowTone = .standard,
+        verticalPadding: CGFloat = 7,
+        @ViewBuilder leading: () -> Leading,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.isSelected = isSelected
+        self.tone = tone
+        self.verticalPadding = verticalPadding
+        self.leading = leading()
+        self.trailing = trailing()
+    }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 9) {
-                Image(icon)
-                    .icon(12.5)
-                    .frame(width: 16)
+        HStack(spacing: 9) {
+            leading
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                     .lineLimit(1)
                     .minimumScaleFactor(0.9)
-                Spacer(minLength: 0)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .lineLimit(1)
+                }
             }
-            .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.inkSecondary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                    .fill(Theme.Palette.surfaceStrong)
-                    .opacity(isSelected ? 1 : 0)
-            )
-            .contentShape(Rectangle())
+            Spacer(minLength: 0)
+            trailing
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 9)
+        .padding(.vertical, verticalPadding)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                .fill(Theme.Palette.surfaceStrong)
+                .opacity(isSelected ? 1 : 0)
+        )
+        .contentShape(Rectangle())
+    }
+
+    private var tint: Color {
+        if isSelected { return Theme.Palette.ink }
+        return tone == .quiet ? Theme.Palette.muted : Theme.Palette.inkSecondary
+    }
+}
+
+extension SidebarRowLabel where Trailing == EmptyView {
+    init(
+        title: String,
+        subtitle: String? = nil,
+        isSelected: Bool = false,
+        tone: SidebarRowTone = .standard,
+        verticalPadding: CGFloat = 7,
+        @ViewBuilder leading: () -> Leading
+    ) {
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            isSelected: isSelected,
+            tone: tone,
+            verticalPadding: verticalPadding,
+            leading: leading
+        ) { EmptyView() }
+    }
+}
+
+/// One destination in the window's sidebar. Shared by the list above and the
+/// footer band below, which used to hold two copies of the same seven modifiers.
+struct SidebarNavRow<Leading: View, Trailing: View>: View {
+    private let label: SidebarRowLabel<Leading, Trailing>
+    private let action: () -> Void
+
+    init(
+        title: String,
+        subtitle: String? = nil,
+        isSelected: Bool = false,
+        tone: SidebarRowTone = .standard,
+        verticalPadding: CGFloat = 7,
+        action: @escaping () -> Void,
+        @ViewBuilder leading: () -> Leading,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        label = SidebarRowLabel(
+            title: title,
+            subtitle: subtitle,
+            isSelected: isSelected,
+            tone: tone,
+            verticalPadding: verticalPadding,
+            leading: leading,
+            trailing: trailing
+        )
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            label
         }
         .buttonStyle(.plain)
     }
+}
+
+extension SidebarNavRow where Trailing == EmptyView {
+    init(
+        title: String,
+        subtitle: String? = nil,
+        isSelected: Bool = false,
+        tone: SidebarRowTone = .standard,
+        verticalPadding: CGFloat = 7,
+        action: @escaping () -> Void,
+        @ViewBuilder leading: () -> Leading
+    ) {
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            isSelected: isSelected,
+            tone: tone,
+            verticalPadding: verticalPadding,
+            action: action,
+            leading: leading
+        ) { EmptyView() }
+    }
+}
+
+extension SidebarNavRow where Leading == SidebarRowGlyph, Trailing == EmptyView {
+    init(title: String, icon: String, isSelected: Bool, action: @escaping () -> Void) {
+        self.init(title: title, isSelected: isSelected, action: action) { SidebarRowGlyph(icon) }
+    }
+}
+
+/// The glyph a destination row leads with.
+struct SidebarRowGlyph: View {
+    let icon: String
+
+    init(_ icon: String) {
+        self.icon = icon
+    }
+
+    var body: some View {
+        Image(icon).icon(12.5)
+    }
+}
+
+#Preview {
+    VStack(spacing: 2) {
+        SidebarNavRow(title: "Today", icon: "nc-sparkle-3", isSelected: true, action: {})
+        SidebarNavRow(title: "Memory", icon: "nc-layers-3", isSelected: false, action: {})
+        SidebarNavRow(title: "Launch", subtitle: "3 sessions · 2h ago", verticalPadding: 5) {} leading: {
+            Circle().fill(Theme.Palette.brand).frame(width: 8, height: 8)
+        } trailing: {
+            Image("nc-users").icon(10).foregroundStyle(Theme.Palette.muted)
+        }
+        SidebarNavRow(title: "Add project", tone: .quiet) {} leading: {
+            Image("nc-plus").icon(11)
+        }
+        SidebarRowLabel(title: "What did I promise?", isSelected: true) {
+            Image("nc-msgs").icon(11)
+        }
+    }
+    .padding(10)
+    .frame(width: 232)
+    .background(Theme.Palette.bg)
 }

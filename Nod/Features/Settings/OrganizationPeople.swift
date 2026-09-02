@@ -85,21 +85,9 @@ struct OrganizationPeople: View {
     }
 
     private var inviteButton: some View {
-        Button {
+        GlassPillButton("Invite people", leadingIcon: "nc-plus") {
             isInviting = true
-        } label: {
-            HStack(spacing: 6) {
-                Image("nc-plus")
-                    .icon(10)
-                Text("Invite people")
-                    .font(.system(size: 12.5, weight: .semibold))
-            }
-            .foregroundStyle(Theme.GlassButton.text)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .glassButtonSurface(Capsule(style: .continuous))
         }
-        .buttonStyle(.plain)
     }
 
     private var columnHeader: some View {

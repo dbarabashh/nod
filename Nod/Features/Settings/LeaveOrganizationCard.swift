@@ -14,34 +14,16 @@ struct LeaveOrganizationCard: View {
     let organization: Organization
     let leave: () -> Void
 
-    @State private var isConfirming = false
-
     var body: some View {
-        SettingsCard {
-            SettingsRow(
-                icon: "nc-user",
-                title: "Leave organization",
-                subtitle: "You stop seeing anything shared with \(organization.name). Sessions you recorded here keep belonging to it."
-            ) {
-                Button("Leave…") {
-                    isConfirming = true
-                }
-                .font(.system(size: 12.5, weight: .semibold))
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.Palette.danger)
-            }
-        }
-        .confirmationDialog(
-            "Leave \(organization.name)?",
-            isPresented: $isConfirming,
-            titleVisibility: .visible
-        ) {
-            Button("Leave", role: .destructive, action: leave)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(
-                "You go back to your personal space. Projects shared with you disappear from your sidebar. Getting back in needs a new invite."
-            )
-        }
+        DestructiveActionCard(
+            icon: "nc-user",
+            title: "Leave organization",
+            subtitle: "You stop seeing anything shared with \(organization.name). Sessions you recorded here keep belonging to it.",
+            buttonTitle: "Leave…",
+            dialogTitle: "Leave \(organization.name)?",
+            dialogMessage: "You go back to your personal space. Projects shared with you disappear from your sidebar. Getting back in needs a new invite.",
+            confirmTitle: "Leave",
+            action: leave
+        )
     }
 }

@@ -123,22 +123,22 @@ struct SessionChatView: View {
                             onApproveAlways: chatStore.approvePendingToolsAlways,
                             onDeny: chatStore.denyPendingTools
                         )
-                        .id(Self.approvalAnchor)
+                        .id(ChatTranscriptSupport.Anchor.approval)
                     }
                     if isSending, chatStore.pendingApproval == nil {
-                        typingIndicator.id(Self.typingAnchor)
+                        typingIndicator.id(ChatTranscriptSupport.Anchor.typing)
                     }
                     switch chatStore.sendState {
                     case let .failed(failure):
                         ChatErrorRow(failure: failure) { send(retryLast: true) }
-                            .id(Self.failureAnchor)
+                            .id(ChatTranscriptSupport.Anchor.failure)
                     case .stopped:
                         ChatNoteRow(
                             icon: "nc-hand",
                             text: "You stopped this answer.",
                             action: ("Ask again", { send(retryLast: true) })
                         )
-                        .id(Self.failureAnchor)
+                        .id(ChatTranscriptSupport.Anchor.failure)
                     case .idle, .sending:
                         EmptyView()
                     }
@@ -192,11 +192,9 @@ struct SessionChatView: View {
     @ViewBuilder
     private func bubble(_ message: ChatMessage) -> some View {
         if message.role == .user {
-            VStack(alignment: .trailing, spacing: 4) {
-                UserTextBubble(text: message.content, marks: marks(in: message.content))
+            ChatUserTurn(text: message.content, marks: marks(in: message.content)) {
                 notes(for: message.id)
             }
-            .padding(.leading, 40)
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 AssistantTextBubble(content: message.content, onRegenerate: regenerateAction(for: message))
@@ -206,11 +204,12 @@ struct SessionChatView: View {
         }
     }
 
-    /// Offered on the newest answer only — regenerating an older one would
-    /// orphan every turn written against the answer being replaced.
     private func regenerateAction(for message: ChatMessage) -> (() -> Void)? {
-        guard message.id == chatStore.messages.last?.id, !isSending else { return nil }
-        return regenerate
+        ChatTranscriptSupport.regenerateAction(
+            isNewest: message.id == chatStore.messages.last?.id,
+            isBusy: isSending,
+            regenerate
+        )
     }
 
     private func notes(for id: UUID) -> some View {
@@ -507,10 +506,7 @@ struct SessionChatView: View {
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
-        guard let target = scrollTarget else { return }
-        withAnimation(.easeOut(duration: 0.15)) {
-            proxy.scrollTo(target, anchor: .bottom)
-        }
+        proxy.scrollToEnd(scrollTarget)
     }
 
     /// Place the chat at the bottom before it's first shown. The content is
@@ -540,12 +536,12 @@ struct SessionChatView: View {
     }
 
     private var scrollTarget: AnyHashable? {
-        if chatStore.pendingApproval != nil { return AnyHashable(Self.approvalAnchor) }
-        if isSending { return AnyHashable(Self.typingAnchor) }
+        if chatStore.pendingApproval != nil { return AnyHashable(ChatTranscriptSupport.Anchor.approval) }
+        if isSending { return AnyHashable(ChatTranscriptSupport.Anchor.typing) }
         switch chatStore.sendState {
         // A failure or a stop arrives without a message to announce it, and one
         // the user cannot see is one they cannot act on.
-        case .failed, .stopped: return AnyHashable(Self.failureAnchor)
+        case .failed, .stopped: return AnyHashable(ChatTranscriptSupport.Anchor.failure)
         case .idle, .sending: return chatStore.messages.last.map { AnyHashable($0.id) }
         }
     }
@@ -557,8 +553,4 @@ struct SessionChatView: View {
         case .media: "recording"
         }
     }
-
-    private static let typingAnchor = "nod.chat.typing"
-    private static let approvalAnchor = "nod.chat.approval"
-    private static let failureAnchor = "nod.chat.failure"
 }

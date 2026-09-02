@@ -140,12 +140,17 @@ final class TodayViewTests: XCTestCase {
         XCTAssertNil(TodayBrief.lastSession(before: next, in: [unrelated]))
     }
 
-    func testReportPreviewSkipsHeadingsAndBlankLines() {
+    func testReportHeadlineStripsMarksAndSkipsBlankLines() {
         XCTAssertEqual(
-            TodayBrief.firstLine(of: "# Who's waiting\n\nNobody is blocked on you today.\nMore detail."),
+            BeatRun.headline(of: "\n# Who's waiting\n\nNobody is blocked on you today.\nMore detail."),
+            "Who's waiting"
+        )
+        XCTAssertEqual(BeatRun.headline(of: "***\n**Bold** start"), "Bold start")
+        XCTAssertEqual(BeatRun.headline(of: ""), "")
+        XCTAssertEqual(
+            BeatRun.headline(of: "# Who's waiting\n\n**Nobody** is blocked on you today.", skippingHeadings: true),
             "Nobody is blocked on you today."
         )
-        XCTAssertEqual(TodayBrief.firstLine(of: ""), "")
     }
 
     /// A run is new until its row was opened, and opening it retires exactly

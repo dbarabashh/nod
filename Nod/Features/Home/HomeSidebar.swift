@@ -306,40 +306,27 @@ struct HomeSidebar: View {
         return labelStore.isOwn(label) ? "Shared with \(audience)" : "Shared via \(audience)"
     }
 
+    /// A project is a live context, not a folder — the subtitle says how much
+    /// is in it and when it last moved.
     private func projectRow(_ label: SessionLabel) -> some View {
-        Button { onOpenProject(label) } label: {
-            HStack(spacing: 9) {
-                Circle()
-                    .fill(label.swatchColor)
-                    .frame(width: 8, height: 8)
-                    .frame(width: 16)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(label.name)
-                        .font(.system(size: 13))
-                        .lineLimit(1)
-                    // A project is a live context, not a folder — say how much
-                    // is in it and when it last moved.
-                    if let subtitle = shareAudience(for: label) ?? projectSubtitles[label.id] {
-                        Text(subtitle)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(Theme.Palette.muted)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 0)
-                if labelStore.isShared(label.id), labelStore.isOwn(label) {
-                    Image("nc-users")
-                        .icon(10)
-                        .foregroundStyle(Theme.Palette.muted)
-                        .accessibilityHidden(true)
-                }
+        SidebarNavRow(
+            title: label.name,
+            subtitle: shareAudience(for: label) ?? projectSubtitles[label.id],
+            verticalPadding: 5
+        ) {
+            onOpenProject(label)
+        } leading: {
+            Circle()
+                .fill(label.swatchColor)
+                .frame(width: 8, height: 8)
+        } trailing: {
+            if labelStore.isShared(label.id), labelStore.isOwn(label) {
+                Image("nc-users")
+                    .icon(10)
+                    .foregroundStyle(Theme.Palette.muted)
+                    .accessibilityHidden(true)
             }
-            .foregroundStyle(Theme.Palette.ink.opacity(0.72))
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .contextMenu {
             if labelStore.isOwn(label) {
                 // Sharing used to be a submenu here. It lives in the sheet now,
@@ -364,21 +351,11 @@ struct HomeSidebar: View {
     }
 
     private var addProjectRow: some View {
-        Button { isAddingProject = true } label: {
-            HStack(spacing: 9) {
-                Image("nc-plus")
-                    .icon(11)
-                    .frame(width: 16)
-                Text("Add project")
-                    .font(.system(size: 13))
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(Theme.Palette.muted)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
+        SidebarNavRow(title: "Add project", tone: .quiet) {
+            isAddingProject = true
+        } leading: {
+            Image("nc-plus").icon(11)
         }
-        .buttonStyle(.plain)
         .sheet(isPresented: $isAddingProject) {
             ProjectSheet(mode: .create)
         }
@@ -400,15 +377,12 @@ struct HomeSidebar: View {
     /// the row's own button they sat inside its hit area, so confirming a
     /// delete also opened the thread being deleted.
     private func threadRow(_ thread: KnowledgeThreadStore.Thread) -> some View {
-        let isOpen = chat.threadID == thread.id && surface == .chat
-        return HStack(spacing: 9) {
-            Image("nc-msgs")
-                .icon(11)
-                .frame(width: 16)
-            Text(thread.displayTitle)
-                .font(.system(size: 12.5, weight: isOpen ? .semibold : .regular))
-                .lineLimit(1)
-            Spacer(minLength: 0)
+        SidebarRowLabel(
+            title: thread.displayTitle,
+            isSelected: chat.threadID == thread.id && surface == .chat
+        ) {
+            Image("nc-msgs").icon(11)
+        } trailing: {
             if confirmingDeleteThread == thread.id {
                 InlineConfirmButtons(
                     confirmIcon: "nc-trash",
@@ -419,15 +393,6 @@ struct HomeSidebar: View {
                 )
             }
         }
-        .foregroundStyle(Theme.Palette.ink.opacity(isOpen ? 0.95 : 0.7))
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                .fill(Theme.Palette.surfaceStrong)
-                .opacity(isOpen ? 1 : 0)
-        )
-        .contentShape(Rectangle())
         .onTapGesture {
             confirmingDeleteThread = nil
             onOpenThread(thread.id)

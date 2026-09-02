@@ -197,19 +197,14 @@ struct IntegrationsSection: View {
         let isPending = service.pending == provider
         let isBlocked = service.blockedByOrganization.contains(provider)
         return HStack(spacing: 12) {
-            providerChip(provider)
+            ProviderMark(provider: provider, tiled: true)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 7) {
                     Text(provider.displayName)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Theme.Palette.ink)
                     ForEach(provider.capabilities.sorted { $0.rawValue < $1.rawValue }) { capability in
-                        Text(capability.displayName)
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundStyle(Theme.Palette.muted)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(Theme.Palette.surfaceStrong))
+                        TagPill(capability.displayName)
                     }
                 }
                 Text(summaryLine(provider, isPending: isPending, isBlocked: isBlocked))
@@ -399,14 +394,5 @@ struct IntegrationsSection: View {
                 .accessibilityLabel("Team for \(provider.displayName)")
             }
         }
-    }
-
-    private func providerChip(_ provider: IntegrationProvider) -> some View {
-        ProviderMark(provider: provider)
-            .frame(width: 32, height: 32)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                    .fill(Theme.Palette.surfaceStrong)
-            )
     }
 }

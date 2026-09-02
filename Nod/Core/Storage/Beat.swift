@@ -119,3 +119,23 @@ struct BeatRun: Codable, Identifiable, Equatable {
         Status(rawValue: statusRaw) ?? .unknown
     }
 }
+
+extension BeatRun {
+    /// The one line a report is previewed by: its first line with anything to
+    /// say, with the markdown marks it was written under taken off. The rail
+    /// wants the opening heading; Today already shows the beat's name above the
+    /// preview, so it skips headings to avoid saying it twice.
+    static func headline(of report: String, skippingHeadings: Bool = false) -> String {
+        report
+            .split(separator: "\n")
+            .lazy
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !(skippingHeadings && $0.hasPrefix("#")) }
+            .map {
+                $0.replacingOccurrences(of: "#", with: "")
+                    .replacingOccurrences(of: "*", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+            }
+            .first { !$0.isEmpty } ?? ""
+    }
+}

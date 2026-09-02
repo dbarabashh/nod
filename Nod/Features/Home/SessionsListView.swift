@@ -595,15 +595,7 @@ struct SessionsListView: View {
                 .foregroundStyle(Theme.Palette.graphite)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Button(action: refreshActive) {
-                Text("Retry")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 9)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
+            GlassPillButton("Retry", size: .large, action: refreshActive)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 40)

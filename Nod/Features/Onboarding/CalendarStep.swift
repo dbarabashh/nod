@@ -223,25 +223,13 @@ struct CalendarStep: View {
     /// stays a real answer — `privacy.md` § 3.11 says neither source is on by
     /// default.
     private var actions: some View {
-        HStack(spacing: 12) {
-            Link("Privacy policy", destination: EmailConsentLinks.privacy)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(Theme.Palette.inkSecondary)
-
-            Spacer(minLength: 12)
-
-            Button(action: onFinish) {
-                Text(CalendarSourceState.isAnswered(calendar: calendar, integrations: integrations) ? "Continue" : "Not now")
-                    .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
-                    .frame(width: 150)
-                    .padding(.vertical, 10)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
-            .linkCursor()
-        }
+        PolicyFooter(
+            primary: TitledAction(
+                CalendarSourceState.isAnswered(calendar: calendar, integrations: integrations) ? "Continue" : "Not now",
+                action: onFinish
+            ),
+            style: .onboarding
+        )
     }
 }
 
@@ -290,34 +278,14 @@ struct CalendarPromptView: View {
                     .foregroundStyle(Theme.Palette.danger)
             }
 
-            HStack(spacing: 12) {
-                Link("Privacy policy", destination: EmailConsentLinks.privacy)
-                    .font(.system(size: 11.5, weight: .medium))
-
-                Spacer(minLength: 12)
-
-                Button(action: onFinish) {
-                    Text(CalendarSourceState.isAnswered(calendar: calendar, integrations: integrations) ? "Done" : "Not now")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(Theme.GlassButton.text)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .glassButtonSurface(Capsule(style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.defaultAction)
-                .linkCursor()
-            }
+            PolicyFooter(
+                primary: TitledAction(
+                    CalendarSourceState.isAnswered(calendar: calendar, integrations: integrations) ? "Done" : "Not now",
+                    action: onFinish
+                )
+            )
         }
-        .padding(22)
-        .frame(width: 520)
-        .background(WindowBackdrop())
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
-                .stroke(Theme.Palette.borderStrong, lineWidth: 0.5)
-        )
-        .shadow(color: DesignTokens.Shadow.ink(light: 0.16, dark: 0.35), radius: 24, y: 10)
+        .promptCard(width: 520)
         .task { await integrations.refresh() }
         .onDisappear { integrations.cancelPending() }
     }
@@ -355,16 +323,15 @@ struct CalendarPromptHost<Content: View>: View {
     }
 
     var body: some View {
-        ZStack {
+        PromptHost(
+            isDue: onboarding.needsCalendarPrompt && !email.shouldPresentPrompt,
+            isDismissed: $isDismissedForSession
+        ) {
             content
-
-            if onboarding.needsCalendarPrompt, !email.shouldPresentPrompt, !isDismissedForSession {
-                Theme.Palette.scrim
-                    .ignoresSafeArea()
-                CalendarPromptView(calendar: calendar, integrations: integrations) {
-                    isDismissedForSession = true
-                    onboarding.markCalendarPrompted()
-                }
+        } prompt: {
+            CalendarPromptView(calendar: calendar, integrations: integrations) {
+                isDismissedForSession = true
+                onboarding.markCalendarPrompted()
             }
         }
     }

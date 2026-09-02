@@ -23,27 +23,16 @@ struct DelegateForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                ProviderMark(provider: messenger, size: 12)
-                Text("Send a message in \(messenger.displayName)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                Spacer(minLength: 0)
-                // Not while a send is in flight: backing out of a form whose
-                // message is already on its way would only hide the result.
-                Button("Cancel", action: onCancel)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .buttonStyle(.plain)
-                    .linkCursor()
-                    .disabled(isSending)
-            }
-            TextField("Who — a person, or # a channel", text: $recipient)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
+            // Not while a send is in flight: backing out of a form whose
+            // message is already on its way would only hide the result.
+            InlineFormHeader(
+                "Send a message in \(messenger.displayName)",
+                provider: messenger,
+                dismissTitle: "Cancel",
+                onDismiss: onCancel
+            )
+            .disabled(isSending)
+            InlineTextField("Who — a person, or # a channel", text: $recipient)
                 .onChange(of: recipient) { typed in
                     // Typing past a picked target un-picks it — the words in
                     // the field are the truth of who this goes to.
@@ -55,16 +44,10 @@ struct DelegateForm: View {
                 .overlay(alignment: .topLeading) {
                     if target == nil, !suggestions.isEmpty {
                         suggestionRows
-                            .offset(y: 34)
                     }
                 }
                 .zIndex(1)
-            TextEditor(text: $message)
-                .font(.system(size: 12.5))
-                .scrollContentBackground(.hidden)
-                .frame(minHeight: 56, maxHeight: 110)
-                .padding(6)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
+            InlineTextEditor(text: $message)
             if offersAmbientAdditions, !ambientHints.isEmpty {
                 additionRows
             }
@@ -74,15 +57,9 @@ struct DelegateForm: View {
                     .foregroundStyle(Theme.Palette.danger)
             }
             HStack(spacing: 8) {
-                Button(isSending ? "Sending…" : "Review & send") {
+                GlassPillButton(isSending ? "Sending…" : "Review & send", size: .compact) {
                     Task { await send(via: messenger) }
                 }
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(Theme.GlassButton.text)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .glassButtonSurface(Capsule(style: .continuous))
-                .buttonStyle(.plain)
                 .linkCursor()
                 .disabled(isSending || recipient.trimmingCharacters(in: .whitespaces).isEmpty)
                 Text("Sends as you. The item stays open until you close it.")
@@ -137,47 +114,28 @@ struct DelegateForm: View {
     }
 
     private var suggestionRows: some View {
-        VStack(spacing: 0) {
-            ForEach(suggestions) { suggestion in
-                Button {
-                    target = suggestion
-                    recipient = suggestion.display
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(suggestion.isChannel ? "nc-msgs" : "nc-user")
-                            .icon(11)
-                            .foregroundStyle(Theme.Palette.muted)
-                            .frame(width: 14)
-                        Text(suggestion.display)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.Palette.ink)
-                        if !suggestion.caption.isEmpty {
-                            Text(suggestion.caption)
-                                .font(.system(size: 11))
-                                .foregroundStyle(Theme.Palette.muted)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
+        SuggestionPopover(
+            items: suggestions,
+            onPick: { suggestion in
+                target = suggestion
+                recipient = suggestion.display
+            },
+            row: { suggestion in
+                Image(suggestion.isChannel ? "nc-msgs" : "nc-user")
+                    .icon(11)
+                    .foregroundStyle(Theme.Palette.muted)
+                    .frame(width: 14)
+                Text(suggestion.display)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.ink)
+                if !suggestion.caption.isEmpty {
+                    Text(suggestion.caption)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .lineLimit(1)
                 }
-                .buttonStyle(.plain)
-                .linkCursor()
             }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 7)
-                // Opaque layers, because this now floats over the message: the
-                // usual translucent wash would show the text underneath through
-                // the rows meant to cover it.
-                .fill(Theme.Palette.bg)
-                .overlay(RoundedRectangle(cornerRadius: 7).fill(Theme.Palette.surfaceStrong))
         )
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.Palette.border, lineWidth: 1))
-        .shadow(color: Theme.Palette.scrim.opacity(0.35), radius: 14, y: 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The workspace's people and channels, fetched once per opening — the

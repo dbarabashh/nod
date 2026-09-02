@@ -75,13 +75,6 @@ enum TodayBrief {
         return first
     }
 
-    static func firstLine(of report: String) -> String {
-        report
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .first { !$0.isEmpty && !$0.hasPrefix("#") } ?? ""
-    }
-
     /// A beat result counts as new until the person has opened Beats from its
     /// row. Kept per beat in defaults rather than a column: which mornings this
     /// Mac has shown is this Mac's business.

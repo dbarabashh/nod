@@ -7,22 +7,46 @@ import SwiftUI
 /// icon sizes, different type sizes, and only some of them offering a way back
 /// to the unfiltered list.
 struct SearchField: View {
+    enum Size {
+        case standard
+        /// A step smaller, for a field inside a sheet's form where the field
+        /// it filters for is itself the smaller of the two.
+        case compact
+
+        var iconSize: CGFloat {
+            self == .standard ? 12 : 11
+        }
+
+        var fontSize: CGFloat {
+            self == .standard ? 13 : 12
+        }
+
+        var spacing: CGFloat {
+            self == .standard ? 8 : 7
+        }
+
+        var horizontalPadding: CGFloat {
+            self == .standard ? 10 : 9
+        }
+    }
+
     let prompt: String
     @Binding var text: String
+    var size: Size = .standard
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: size.spacing) {
             Image("nc-magnifier")
-                .icon(12)
+                .icon(size.iconSize)
                 .foregroundStyle(Theme.Palette.muted)
             TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(.system(size: size.fontSize))
                 .foregroundStyle(Theme.Palette.ink)
             if !text.isEmpty {
                 Button { text = "" } label: {
                     Image("nc-circle-xmark")
-                        .icon(12)
+                        .icon(size.iconSize)
                         .foregroundStyle(Theme.Palette.muted)
                         .contentShape(Rectangle())
                 }
@@ -31,7 +55,7 @@ struct SearchField: View {
                 .help("Clear")
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, size.horizontalPadding)
         .padding(.vertical, 6)
         // The row is as tall as its own text: left free it takes a share of any
         // height it is given, and a field editor draws its line at the top of
@@ -43,4 +67,14 @@ struct SearchField: View {
                 .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
         )
     }
+}
+
+#Preview {
+    VStack(spacing: 12) {
+        SearchField(prompt: "Search sessions", text: .constant(""))
+        SearchField(prompt: "Search 12 teams", text: .constant("design"), size: .compact)
+    }
+    .padding(20)
+    .frame(width: 320)
+    .background(Theme.Palette.bg)
 }

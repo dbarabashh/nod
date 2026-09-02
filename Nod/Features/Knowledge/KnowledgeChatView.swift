@@ -164,14 +164,14 @@ struct KnowledgeChatView: View {
                             onApproveAlways: chat.approvePendingToolsAlways,
                             onDeny: chat.denyPendingTools
                         )
-                        .id(Self.approvalAnchor)
+                        .id(ChatTranscriptSupport.Anchor.approval)
                     }
                     if chat.isSending, chat.pendingApproval == nil {
-                        typingIndicator.id(Self.typingAnchor)
+                        typingIndicator.id(ChatTranscriptSupport.Anchor.typing)
                     }
                     if let failure = chat.failure {
                         ChatErrorRow(failure: failure) { Task { await chat.regenerateLast() } }
-                            .id(Self.failureAnchor)
+                            .id(ChatTranscriptSupport.Anchor.failure)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -278,11 +278,9 @@ struct KnowledgeChatView: View {
     @ViewBuilder
     private func bubble(_ message: KnowledgeChatStore.Message) -> some View {
         if message.role == .user {
-            VStack(alignment: .trailing, spacing: 4) {
-                UserTextBubble(text: message.content, marks: marks(in: message))
+            ChatUserTurn(text: message.content, marks: marks(in: message)) {
                 notes(for: message.id)
             }
-            .padding(.leading, 40)
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 AssistantTextBubble(
@@ -308,11 +306,13 @@ struct KnowledgeChatView: View {
         }
     }
 
-    /// Offered on the newest answer only — regenerating an older one would
-    /// orphan every turn written against the answer being replaced.
     private func regenerateAction(for message: KnowledgeChatStore.Message) -> (() -> Void)? {
-        guard message.id == chat.messages.last?.id, !chat.isSending, !chat.isStreaming else { return nil }
-        return { Task { await chat.regenerateLast() } }
+        ChatTranscriptSupport.regenerateAction(
+            isNewest: message.id == chat.messages.last?.id,
+            isBusy: chat.isSending || chat.isStreaming
+        ) {
+            Task { await chat.regenerateLast() }
+        }
     }
 
     private func notes(for id: KnowledgeChatStore.Message.ID) -> some View {
@@ -504,26 +504,13 @@ struct KnowledgeChatView: View {
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
-        let target: AnyHashable? = if chat.pendingApproval != nil {
-            AnyHashable(Self.approvalAnchor)
-        } else if chat.failure != nil {
-            AnyHashable(Self.failureAnchor)
-        } else if chat.isSending {
-            AnyHashable(Self.typingAnchor)
-        } else {
-            chat.messages.last.map { AnyHashable($0.id) }
-        }
-        guard let target else { return }
-        // Mid-stream each flush would restart a 150ms scroll before the last
-        // finished, which is what makes streaming scroll feel rubbery.
-        guard !chat.isStreaming else {
-            proxy.scrollTo(target, anchor: .bottom)
-            return
-        }
-        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(target, anchor: .bottom) }
+        proxy.scrollToEnd(scrollTarget, animated: !chat.isStreaming)
     }
 
-    private static let typingAnchor = "nod.knowledge.typing"
-    private static let approvalAnchor = "nod.knowledge.approval"
-    private static let failureAnchor = "nod.knowledge.failure"
+    private var scrollTarget: AnyHashable? {
+        if chat.pendingApproval != nil { return AnyHashable(ChatTranscriptSupport.Anchor.approval) }
+        if chat.failure != nil { return AnyHashable(ChatTranscriptSupport.Anchor.failure) }
+        if chat.isSending { return AnyHashable(ChatTranscriptSupport.Anchor.typing) }
+        return chat.messages.last.map { AnyHashable($0.id) }
+    }
 }

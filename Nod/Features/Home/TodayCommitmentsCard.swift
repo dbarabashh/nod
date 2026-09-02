@@ -14,20 +14,11 @@ struct TodayCommitmentsCard: View {
     @EnvironmentObject private var actionItemStore: ActionItemStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel("Waiting on you")
-            VStack(spacing: 0) {
-                ForEach(Array(openItems.enumerated()), id: \.element.id) { index, item in
-                    if index > 0 {
-                        Divider().overlay(Theme.Palette.border).padding(.leading, 44)
-                    }
-                    row(item)
-                        // The drawer's pickers float out of their row; without
-                        // this the rows below, drawn later, paint over them.
-                        .zIndex(expandedItemID == item.id ? 1 : 0)
-                }
-            }
-            .surfaceCard()
+        TodayCardList(title: "Waiting on you", items: openItems) { item in
+            row(item)
+                // The drawer's pickers float out of their row; without
+                // this the rows below, drawn later, paint over them.
+                .zIndex(expandedItemID == item.id ? 1 : 0)
         }
     }
 
@@ -54,19 +45,7 @@ struct TodayCommitmentsCard: View {
                 .help("Open the source session")
             }
             if let filed = item.filed {
-                Button {
-                    NSWorkspace.shared.open(filed.url)
-                } label: {
-                    HStack(spacing: 3) {
-                        ProviderMark(provider: filed.provider, size: 11)
-                        Text(filed.title)
-                        Image("nc-arrow-up-right").icon(8)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .linkCursor()
-                .help("Open in \(filed.provider.displayName)")
+                ProviderLink(item: filed, style: .compact)
             }
         }
         .font(.system(size: 11))
@@ -144,18 +123,7 @@ struct TodayWaitingOnOthersCard: View {
     @EnvironmentObject private var actionItemStore: ActionItemStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel("Waiting on others")
-            VStack(spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    if index > 0 {
-                        Divider().overlay(Theme.Palette.border).padding(.leading, 44)
-                    }
-                    row(item)
-                }
-            }
-            .surfaceCard()
-        }
+        TodayCardList(title: "Waiting on others", items: items, row: row)
     }
 
     private func row(_ item: ActionItem) -> some View {
