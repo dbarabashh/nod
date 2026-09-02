@@ -1189,13 +1189,22 @@ extension KnowledgeChatStore {
         guard let screenContext else { return Observed() }
         let recap = ScreenRecall.window(for: query) ?? (aboutScreen ? ScreenRecall.defaultWindow() : nil)
         if let window = recap {
-            let digest = await screenContext.activity(in: window)
+            // Both at once: the recap answers "what was I doing", the keyword
+            // match answers the specific thing the question names — and a page
+            // open for ten seconds is in the second and never in the first.
+            async let recapping = screenContext.activity(in: window)
+            async let matching = screenContext.recentContext(matching: query)
+            let (digest, matched) = await (recapping, matching)
+            let extra = ScreenActivityDigest.uncovered(matched, by: digest)
             let blocks = digest.apps.map { app in
                 app.promptBlock(appName: AppDirectory.identity(forBundleID: app.bundleID).name)
-            }
+            } + extra.map(Self.labeledObservation)
+            let known = Set(digest.apps.map(\.bundleID))
             return Observed(
                 blocks: blocks,
-                apps: digest.apps.map { Self.appSource(bundleID: $0.bundleID) },
+                apps: digest.apps.map { Self.appSource(bundleID: $0.bundleID) }
+                    + Self.appSources(of: extra.filter { !known.contains($0.sourceApp) }),
+                ids: Set(extra.map(\.id)),
                 coversAWindow: true
             )
         }
@@ -1260,7 +1269,7 @@ extension KnowledgeChatStore {
         ScreenPromptBlock.single(
             source: observation.sourceTitle.isEmpty ? observation.sourceApp : observation.sourceTitle,
             when: PromptLibrary.observationStamp(observation.observedAt),
-            content: observation.content
+            content: (observation.sourceURL.map { "Link: \($0)\n" } ?? "") + observation.content
         )
     }
 
