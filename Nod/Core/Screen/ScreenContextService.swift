@@ -488,19 +488,20 @@ final class ScreenContextService: ObservableObject {
 
         let reader = reader
         let pid = app.processIdentifier
-        let read = await Task.detached(priority: .utility) { () -> (title: String, text: String?)? in
+        let read = await Task.detached(priority: .utility) { () -> (title: String, url: String?, text: String?)? in
             guard let focused = reader.focusedWindowText(forProcessID: pid, bundleID: bundleID),
                   !rules.excludesWindow(title: focused.title, url: focused.url)
             else { return nil }
-            return (focused.title, ScreenObservationBuilder.text(from: focused.texts))
+            return (focused.title, focused.url, ScreenObservationBuilder.text(from: focused.texts))
         }.value
 
         guard let read,
-              let captured = await recognizedIfAccessibilityIsThin(read, pid: pid, rules: rules) else { return }
+              let captured = await recognizedIfAccessibilityIsThin((read.title, read.text), pid: pid, rules: rules) else { return }
         let observation = ScreenObservation(
             userID: userID,
             sourceApp: bundleID,
             sourceTitle: captured.title,
+            sourceURL: read.url,
             // The title leads the content on purpose. It is often the most
             // informative line on screen — the channel, ticket, or document
             // name — and search runs over `content`, so a title-only match

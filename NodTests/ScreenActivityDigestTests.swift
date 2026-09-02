@@ -369,6 +369,74 @@ final class ScreenActivityDigestTests: XCTestCase {
         )
     }
 
+    func testRulesTellTheModelToQuoteLinksAndNotToInferActions() {
+        XCTAssertTrue(PromptLibrary.screenRules.contains("exactly as written"))
+        XCTAssertTrue(PromptLibrary.screenRules.contains("text on the page, not something the user did"))
+    }
+
+    func testKeywordMatchesTheRecapAlreadyShowsAreDropped() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let digest = ScreenActivityDigest(apps: [
+            ScreenActivityDigest.App(
+                bundleID: "com.google.Chrome",
+                windows: [
+                    ScreenActivityDigest.Window(
+                        title: "Nod Founder Dashboard",
+                        content: "Users 84",
+                        firstSeen: now,
+                        lastSeen: now,
+                        captures: 40
+                    )
+                ],
+                captures: 40
+            )
+        ])
+        let shown = observation(userID: UUID(), app: "com.google.Chrome", title: "nod founder dashboard ", content: "Users 84")
+        let glanced = observation(
+            userID: UUID(),
+            app: "com.google.Chrome",
+            title: "I Tried Littlebird - YouTube",
+            content: "youtube.com/watch?v=abc"
+        )
+        let twice = observation(
+            userID: UUID(),
+            app: "com.google.Chrome",
+            title: "I Tried Littlebird - YouTube",
+            content: "YouTube Video Player"
+        )
+
+        let kept = ScreenActivityDigest.uncovered([shown, glanced, twice], by: digest)
+
+        XCTAssertEqual(kept.map(\.id), [glanced.id])
+    }
+
+    private func observation(userID: UUID, app: String, title: String, content: String) -> ScreenObservation {
+        ScreenObservation(userID: userID, sourceApp: app, sourceTitle: title, content: content, retention: 3600)
+    }
+
+    func testABrowserWindowCarriesItsLinkIntoThePrompt() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let window = ScreenActivityDigest.Window(
+            title: "I Tried Littlebird - YouTube", content: "YouTube Video Player",
+            firstSeen: now, lastSeen: now, captures: 2, url: "https://youtube.com/watch?v=abc"
+        )
+        let app = ScreenActivityDigest.App(bundleID: "com.google.Chrome", windows: [window], captures: 2)
+
+        XCTAssertTrue(app.promptBlock(appName: "Chrome", now: now).contains("Link: https://youtube.com/watch?v=abc"))
+    }
+
+    func testTheLinkTravelsWithTheObservation() throws {
+        let observation = ScreenObservation(
+            userID: UUID(), sourceApp: "com.google.Chrome", sourceTitle: "Docs",
+            sourceURL: "https://example.com/doc", content: "hello", retention: 60
+        )
+        let data = try JSONEncoder().encode(observation)
+        let decoded = try JSONDecoder().decode(ScreenObservation.self, from: data)
+
+        XCTAssertEqual(decoded.sourceURL, "https://example.com/doc")
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("\"source_url\""))
+    }
+
     func testPromptBlockNamesTheAppAndItsWindows() {
         let digest = digest(from: [
             observation(app: "com.jira", title: "AP-8 icon colours", content: "grey icons", minutesAgo: 5)

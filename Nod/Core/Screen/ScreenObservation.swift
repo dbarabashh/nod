@@ -13,6 +13,9 @@ struct ScreenObservation: Codable, Equatable, Identifiable {
     let observedAt: Date
     let sourceApp: String
     let sourceTitle: String
+    /// The page's address when the window is a browser tab, so "send me that
+    /// link again" has something to answer with. Nil for every other app.
+    let sourceURL: String?
     let content: String
     let contentHash: String
     let expiresAt: Date
@@ -23,6 +26,7 @@ struct ScreenObservation: Codable, Equatable, Identifiable {
         case observedAt = "observed_at"
         case sourceApp = "source_app"
         case sourceTitle = "source_title"
+        case sourceURL = "source_url"
         case content
         case contentHash = "content_hash"
         case expiresAt = "expires_at"
@@ -34,6 +38,7 @@ struct ScreenObservation: Codable, Equatable, Identifiable {
         observedAt: Date = Date(),
         sourceApp: String,
         sourceTitle: String,
+        sourceURL: String? = nil,
         content: String,
         retention: TimeInterval
     ) {
@@ -42,6 +47,7 @@ struct ScreenObservation: Codable, Equatable, Identifiable {
         self.observedAt = observedAt
         self.sourceApp = sourceApp
         self.sourceTitle = sourceTitle
+        self.sourceURL = sourceURL
         self.content = content
         contentHash = Self.hash(content)
         expiresAt = observedAt.addingTimeInterval(retention)
@@ -72,15 +78,17 @@ struct ScreenObservationIndex: Decodable, Equatable {
     let sourceApp: String
     let sourceTitle: String
     let contentHash: String
+    var sourceURL: String?
 
     enum CodingKeys: String, CodingKey {
         case observedAt = "observed_at"
         case sourceApp = "source_app"
         case sourceTitle = "source_title"
         case contentHash = "content_hash"
+        case sourceURL = "source_url"
     }
 
-    static let columns = "observed_at,source_app,source_title,content_hash"
+    static let columns = "observed_at,source_app,source_title,content_hash,source_url"
 }
 
 /// Turns the strings an accessibility walk returns into something worth

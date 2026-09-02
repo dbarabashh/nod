@@ -14,6 +14,7 @@ struct ScreenActivityDigest: Equatable {
         let firstSeen: Date
         let lastSeen: Date
         let captures: Int
+        var url: String?
     }
 
     struct App: Equatable, Identifiable {
@@ -90,6 +91,26 @@ struct ScreenActivityDigest: Equatable {
         return ScreenActivityPlan(apps: Array(apps.prefix(maximumApps)))
     }
 
+    /// Keyword matches the recap has no room for. A recap ranks windows by how
+    /// long they were up, so a page glanced at for ten seconds loses its seat to
+    /// the morning's work — and that page is exactly what a question naming it
+    /// is about. Anything already in the recap is dropped so nothing is said
+    /// twice.
+    static func uncovered(_ matches: [ScreenObservation], by digest: ScreenActivityDigest) -> [ScreenObservation] {
+        let shown = Set(digest.apps.flatMap { app in
+            app.windows.map { windowKey(app.bundleID, $0.title) }
+        })
+        var seen = Set<String>()
+        return matches.filter { observation in
+            let key = windowKey(observation.sourceApp, observation.sourceTitle)
+            return !shown.contains(key) && seen.insert(key).inserted
+        }
+    }
+
+    private static func windowKey(_ bundleID: String, _ title: String) -> String {
+        bundleID + "\u{1F}" + title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
     /// Puts the text back on a plan. A window whose body never arrived — expired
     /// between the two queries, or dropped by the row cap — is left out rather
     /// than reported as an empty screen.
@@ -118,7 +139,8 @@ struct ScreenActivityDigest: Equatable {
                     content: content,
                     firstSeen: window.firstSeen,
                     lastSeen: window.lastSeen,
-                    captures: window.captures
+                    captures: window.captures,
+                    url: window.url
                 ))
             }
             guard !windows.isEmpty else { return nil }
@@ -228,7 +250,8 @@ struct ScreenActivityDigest: Equatable {
             firstSeen: first.observedAt,
             lastSeen: last.observedAt,
             captures: visit.count,
-            candidateHashes: candidates
+            candidateHashes: candidates,
+            url: visit.last { $0.sourceURL != nil }?.sourceURL
         )
     }
 }
@@ -243,6 +266,7 @@ struct ScreenActivityPlan: Equatable {
         let captures: Int
         /// Newest first, capped — the fullest of these becomes the window's text.
         let candidateHashes: [String]
+        var url: String?
     }
 
     struct App: Equatable {
@@ -403,7 +427,8 @@ extension ScreenActivityDigest.App {
             .map { window in
                 let title = window.title.trimmingCharacters(in: .whitespacesAndNewlines)
                 let label = title.isEmpty ? "(untitled window)" : title
-                return "• \(label) (\(PromptLibrary.observationStamp(window.lastSeen, now: now)))\n\(window.content)"
+                let link = window.url.map { "\nLink: \($0)" } ?? ""
+                return "• \(label) (\(PromptLibrary.observationStamp(window.lastSeen, now: now)))\(link)\n\(window.content)"
             }
             .joined(separator: "\n\n")
         let when = if let first = windows.map(\.firstSeen).min(), let last = windows.map(\.lastSeen).max() {
