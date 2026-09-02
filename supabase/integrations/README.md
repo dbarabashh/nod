@@ -247,7 +247,7 @@ onto the shared rule and revoked its `authenticated` grant — it took an
 arbitrary organization id, so any signed-in account could enumerate any
 organization's policy. `agent_approve_proposal` had since picked it up again,
 asking one organization and skipping the check when the proposal carried none;
-`20260901200941` moves that last caller onto `user_may_use_provider` and drops
+`20260902114020` moves that last caller onto `user_may_use_provider` and drops
 the function. `supabase/tests/integration_policy_contract.sql` fails if it
 comes back.
 
