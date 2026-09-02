@@ -32,6 +32,11 @@ jobs:
             supabase/functions/_shared/connector-auth.test.ts \
             supabase/functions/_shared/founder-mcp.test.ts \
             supabase/functions/_shared/founder-mcp-server.test.ts
+      - name: Test integration adapters
+        run: |
+          deno test -A \
+            supabase/functions/_shared/integrations/ \
+            supabase/functions/integration-reconcile/
       - uses: supabase/setup-cli@v1
         with:
           version: 2.111.0

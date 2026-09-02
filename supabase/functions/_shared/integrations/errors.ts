@@ -16,11 +16,18 @@ export class ActionError extends Error {
     /// match on. Every adapter hits this eventually, so it belongs here rather
     /// than being cast onto the error at one throw site.
     readonly providerCode?: string;
+    /// The HTTP status the provider answered with, when the error is one.
+    ///
+    /// `status` is what we answer the client and is always 502 for a refused
+    /// proxy call; an adapter that wants to treat "gone" differently from
+    /// "throttled" needs the provider's own number.
+    readonly providerStatus?: number;
 
-    constructor(code: string, message: string, status = 400, providerCode?: string) {
+    constructor(code: string, message: string, status = 400, providerCode?: string, providerStatus?: number) {
         super(message);
         this.code = code;
         this.status = status;
         this.providerCode = providerCode;
+        this.providerStatus = providerStatus;
     }
 }

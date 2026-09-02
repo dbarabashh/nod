@@ -63,6 +63,12 @@ function summarise(task: Task) {
     };
 }
 
+/// Asana's `402` on `tasks/search` from a free workspace — the one refusal the
+/// fallback is for. Anything else, a revoked grant included, is still an error.
+export function isSearchPaywalled(error: unknown): boolean {
+    return error instanceof ActionError && error.providerStatus === 402;
+}
+
 export const ASANA_ACTIONS: ActionHandlers = {
     /// Tasks matching a phrase, or — where the plan forbids searching — the
     /// person's own open tasks.
@@ -82,7 +88,7 @@ export const ASANA_ACTIONS: ActionHandlers = {
             }) as { data?: Task[] } | null;
             return { searched: true, results: (payload?.data ?? []).map(summarise) };
         } catch (error) {
-            if (!(error instanceof ActionError) || error.status !== 502) throw error;
+            if (!isSearchPaywalled(error)) throw error;
 
             const mine = await proxy(connection, "api/1.0/tasks", null, {
                 method: "GET",

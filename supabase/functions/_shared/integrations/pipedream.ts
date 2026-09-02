@@ -243,7 +243,7 @@ export async function proxy(
         // Without the provider's own words the model can only report that
         // something failed, and the person asking "why?" gets nothing back.
         const said = detail ? `: ${detail}` : ` (HTTP ${response.status})`;
-        throw new ActionError(code, `${connection.provider} rejected the request${said}.`, 502);
+        throw new ActionError(code, `${connection.provider} rejected the request${said}.`, 502, undefined, response.status);
     }
     return options.parse === "text" ? raw : payload;
 }

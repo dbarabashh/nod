@@ -8,6 +8,7 @@ import { GOOGLE_DRIVE_ACTIONS } from "./googleDrive.ts";
 import { HUBSPOT_ACTIONS } from "./hubspot.ts";
 import { GOOGLE_ADS_ACTIONS } from "./googleAds.ts";
 import { GOOGLE_CALENDAR_ACTIONS } from "./googleCalendar.ts";
+import { GOOGLE_TASKS_ACTIONS } from "./googleTasks.ts";
 import { JIRA_ACTIONS } from "./jira.ts";
 import { NOTION_ACTIONS } from "./notion.ts";
 import { LINEAR_ACTIONS } from "./linear.ts";
@@ -104,6 +105,11 @@ const PROVIDERS: Record<string, Provider> = {
         // the body. See `googleAds.ts`.
         base: "https://googleads.m.pipedream.net/",
         actions: GOOGLE_ADS_ACTIONS,
+    },
+    "google-tasks": {
+        slug: "google_tasks",
+        base: "https://tasks.googleapis.com/",
+        actions: GOOGLE_TASKS_ACTIONS,
     },
     "slack": {
         slug: "slack_v2",

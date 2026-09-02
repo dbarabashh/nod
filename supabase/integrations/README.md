@@ -130,6 +130,27 @@ Pipedream's own OAuth clients generally ask broadly, which is why today's
 read-only behavior was a property of our adapters rather than of the grants —
 the table above is what a *curated* client must not fall below.
 
+## Google Tasks — scope and reach
+
+Pipedream's `google_tasks` app asks for `https://www.googleapis.com/auth/tasks`,
+the API's one read-write scope; there is no narrower grant that still lets Nod
+file a task. A custom OAuth client, if we bring one, is named to the functions
+as `PIPEDREAM_OAUTH_APP_GOOGLE_TASKS`. The adapter
+(`functions/_shared/integrations/googleTasks.ts`) reads and writes **the
+default list only** (`lists/@default`) — the one every account has and the one
+the Today card means by "make this a task". Other lists are never listed, read
+or written.
+
+| Action | Does | Reads |
+|---|---|---|
+| `create_task` | Inserts a task with `title`, optional `notes`, optional `due` (a day: Google keeps the date and drops the time) | — |
+| `search_tasks` | Keeps the tasks whose title or notes carry the words asked for, open and completed alike; cleared tasks are not read | one page of the default list |
+| `read_tasks` | Whether tasks Nod filed have since been completed, for the checkbox reconciliation; a task Google no longer has is left out | each task by id |
+| `update_task` | Retitles, re-dates (or clears the date), completes or reopens a task, replaces its notes or adds a note below them | the task, when a note is appended |
+
+Not a directory source: the Tasks API knows no members, so there is no
+`list_users` and no "Import members" for it.
+
 ## Connect environments — and what production needs
 
 Every Connect call carries `x-pd-environment`, set from `PIPEDREAM_ENVIRONMENT`
