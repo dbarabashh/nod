@@ -51,18 +51,6 @@ enum ConnectionClient: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Asset-catalog image name for the provider's brand logo. Drop the official
-    /// logo into the matching imageset in `Assets.xcassets`; until then the UI
-    /// falls back to `fallbackSymbol`.
-    var iconAssetName: String {
-        switch self {
-        case .claude: "ConnClaude"
-        case .chatgpt: "ConnChatGPT"
-        case .gemini: "ConnGemini"
-        case .other: "ConnOther"
-        }
-    }
-
     /// SF Symbol shown until the brand logo asset is supplied.
     var fallbackSymbol: String {
         switch self {

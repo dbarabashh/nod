@@ -86,18 +86,8 @@ struct Entitlement: Decodable {
         max(0, hoursLimit - hoursUsed)
     }
 
-    /// An exhausted allowance on an otherwise healthy plan — the one case the
-    /// notch offers a top-up instead of the paywall.
-    var isAllowanceExhausted: Bool {
-        isActive && canStartMeeting == false
-    }
-
     var hasPurchasedTopUp: Bool {
         topUpSeconds > 0
-    }
-
-    var deviceLimit: Int {
-        Int(limits["devices"] ?? 0)
     }
 
     func can(_ feature: Feature) -> Bool {

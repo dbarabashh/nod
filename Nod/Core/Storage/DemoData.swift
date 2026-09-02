@@ -58,65 +58,6 @@
             return table.first { entry in entry.keywords.contains { lowered.contains($0) } }?.answer
         }
 
-        /// Canned answer for the live in-meeting "Ask" box. A demo recording has
-        /// no real transcript behind it, so the model would only ever say
-        /// "nothing to answer yet" — here we hand back a believable, grounded
-        /// answer keyed loosely to the question, enough to land the "it's
-        /// actually listening" moment on camera. Themed around a product-launch
-        /// call so it stays consistent with the demo meetings.
-        static func liveAskAnswer(for question: String) -> String {
-            matchedAnswer(for: question, in: liveAskAnswers) ?? liveAskCoverageAnswer
-        }
-
-        private static let liveAskAnswers: [(keywords: [String], answer: String)] = [
-            (["action", "to-do", "todo", "to do", "follow up", "follow-up", "next step", "task"], """
-            Three things are on the hook so far:
-
-            - **Decide on the discount code** and lock the pricing copy — it's blocking the launch post.
-            - **Confirm all ten hunters** can comment in the first hour and send them the link privately.
-            - **Draft the Hacker News post** now so it's ready if you decide to cross-post.
-
-            Want me to save these as action items?
-            """),
-            (["decide", "decision", "agree", "agreed", "conclusion", "land on", "landed"], """
-            Here's what's been decided:
-
-            - **Launch Tuesday, 00:01 Pacific** — a full 24 hours on the leaderboard instead of losing half a day.
-            - **Hero is the GIF, not a video** — it converts better in the feed and the empty participant list is the whole pitch.
-            - **Founder answers every comment personally** for the first four hours — no canned replies.
-
-            > "Lead with the wedge, not the feature list."
-            """),
-            (["risk", "concern", "worry", "worried", "blocker", "problem", "issue"], """
-            Two things still feel unresolved:
-
-            - The **discount code** — it drives first-day conversions but can read as desperation, and nobody's committed either way.
-            - Whether to **cross-post to Hacker News the same day** or wait 48 hours to avoid splitting attention.
-
-            Neither blocks going live, but both need a call before Monday.
-            """),
-            (["discount", "price", "pricing", "code", "coupon", "promo"], """
-            On the discount code — it's the one thing still genuinely undecided.
-
-            The case for it: it drives first-day conversions. The case against: on Product Hunt a code can read as desperation, and it muddies otherwise-clean pricing. The room leaned toward deciding by Monday so the launch copy can be finalized either way.
-
-            My read: hold the code back for launch day, and keep it in your pocket for a 48-hour follow-up if momentum stalls.
-            """)
-        ]
-
-        /// Fallback: a coverage check against the conversation so far — "did we
-        /// miss anything?". Grounded in what's already been said, so it reads as
-        /// Nod reviewing the transcript rather than recapping it.
-        private static let liveAskCoverageAnswer = """
-        You've covered the big rocks — launch timing, the hero asset, and the comment plan. A few things haven't come up yet that are worth a beat before you wrap:
-
-        - The **discount code** is still undecided, and the launch copy is blocked on it — don't let it slip past today.
-        - Nobody's named a **backup for answering comments** if you get pulled away in the first four hours.
-        - You haven't set a plan for a **competitor launching the same day**, or what to do if the thread stalls before it hits the front page.
-
-        Everything else looks locked.
-        """
-
         /// Canned answer for the launcher's "Ask Nod across sessions" — the
         /// headline of this release. The launcher still grounds on the demo
         /// transcripts (via `knowledgeChunks`, so the evidence rows are real
@@ -182,40 +123,6 @@
         - **Your trial-length call has a hidden contradiction.** Sam leaned 14 days; the growth review shows 7 converts better but 14 activates better. Nobody's made that tradeoff explicit.
 
         If I had to name one trigger: **ship the onboarding permission fix this week.** It's the only item here that's already solved and just sitting there.
-        """
-
-        // MARK: - Live pill fixtures
-
-        /// "Catch me up" (`.hero`) — a short prose read of where the call is right
-        /// now. Deliberately state-of-play prose, distinct from Key points'
-        /// bullets and Ask's targeted answers.
-        static let catchUpAnswer = """
-        Right now you're locking launch logistics. The room's aligned on Tuesday at 00:01 Pacific to get a full day on the leaderboard, and the hero asset is settled as the no-bot GIF over a launch video. Still live on the table: whether to run a launch-day discount code, and whether to cross-post to Hacker News same-day or wait 48 hours.
-        """
-
-        /// "Key points" (`.keyPoints`) — flat bullet list, decisions first, then
-        /// facts, then open questions.
-        static let keyPointsAnswer = """
-        - Launch is set for Tuesday, 00:01 Pacific — a full 24 hours on the leaderboard.
-        - Hero asset is the no-bot GIF, not a launch video.
-        - Gallery locked at six slides, with privacy and EU hosting as the closing trust slide.
-        - Founder answers every comment personally for the first four hours.
-        - Open: run a launch-day discount code, or keep pricing clean.
-        - Open: cross-post to Hacker News same-day, or wait 48 hours.
-        """
-
-        /// "Suggest reply" (`.suggestReply`) — one line to say next, coaching the
-        /// user's own turn in a two-party call.
-        static let suggestReplyAnswer = """
-        I'd keep pricing clean for launch day — a discount can read as desperation on Product Hunt. Let's hold the code back and revisit it 48 hours in if momentum stalls.
-        """
-
-        /// "Suggest follow-up questions" (`.followUp`) — bulleted questions to ask.
-        static let followUpAnswer = """
-        - Who's the backup on comments if you get pulled away during the first four hours?
-        - Are all ten hunters confirmed, or is that still a shortlist?
-        - What's the plan if a competitor launches the same day?
-        - Should the first comment link straight to the privacy page?
         """
 
         static var labels: [SessionLabel] {
