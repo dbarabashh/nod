@@ -130,6 +130,126 @@ $$;
 reset role;
 reset request.jwt.claims;
 
+-- A standing grant approves with nobody watching, so it is the path where a
+-- drifted rule does the most damage. It asks the same question as a person's
+-- approval: about the person, across every organization they belong to.
+-- Two agents, two live grants, two drafts of the same shape — what differs is
+-- whose employer has said no.
+--
+-- The member's draft is filed under a third organization that explicitly
+-- permits Slack, so the proposal's own `org_id` says yes. The old
+-- per-organization shape would have looked no further; the rule looks at
+-- every membership, and the first organization still forbids.
+insert into public.organizations (id, name, slug, created_by)
+values ('51000000-0000-4000-8000-000000000003', 'Permits Slack', 'policy-permits-slack',
+        '50000000-0000-4000-8000-000000000001');
+
+insert into public.org_members (org_id, user_id, role, status)
+values ('51000000-0000-4000-8000-000000000003', '50000000-0000-4000-8000-000000000001', 'member', 'active');
+
+insert into public.org_integration_policies (org_id, provider, is_allowed)
+values ('51000000-0000-4000-8000-000000000003', 'slack', true);
+
+update public.profiles
+   set active_org_id = '51000000-0000-4000-8000-000000000003'
+ where user_id = '50000000-0000-4000-8000-000000000001';
+
+insert into public.agents (id, user_id, title, prompt, trust, draft_type)
+values
+    ('52000000-0000-4000-8000-000000000001', '50000000-0000-4000-8000-000000000001',
+     'Open a channel', 'open a channel', 'l3', 'slack.create_channel'),
+    ('52000000-0000-4000-8000-000000000003', '50000000-0000-4000-8000-000000000003',
+     'Open a channel', 'open a channel', 'l3', 'slack.create_channel');
+
+insert into public.agent_grants (agent_id, user_id, provider, action, per_week, expires_at, granted_by)
+values
+    ('52000000-0000-4000-8000-000000000001', '50000000-0000-4000-8000-000000000001',
+     'slack', 'create_channel', 5, now() + interval '30 days', '50000000-0000-4000-8000-000000000001'),
+    ('52000000-0000-4000-8000-000000000003', '50000000-0000-4000-8000-000000000003',
+     'slack', 'create_channel', 5, now() + interval '30 days', '50000000-0000-4000-8000-000000000003');
+
+insert into public.action_proposals (id, user_id, type, status, raised_by_agent)
+values
+    ('53000000-0000-4000-8000-000000000001', '50000000-0000-4000-8000-000000000001',
+     'slack.create_channel', 'ready', '52000000-0000-4000-8000-000000000001'),
+    ('53000000-0000-4000-8000-000000000003', '50000000-0000-4000-8000-000000000003',
+     'slack.create_channel', 'ready', '52000000-0000-4000-8000-000000000003');
+
+do $$
+begin
+    if (select org_id from public.action_proposals
+         where id = '53000000-0000-4000-8000-000000000001')
+       is distinct from '51000000-0000-4000-8000-000000000003' then
+        raise exception 'the fixture did not file the draft under the permitting organization';
+    end if;
+end;
+$$;
+
+-- The member of a forbidding organization: the grant is live, the budget is
+-- untouched, the draft's own organization permits — and the answer is still
+-- no. It is 'refused', a verdict the client acts on, not an exception it
+-- would have to parse.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"50000000-0000-4000-8000-000000000001"}';
+
+do $$
+declare
+    v_verdict text;
+begin
+    v_verdict := public.agent_approve_proposal('53000000-0000-4000-8000-000000000001');
+    if v_verdict <> 'refused' then
+        raise exception 'a forbidding organization did not bar its member''s agent: %', v_verdict;
+    end if;
+end;
+$$;
+
+reset role;
+reset request.jwt.claims;
+
+-- Nobody governs the personal account, so the same draft under the same grant
+-- goes through; that is what proves the refusal above was the policy and not
+-- some other gate the fixture failed to satisfy.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"50000000-0000-4000-8000-000000000003"}';
+
+do $$
+declare
+    v_verdict text;
+begin
+    v_verdict := public.agent_approve_proposal('53000000-0000-4000-8000-000000000003');
+    if v_verdict <> 'approved' then
+        raise exception 'an account in no organization was barred from auto-approval: %', v_verdict;
+    end if;
+end;
+$$;
+
+reset role;
+reset request.jwt.claims;
+
+do $$
+begin
+    if (select status from public.action_proposals
+         where id = '53000000-0000-4000-8000-000000000001') <> 'ready' then
+        raise exception 'a refused draft changed status';
+    end if;
+    -- The audit trail is filed under the draft's organization; a refusal must
+    -- not record an approval there for a tool that was never permitted.
+    if exists (
+        select 1 from public.audit_log
+         where target_id = '53000000-0000-4000-8000-000000000001'
+    ) then
+        raise exception 'a refused draft left an audit entry';
+    end if;
+    if not exists (
+        select 1 from public.action_proposals
+         where id = '53000000-0000-4000-8000-000000000003'
+           and status = 'approved' and auto_approved
+    ) then
+        raise exception 'an approved draft was not recorded as auto-approved';
+    end if;
+end;
+$$;
+
 -- The two user-id-taking functions may not be reachable by a signed-in account:
 -- answering for an arbitrary one would report on other people's employers.
 -- `my_blocked_providers` takes no argument and so can only answer about its
@@ -140,7 +260,6 @@ begin
        or has_function_privilege('anon', 'public.user_may_use_provider(uuid, text)', 'execute')
        or has_function_privilege('authenticated', 'public.users_barred_from_provider(uuid[], text)', 'execute')
        or has_function_privilege('anon', 'public.users_barred_from_provider(uuid[], text)', 'execute')
-       or has_function_privilege('authenticated', 'public.org_allows_provider(uuid, text)', 'execute')
     then
         raise exception 'a policy function that takes an org or user id is callable by a client';
     end if;
@@ -149,6 +268,14 @@ begin
     end if;
     if not has_function_privilege('authenticated', 'public.my_blocked_providers()', 'execute') then
         raise exception 'the client cannot read its own blocked providers';
+    end if;
+    -- The per-organization shape took an arbitrary organization id; it is gone
+    -- rather than merely revoked, so nothing can grow a new caller for it.
+    if exists (
+        select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'org_allows_provider'
+    ) then
+        raise exception 'org_allows_provider still exists';
     end if;
 end;
 $$;

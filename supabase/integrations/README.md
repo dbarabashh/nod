@@ -177,7 +177,7 @@ it the only expression of the rule. One join, three shapes:
 
 | | Question | Callers |
 |---|---|---|
-| `user_may_use_provider(user, provider)` | may this person act in it? | `resolveConnection`, `proposal-execute`, `approve_proposal` |
+| `user_may_use_provider(user, provider)` | may this person act in it? | `resolveConnection`, `proposal-execute`, `approve_proposal`, `agent_approve_proposal` |
 | `users_barred_from_provider(users[], provider)` | which of these may not? | `calendar-sync`, `integration-reconcile` |
 | `my_blocked_providers()` | what is off for me? | the desktop client |
 
@@ -221,11 +221,14 @@ functions that land on an instance without `user_may_use_provider` refuse every
 integration action until it does. Rollback is the reverse: redeploy the previous
 functions, leave the functions in the database — nothing else reads them.
 
-**`org_allows_provider` is retired in place.** `20260827170000` moved its last
-caller (`approve_proposal`) onto the shared rule and revoked its `authenticated`
-grant — it took an arbitrary organization id, so any signed-in account could
-enumerate any organization's policy. The function itself stays until a contract
-migration can drop it.
+**`org_allows_provider` is gone.** `20260827170000` moved `approve_proposal`
+onto the shared rule and revoked its `authenticated` grant — it took an
+arbitrary organization id, so any signed-in account could enumerate any
+organization's policy. `agent_approve_proposal` had since picked it up again,
+asking one organization and skipping the check when the proposal carried none;
+`20260901200941` moves that last caller onto `user_may_use_provider` and drops
+the function. `supabase/tests/integration_policy_contract.sql` fails if it
+comes back.
 
 **Retiring is a schema change, not a config one.** All three functions are
 additive; dropping any of them means finding every caller above first.
