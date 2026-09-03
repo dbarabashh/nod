@@ -48,7 +48,7 @@ export interface EventRow {
 /// somebody's private calendar than the feature can ever read.
 ///
 /// Lives here rather than in `calendar-sync` because there are now two writers —
-/// the ten-minute sweep and the event this adapter has just created — and two
+/// the sync the app asks for and the event this adapter has just created — and two
 /// mappings of one provider's shape is how the row a sweep writes and the row a
 /// creation writes start disagreeing about the same meeting.
 export function toRow(userId: string, event: GoogleEvent, stampedAt: string): EventRow | null {
@@ -537,13 +537,14 @@ async function forget(externalEventId: string, context?: ActionContext): Promise
 
 /// Writes an event we just created straight into `calendar_events`.
 ///
-/// The scheduled sweep would find it on its own — in up to ten minutes. That is
-/// too late by construction: `ScheduledMeeting` offers to record from sixty
+/// A later read would find it on its own — whenever the app next asks, which
+/// is minutes at best, or a day later for an invitee whose Nod is closed. That
+/// is too late by construction: `ScheduledMeeting` offers to record from sixty
 /// seconds before a meeting until three minutes after it starts, so a four
-/// minute window sits entirely inside one sync interval. Ask Nod for a meeting
-/// "in the next three minutes" and the sweep lands the row at roughly the moment
-/// the window shuts — for the organizer and, worse, for everyone invited, who
-/// had no other way to know. Observed on 2026-08-16: event created 20:24 UTC to
+/// minute window is shorter than any floor a read waits on. Ask Nod for a
+/// meeting "in the next three minutes" and the read lands the row at roughly
+/// the moment the window shuts — for the organizer and, worse, for everyone
+/// invited, who had no other way to know. Observed on 2026-08-16: event created 20:24 UTC to
 /// start 20:27, still absent at 20:29:44, next sweep 20:30.
 ///
 /// Best-effort on purpose. The meeting exists in Google whatever happens here,
@@ -597,8 +598,8 @@ async function cache(
 /// is done on `ical_uid`, which every copy shares by construction (RFC 5545),
 /// and the id here is only the upsert key. When the invitee's own sweep runs it
 /// writes their real copy and prunes this one, because the prune drops anything
-/// in the window still carrying an older stamp. So the row is a ten-minute
-/// stand-in that cleans itself up.
+/// in the window still carrying an older stamp. So the row is a stand-in
+/// that cleans itself up on the invitee's next read.
 ///
 /// Narrow on purpose: colleagues in the organizer's own organization, who have
 /// a Nod account, who already have their calendar connected — which means Nod

@@ -170,6 +170,11 @@ export interface ProxyOptions {
     /// request that does not name an API version, and there is no other way to
     /// say so through a proxy.
     headers?: Record<string, string>;
+    /// What the request is for, as `integration_proxy_requests` counts it —
+    /// `action` for a tool call somebody made, `calendar-open` and friends for
+    /// the calendar reads. Every proxied request is metered by Connect, and
+    /// this is the only way to see which capability is spending.
+    purpose?: string;
 }
 
 /// The workspace's own OAuth client for one provider, when there is one.
@@ -223,6 +228,9 @@ export async function proxy(
         headers: { ...await connectHeaders(), ...forwarded },
         body: method === "GET" ? undefined : JSON.stringify(body),
     });
+    // Counted whether or not the provider was happy: Connect meters the
+    // request, not the answer.
+    await tally(countRequest(connection, options.purpose ?? "action"));
 
     const raw = await response.text().catch(() => "");
     let payload: unknown = null;
@@ -246,6 +254,36 @@ export async function proxy(
         throw new ActionError(code, `${connection.provider} rejected the request${said}.`, 502, undefined, response.status);
     }
     return options.parse === "text" ? raw : payload;
+}
+
+/// One more on the day's tally for this person, provider and purpose.
+///
+/// Never thrown and never awaited by the caller: metering must not fail or
+/// slow the request it is metering. Bounded, so a database that stops
+/// answering cannot hold an isolate open.
+async function countRequest(connection: Connection, purpose: string): Promise<void> {
+    try {
+        const { error } = await adminClient()
+            .rpc("count_proxy_request", {
+                p_user: connection.externalUserId,
+                p_provider: connection.provider,
+                p_purpose: purpose,
+            })
+            .abortSignal(AbortSignal.timeout(2_000));
+        if (error) console.warn(`proxy request count failed: ${error.message}`);
+    } catch (cause) {
+        console.warn(`proxy request count failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+}
+
+/// Lets the count finish after the response has gone out. Supabase's edge
+/// runtime keeps the isolate alive for work handed to `waitUntil`, so the
+/// count never sits on a response's critical path; anywhere without it
+/// (tests, another host) the count is simply awaited.
+async function tally(work: Promise<void>): Promise<void> {
+    const runtime = (globalThis as { EdgeRuntime?: { waitUntil(promise: Promise<unknown>): void } }).EdgeRuntime;
+    if (runtime?.waitUntil) runtime.waitUntil(work);
+    else await work;
 }
 
 /// However long the provider was, this is a tool result the model re-reads on

@@ -38,8 +38,8 @@ export type ActionHandlers = Record<string, ActionHandler>;
 // present in one and missing from the other took every reconcile down with it.
 //
 // `actions: null` means a provider that can be connected but never acted in.
-// The calendar reads on a schedule with the service role and writes only through
-// actions a person confirmed on their own screen.
+// The calendar reads when the app asks (`calendar-sync`, with the service role)
+// and writes only through actions a person confirmed on their own screen.
 interface Provider {
     /// The broker's app slug. `slack` is Connect's legacy app; `slack_v2` is the
     /// current one, which is why this is not simply our own name.

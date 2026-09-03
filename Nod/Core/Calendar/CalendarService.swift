@@ -64,15 +64,27 @@ final class CalendarService: ObservableObject {
             // `@MainActor`, so this only ever fires from the main actor, and a
             // hop would leave `hasAnySource` a tick stale — which is a tick in
             // which the watcher is still stopped for a calendar that has loaded.
+            // The emitted value, not `remote.hasOccurrences`: `@Published`
+            // publishes from `willSet`, so the property still holds the old
+            // snapshot while this runs — and the first read landing is the
+            // one publish that must turn `hasAnySource` on.
             remoteObserver = remote?.$occurrences
-                .sink { [weak self] _ in
-                    MainActor.assumeIsolated { self?.refreshSources() }
+                .sink { [weak self] next in
+                    MainActor.assumeIsolated {
+                        self?.refreshSources(remoteHasOccurrences: !next.isEmpty)
+                        self?.remoteGeneration += 1
+                    }
                 }
             refreshSources()
         }
     }
 
     private var remoteObserver: AnyCancellable?
+
+    /// Bumped whenever the connected calendar's snapshot changes, for a screen
+    /// that computed its rows from the snapshot and would otherwise not know a
+    /// read had landed after it drew.
+    @Published private(set) var remoteGeneration = 0
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -138,8 +150,8 @@ final class CalendarService: ObservableObject {
     /// which is the only calendar we ask for there and never shows that switch,
     /// got no meeting offer, no live-room lookup, and — because the recording
     /// then had no invitation to read — the worst of the two diarization paths.
-    private func refreshSources() {
-        let next = isReadable || remote?.hasOccurrences == true
+    private func refreshSources(remoteHasOccurrences: Bool? = nil) {
+        let next = isReadable || (remoteHasOccurrences ?? remote?.hasOccurrences == true)
         // Guarded for the same reason `adopt` guards `status`: the remote
         // snapshot is re-read about once a minute for the life of the app, and
         // an unchanged answer would still invalidate every observing body.
@@ -162,9 +174,17 @@ final class CalendarService: ObservableObject {
     /// says it in three places and they had already started to differ.
     static let blockedHint = "macOS is blocking calendar access. Allow it in System Settings → Privacy & Security → Calendars."
 
-    /// Brings the connected calendar's snapshot forward if it has gone stale.
-    func refreshRemoteIfStale(maxAge: TimeInterval = 60) async {
-        await remote?.refreshIfStale(maxAge: maxAge)
+    /// Asks the server for a fresh read of the connected calendar, for
+    /// `reason`, then brings the snapshot forward. See `RemoteCalendar.sync`.
+    func syncRemote(_ reason: CalendarSyncReason) async {
+        await remote?.sync(reason)
+    }
+
+    /// A watcher tick's share: the periodic ask if one is owed, then the
+    /// snapshot if it has aged.
+    func syncRemoteIfDue() async {
+        await remote?.syncIfDue()
+        await remote?.refreshIfStale(maxAge: 60)
     }
 
     private func refresh() {

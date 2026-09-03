@@ -151,6 +151,102 @@ or written.
 Not a directory source: the Tasks API knows no members, so there is no
 `list_users` and no "Import members" for it.
 
+## Google Calendar — when it is read, and what it costs
+
+Every read of a connected calendar is one request through the Connect proxy,
+and Connect meters requests. Until 2026-09-02 `calendar-sync` swept every
+connected calendar every ten minutes, day and night (`20260815124210`): 4,320
+requests per calendar a month before pagination, for a calendar nobody was
+looking at most of that time. Linear NOD-136.
+
+**The app asks, and says why.** `RemoteCalendar.sync(reason)` calls
+`calendar-sync` with the user's JWT and one of four reasons. The server holds a
+floor per reason (`functions/_shared/integrations/calendarRefresh.ts`) and
+`claim_calendar_read` takes the read atomically — the floor has passed and the
+month's cap is not spent — or answers "not yet" without touching Google. The
+client mirrors the floors (`CalendarSyncReason.floor`) so it never sends an ask
+the server would refuse; `NodTests/CalendarSyncScheduleTests` pins the mirror.
+
+| Reason | When the app sends it | Floor |
+|---|---|---|
+| `open` | launch, sign-in, the app coming forward, Today shown | 15 min |
+| `idle` | the watcher's tick, once nothing has been read for an hour | 60 min |
+| `approaching` | the watcher's tick, while an entry starts within 30 min | 5 min |
+| `call` | a recording starts, before the invitation is matched | 2 min |
+
+`synced_at` on `calendar_sync_state` is stamped on every attempt, succeeded or
+not, so a provider that keeps refusing is retried no faster than one that
+answers. `MONTHLY_READ_CAP` (3,000 proxied requests per calendar per UTC
+month — pages count, since pages are what the proxy meters) is the budget above
+which the claim answers `capped`; the app then holds every timed ask until the
+month turns. A `call` read is exempt on both sides: one per recording, and the
+read that names the meeting. A client that hits the budget is misbehaving, and
+nobody else is affected. The budget is read from the tally below, which is
+best-effort: a tally that cannot be written leaves the budget unspent, never
+the calendar unread.
+
+**The sweep is a safety net.** `sync-calendars` runs once a day (`45 4 * * *`)
+and reads only accounts the app has not asked about for twenty hours. An
+account whose Nod is running costs the sweep nothing; a connected calendar whose
+Nod has been closed for a week costs one read a day, so Today is right the
+moment it reopens rather than after its first ask.
+
+**Freshness.** With Nod running, a change to an entry within the next half hour
+lands within five minutes; a new invitation for later in the day within an
+hour, or the moment the app comes forward; a recording matches against a copy
+no older than two minutes. With Nod closed nothing needs the calendar, and the
+daily sweep keeps the copy from going stale beyond a day.
+
+**Cost model** — one page per read (≤250 entries in the nine-day window), no
+retries (a failed read waits its floor), Nod running nine hours on twenty-two
+working days, three meetings a day:
+
+| Reads per calendar per month | |
+|---|---|
+| `open` — about five activations a day past the floor | 110 |
+| `idle` — the hours nothing else read | 130 |
+| `approaching` — up to seven per meeting (35 minutes over a 5-minute floor) | 460 |
+| `call` — one per meeting | 66 |
+| sweep — zero while the app is used; 30 for an account that never opens it | 0–30 |
+| **Total** | **≈ 800** (was 4,320) |
+
+Six meetings a day, back to back, is about 1,200. The ceiling through the
+floors alone is twelve reads an hour for a calendar with a meeting always
+within the half hour — 2,400 a month over the working hours modelled here, and
+more for a Mac left running around the clock with such a calendar, which is
+the one honest case the cap would also stop.
+
+| Connected calendars | 1 | 10 | 100 | 1,000 | 10,000 |
+|---|---|---|---|---|---|
+| Reads a month (modelled) | 800 | 8,000 | 80,000 | 800,000 | 8 M |
+| Reads a month (old sweep) | 4,320 | 43,200 | 432,000 | 4.32 M | 43.2 M |
+
+Pipedream does not publish a per-request price for the proxy: credits are
+metered as compute (one credit per 30 s at 256 MB), a proxy request is well
+under one, and the plans bundle credits by the day — the Advanced plan's
+roughly 10,000 a day — about 300,000 a month — covers a few hundred modelled
+calendars at the current pricing, after which the Business plan's terms apply. Those figures come from
+Pipedream's own pricing docs and third-party summaries as of 2026-09-02;
+confirm them on `pipedream.com/pricing` before setting a plan price on them.
+
+**What is measured.** Every proxied request, calendar or not, adds one to
+`integration_proxy_requests` (person, provider, purpose, day) through
+`count_proxy_request`; `purpose` is `action` for a tool call and
+`calendar-<reason>` / `calendar-sweep` for the reads above. The count is handed
+to the edge runtime's `waitUntil` so it never sits on a response's critical
+path, and it is bounded to two seconds. Per-user monthly spend per capability
+is one query on that table; it is kept thirteen months. The chat's own calendar
+reads (`list_events`, free/busy) are counted as `action` and are outside the
+cap: they happen once per question somebody asked.
+
+**What would take the cost to near zero** is push: Google's `events.watch`
+delivers a notification to a URL of ours whenever the calendar changes, and a
+read then happens only on a change. That needs a channel per calendar renewed
+weekly (one proxied `watch` a week), a receiving function, and — through
+Connect — a custom OAuth client for Google Calendar, which is the same
+prerequisite as putting Nod's name on the consent screen. Not built; the floors
+above are what stand until it is.
+
 ## Connect environments — and what production needs
 
 Every Connect call carries `x-pd-environment`, set from `PIPEDREAM_ENVIRONMENT`

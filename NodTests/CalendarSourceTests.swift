@@ -61,4 +61,18 @@ final class CalendarSourceTests: XCTestCase {
         wait(for: [loaded], timeout: 1)
         observer.cancel()
     }
+
+    /// On the same turn, not a tick later: `@Published` publishes before the
+    /// property changes, so the answer has to come from the published value.
+    /// A read landing rows is the only publish a Google-only user ever gets.
+    func testTheFirstReadTurnsTheSourceOnSynchronously() throws {
+        let calendar = try CalendarServiceFixture.service(switchedOn: false)
+        let remote = RemoteCalendar.preview([])
+        calendar.remote = remote
+        XCTAssertFalse(calendar.hasAnySource)
+        remote.adopt([anEvent])
+        XCTAssertTrue(calendar.hasAnySource)
+        remote.adopt([])
+        XCTAssertFalse(calendar.hasAnySource)
+    }
 }

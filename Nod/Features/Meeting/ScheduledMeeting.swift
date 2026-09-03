@@ -141,7 +141,7 @@ final class ScheduledMeetingWatcher: ObservableObject {
                 // Before the tick, not after: a connected calendar is only as
                 // current as its last read, and the entry this tick is looking
                 // for may have been created since the app last came forward.
-                await calendar.refreshRemoteIfStale()
+                await calendar.syncRemoteIfDue()
                 tick()
             }
         }
