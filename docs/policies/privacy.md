@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-09-02_
+_Last updated: 2026-09-03_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -109,6 +109,38 @@ the app and inside the Whisper request, for the duration of a single
 ~5-second chunk. The bytes are released as soon as the transcript returns.
 There is no audio file, no waveform export, no cloud-stored recording.
 
+**A question you speak.** Holding the ask key opens your microphone for as
+long as you hold it; letting go sends that one clip — and only that clip — to
+the same speech-to-text provider, through the same proxy, under the same
+no-storage terms as a recording chunk. It carries no meeting: if you ask
+mid-recording, those seconds are taken out of the transcript rather than
+written into it. A clip is capped at sixty seconds and is released the moment
+its text returns. The words become a normal "Ask Nod" message, saved as one.
+The answer is then said back to you — first a few words that Nod is on it,
+then the answer in one to three spoken sentences. Two calls make each: the
+words are written by a language model reached through OpenRouter, the same
+way every other model call in Nod is, from the question you spoke and the
+written answer, nothing else. Reading them aloud is one call directly to
+OpenAI's text-to-speech API — the one part of this that is not routed
+through OpenRouter, because only OpenAI's own endpoint lets Nod ask for a
+natural, unhurried delivery rather than a flat read. It receives only the
+short line just written, never a transcript or a recording, and the audio is
+played once and not kept. If either step is unavailable, the voice built
+into macOS reads a plain version on your Mac instead.
+
+**A live conversation.** A quick tap of the ask key, instead of a hold, opens
+a continuous back-and-forth instead of one clip: your microphone stays open,
+and Nod's replies stream back as you talk, until you tap again, click the
+notch, press Escape, or fifteen minutes pass. That audio streams directly
+between your Mac and OpenAI's Realtime API over a short-lived key our server
+hands your Mac for the one session — no other model call in Nod works this
+way, and Nod's own server never sees the conversation. Nod knows nothing
+about your account inside that conversation on its own; when it needs to
+look something up, it asks — through the same no-recording, no-transcript
+path a typed question uses — and only the last five exchanges of that one
+live conversation are kept in view for a follow-up to make sense, in a
+thread of its own, separate from your other "Ask Nod" conversations.
+
 ### 3.3 Consent acknowledgement audit log
 
 When you click "Acknowledge & Start" on the recording disclaimer, we write
@@ -128,6 +160,12 @@ used, prompt/completion token counts (for chat) or audio duration (for
 transcription), the OpenRouter generation ID, the HTTP status, and the
 upstream cost in USD. We do **not** record the prompt content or the
 response content in this table.
+
+For each request our servers make to a product you connected (§ 3.16), through
+our integration provider, we add one to a daily count per product and purpose —
+an action you asked for, or a calendar read and the reason for it. The count is
+all that is kept: not the request, and nothing it returned. It is kept for
+thirteen months.
 
 We use this to enforce per-account quotas, choose pricing, and detect
 abuse.
@@ -339,7 +377,7 @@ the product:
 
 | | |
 |---|---|
-| **Default** | **Off.** You switch it on yourself — in Settings → Privacy, or from the **Ambient context** control at the bottom of Nod's sidebar, which states the same thing this row does before it turns anything on. It is never switched on by an app update. |
+| **Default** | **Off.** You switch it on yourself — on the setup card in the notch when you first set Nod up, in Settings → Privacy, or from the **Ambient context** control at the bottom of Nod's sidebar. Each of the three states the same thing this row does before it turns anything on, and skipping the setup card leaves it off. It is never switched on by an app update. |
 | **Turning it off** | The same sidebar control switches it off in one click, and always shows whether it is on, off, or paused. You never have to go looking for the off switch. |
 | **Pausing** | You can pause capture for 15 minutes, an hour, or the rest of the day without switching the feature off. Nothing is read while it is paused, and it resumes on its own when the time is up. A pause survives quitting Nod, and never outlives its own deadline. |
 | **What is stored** | The window's text, the app's identifier, the window title, and a timestamp, in `screen_observations` — and, for a browser tab, the page's address, so an answer can hand you back the link you were looking at. No images, no keystrokes, no clipboard, no password-field contents. |
@@ -438,9 +476,9 @@ the data goes. Neither is on by default and neither implies the other.
 |---|---|
 | **Default** | **Off.** You connect it yourself, in onboarding or in Settings → Integrations. It is never connected by an app update. |
 | **What it is** | **A connected account.** Google's own authorization page opens in your browser and you grant Nod access to your calendar. Google's screen describes that access as managing your calendars — see **Writing** below for what Nod actually does with it. Your Google password never reaches Nod. The access and refresh tokens are held by **Pipedream**, our integration provider (see the Subprocessors list) — Nod never receives or stores them. |
-| **When it reads** | On a schedule on our servers, about every ten minutes, for as long as the connection exists — including while your Mac is asleep. |
+| **When it reads** | When Nod on your Mac asks for it, and it says why: when you open Nod or bring it forward, once an hour while it is running, every few minutes in the half hour before an entry on that calendar, and when a recording starts. Each of those has a floor on our servers — fifteen minutes, an hour, five minutes, two minutes — and a request sooner than its floor is refused without reading anything. We make at most about 3,000 such requests for one calendar in a month, whatever the app asks; only the read made when a recording starts is outside that budget, one per recording. On their own, our servers refresh a calendar once a day, and only one the app has not asked about since the day before. Reading a date range you ask about in chat (see **What it reads**) is separate, and happens only when you ask. |
 | **What it reads** | Your **primary** calendar only, and only a moving window around now: from two hours ago to seven days ahead. Within that window: the title, start and end times, the video-call link, the organizer's address, and **who is invited** — each attendee's email address and whether they accepted. Meeting rooms and equipment are skipped, and all-day entries are ignored entirely. Nothing else about an event is read, and no other calendar is read on the schedule. One exception, and only when you are scheduling: before a meeting you ask Nod to set up is sent, Nod asks Google whether the people you are inviting are **free or busy** at that time — the same free/busy answer their calendar shows any colleague, which carries no titles, no guests and no details, only the blocks. It is read for that one question, shown to you, and not stored. A calendar Google will not answer for is shown as "couldn't check", never as free. |
-| **What it stores** | This one **does** keep a record, which is the difference from (b). The fields listed above are stored on our servers so the app can answer "what is starting next" without your Mac being awake. An event leaves our database when it leaves the window, and in any case within **seven days** of the meeting ending. |
+| **What it stores** | This one **does** keep a record, which is the difference from (b). The fields listed above are stored on our servers so the app can answer "what is starting next" the moment it opens. An event leaves our database when it leaves the window, and in any case within **seven days** of the meeting ending. |
 | **Writing** | **Only when you confirm it, and only what you confirmed.** Nod can create a calendar event, and it can change or cancel an existing one, when you ask it to in chat. Each shows you a card first — what will be created, moved, or cancelled, and who is invited — and nothing happens until you press the button on that card. Google then emails the guests the invitation, the change, or the cancellation, which is why the confirmation exists: none of them can be recalled. For a change or a cancellation, the card names the event by its title and start time, and our server refuses the request when they no longer match the event it points at — the event acted on is the one you read. Nod never touches your calendar on its own initiative. |
 | **Turning it off** | **Disconnect** in Settings → Integrations. That ends the authorization — the stored credential is deleted at our integration provider, so nothing can read your calendar afterwards — and every event we had already read is deleted at the same moment. You can also revoke Nod from your Google account directly: that stops the reading just as completely, though events already stored then age out on the schedule above rather than going immediately. |
 

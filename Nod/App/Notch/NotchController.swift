@@ -50,6 +50,7 @@ final class NotchController {
     func build(model: NotchModel, cards: NotchCardEnvironment, sharing: NSWindow.SharingType) {
         guard panel == nil else { return }
         self.model = model
+        model.onWantsKeyboard = { [weak self] in self?.takeKeyboard() }
 
         let content = NotchView(model: model)
             .environmentObject(cards.integrations)
@@ -90,6 +91,29 @@ final class NotchController {
 
     func open() {
         model?.open()
+    }
+
+    func askNod() {
+        model?.askNod()
+    }
+
+    func beginVoiceAsk() {
+        model?.beginVoiceAsk()
+    }
+
+    func endVoiceAsk() {
+        model?.endVoiceAsk()
+    }
+
+    /// The notch's half of onboarding, once the window has handed off.
+    func beginSetup() {
+        model?.beginSetup()
+    }
+
+    /// Key without activating: the panel is non-activating, so the person's
+    /// app stays in front while the field takes the caret.
+    private func takeKeyboard() {
+        panel?.makeKeyAndOrderFront(nil)
     }
 
     func setSharing(_ sharing: NSWindow.SharingType) {

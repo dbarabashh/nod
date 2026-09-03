@@ -1,26 +1,40 @@
 import Combine
 import Foundation
 
-/// The flow, in order. Calendar sits second on purpose: it is the one answer
-/// that changes how well everything downstream works — an invitation gives the
-/// diarizer an exact speaker count and the names to go with it, and without one
-/// `MeetingParticipants` falls back to a window list that counted sixteen
-/// people for a four-person call.
+/// The flow, in order. Two answers are asked in a window — who this is, and
+/// what to call them — and everything after that happens in the notch, where
+/// Nod is going to live: the permissions, the calendar, and the first question.
+/// `.notch` is the hand-off, not a screen; `WindowCoordinator` closes the
+/// window on it and `NotchModel` runs the rest.
 ///
-/// `allCases` is the order. The raw value is a *name*, not a position, so a
-/// reorder is a reorder rather than a stored-data migration — which is what the
-/// 1.0–1.4 table below exists to stop happening again.
+/// The raw value is a *name*, not a position, so a reorder is a reorder rather
+/// than a stored-data migration — which is what the 1.0–1.5 table below exists
+/// to stop happening again. The three retired names are still decodable: a
+/// person mid-flow on one of them resumes in the notch, which now asks the
+/// same things.
 enum OnboardingStep: String, Codable, CaseIterable {
     case welcome
+    case profile
+    case notch
     case calendar
     case permissions
-    case profile
     case emailPreferences
+
+    /// The steps the flow actually shows, in order.
+    static let allCases: [OnboardingStep] = [.welcome, .profile, .notch]
 
     /// Where this step sits today, for the dots and for next/previous. Read
     /// rather than stored: nothing persists it any more.
     var position: Int {
         (Self.allCases.firstIndex(of: self) ?? 0) + 1
+    }
+
+    /// Where somebody standing on a step this build no longer shows resumes.
+    var current: OnboardingStep {
+        switch self {
+        case .welcome, .profile, .notch: self
+        case .calendar, .permissions, .emailPreferences: .notch
+        }
     }
 
     /// The next step in `offset`'s direction, stepping over anything already
@@ -45,7 +59,7 @@ enum OnboardingStep: String, Codable, CaseIterable {
 }
 
 struct OnboardingStatus: Codable {
-    static let currentVersion = "1.5"
+    static let currentVersion = "1.6"
 
     var version: String = currentVersion
 
@@ -77,10 +91,10 @@ struct OnboardingStatus: Codable {
         // back to the position table for everything written before it existed.
         if let name = try container.decodeIfPresent(String.self, forKey: .stepName),
            let step = OnboardingStep(rawValue: name) {
-            currentStep = step
+            currentStep = step.current
         } else {
             let storedPosition = try container.decodeIfPresent(Int.self, forKey: .currentStep) ?? 1
-            currentStep = Self.migrateStep(storedPosition, from: storedVersion)
+            currentStep = Self.migrateStep(storedPosition, from: storedVersion).current
         }
         version = Self.currentVersion
     }
@@ -107,13 +121,15 @@ struct OnboardingStatus: Codable {
     ///
     /// The tutorial is gone; whoever stood on it had already granted
     /// permissions and filled the profile, so 1.3's slot 4 resolves to the
-    /// calendar — the one thing that flow had not yet asked them for.
+    /// calendar — the one thing that flow had not yet asked them for. 1.5 is
+    /// here for a downgrade that wrote a position under the 1.4 order.
     private static let ordersByVersion: [String: [OnboardingStep]] = [
         "1.0": [.welcome, .permissions, .calendar, .emailPreferences],
         "1.1": [.welcome, .profile, .permissions, .calendar, .emailPreferences],
         "1.2": [.welcome, .profile, .permissions, .calendar, .emailPreferences],
         "1.3": [.welcome, .profile, .permissions, .calendar, .calendar, .emailPreferences],
-        "1.4": [.welcome, .calendar, .permissions, .profile, .emailPreferences]
+        "1.4": [.welcome, .calendar, .permissions, .profile, .emailPreferences],
+        "1.5": [.welcome, .calendar, .permissions, .profile, .emailPreferences]
     ]
 
     /// An unknown version is one this build has never shipped — a downgrade, or
@@ -184,6 +200,12 @@ final class OnboardingState: ObservableObject {
 
     var isCompleted: Bool {
         status.completed
+    }
+
+    /// Whether the rest of the flow is the notch's to run: the window has
+    /// handed off and nothing has finished it yet.
+    var isSettingUpInNotch: Bool {
+        !status.completed && status.currentStep == .notch
     }
 
     /// The step alone cannot reach anyone who already finished onboarding —

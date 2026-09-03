@@ -54,10 +54,37 @@ it drops back to `.accessory` otherwise.
 
 `NodApp` is a near-empty SwiftUI `App`; the real bootstrap is in
 `AppDelegate.applicationDidFinishLaunching` (`Nod/App/NodApp.swift`). It
-constructs every service exactly once, wires them together, then either shows
-the onboarding window or the floating panel based on
-`OnboardingState.isCompleted`. Services are passed downstream via
-`@EnvironmentObject`.
+constructs every service exactly once, wires them together, then
+`WindowCoordinator.reconcile()` picks the surface from `OnboardingState`:
+the onboarding window for `.welcome` and `.profile`, the notch running its
+setup cards (`NotchSetupStage`: permissions, ambient context, calendar, the
+first question) once the flow has handed off to `.notch`, and the notch alone
+once `isCompleted`. The setup skips any ask this Mac has already answered and
+ends the first time a real question comes back answered — or on the card's own
+close, which completes the flow and leaves the rest to Settings. Services are
+passed downstream via `@EnvironmentObject`.
+
+The Ask hotkey (`HotkeyAction.askNod`, ⌘⇧K by default) lands in the notch too:
+idle, it opens `NotchAskCard` over the shared `KnowledgeChatStore` thread and
+makes the panel key so the field takes the caret without a click; during a
+recording it expands the meeting bar's own Ask box instead. There is no
+separate quick panel any more.
+
+## Onboarding narration
+
+Each onboarding step says a short, pre-written line aloud once, on arrival
+(`Nod/Features/Onboarding/OnboardingNarration.swift`) — the window's two
+steps through a dedicated `AppServices.onboardingNarrator: SpokenAnswer`
+(the notch doesn't exist yet), the notch's own setup cards through
+`NotchModel.voice`, the same instance the ask feature speaks answers with.
+Both go through `SpokenAnswer.sayScripted(_:language:)`, a `purpose:
+"narration"` line that the proxy still routes through the OpenRouter rewrite
+step before TTS — the copy itself is final and never generated, but reading
+it in spoken register (contractions, natural pacing) instead of verbatim is
+what keeps it sounding like the same voice as an answer. `NotchSetupContent`
+gates re-narration to an actual stage change via `.id(stage)`, so an
+unrelated `NotchModel` republish while on the same card doesn't say the line
+again.
 
 ## Audio pipeline (the hot path)
 
@@ -107,6 +134,121 @@ The data flow that produces a transcript:
    text heuristics and diarization keeps span-level accuracy without
    sentence-level splits. The rolling `prompt` tail is still sent but OpenRouter
    ignores it; only the direct-Groq path ever applied it.
+
+### A live conversation, tapped open
+
+A bare tap on `HotkeyAction.holdToAsk` (⌘T, held under `HeldQuestionRecorder
+.minSeconds` — a real hold is the section below) opens a continuous voice
+session instead of one clip: `RealtimeVoiceSession` mints a short-lived
+credential from the proxy (`kind: "realtime_token"`, `_shared/realtime.ts`) —
+model `gpt-realtime-2`, voice, and a friend persona all baked in server-side —
+then holds its own `URLSessionWebSocketTask` straight to
+`wss://api.openai.com/v1/realtime`, no proxy in the loop for the rest of the
+call. The mic streams out continuously as 24 kHz mono PCM16
+(`input_audio_buffer.append`); the server's own VAD (`turn_detection:
+server_vad`) decides when the person has stopped talking and starts
+answering; the reply streams back as `response.output_audio.delta` chunks,
+played through an `AVAudioPlayerNode` as they arrive, with transcript deltas
+debounced (~60 ms) into the pill's `.speaking(words)` state. Talking over the
+assistant triggers the server's own barge-in (`interrupt_response: true`);
+since that guarantee is WebRTC/SIP-only, the client also flushes its own
+queued playback on `input_audio_buffer.speech_started` so nothing already
+scheduled talks over the interruption.
+
+The model has exactly one tool, `ask_nod(question)` — a live conversation
+knows nothing about the account on its own, and everything it can answer
+about sessions, calendar, tasks, projects or beats goes through this one
+call into `AppServices.voiceChat`, a `KnowledgeChatStore` instance dedicated
+to voice and capped at five turns (`maxTurns`, `KnowledgeChatStore
+.turnsToDrop`) — its own thread, never the Library's, so a live follow-up
+resolves against what was just said without either polluting the Library's
+history or growing without bound. Because that memory lives on `AppServices`
+rather than inside the session, an accidentally-ended or dropped connection
+does not lose it — the next tap starts a fresh socket with the same last few
+exchanges still behind it.
+
+Tapping again, clicking the pill, or Escape ends the session
+(`RealtimeVoiceSession.stop()`); so does 15 minutes of continuous connection
+(`maxSessionSeconds`) or the socket failing — everything upstream of an
+already-connected session bounds only how long the *token* is valid to
+start one, never how long the conversation itself may run, so this client
+timer is the only cap on that. `RealtimeVoiceSession.isActive` excludes
+`.failed`: a failure tears the session down immediately and shows the reason
+for a moment, but the very next tap starts clean rather than being read as
+"end a session that no longer exists." A hold while a session is open does
+nothing until release (which just ends it) — the key's only job once a
+conversation is open is to close it.
+
+### A question spoken into the notch
+
+Holding `HotkeyAction.holdToAsk` (⌘T by default) opens the microphone for as
+long as the key is down. With no meeting running the surface stays at rest:
+`NotchPresentation.voice(VoiceAskPhase)` is the pill saying "Listening…" then
+"Thinking…", and the Ask card opens (`revealAsk(baseline:)`) only once the
+answer exists. The pill's width is measured from its label
+(`VoiceAskPhase.restingSideWidth`) — a word wider than its half would be drawn
+under the hardware rather than truncated. During a meeting the bar's own Ask
+box shows the same phases.
+The resolver puts the pill above rooms, offers and cards — the person is
+mid-sentence to Nod. `HotkeyManager` reports Carbon's `kEventHotKeyReleased`
+alongside the press so the notch knows when it is let go.
+`HeldQuestionRecorder` assembles one 16 kHz mono clip on its own queue. With
+no recording running it opens a private `AVAudioEngine`; during one it calls
+`AudioCaptureService.divertMicrophone(to:)`, which routes the tap's buffers to
+the clip instead of `onMicBuffer`, so the question never lands in the
+transcript. The diversion only happens while a microphone tap is live
+(`isCapturingMicrophone`); a media session or a paused recording gets Nod's
+own engine. A hold ends itself at sixty seconds (`voiceHoldLimit`), since
+Carbon reports no release for a binding torn down mid-hold, and `start`/`stop`
+on the capture service clear any diversion left behind. On release the clip
+goes to the proxy's `dictate` kind — the `transcribe` path minus the meeting
+lease, refused unless it is WAV and at most sixty seconds by its own header
+(`_shared/dictation.ts`) — and the text is submitted exactly as a typed
+question would be (`submitIdleAsk` / `submitAsk`, with `spoken: true`). What
+goes wrong is said on the row for a moment (`VoiceAskPhase.failed`).
+`SpokenAnswer` is one mouth: every line passes through one queue and one
+player, so nothing is said over anything else. The moment the question is
+transcribed it queues an acknowledgement; when the answer lands it queues the
+answer. Each line goes to the proxy's `speak` kind with a `purpose` and the
+question, which the proxy turns into audio in two steps: `completeOnce`
+(`_shared/complete.ts`) asks `openai/gpt-4o-mini` through OpenRouter — the
+same route as chat — to *write* the line, given a persona (`_shared/speech.ts`
+`PERSONA`: a friend who sat in on the day, warm and on their side, never a
+customer-service voice), the language (Whisper's detection of the question,
+else the app language) and a length rule — one short sentence for a quick
+question, two or three with details only for a meeting, a session, a day's
+work or a brief. That line, and only that line, then goes straight to
+OpenAI's own `/v1/audio/speech` (`gpt-4o-mini-tts`, voice `SPEECH_VOICE` —
+`cedar` by default, the warmer of OpenAI's two newest and the male one) with
+an `instructions` string describing the performance (unhurried and settled
+for the answer, a quick aside for the acknowledgement) — the one control a
+chat-completions voice doesn't expose, and the reason this one call goes to
+OpenAI directly instead of through OpenRouter. It never reads the card's text.
+The proxy refuses a line over 1,500 characters, a language outside
+`AppLanguage`, and more than 40 calls per user per ten minutes; each call
+lands in `usage_events` as `kind = 'speak'` with an estimated cost. Without
+both keys it answers 422 (not retried) and the line is read by
+`AVSpeechSynthesizer` in the language's best installed voice. A short, flat
+answer (`looksAlreadySpoken` — no markdown, no URL/path/identifier, under
+220 characters) skips the script-writing hop entirely and goes straight to
+TTS, since a quick fact needs no rephrasing; the `instructions` string is
+otherwise one shared "voice identity" for both the acknowledgement and the
+answer (same warmth, pacing character, and steady volume), with only the
+energy differing, so the two lines read as one continuous person rather than
+two takes. The per-user rate limit is only refunded on a network-level
+failure (unreachable, timeout) — never on a non-2xx from either provider,
+since the caller's own content can provoke that and refunding it would
+reopen the meter to the abuse it exists to stop. While a line
+plays the phase is `.speaking(words)`: the card shows the words with "Esc to
+stop", the resting pill says "Speaking…" if the card was closed; Escape — or a
+click on the pill, which has no key window for Escape to reach — cuts it off,
+and so does the next hold. The question's own phase and the words being said
+are kept apart (`voicePhase` vs `speakingWords`, merged for display by
+`syncVoiceDisplay`) so "Thinking…" holds while the acknowledgement plays under
+it; a tool approval asked for mid-answer reveals the card at once.
+`config.excludesCurrentProcessAudio` keeps that voice out of the system-audio
+stream, but a Mac on speakers will still hear it through the microphone like
+any other sound in the room.
 
 ## Floating-panel UX
 

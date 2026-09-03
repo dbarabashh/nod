@@ -22,6 +22,9 @@ jobs:
           deno fmt --check \
             supabase/functions/_shared/connector-auth.ts \
             supabase/functions/_shared/connector-auth.test.ts \
+            supabase/functions/_shared/dictation.test.ts \
+            supabase/functions/_shared/speech.test.ts \
+            supabase/functions/_shared/realtime.test.ts \
             supabase/functions/_shared/founder-mcp.ts \
             supabase/functions/_shared/founder-mcp.test.ts \
             supabase/functions/_shared/founder-mcp-server.test.ts \

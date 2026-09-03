@@ -7,7 +7,7 @@ import type { FailoverAttempt } from "./stt-providers.ts";
 
 export interface UsageRow {
     user_id: string;
-    kind: "chat" | "transcribe" | "embed";
+    kind: "chat" | "transcribe" | "embed" | "speak";
     model: string;
     status: number;
     prompt_tokens?: number | null;

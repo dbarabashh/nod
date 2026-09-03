@@ -19,9 +19,9 @@ enum QuestionIntent {
     /// Phrases that make the open task list a better answer than any passage.
     private static let taskPhrases = [
         "to do", "todo", "to-do", "task", "action item", "should i do", "need to do", "outstanding", "follow up",
-        "due", "deadline", "planned",
-        "зробити", "задач", "завдан", "дедлайн", "треба", "потрібно", "заплановано",
-        "сделать", "нужно"
+        "due", "deadline", "planned", "on me", "on my plate", "waiting on me", "what do i have",
+        "зробити", "задач", "завдан", "дедлайн", "треба", "потрібно", "заплановано", "на мені", "на моєму боці",
+        "сделать", "нужно", "на мне"
     ]
 
     /// Phrases that make a question about Nod itself — how it captures, what it
@@ -74,6 +74,45 @@ enum QuestionIntent {
     /// True when the question is about what the user has scheduled. Gates the
     /// calendar block, which otherwise costs a synchronous EventKit read and a
     /// few hundred tokens on every unrelated question.
+    /// Whether the question is about what a beat found — the scheduled
+    /// briefings Nod runs on its own — or about what the person missed.
+    /// Whether the question is about the projects (folders) the person has
+    /// organized their sessions into, rather than a specific session.
+    static func asksAboutProjects(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        if projectPhrases.contains(where: { lowered.contains($0) }) { return true }
+        let words = lowered.split { !$0.isLetter && $0 != "'" }.map(String.init)
+        return words.contains { projectWords.contains($0) }
+    }
+
+    private static let projectPhrases = [
+        "what projects", "which projects", "my projects",
+        "які проєкти", "які проекти", "мої проєкти", "мої проекти"
+    ]
+
+    // Plural, not singular: "project" alone is as often a verb ("project the
+    // numbers forward") as it is the folder noun; "projects" isn't.
+    private static let projectWords: Set<String> = [
+        "projects", "folders", "проєкти", "проекти", "папки"
+    ]
+
+    static func asksAboutBeats(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        if beatPhrases.contains(where: { lowered.contains($0) }) { return true }
+        // Whole words only: "beat" is inside "heartbeat", "біт" inside "робіт".
+        let words = lowered.split { !$0.isLetter && $0 != "'" }.map(String.init)
+        return words.contains { beatWords.contains($0) }
+    }
+
+    private static let beatPhrases = [
+        "what did i miss", "what i missed", "what's new", "whats new", "catch me up", "update me",
+        "latest update", "що я пропустив", "що нового", "введи в курс"
+    ]
+
+    private static let beatWords: Set<String> = [
+        "beat", "beats", "briefing", "briefings", "digest", "біт", "біти", "брифінг", "дайджест"
+    ]
+
     static func asksAboutSchedule(_ text: String) -> Bool {
         let lowered = text.lowercased()
         return schedulePhrases.contains { lowered.contains($0) }

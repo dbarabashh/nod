@@ -117,7 +117,7 @@ final class TextSnippetTests: XCTestCase {
     }
 }
 
-final class LauncherQuestionTests: XCTestCase {
+final class QuestionIntentTests: XCTestCase {
     func testQuestionMarkAtTheEndCounts() {
         XCTAssertTrue(QuestionIntent.isQuestion("як пройшов ван-он-ван з Людвігом?"))
         XCTAssertTrue(QuestionIntent.isQuestion("what did we ship?"))
@@ -193,43 +193,6 @@ final class EvidenceTests: XCTestCase {
     func testSpeakerTagsAreStripped() {
         XCTAssertEqual(KnowledgeChatStore.readable("[Them]: Okay, good.\n[Me]: Thanks."), "Okay, good. Thanks.")
         XCTAssertEqual(KnowledgeChatStore.readable("  plain text  "), "plain text")
-    }
-}
-
-@MainActor
-final class LauncherResumeTests: XCTestCase {
-    private let dismissed = Date(timeIntervalSince1970: 1_700_000_000)
-
-    private func resumes(after seconds: TimeInterval, hasContent: Bool = true, consumed: Bool = false) -> Bool {
-        LauncherModel.resumes(
-            dismissedAt: dismissed,
-            now: dismissed.addingTimeInterval(seconds),
-            hasContent: hasContent,
-            consumed: consumed
-        )
-    }
-
-    func testAnAccidentalDismissalIsResumable() {
-        XCTAssertTrue(resumes(after: 5), "clicking away mid-read shouldn't cost the answer")
-        XCTAssertTrue(resumes(after: 60))
-    }
-
-    func testItGoesStale() {
-        XCTAssertFalse(resumes(after: LauncherModel.resumeWindow + 1))
-    }
-
-    func testActingOnTheAnswerEndsIt() {
-        // Opening a session or handing the thread to the Library was the point
-        // of the dismissal — coming back to the same answer would be noise.
-        XCTAssertFalse(resumes(after: 5, consumed: true))
-    }
-
-    func testNothingToResumeWhenThePanelWasEmpty() {
-        XCTAssertFalse(resumes(after: 5, hasContent: false))
-    }
-
-    func testAFirstOpenHasNoDismissal() {
-        XCTAssertFalse(LauncherModel.resumes(dismissedAt: nil, now: dismissed, hasContent: true, consumed: false))
     }
 }
 

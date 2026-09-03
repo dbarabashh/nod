@@ -44,7 +44,7 @@ final class OnboardingTelemetry: ObservableObject {
     /// SwiftUI re-runs `.task(id:)` on window rebuilds. A relaunch (which the
     /// Screen Recording grant forces) is a new process and logs the step again,
     /// which is exactly the signal we want to see.
-    private var loggedSteps: Set<OnboardingStep> = []
+    private var loggedStages: Set<String> = []
 
     init(
         supabase: SupabaseClient? = nil,
@@ -74,26 +74,36 @@ final class OnboardingTelemetry: ObservableObject {
     }
 
     func stepShown(_ step: OnboardingStep) {
-        guard loggedSteps.insert(step).inserted else { return }
-        log(.stepShown, step: step)
+        stageShown(Self.name(for: step))
+    }
+
+    /// The notch's half of the flow reports its stages under the same event,
+    /// so the funnel reads as one flow from sign-in to the first question.
+    func setupStageShown(_ stage: NotchSetupStage) {
+        stageShown("notch.\(stage.rawValue)")
+    }
+
+    private func stageShown(_ stage: String) {
+        guard loggedStages.insert(stage).inserted else { return }
+        log(.stepShown, stage: stage)
     }
 
     /// `detail` carries the role, so the funnel answers "who signs up" and
     /// "who finishes" in one query. Nil when they answered without picking one.
     func profileCompleted(role: WorkRole?) {
-        log(.profileCompleted, step: .profile, detail: role?.rawValue)
+        log(.profileCompleted, stage: "profile", detail: role?.rawValue)
     }
 
     func profileSkipped() {
-        log(.profileSkipped, step: .profile)
+        log(.profileSkipped, stage: "profile")
     }
 
     func permissionRequested(_ permission: Permission) {
-        log(.permissionRequested, step: .permissions, detail: permission.rawValue)
+        log(.permissionRequested, stage: "notch.permissions", detail: permission.rawValue)
     }
 
     func permissionResolved(_ permission: Permission, granted: Bool) {
-        log(granted ? .permissionGranted : .permissionDenied, step: .permissions, detail: permission.rawValue)
+        log(granted ? .permissionGranted : .permissionDenied, stage: "notch.permissions", detail: permission.rawValue)
     }
 
     /// Screen Recording only: the answer can't be read back before a restart,
@@ -101,36 +111,36 @@ final class OnboardingTelemetry: ObservableObject {
     /// such row was a guess, and the funnel read 0 grants while users were
     /// recording system audio fine.
     func screenRecordingPendingRelaunch() {
-        log(.permissionPendingRelaunch, step: .permissions, detail: Permission.screenRecording.rawValue)
+        log(.permissionPendingRelaunch, stage: "notch.permissions", detail: Permission.screenRecording.rawValue)
     }
 
     func permissionsSkipped() {
-        log(.permissionsSkipped, step: .permissions)
+        log(.permissionsSkipped, stage: "notch.permissions")
     }
 
     func relaunchPrompted() {
-        log(.relaunchPrompted, step: .permissions)
+        log(.relaunchPrompted, stage: "notch.permissions")
     }
 
     /// Awaits the write, unlike every other event: the caller terminates the
     /// process immediately afterwards, and a detached task would lose the row.
     func relaunchClicked() async {
-        guard let queued = makeQueuedEvent(.relaunchClicked, step: .permissions) else { return }
+        guard let queued = makeQueuedEvent(.relaunchClicked, stage: "notch.permissions") else { return }
         queue.append(queued)
         persistQueue()
         await flush()
     }
 
     func relaunchFailed(_ reason: String) {
-        log(.relaunchFailed, step: .permissions, detail: reason)
+        log(.relaunchFailed, stage: "notch.permissions", detail: reason)
     }
 
     func completed() {
         log(.completed)
     }
 
-    private func log(_ event: Event, step: OnboardingStep? = nil, detail: String? = nil) {
-        guard let queued = makeQueuedEvent(event, step: step, detail: detail) else { return }
+    private func log(_ event: Event, stage: String? = nil, detail: String? = nil) {
+        guard let queued = makeQueuedEvent(event, stage: stage, detail: detail) else { return }
         queue.append(queued)
         persistQueue()
         Task { await flush() }
@@ -138,7 +148,7 @@ final class OnboardingTelemetry: ObservableObject {
 
     private func makeQueuedEvent(
         _ event: Event,
-        step: OnboardingStep? = nil,
+        stage: String? = nil,
         detail: String? = nil
     ) -> QueuedOnboardingEvent? {
         guard !analytics.isOptedOut, let userID = auth?.session?.user.id else { return nil }
@@ -152,7 +162,7 @@ final class OnboardingTelemetry: ObservableObject {
                 platform: "macos",
                 appVersion: Self.appVersion(),
                 properties: OnboardingEventProperties(
-                    stage: step.map(Self.name(for:)),
+                    stage: stage,
                     permission: Self.permission(for: event, detail: detail),
                     reasonCode: Self.reasonCode(for: event),
                     outcome: Self.outcome(for: event)
@@ -194,7 +204,7 @@ final class OnboardingTelemetry: ObservableObject {
 
     private func discardQueuedEvents() {
         queue.removeAll()
-        loggedSteps.removeAll()
+        loggedStages.removeAll()
         persistQueue()
         Log.ui.info("onboarding analytics opted out — queue discarded")
     }
@@ -208,6 +218,7 @@ final class OnboardingTelemetry: ObservableObject {
         switch step {
         case .welcome: "welcome"
         case .profile: "profile"
+        case .notch: "notch"
         case .permissions: "permissions"
         case .calendar: "calendar"
         case .emailPreferences: "consent"

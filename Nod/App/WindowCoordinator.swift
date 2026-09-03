@@ -32,10 +32,20 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             closeNotch()
             closeOnboardingWindow()
             showSignInWindow()
-        } else if !services.onboarding.isCompleted {
+        } else if !services.onboarding.isCompleted, !services.onboarding.isSettingUpInNotch {
             closeNotch()
             closeSignInWindow()
             showOnboardingWindow()
+        } else if services.onboarding.isSettingUpInNotch {
+            // The window's part is over; the rest of the flow runs where Nod
+            // lives. Nothing else opens until it is done.
+            closeSignInWindow()
+            closeOnboardingWindow()
+            buildNotch()
+            notch.beginSetup()
+            // Spent: the setup is what this launch shows, and the next token
+            // refresh must not pop the main window over a flow in progress.
+            didApplyLaunchBehavior = true
         } else {
             closeSignInWindow()
             closeOnboardingWindow()
@@ -66,16 +76,21 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     private var didApplyLaunchBehavior = false
 
-    /// The quick panel, built on first use — most sessions never open it, and
-    /// it holds a hosting controller plus an event monitor.
-    private lazy var launcher = LauncherController(
-        services: services,
-        openMeeting: { [weak self] id in self?.showMainWindow(focusing: id) },
-        openLibrary: { [weak self] in self?.showMainWindow() }
-    )
+    /// The Ask hotkey, from anywhere. The notch answers it — nothing to do
+    /// before it exists, which is only during sign-in and the window half of
+    /// onboarding.
+    func askNod() {
+        notch.askNod()
+    }
 
-    func toggleLauncher() {
-        launcher.toggle()
+    /// The held key, down and up. Same reach as `askNod`: the notch, or
+    /// nothing before it exists.
+    func beginVoiceAsk() {
+        notch.beginVoiceAsk()
+    }
+
+    func endVoiceAsk() {
+        notch.endVoiceAsk()
     }
 
     /// The toggle hotkey and the menu-bar item: pull the notch open, or fold it
@@ -206,20 +221,16 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         )
         window.titleVisibility = .hidden
 
-        let root = OnboardingView(onComplete: { [weak self] in
+        let root = OnboardingView(onHandoff: { [weak self] in
             self?.reconcile()
         })
-        .environmentObject(services.permissions)
         .environmentObject(services.onboarding)
         .environmentObject(services.languagePreference)
         .environmentObject(services.profileStore)
         .environmentObject(services.auth)
         .environmentObject(services.onboardingTelemetry)
         .environmentObject(services.modeStore)
-        .environmentObject(services.emailPreferences)
-        .environmentObject(services.integrations)
-        .environmentObject(services.integrationCatalogue)
-        .environmentObject(services.calendar)
+        .environmentObject(services.onboardingNarrator)
 
         let hosting = NSHostingController(rootView: root)
         // The window is one size for the whole flow. Left to itself the hosting
@@ -371,7 +382,15 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 meetingStore: services.meetingStore,
                 knowledge: services.knowledgeStore,
                 permissions: services.permissions,
-                analytics: services.productAnalytics
+                analytics: services.productAnalytics,
+                knowledgeChat: services.knowledgeChat,
+                voiceChat: services.voiceChat,
+                llmClient: services.llmClient,
+                onboarding: services.onboarding,
+                onboardingTelemetry: services.onboardingTelemetry,
+                integrations: services.integrations,
+                screenContext: services.screenContext,
+                hotkeys: services.hotkeys
             ),
             cards: NotchCardEnvironment(
                 integrations: services.integrations,

@@ -111,6 +111,7 @@ struct MeetingBarExpansion: View {
                 phase: panel.ask,
                 approval: panel.approval,
                 canReachTools: canReachTools,
+                voice: panel.voice,
                 onSubmit: onSubmit,
                 onSummarize: onSummarize,
                 onApprove: onApprove,

@@ -92,9 +92,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch action {
             case .togglePanel:
                 windows?.toggleFloatingPanel()
-            case .openLauncher:
-                windows?.toggleLauncher()
+            case .askNod:
+                windows?.askNod()
+            case .holdToAsk:
+                windows?.beginVoiceAsk()
             }
+        }
+        services.hotkeys.onRelease = { [weak windows] action in
+            guard action == .holdToAsk else { return }
+            windows?.endVoiceAsk()
         }
 
         NotificationCenter.default.addObserver(
@@ -177,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await services.labelStore.refresh()
                 await services.beats.refresh()
                 await services.meetingGrants.refresh()
-                await services.remoteCalendar.refresh()
+                await services.remoteCalendar.sync(.open)
                 // Both, together. Access to a shared folder and access to the
                 // sessions inside it are revoked by the same act, so refreshing
                 // one without the other leaves the two disagreeing — a project
@@ -308,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     Task {
                         services.remoteCalendar.selfEmail = services.auth.currentSupabaseSession?.user.email
                         await services.meetingGrants.refresh()
-                        await services.remoteCalendar.refresh()
+                        await services.remoteCalendar.sync(.open)
                     }
                     Task { await services.entitlements.refresh() }
                     Task { await services.billing.loadPrices() }

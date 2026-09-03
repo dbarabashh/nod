@@ -413,11 +413,19 @@ struct SettingsView: View {
             }
             SettingsRowDivider()
             SettingsRow(
-                icon: "nc-magnifier",
-                title: "Search & ask",
-                subtitle: "Open the quick panel from any app to search your sessions or ask across all of them."
+                icon: "nc-sparkle-3",
+                title: "Ask Nod",
+                subtitle: "Ask from any app — in the notch, about your sessions, your day and what's on your screen. During a meeting it opens the bar's Ask box."
             ) {
-                HotkeyRecorderView(hotkey: hotkey, action: .openLauncher)
+                HotkeyRecorderView(hotkey: hotkey, action: .askNod)
+            }
+            SettingsRowDivider()
+            SettingsRow(
+                icon: "nc-mic",
+                title: "Hold to ask by voice",
+                subtitle: "Hold the key, say the question, let go. Nod writes it down, answers in the notch and reads the answer back. ⌘T is also \u{201C}new tab\u{201D} in browsers — move it if that bites."
+            ) {
+                HotkeyRecorderView(hotkey: hotkey, action: .holdToAsk)
             }
         }
     }

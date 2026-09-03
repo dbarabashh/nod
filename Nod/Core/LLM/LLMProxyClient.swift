@@ -824,6 +824,54 @@ final class LLMProxyClient: ObservableObject {
         }
     }
 
+    /// A held-key question, spoken: one short clip with no meeting behind it,
+    /// transcribed the same way a chunk is. The proxy's `dictate` kind takes no
+    /// lease and caps the clip, so a question is never mistaken for a recording.
+    func dictate(audio: Data) async throws -> Transcription {
+        let inner = DictationRequest(
+            model: whisperModel,
+            input_audio: .init(data: audio.base64EncodedString(), format: "wav"),
+            temperature: 0,
+            response_format: whisperResponseFormat
+        )
+        Log.llm.info("→ dictate via proxy model=\(whisperModel) audio_bytes=\(audio.count)")
+        let data = try await postToProxyWithRetry(
+            body: JSONEncoder().encode(ProxyEnvelope(kind: "dictate", payload: inner)),
+            using: transcribeSession
+        )
+        do {
+            let decoded = try JSONDecoder().decode(WhisperResponse.self, from: data)
+            let text = decoded.text ?? ""
+            Log.llm.info("← dictate OK len=\(text.count) lang=\(decoded.language ?? "?")")
+            return Transcription(text: text, segments: [], language: decoded.language)
+        } catch {
+            Log.llm.error("dictate decode failed: \(error.localizedDescription)")
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+
+    /// A line said by the proxy's voice model: WAV bytes and the words it
+    /// chose. `purpose` picks the model — an acknowledgement has to land fast,
+    /// an answer has to sound like somebody — and `question` gives the answer
+    /// its context.
+    func speak(text: String, question: String, language: String, purpose: String) async throws -> SpokenLine {
+        Log.llm.info("→ speak via proxy chars=\(text.count) lang=\(language) purpose=\(purpose)")
+        let request = SpeakRequest(text: text, question: question, language: language, purpose: purpose)
+        let data = try await postToProxyWithRetry(body: JSONEncoder().encode(ProxyEnvelope(kind: "speak", payload: request)))
+        do {
+            let answer = try JSONDecoder().decode(SpeakAnswer.self, from: data)
+            guard let audio = Data(base64Encoded: answer.audio), !audio.isEmpty else {
+                throw ClientError.decodingFailed("speak returned no audio")
+            }
+            Log.llm.info("← speak OK bytes=\(audio.count) words=\(answer.transcript.count)")
+            return SpokenLine(audio: audio, transcript: answer.transcript)
+        } catch let error as ClientError {
+            throw error
+        } catch {
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+
     // MARK: - Cross-session knowledge (step 5)
 
     /// Embedding ~1200-char chunks is CPU-heavy server-side; gte-small runs
@@ -1352,6 +1400,58 @@ extension Notification.Name {
     static let nodDeviceConflict = Notification.Name("nod.auth.deviceConflict")
 }
 
+private struct SpeakRequest: Encodable {
+    let text: String
+    let question: String
+    let language: String
+    let purpose: String
+}
+
+private struct SpeakAnswer: Decodable {
+    let audio: String
+    let transcript: String
+}
+
+extension LLMProxyClient {
+    /// A short-lived credential for a live voice session: the client holds a
+    /// WebSocket to OpenAI's Realtime API directly with this, never the real
+    /// key — the one call in this file that hands the caller something it
+    /// then uses without the proxy in the loop for the rest of the exchange.
+    func mintRealtimeToken(language: String?) async throws -> RealtimeCredentials {
+        let bodyData = try JSONEncoder().encode(
+            ProxyEnvelope(kind: "realtime_token", payload: RealtimeTokenRequest(language: language))
+        )
+        Log.llm.info("→ realtime_token via proxy lang=\(language ?? "auto")")
+        let data = try await postToProxyWithRetry(body: bodyData)
+        do {
+            let answer = try JSONDecoder().decode(RealtimeTokenAnswer.self, from: data)
+            Log.llm.info("← realtime_token OK model=\(answer.model) voice=\(answer.voice)")
+            return RealtimeCredentials(clientSecret: answer.client_secret, model: answer.model, voice: answer.voice)
+        } catch let error as ClientError {
+            throw error
+        } catch {
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+}
+
+private struct RealtimeTokenRequest: Encodable {
+    let language: String?
+}
+
+private struct RealtimeTokenAnswer: Decodable {
+    let client_secret: String
+    let model: String
+    let voice: String
+}
+
+private struct DictationRequest: Encodable {
+    let model: String
+    let input_audio: TranscriptionRequest.InputAudio
+    let temperature: Double?
+    let response_format: String?
+}
+
 private struct TranscriptionRequest: Encodable {
     struct InputAudio: Encodable {
         let data: String
@@ -1428,6 +1528,17 @@ struct Transcription {
     let text: String
     let segments: [TranscriptionSegment]
     let language: String?
+}
+
+struct SpokenLine {
+    let audio: Data
+    let transcript: String
+}
+
+struct RealtimeCredentials {
+    let clientSecret: String
+    let model: String
+    let voice: String
 }
 
 struct TranscriptionSegment {

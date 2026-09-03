@@ -1,0 +1,114 @@
+// A live voice session: OpenAI's Realtime API, over a WebSocket the client
+// holds itself. This proxy's one job is to mint the short-lived credential
+// that lets it do that without ever holding the real API key — the same
+// shape as every other secret in this app, just handed out per session
+// instead of per call.
+
+export const REALTIME_MODEL = "gpt-realtime-2";
+export const REALTIME_DEFAULT_VOICE = "cedar";
+// Long enough to cover a real conversation's connect handshake and any
+// retry, short enough that a leaked token is worthless within the hour.
+export const REALTIME_TOKEN_TTL_SECONDS = 600;
+
+// Who is talking — the same friend the two-step voice-ask design used,
+// carried over so the live session reads as the same person.
+export const REALTIME_PERSONA =
+    "You are Nod — the voice of a Mac app that sits in on the person's meetings, notes, calendar and " +
+    "screen, and remembers for them. You speak like a good friend who happened to be in the room: warm, " +
+    "relaxed, on their side, a little dry, never formal and never a customer-service voice. You use " +
+    "\"you\" and \"I\". You never say \"as an AI\", never apologise for being a program, never narrate " +
+    "your steps, and never read anything aloud that only makes sense on a screen — lists, headings, " +
+    "links, file names, paths, identifiers, code. Answer first, then keep going only if it earns its " +
+    "place: a quick question gets one short sentence; a question about a meeting, a session, a day's " +
+    "work or a brief earns two or three sentences with the details that matter. This is a live " +
+    "conversation, not a monologue — if they cut in, stop and listen.";
+
+export interface RealtimeTokenRequest {
+    language?: string;
+}
+
+export function realtimeTokenRequest(payload: unknown): RealtimeTokenRequest {
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return {};
+    const { language } = payload as Record<string, unknown>;
+    return typeof language === "string" ? { language } : {};
+}
+
+// The one thing the live model is told about the person's own data: how to
+// ask for it. Everything it can actually answer with — sessions, calendar,
+// beats, tasks, projects, the screen record — lives behind this single call,
+// answered by the same grounded pipeline typed and held-key questions use.
+// One tool, not one per data source: the routing and retrieval this already
+// does is exactly what a second, duplicated tool schema would have to redo.
+const ASK_NOD_TOOL = {
+    type: "function",
+    name: "ask_nod",
+    description:
+        "Ask Nod anything about the user's own recorded meetings and voice notes, calendar, open tasks, " +
+        "projects, scheduled beats, or what has recently been on their screen. Call this before answering " +
+        "any question that depends on the user's own day, work, schedule, or recordings — you have no " +
+        "knowledge of these on your own. Pass the question close to how they asked it.",
+    parameters: {
+        type: "object",
+        properties: {
+            question: { type: "string", description: "The question, in the user's own words." },
+        },
+        required: ["question"],
+    },
+};
+
+export function realtimeSessionBody(request: RealtimeTokenRequest, voice: string): Record<string, unknown> {
+    return {
+        expires_after: { anchor: "created_at", seconds: REALTIME_TOKEN_TTL_SECONDS },
+        session: {
+            type: "realtime",
+            model: REALTIME_MODEL,
+            instructions: request.language
+                ? `${REALTIME_PERSONA} Speak the language the person speaks to you in; if they haven't said anything yet, start in ${request.language}.`
+                : REALTIME_PERSONA,
+            output_modalities: ["audio"],
+            audio: {
+                input: { format: { type: "audio/pcm", rate: 24_000 }, turn_detection: { type: "server_vad" } },
+                output: { format: { type: "audio/pcm", rate: 24_000 }, voice },
+            },
+            tools: [ASK_NOD_TOOL],
+            tool_choice: "auto",
+        },
+    };
+}
+
+// A live session costs real per-minute money and the proxy never sees the
+// call-by-call usage a REST hop would report — so unlike `speak`, the limit
+// here bounds how often a session may be *started*, not how long one runs.
+export const REALTIME_SESSIONS_PER_WINDOW = 20;
+export const REALTIME_WINDOW_MS = 60 * 60 * 1000;
+
+export class RealtimeSessionMeter {
+    private counts = new Map<string, { n: number; since: number }>();
+
+    allow(userId: string, now = Date.now()): boolean {
+        if (this.counts.size > 1_000) this.sweep(now);
+        const entry = this.counts.get(userId);
+        if (!entry || now - entry.since >= REALTIME_WINDOW_MS) {
+            this.counts.set(userId, { n: 1, since: now });
+            return true;
+        }
+        if (entry.n >= REALTIME_SESSIONS_PER_WINDOW) return false;
+        entry.n += 1;
+        return true;
+    }
+
+    // Every failure to mint a token is a network or upstream issue, never
+    // something the caller's own input provoked — `realtimeTokenRequest`
+    // accepts nothing but a language hint, so there is no content here that
+    // could be shaped to trip a refund on purpose the way a TTS script could.
+    refund(userId: string): void {
+        const entry = this.counts.get(userId);
+        if (entry && entry.n > 0) entry.n -= 1;
+    }
+
+    private sweep(now: number): void {
+        for (const [userId, entry] of this.counts) {
+            if (now - entry.since >= REALTIME_WINDOW_MS) this.counts.delete(userId);
+        }
+    }
+}

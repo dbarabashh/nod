@@ -37,6 +37,16 @@ struct NotchStateContent: View {
     /// on a display that has one. See `NotchGestureZone`.
     @ViewBuilder
     private var gestureZone: some View {
+        // Escape while the voice speaks, wherever it speaks from. The Ask card
+        // has its own cancel button, so this one stands down there.
+        if model.speakingWords != nil, model.presentation != .ask {
+            Button("", action: model.escapeAsk)
+                .keyboardShortcut(.cancelAction)
+                .buttonStyle(.plain)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
         if model.geometry.hasCutout, showsGestureZone {
             NotchGestureZone(onSwipeUp: model.hideMeetingBar, onSwipeDown: model.revealMeetingBar)
                 .frame(width: model.geometry.cutoutWidth, height: model.geometry.cutoutHeight)
@@ -48,7 +58,7 @@ struct NotchStateContent: View {
         // The swipe folds a listening bar away exactly as it folds a recording
         // one — same gesture, same flag, same resting shape.
         case .tucked, .meetingBar: true
-        case .updateRequired, .dormant, .offer, .liveRoom, .noticed, .recalled, .recap, .launch,
+        case .updateRequired, .dormant, .voice, .offer, .liveRoom, .noticed, .recalled, .recap, .launch, .ask, .setup,
              .languageConfirm, .consent, .systemAudioAccess, .alert, .demo: false
         }
     }
@@ -64,6 +74,9 @@ struct NotchStateContent: View {
             // to pin the width against it filled the entire canvas and painted
             // an empty black slab under the menu bar.
             Color.clear.frame(width: 0, height: 0)
+        case let .voice(phase):
+            NotchVoicePill(phase: phase, geometry: model.geometry)
+                .transition(.opacity)
         case let .tucked(role):
             if let room = role.room {
                 NotchListeningTucked(room: room, geometry: model.geometry)
@@ -149,8 +162,23 @@ struct NotchStateContent: View {
                 session: model.session,
                 isLoading: model.isRequestingRecording,
                 error: model.recordingStartError,
-                onStart: model.requestStart
+                onStart: model.requestStart,
+                onAsk: model.openAsk
             )
+        case .ask:
+            NotchAskCard(
+                chat: model.knowledgeChat,
+                baseline: model.askBaseline,
+                canAskAcrossSessions: model.canAskAcrossSessions,
+                voice: model.voiceAsk,
+                onSubmit: model.submitIdleAsk,
+                onOpenMeeting: model.openMeetingFromAsk,
+                onOpenLibrary: model.openLibraryFromAsk,
+                onClose: model.closeAsk,
+                onEscape: model.escapeAsk
+            )
+        case let .setup(stage):
+            NotchSetupContent(model: model, stage: stage)
         case .languageConfirm:
             languageConfirm
         case .consent:
@@ -296,6 +324,88 @@ private struct StarterAllowanceGate: View {
 /// wrong object and sit frozen at 00:00. `audioCapture` is a plain reference:
 /// the only thing read off it is `inputLevel`, which `NotchLevelMeter` observes
 /// on its own.
+/// The resting pill while a question is spoken and answered: the microphone
+/// on one side of the cut-out, one word on the other. It never opens by
+/// itself — the answer does that, once there is one to show.
+private struct NotchVoicePill: View {
+    let phase: VoiceAskPhase
+    let geometry: NotchGeometry
+
+    var body: some View {
+        HStack(spacing: geometry.hasCutout ? 0 : 8) {
+            indicator
+                .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .leading)
+
+            if geometry.hasCutout {
+                Color.clear.frame(width: geometry.cutoutWidth)
+            }
+
+            Text(phase.restingLabel)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(isFailure ? Theme.Palette.muted : Theme.Palette.ink)
+                .lineLimit(1)
+                .fixedSize()
+                .contentTransition(.opacity)
+                .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .trailing)
+        }
+        .padding(.horizontal, geometry.flare + 12)
+        // The word and the mark cross-fade rather than swap: the width already
+        // springs between "Listening…" and "Thinking…", and a label that snaps
+        // inside a surface that glides reads as two different things moving.
+        .animation(.easeInOut(duration: 0.22), value: phase)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var indicator: some View {
+        indicatorBody
+            .id(indicatorKey)
+            .transition(.opacity)
+    }
+
+    private var indicatorKey: String {
+        switch phase {
+        case .idle, .listening: "listening"
+        case .transcribing, .thinking: "thinking"
+        case .speaking: "speaking"
+        case .failed: "failed"
+        }
+    }
+
+    @ViewBuilder
+    private var indicatorBody: some View {
+        switch phase {
+        case .idle, .listening:
+            HStack(spacing: 6) {
+                Image("nc-mic")
+                    .icon(12)
+                    .foregroundStyle(Theme.Palette.brand)
+                ListeningPulse()
+            }
+        case .transcribing, .thinking:
+            ProgressView()
+                .controlSize(.small)
+                .progressViewStyle(.circular)
+                .tint(Theme.Palette.muted)
+        case .speaking:
+            HStack(spacing: 6) {
+                Image("nc-volume-up")
+                    .icon(12)
+                    .foregroundStyle(Theme.Palette.brand)
+                ListeningPulse()
+            }
+        case .failed:
+            Image("nc-mic-slash")
+                .icon(12)
+                .foregroundStyle(Theme.Palette.muted)
+        }
+    }
+
+    private var isFailure: Bool {
+        if case .failed = phase { return true }
+        return false
+    }
+}
+
 private struct NotchTucked: View {
     @ObservedObject var session: MeetingSession
     let audioCapture: AudioCaptureService

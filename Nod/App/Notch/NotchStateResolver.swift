@@ -14,6 +14,8 @@ import Foundation
 struct NotchStateResolver {
     let demoStage: DemoStage?
     let isUpdateRequired: Bool
+    /// The onboarding half the notch runs, while it is running.
+    let setup: NotchSetupStage?
     let gate: NotchModel.Gate?
     let session: MeetingSession
     let offer: MeetingOffer?
@@ -24,7 +26,12 @@ struct NotchStateResolver {
     let meetingBarPanel: MeetingBarPanel
     let isMeetingBarHidden: Bool
     let recap: RecapState?
+    /// The person opened the surface to ask something, not to record.
+    let isAsking: Bool
     let isOpened: Bool
+    /// A question being spoken or answered by voice, with nothing to draw it
+    /// in: the resting pill shows the phase until the answer opens the card.
+    let voiceAsk: VoiceAskPhase
 
     /// Priority order, most urgent first. A gate outranks everything because it
     /// is the user's own half-finished action; an alert outranks the ambient
@@ -41,6 +48,13 @@ struct NotchStateResolver {
             return .updateRequired
         }
 
+        // Nothing below can start until the setup has asked for it, and a
+        // stray offer over the permissions card would be the surface
+        // interrupting its own introduction.
+        if let setup {
+            return .setup(setup)
+        }
+
         switch gate {
         case .language: return .languageConfirm
         case .consent: return .consent
@@ -54,6 +68,15 @@ struct NotchStateResolver {
         }
         if let message = session.saveErrorToast, !session.pendingMeetingSaves.isEmpty {
             return .alert(.saveFailed(message))
+        }
+        // The person is mid-sentence to Nod. Nothing that arrives on its own —
+        // a room, an offer, a card — outranks that; a running meeting's bar
+        // draws the same phases itself, so this is only for the surface at rest.
+        // Speaking with the card open is the card's own row; speaking after the
+        // card was closed is the pill again, so what is being said stays on
+        // screen until Escape.
+        if voiceAsk != .idle, session.meeting == .idle, joinedRoom == nil, !(isAsking && voiceAsk.isSpeaking) {
+            return .voice(voiceAsk)
         }
         // Above the offer, and this is a reversal. The ordering used to put
         // "shall I record this?" first, reasoning that a colleague recording is
@@ -83,6 +106,11 @@ struct NotchStateResolver {
             // same flag: one swipe means one thing on this surface no matter
             // which side of the meeting you are on.
             return bar(.listening(joinedRoom))
+        }
+        // Above the recap: the person just asked for the box, and a card that
+        // arrived on its own does not outrank what they pressed a key for.
+        if isAsking {
+            return .ask
         }
         if let recap {
             return .recap(recap)

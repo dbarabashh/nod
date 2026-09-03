@@ -92,7 +92,7 @@ struct CalendarOptionMark: View {
 
 /// The two ways to give Nod a calendar, offered together.
 ///
-/// One view, mounted by both the onboarding step and the prompt an existing
+/// One view, mounted by the notch's setup step and by the prompt an existing
 /// account gets, because the wording here is policy-bound and two copies of it
 /// drift the first time one is edited.
 struct CalendarOptionList: View {
@@ -167,74 +167,8 @@ struct CalendarOptionList: View {
     }
 }
 
-/// The calendar step. The same question put to an existing account is
-/// `CalendarPromptView`, which shares this one's words through `CalendarCopy`.
-struct CalendarStep: View {
-    @ObservedObject var calendar: CalendarService
-    @ObservedObject var integrations: IntegrationService
-    let onFinish: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Text(CalendarCopy.title)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(Theme.Palette.ink)
-                .padding(.bottom, 10)
-
-            Text(CalendarCopy.body)
-                .multilineTextAlignment(.center)
-                .font(.system(size: 12.5))
-                .foregroundStyle(Theme.Palette.inkSecondary)
-                .frame(maxWidth: 440)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 22)
-
-            CalendarOptionList(calendar: calendar, integrations: integrations)
-                .frame(maxWidth: 440)
-
-            Text(CalendarCopy.assurance)
-                .multilineTextAlignment(.center)
-                .font(.system(size: 11.5))
-                .foregroundStyle(Theme.Palette.inkSecondary)
-                .frame(maxWidth: 420)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 12)
-
-            if let error = integrations.lastError {
-                Text(error)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Theme.Palette.danger)
-                    .padding(.top, 10)
-            }
-
-            actions
-                .frame(maxWidth: 440)
-                .padding(.top, 18)
-        }
-        .padding(.horizontal, 36)
-        .padding(.bottom, 28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task { await integrations.refresh() }
-        .onDisappear { integrations.cancelPending() }
-    }
-
-    /// Continue is always live and never a connect button: a step that can be
-    /// answered two ways cannot put one of them on the primary, and skipping
-    /// stays a real answer — `privacy.md` § 3.11 says neither source is on by
-    /// default.
-    private var actions: some View {
-        PolicyFooter(
-            primary: TitledAction(
-                CalendarSourceState.isAnswered(calendar: calendar, integrations: integrations) ? "Continue" : "Not now",
-                action: onFinish
-            ),
-            style: .onboarding
-        )
-    }
-}
-
 /// The same question, put to someone who finished onboarding before the step
-/// existed.
+/// existed. The setup flow in the notch asks it with `NotchSetupCalendar`.
 ///
 /// A card over the main window rather than a window of its own, and the shape is
 /// `EmailConsentPromptView`'s down to the paddings — that is the established
@@ -344,21 +278,4 @@ struct CalendarPromptHost<Content: View>: View {
             .background(WindowBackdrop())
     }
 
-    #Preview("Nothing connected") {
-        WelcomeBackdrop {
-            CalendarStep(calendar: CalendarService(), integrations: .preview(), onFinish: {})
-        }
-        .frame(width: 720, height: 660)
-    }
-
-    #Preview("Google connected") {
-        WelcomeBackdrop {
-            CalendarStep(
-                calendar: CalendarService(),
-                integrations: .preview(linked: [.googleCalendar]),
-                onFinish: {}
-            )
-        }
-        .frame(width: 720, height: 660)
-    }
 #endif

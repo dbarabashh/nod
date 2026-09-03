@@ -615,6 +615,15 @@ final class MeetingSession: ObservableObject {
         activeMeetingLeaseID = meetingID
         beginRecording(meetingID: meetingID, userID: userID)
         offerCalendarIdentity(meetingID)
+        // And again after a fresh read, off the start path: the invitation is
+        // often written minutes before the call, and the copy this Mac holds
+        // may predate it. The lease keeps the first identity it was given, so
+        // the second offer only fills what the first could not.
+        Task { [weak self] in
+            await self?.calendar.syncRemote(.call)
+            guard let self, activeMeetingLeaseID == meetingID else { return }
+            offerCalendarIdentity(meetingID)
+        }
         askWhoElseIsRecording(meetingID)
         return .started
     }

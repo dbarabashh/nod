@@ -28,8 +28,39 @@ import { audioSecondsFromPayload, reportedCostUsd, sttRates, transcribeCostUsd }
 import { handleIndex, handleSearch, requiredSearchFeature } from "../_shared/search.ts";
 import { handleDistill } from "../_shared/knowledge.ts";
 import { leaseConflictStatus, meetingIdFromPayload, transcribeLeasePayload } from "../_shared/meeting-lease.ts";
+import { dictationRefusal } from "../_shared/dictation.ts";
+import { completeOnce } from "../_shared/complete.ts";
+import {
+    DEFAULT_VOICE,
+    isSpeechRefusal,
+    looksAlreadySpoken,
+    scriptPrompt,
+    SCRIPT_MAX_CHARS,
+    SCRIPT_MODEL,
+    SpeechMeter,
+    speechRequest,
+    ttsBody,
+    ttsCostUsd,
+    TTS_MODEL,
+} from "../_shared/speech.ts";
+import {
+    realtimeSessionBody,
+    realtimeTokenRequest,
+    RealtimeSessionMeter,
+    REALTIME_DEFAULT_VOICE,
+} from "../_shared/realtime.ts";
 
 const OPENROUTER_API_KEY        = Deno.env.get("OPENROUTER_API_KEY");
+// The direct OpenAI key `/v1/audio/speech` needs — not routed through
+// OpenRouter, which doesn't proxy this endpoint. `SPEECH_VOICE` overrides the
+// voice per branch.
+const OPENAI_API_KEY            = Deno.env.get("OPENAI_API_KEY");
+const SPEECH_VOICE              = Deno.env.get("SPEECH_VOICE") ?? DEFAULT_VOICE;
+const SPEECH_TIMEOUT_MS         = 30_000;
+const speechMeter = new SpeechMeter();
+const REALTIME_VOICE = Deno.env.get("REALTIME_VOICE") ?? REALTIME_DEFAULT_VOICE;
+const REALTIME_MODEL = "gpt-realtime-2";
+const realtimeMeter = new RealtimeSessionMeter();
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_ANON_KEY         = Deno.env.get("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -45,6 +76,15 @@ const DEVICE_ACTIVE_TTL_SECONDS = 900;
 type Kind =
     | "chat"
     | "transcribe"
+    // A held-key question: one short clip, no meeting, no lease. Same
+    // provider path as `transcribe`, capped so it cannot stand in for one.
+    | "dictate"
+    // A spoken line — the answer, or a word that it is on its way — voiced by
+    // an audio model through OpenRouter. Audio and its words come back.
+    | "speak"
+    // A short-lived credential for a live voice session — the client holds
+    // its own WebSocket to OpenAI's Realtime API with this, never the real key.
+    | "realtime_token"
     | "index"
     | "search"
     | "distill"
@@ -345,6 +385,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
             return endMeeting(admin, user.id, body.payload);
         case "transcribe":
             return forwardTranscribe(transcribePayload, user.id, entitlement, admin);
+        case "realtime_token":
+            return forwardRealtimeToken(body.payload, user.id);
+        case "speak":
+            return forwardSpeak(body.payload, user.id);
+        case "dictate": {
+            const refusal = dictationRefusal(body.payload);
+            if (refusal) return json({ error: refusal.error }, refusal.status);
+            return forwardTranscribe(body.payload, user.id, entitlement, admin);
+        }
         case "index":
             return handleIndex(body.payload, user.id);
         case "search":
@@ -355,6 +404,145 @@ Deno.serve(async (req: Request): Promise<Response> => {
             return json({ error: `Unknown kind: ${body.kind}` }, 400);
     }
 });
+
+async function forwardRealtimeToken(payload: unknown, userId: string): Promise<Response> {
+    if (!OPENAI_API_KEY) {
+        console.error(`realtime_token unavailable user=${userId}`);
+        return json({ error: "realtime_unavailable" }, 422);
+    }
+    if (!realtimeMeter.allow(userId)) return json({ error: "realtime_rate_limited" }, 429);
+    const request = realtimeTokenRequest(payload);
+    let upstream: Response;
+    try {
+        upstream = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify(realtimeSessionBody(request, REALTIME_VOICE)),
+        });
+    } catch (error) {
+        console.error(`realtime_token upstream unreachable user=${userId}: ${(error as Error).message}`);
+        realtimeMeter.refund(userId);
+        return json({ error: "realtime_unavailable" }, 502);
+    }
+    if (!upstream.ok) {
+        const detail = (await upstream.text().catch(() => "")).slice(0, 300);
+        console.error(`realtime_token upstream ${upstream.status} user=${userId}: ${detail}`);
+        realtimeMeter.refund(userId);
+        return json({ error: "realtime_failed", status: upstream.status }, 502);
+    }
+    const minted = await upstream.json();
+    const value = typeof minted?.value === "string" ? minted.value : null;
+    if (!value) {
+        console.error(`realtime_token: no secret in upstream response user=${userId}`);
+        realtimeMeter.refund(userId);
+        return json({ error: "realtime_failed" }, 502);
+    }
+    console.log(`realtime_token minted user=${userId} model=${REALTIME_MODEL} voice=${REALTIME_VOICE}`);
+    // No per-call cost to record here: the session that follows runs entirely
+    // between the client and OpenAI, and the spend never crosses this proxy —
+    // `realtimeMeter` bounding how often a session may *start* is the only
+    // guard this hop can offer.
+    return json({ client_secret: value, expires_at: minted.expires_at ?? null, model: REALTIME_MODEL, voice: REALTIME_VOICE }, 200);
+}
+
+async function forwardSpeak(payload: unknown, userId: string): Promise<Response> {
+    const request = speechRequest(payload);
+    if (isSpeechRefusal(request)) return json({ error: request.error }, request.status);
+    // 422, not 503: a branch with no key will have no key on the next attempt
+    // either, and the client retries 5xx before it falls back to its own voice.
+    // Only a short, already-plain answer skips the OpenRouter rewrite —
+    // narration still needs it, to come out sounding spoken rather than read.
+    const needsOpenRouter = !(request.purpose === "answer" && looksAlreadySpoken(request.text));
+    if ((needsOpenRouter && !OPENROUTER_API_KEY) || !OPENAI_API_KEY) {
+        console.error(`speak unavailable user=${userId} openrouter=${!!OPENROUTER_API_KEY} openai=${!!OPENAI_API_KEY}`);
+        return json({ error: "speech_unavailable" }, 422);
+    }
+    if (!speechMeter.allow(userId)) return json({ error: "speech_rate_limited" }, 429);
+    const started = Date.now();
+
+    // Step 1 — the words. A short, already-plain answer needs no rewrite —
+    // skipping it is a whole network hop of latency saved on exactly the
+    // quick-fact questions that most want a fast reply. Anything with
+    // markdown, a list, or real length still goes through the model, from
+    // OpenRouter like every other chat call.
+    let script: string;
+    if (request.purpose === "answer" && looksAlreadySpoken(request.text)) {
+        script = request.text;
+    } else {
+        const { system, user } = scriptPrompt(request);
+        const written = await completeOnce({ model: SCRIPT_MODEL, system, user, userId, task: `speak_${request.purpose}` });
+        // No refund here: `completeOnce` already billed the OpenRouter call
+        // regardless of outcome, and a null result can come from content the
+        // caller chose as much as from an outage — refunding on it would
+        // reopen the meter to exactly the abuse it exists to stop.
+        if (!written) return json({ error: "speech_failed" }, 502);
+        script = written;
+    }
+    script = script.slice(0, SCRIPT_MAX_CHARS);
+
+    // Step 2 — the performance. Direct to OpenAI: this is the one endpoint
+    // that takes a plain-language `instructions` field, and OpenRouter
+    // doesn't route it. The timeout has to cover reading the body, not just
+    // getting headers — `fetch` resolves as soon as headers arrive, and a
+    // stalled body would otherwise run past `SPEECH_TIMEOUT_MS` unbounded.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SPEECH_TIMEOUT_MS);
+    try {
+        let upstream: Response;
+        try {
+            upstream = await fetch("https://api.openai.com/v1/audio/speech", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(ttsBody(script, SPEECH_VOICE, request.purpose)),
+                signal: controller.signal,
+            });
+        } catch (error) {
+            // The network itself failed before OpenAI ever saw the request —
+            // never something the caller's content could have provoked, so
+            // this is the one failure worth giving the slot back for.
+            const aborted = error instanceof DOMException && error.name === "AbortError";
+            console.error(`speak tts user=${userId} ${aborted ? "timeout" : "unreachable"}: ${(error as Error).message}`);
+            speechMeter.refund(userId);
+            return json({ error: "speech_unavailable" }, aborted ? 504 : 502);
+        }
+        if (!upstream.ok) {
+            // No refund: a script this call itself wrote can be exactly what
+            // provoked OpenAI's refusal, so crediting it back would let a
+            // caller mint free attempts by tripping this on purpose.
+            const detail = (await upstream.text().catch(() => "")).slice(0, 300);
+            console.error(`speak tts ${upstream.status} user=${userId}: ${detail}`);
+            return json({ error: "speech_failed", status: upstream.status }, 502);
+        }
+        const wav = new Uint8Array(await upstream.arrayBuffer());
+        if (wav.length === 0) {
+            console.error(`speak returned no audio user=${userId}`);
+            return json({ error: "speech_failed" }, 502);
+        }
+        console.log(`speak served user=${userId} model=${TTS_MODEL} purpose=${request.purpose} lang=${request.language} dt=${Date.now() - started}ms bytes=${wav.length} chars=${script.length}`);
+        await recordUsage({
+            user_id: userId,
+            kind: "speak",
+            model: TTS_MODEL,
+            status: 200,
+            // Characters, not tokens — `prompt_tokens` is left null so this
+            // never mixes into a token total another kind's row reports.
+            cost_usd: ttsCostUsd(script.length),
+            task: request.purpose,
+            requested_model: TTS_MODEL,
+            resolved_model: TTS_MODEL,
+        });
+        let binary = "";
+        for (let i = 0; i < wav.length; i += 0x8000) {
+            binary += String.fromCharCode(...wav.subarray(i, i + 0x8000));
+        }
+        return json({ audio: btoa(binary), format: "wav", transcript: script }, 200);
+    } finally {
+        clearTimeout(timeout);
+    }
+}
 
 // Allowance is enforced here, once, before any audio exists — not per chunk.
 // `start_meeting_lease` decides atomically, so two simultaneous starts cannot

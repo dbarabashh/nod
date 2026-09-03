@@ -41,6 +41,13 @@ struct AppServices {
     /// The cross-session "Ask Nod" thread. One instance app-wide, so the
     /// Library dock and the launcher panel are two views onto one conversation.
     let knowledgeChat: KnowledgeChatStore
+    /// A live spoken conversation's own bounded thread — see `voiceChat` in
+    /// `init`.
+    let voiceChat: KnowledgeChatStore
+    /// Narrates onboarding — the window's two steps, before the notch (and
+    /// its own `voice`) exist. The notch's own setup cards reuse
+    /// `NotchModel.voice` for the same purpose once they exist.
+    let onboardingNarrator: SpokenAnswer
     /// Saved cross-session conversations, listed and reopened from the rail.
     let knowledgeThreads: KnowledgeThreadStore
     let agentStore: AgentStore
@@ -204,6 +211,7 @@ struct AppServices {
         let labelStore = LabelStore(supabase: supabase, auth: auth)
         let meetingGrants = MeetingGrantStore(supabase: supabase)
         let remoteCalendar = RemoteCalendar(supabase: supabase)
+        remoteCalendar.follow(integrations)
         let calendar = CalendarService()
         calendar.remote = remoteCalendar
         let organizations = OrganizationService(supabase: supabase)
@@ -244,8 +252,10 @@ struct AppServices {
         // new dependency is threaded in exactly one place.
         func makeChat(
             unattended: Bool,
+            readsRunUnasked: Bool = false,
             toolApproval: ToolApprovalPreference? = nil,
-            toolLog: ToolApprovalLog? = nil
+            toolLog: ToolApprovalLog? = nil,
+            maxTurns: Int? = nil
         ) -> KnowledgeChatStore {
             KnowledgeChatStore(
                 llm: llmClient,
@@ -261,15 +271,25 @@ struct AppServices {
                 integrations: integrations,
                 screenContext: screenContext,
                 calendar: calendar,
+                beats: beats,
                 organizations: organizations,
                 unattended: unattended,
+                readsRunUnasked: readsRunUnasked,
                 toolApproval: toolApproval,
-                toolLog: toolLog
+                toolLog: toolLog,
+                maxTurns: maxTurns
             )
         }
         let beatChat = makeChat(unattended: true)
         // The agents' own unattended chat — see `makeChat`.
         let agentChat = makeChat(unattended: true)
+        // A live voice conversation's own thread — never the Library's. It
+        // remembers the last five exchanges so a follow-up ("and tomorrow?")
+        // resolves without carrying the whole call's history forward forever,
+        // and it survives the live session itself ending (a slipped tap, a
+        // dropped connection) since it lives here, not inside the session.
+        let voiceChat = makeChat(unattended: false, readsRunUnasked: true, maxTurns: 5)
+        let onboardingNarrator = SpokenAnswer(llmClient: llmClient)
         let agentStore = AgentStore(
             supabase: supabase,
             chat: agentChat,
@@ -306,6 +326,8 @@ struct AppServices {
             actionItemStore: actionItemStore,
             knowledgeStore: knowledgeStore,
             knowledgeChat: makeChat(unattended: false, toolLog: toolApprovalLog),
+            voiceChat: voiceChat,
+            onboardingNarrator: onboardingNarrator,
             knowledgeThreads: knowledgeThreads,
             agentStore: agentStore,
             beats: beats,

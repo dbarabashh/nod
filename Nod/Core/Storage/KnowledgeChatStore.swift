@@ -115,6 +115,18 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
     /// even offered to the model, and the tool gate stops asking a question
     /// nobody is there to answer.
     private let unattended: Bool
+    /// A person is right there — this isn't a beat — but there's no card
+    /// surface to show one on, the way a live spoken conversation has no
+    /// screen. Reads run the moment they're asked for, same as `unattended`,
+    /// without adopting `unattended`'s other two effects (report framing,
+    /// dropping the open-action-items block) — those are wrong for a
+    /// conversation, right only for a scheduled write-up.
+    private let readsRunUnasked: Bool
+    /// How many of the most recent turns this store keeps once it starts
+    /// answering — nil for the Library's own thread, which forgets nothing
+    /// on its own; set for a store that must not let a long-running
+    /// conversation grow its context forever.
+    private let maxTurns: Int?
 
     private let llm: LLMProxyClient
     private let knowledge: KnowledgeStore
@@ -123,6 +135,7 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
     /// so a nil here degrades to transcript-only grounding rather than failing.
     private let screenContext: ScreenContextService?
     private let calendar: CalendarService?
+    private let beats: BeatStore?
     private let organizations: OrganizationService?
     private let meetings: MeetingStore
     private let labels: LabelStore
@@ -220,13 +233,18 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
         integrations: IntegrationService? = nil,
         screenContext: ScreenContextService? = nil,
         calendar: CalendarService? = nil,
+        beats: BeatStore? = nil,
         organizations: OrganizationService? = nil,
         unattended: Bool = false,
+        readsRunUnasked: Bool = false,
         toolApproval: ToolApprovalPreference? = nil,
-        toolLog: ToolApprovalLog? = nil
+        toolLog: ToolApprovalLog? = nil,
+        maxTurns: Int? = nil
     ) {
         self.unattended = unattended
-        toolGate = ChatToolGate(unattended: unattended, approval: toolApproval, log: toolLog)
+        self.readsRunUnasked = readsRunUnasked
+        self.maxTurns = maxTurns
+        toolGate = ChatToolGate(unattended: unattended || readsRunUnasked, approval: toolApproval, log: toolLog)
         self.integrations = integrations
         self.llm = llm
         self.knowledge = knowledge
@@ -240,6 +258,7 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
         self.feedback = feedback
         self.screenContext = screenContext
         self.calendar = calendar
+        self.beats = beats
         self.organizations = organizations
         // The gate holds state this store publishes as its own, and a nested
         // object's changes don't reach a view observing the owner.
@@ -393,6 +412,20 @@ extension KnowledgeChatStore {
         isSending = false
         isStreaming = false
         thinkingScript = []
+        // Bounded stores (a live voice conversation, never the Library's own
+        // thread) forget the oldest turn once a new one lands, rather than
+        // asking every later follow-up to carry the whole call in its context.
+        if let maxTurns {
+            let drop = Self.turnsToDrop(count: messages.count, maxTurns: maxTurns)
+            if drop > 0 { messages.removeFirst(drop) }
+        }
+    }
+
+    /// How many oldest messages to drop so at most `maxTurns` (a question and
+    /// its answer each) remain. Pure so the boundary — an odd count mid-turn,
+    /// exactly at the limit, well under it — is testable without a store.
+    nonisolated static func turnsToDrop(count: Int, maxTurns: Int) -> Int {
+        max(0, count - maxTurns * 2)
     }
 
     /// Stops the turn in flight. What has already been written stays — a
@@ -511,8 +544,11 @@ extension KnowledgeChatStore {
         await roster
         // A beat gets the reading half of the catalogue only. What it finds
         // worth doing becomes a proposal the user approves in the morning; a
-        // schedule does not get to file tickets on its own.
-        turnTools = await tools.filter { unattended ? !$0.mutating : true }
+        // schedule does not get to file tickets on its own. A live voice
+        // conversation gets the same half, for a different reason: a write
+        // still has no card to be confirmed on, so offering one at all is
+        // just a round trip that ends in a silent decline.
+        turnTools = await tools.filter { (unattended || readsRunUnasked) ? !$0.mutating : true }
 
         let prepared: (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool, screenTerms: [String])
         let routing: Routing
@@ -564,8 +600,15 @@ extension KnowledgeChatStore {
         ) {
             Log.ui.info("chat: acting without retrieval")
             thinkingScript = ChatThinking.acting
+            let beatBlock = await beatsBlock(for: prepared.standalone)
             let system = PromptLibrary.buildKnowledgeSystem(
-                excerpts: [aboutNod, teammatesBlock(), calendarBlock(for: prepared.standalone)].compactMap { $0 },
+                excerpts: [
+                    aboutNod,
+                    teammatesBlock(),
+                    calendarBlock(for: prepared.standalone),
+                    beatBlock,
+                    projectsBlock(for: prepared.standalone)
+                ].compactMap { $0 },
                 language: replyLanguage,
                 personalContext: profile.promptContext,
                 connectedTools: turnTools,
@@ -613,12 +656,13 @@ extension KnowledgeChatStore {
         // Ahead of the excerpts and the tasks alike: a question about the day
         // ahead is answered by the calendar, and a retrieval budget that trimmed
         // it would leave the model guessing from last week's transcripts.
-        let ahead = [
+        let ahead = await [
             aboutNod,
             QuestionIntent.asksAboutSchedule(prepared.standalone) ? teammatesBlock() : nil,
             calendarBlock(for: prepared.standalone),
+            beatsBlock(for: prepared.standalone),
             taskBlock
-        ].compactMap { $0 }
+        ].compactMap { $0 } + [projectsBlock(for: prepared.standalone)].compactMap { $0 }
         let system = PromptLibrary.buildKnowledgeSystem(
             excerpts: Self.withinBudget(ahead + grounding.excerpts),
             language: replyLanguage,
@@ -1012,6 +1056,68 @@ extension KnowledgeChatStore {
     /// Enough to answer "what's on my plate" without turning the prompt into a
     /// task dump.
     private static let taskLimit = 25
+
+    /// What the beats last found — the briefings Nod runs on a schedule —
+    /// when the question is about one, or about what was missed. Their
+    /// reports live in threads of their own, which retrieval never reaches;
+    /// without this a person asking "what did my morning brief say" was told
+    /// Nod had no idea it had written one.
+    private func beatsBlock(for question: String) async -> String? {
+        // A beat run must not be handed its own last report: it would restate
+        // yesterday as today, and the next run would compound it.
+        guard !unattended, let beats, !beats.beats.isEmpty else { return nil }
+        let lowered = question.lowercased()
+        let named = beats.beats.filter { beat in
+            let title = beat.title.lowercased()
+            guard title.count >= 4 else { return false }
+            let pattern = "\\b" + NSRegularExpression.escapedPattern(for: title) + "\\b"
+            return lowered.range(of: pattern, options: .regularExpression) != nil
+        }
+        guard QuestionIntent.asksAboutBeats(question) || !named.isEmpty else { return nil }
+        let candidates = named.isEmpty ? beats.beats : named
+
+        // The setup — title, cadence, next run — answers "what did I set up"
+        // even for a beat that hasn't run yet; the schedule is never late.
+        let setupLines = candidates.prefix(Self.beatLimit).map { beat -> String in
+            let schedule = BeatSchedule.describe(beat)
+            let next = beat.nextRunAt.map { " — next run \(Self.calendarDayFormatter.string(from: $0))" } ?? ""
+            let state = beat.enabled ? schedule + next : schedule + " (paused)"
+            let prompt = String(beat.prompt.prefix(Self.beatPromptLimit))
+            return "• \(beat.title): \(state) — asks: \(prompt)"
+        }
+
+        var reportLines: [String] = []
+        for beat in candidates.prefix(Self.beatLimit) {
+            guard let run = beats.latestRun(of: beat.id), run.status == .done,
+                  let report = await beats.loadReport(for: run)
+            else { continue }
+            let when = Self.calendarDayFormatter.string(from: run.scheduledFor)
+            reportLines.append("• \(beat.title) — ran \(when):\n\(String(report.prefix(Self.beatReportLimit)))")
+        }
+
+        let header = "[YOUR BEATS — briefings the user set up for Nod to run on a schedule. Answer from these "
+            + "when asked which beats exist, when one runs, or what one found.]"
+        var sections = [header, "Set up:\n" + setupLines.joined(separator: "\n")]
+        if !reportLines.isEmpty {
+            sections.append("Latest reports:\n" + reportLines.joined(separator: "\n\n"))
+        }
+        return sections.joined(separator: "\n\n")
+    }
+
+    private static let beatLimit = 4
+    private static let beatReportLimit = 1500
+    private static let beatPromptLimit = 200
+
+    /// The folders — "projects" in the product's own words — the person has
+    /// sorted their sessions into. Answers "which projects do I have" without
+    /// a search: the names alone are the whole answer.
+    private func projectsBlock(for question: String) -> String? {
+        guard QuestionIntent.asksAboutProjects(question), !labels.labels.isEmpty else { return nil }
+        let names = labels.labels.prefix(Self.projectLimit).map { "• \($0.name)" }
+        return "[YOUR PROJECTS — folders the user organizes sessions into.]\n" + names.joined(separator: "\n")
+    }
+
+    private static let projectLimit = 30
 
     /// The user's own calendar as this Mac already holds it — EventKit plus
     /// whatever the connected accounts synced.

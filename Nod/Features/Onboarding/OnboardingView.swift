@@ -1,18 +1,16 @@
 import SwiftUI
 
 struct OnboardingView: View {
-    let onComplete: () -> Void
+    /// The window's part is over: the flow moves to the notch. The coordinator
+    /// closes this window and hands `OnboardingState` to `NotchModel`.
+    let onHandoff: () -> Void
 
     @EnvironmentObject private var state: OnboardingState
-    @EnvironmentObject private var permissions: PermissionManager
     @EnvironmentObject private var language: LanguagePreference
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var telemetry: OnboardingTelemetry
     @EnvironmentObject private var modeStore: ModeStore
-    @EnvironmentObject private var emailPreferences: EmailPreferenceService
-    @EnvironmentObject private var integrations: IntegrationService
-    @EnvironmentObject private var calendar: CalendarService
 
     /// Pad past the traffic-light strip so step titles never collide with the
     /// close button. macOS chrome occupies ~28pt of the window's top.
@@ -38,7 +36,6 @@ struct OnboardingView: View {
         // window owns it (`WindowCoordinator.onboardingSize`), and a step that
         // states its own is a step that moves the frame when you reach it.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { permissions.refresh() }
         // Onboarding can run against an account that already has a profile —
         // a reinstall, a second Mac, a repeat of the flow. Load it so the step
         // seeds from what's stored instead of blanking it on Continue.
@@ -51,31 +48,14 @@ struct OnboardingView: View {
             await profileStore.load()
             profileLoaded = true
         }
-        .task(id: state.status.currentStep) { telemetry.stepShown(state.status.currentStep) }
+        .task(id: state.status.currentStep) {
+            telemetry.stepShown(state.status.currentStep)
+            if state.status.currentStep == .notch { onHandoff() }
+        }
     }
 
     private var strings: OnboardingStrings {
         .english
-    }
-
-    /// The steps this Mac has already answered.
-    ///
-    /// Derived here rather than held on `OnboardingState`: the answer lives in
-    /// `PermissionManager` and `CalendarService`, and read at the moment of
-    /// advancing it cannot be stale — a copy kept on the state would go wrong
-    /// exactly when somebody grants a permission mid-flow.
-    ///
-    /// Only these two. Both are machine-level facts a second account inherits
-    /// honestly: macOS grants the microphone to the app, not to an account, and
-    /// this Mac's calendar is this Mac's. Welcome, profile and email consent
-    /// are the person's own answers and are always asked.
-    private var satisfied: Set<OnboardingStep> {
-        var done: Set<OnboardingStep> = []
-        if permissions.canCaptureBothSides { done.insert(.permissions) }
-        if CalendarSourceState.isAnswered(calendar: calendar, integrations: integrations) {
-            done.insert(.calendar)
-        }
-        return done
     }
 
     /// A name the user already saved wins over the one Google handed us — they
@@ -88,16 +68,21 @@ struct OnboardingView: View {
     @ViewBuilder
     private var content: some View {
         switch state.status.currentStep {
+        case .welcome where !profileLoaded:
+            ProgressView()
+                .controlSize(.small)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .welcome:
             // Commit the language pick only when the user actually advances
             // past Welcome — so an exploratory tap in the picker doesn't
             // persist if they close onboarding mid-flow.
             WelcomeStep(
                 strings: strings,
+                firstName: PersonName.first(of: seededName),
                 currentLanguage: language.current,
                 onContinue: { picked in
                     language.current = picked
-                    state.goNext(skipping: satisfied)
+                    state.goNext()
                 }
             )
         case .profile where !profileLoaded:
@@ -125,30 +110,25 @@ struct OnboardingView: View {
                             $0.heardFrom = answers.heardFrom
                         }
                     }
-                    state.goNext(skipping: satisfied)
+                    state.goNext()
                 },
                 onSkip: {
                     telemetry.profileSkipped()
-                    state.goNext(skipping: satisfied)
+                    state.goNext()
                 }
             )
-        case .permissions:
-            PermissionsStep(
-                strings: strings,
-                onFinish: { skipped in
-                    state.recordPermissionsDecision(skipped: skipped)
-                    if skipped { telemetry.permissionsSkipped() }
-                    state.goNext(skipping: satisfied)
-                }
-            )
-        case .calendar:
-            CalendarStep(calendar: calendar, integrations: integrations, onFinish: { state.goNext(skipping: satisfied) })
-        case .emailPreferences:
-            EmailConsentStep(preferences: emailPreferences, onFinish: {
-                telemetry.completed()
-                state.complete()
-                onComplete()
-            })
+        case .notch, .calendar, .permissions, .emailPreferences:
+            // Never on screen for more than a frame: the `.task` above hands
+            // the window off the moment the step lands here.
+            Color.clear
         }
+    }
+}
+
+/// The first word of a display name, for the one screen that greets somebody.
+enum PersonName {
+    static func first(of name: String) -> String? {
+        let first = name.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+        return first.isEmpty ? nil : first
     }
 }

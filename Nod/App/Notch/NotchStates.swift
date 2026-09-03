@@ -525,6 +525,8 @@ struct NotchLaunch: View {
     var isLoading = false
     var error: String?
     let onStart: () -> Void
+    /// The other thing the surface does when nothing is recording.
+    let onAsk: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 13) {
@@ -541,12 +543,25 @@ struct NotchLaunch: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                NotchActionButton(
-                    title: session.selectedKind.startActionTitle,
-                    icon: session.selectedKind.icon,
-                    isLoading: isLoading || session.isStartingRecording || session.isFinishingTranscription,
-                    action: onStart
-                )
+                HStack(spacing: 10) {
+                    NotchActionButton(
+                        title: session.selectedKind.startActionTitle,
+                        icon: session.selectedKind.icon,
+                        isLoading: isLoading || session.isStartingRecording || session.isFinishingTranscription,
+                        action: onStart
+                    )
+                    Button(action: onAsk) {
+                        HStack(spacing: 5) {
+                            Image("nc-sparkle-3")
+                                .icon(10)
+                            Text("Ask")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .foregroundStyle(Theme.Palette.muted)
+                    }
+                    .buttonStyle(.pressable)
+                    .linkCursor()
+                }
 
                 if let error {
                     Text(error)

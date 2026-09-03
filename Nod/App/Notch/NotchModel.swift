@@ -55,6 +55,78 @@ final class NotchModel: ObservableObject {
     /// Owned by the system-audio gate, which reads its status and drives its
     /// request/relaunch pair in place.
     let permissions: PermissionManager
+    /// The idle Ask box's thread — the same one the Library dock holds.
+    let knowledgeChat: KnowledgeChatStore
+    let llmClient: LLMProxyClient
+    /// The answer said aloud, for a question that was spoken.
+    let voice: SpokenAnswer
+    /// A tap on the hold-to-ask key opens this instead of recording a single
+    /// clip: an open conversation that keeps going until tapped again.
+    let realtimeVoice: RealtimeVoiceSession
+    /// The microphone while the ask key is held.
+    let heldQuestion: HeldQuestionRecorder
+    /// What the surface shows about the spoken exchange: the question's own
+    /// phase while there is one, otherwise the words being said. The bars
+    /// read the same thing off `MeetingBarPanel.voice`.
+    @Published private(set) var voiceAsk: VoiceAskPhase = .idle
+    /// The question's phase alone — listening, transcribing, thinking. Kept
+    /// apart from what is being said, because the acknowledgement plays
+    /// *while* the answer is thought about, and a phase that flipped to
+    /// "speaking" under the pipeline's feet once lost the answer entirely.
+    var voicePhase: VoiceAskPhase = .idle
+    /// The words the voice is saying right now, or nil.
+    var speakingWords: String?
+    /// Bumped by every new hold, so an answer that comes back to a question
+    /// the person has already moved past is not shown as the reply to the
+    /// newer one.
+    var voiceAskGeneration = 0
+    /// Where the last voice exchange lands in the shared thread, so opening
+    /// Ask by hand right after — the card never opened on its own — lands on
+    /// the answer just spoken instead of a blank field.
+    var lastVoiceAskBaseline: Int?
+    /// Set right before handing the answer to `voice.say`, so the pipeline
+    /// phase stays "Thinking…" underneath the pill for as long as nothing is
+    /// audibly playing — the gap between the answer text landing and its
+    /// speech actually starting is exactly when the pill would otherwise
+    /// drop to idle and disappear, then reappear once the audio begins.
+    /// Cleared the moment that answer truly finishes (or a new hold starts).
+    var voiceAnswerPending = false
+    /// Ends a hold on its own once the clip is full. Carbon does not report a
+    /// release for a binding torn down mid-hold, or across sleep; without
+    /// this a lost key-up would leave the meeting's microphone diverted for
+    /// the rest of the recording.
+    var voiceHoldLimit: Task<Void, Never>?
+    /// Takes a failure line back off the row after a moment. Held so the next
+    /// failure can cancel it — two identical ones a breath apart must not cut
+    /// the second short.
+    var voiceFailureReset: Task<Void, Never>?
+    /// The language the last spoken question was in, as Whisper heard it,
+    /// so the voice answers in the language it was spoken to in rather than
+    /// the one the app is set to.
+    var voiceLanguage: AppLanguage?
+    /// Read by the setup flow: whether the notch still owes the person the
+    /// second half of onboarding, and where to say it is done.
+    let onboarding: OnboardingState
+    let onboardingTelemetry: OnboardingTelemetry
+    let integrations: IntegrationService
+    let screenContext: ScreenContextService
+    let hotkeys: HotkeyManager
+    /// Asked for by the Ask box and the setup's last step: the panel has to
+    /// become key for a field to take the caret, and only the controller
+    /// holds the panel.
+    var onWantsKeyboard: (() -> Void)?
+
+    /// Where the notch's half of onboarding stands, or nil once it is done.
+    /// Internal rather than private because the flow lives in
+    /// `NotchModel+Setup.swift`; only that file writes it.
+    var setup: NotchSetupStage?
+    /// A permission request is in flight from the setup card.
+    @Published var isRequestingSetupPermission = false
+    /// The idle Ask box is what the person opened the surface for.
+    var isAsking = false
+    /// How many messages the shared thread had when the Ask box opened, so an
+    /// older answer never reads as the reply to what was just typed.
+    var askBaseline = 0
 
     /// Resolves `session.justEndedMeetingID` into a `RecapState` — the same
     /// generating/finished state `MeetingDetailView` already reads, just
@@ -69,7 +141,7 @@ final class NotchModel: ObservableObject {
     /// The user pulled the surface open — by clicking it, by the hotkey, or from
     /// the menu bar. Everything else on screen is a consequence of state the app
     /// is already in.
-    private var isOpened = false
+    var isOpened = false
     /// Which of the meeting bar's own panels is showing, and where its Ask box
     /// stands, while a meeting is active. Like `isOpened`, only `derived()`
     /// reads it — a plain var, reset whole at the start of every new recording
@@ -156,6 +228,14 @@ final class NotchModel: ObservableObject {
         knowledge: KnowledgeStore,
         permissions: PermissionManager,
         analytics: ProductAnalytics,
+        knowledgeChat: KnowledgeChatStore,
+        voiceChat: KnowledgeChatStore,
+        llmClient: LLMProxyClient,
+        onboarding: OnboardingState,
+        onboardingTelemetry: OnboardingTelemetry,
+        integrations: IntegrationService,
+        screenContext: ScreenContextService,
+        hotkeys: HotkeyManager,
         defaults: UserDefaults = .standard
     ) {
         self.session = session
@@ -177,10 +257,29 @@ final class NotchModel: ObservableObject {
         self.knowledge = knowledge
         self.permissions = permissions
         self.analytics = analytics
+        self.knowledgeChat = knowledgeChat
+        self.llmClient = llmClient
+        voice = SpokenAnswer(llmClient: llmClient)
+        realtimeVoice = RealtimeVoiceSession(llmClient: llmClient) { [weak voiceChat] question in
+            guard let voiceChat else { return "Nod isn't ready yet — try again in a moment." }
+            // Its own thread, capped to the last five exchanges (`AppServices`)
+            // — never the Library's, and never asked to carry the whole call.
+            let baseline = voiceChat.messages.count
+            await voiceChat.ask(question)
+            return voiceChat.answer(after: baseline)?.content ?? "Nothing came back for that — say it again?"
+        }
+        heldQuestion = HeldQuestionRecorder(audioCapture: audioCapture)
+        self.onboarding = onboarding
+        self.onboardingTelemetry = onboardingTelemetry
+        self.integrations = integrations
+        self.screenContext = screenContext
+        self.hotkeys = hotkeys
         self.defaults = defaults
         askLanguageEachTime = defaults.object(forKey: MeetingLanguagePromptDefaults.defaultsKey) as? Bool
             ?? MeetingLanguagePromptDefaults.defaultValue
 
+        voice.onSpeaking = { [weak self] words in self?.noteSpeaking(words) }
+        realtimeVoice.onStateChange = { [weak self] state in self?.noteRealtimeState(state) }
         observe()
         refresh()
 
@@ -202,6 +301,14 @@ final class NotchModel: ObservableObject {
             close()
             return
         }
+        // A click on the pill is the one thing a click there can mean: end
+        // whatever the voice is doing. Escape has no key window to reach at
+        // rest, and a live conversation has no "played out" moment of its
+        // own to wait for the way a single spoken answer does.
+        if case .voice = presentation, realtimeVoice.isActive || speakingWords != nil {
+            escapeAsk()
+            return
+        }
         // Tucked is its own thing, not an `isOpened` state — the click that
         // reaches this (a stray tap on the tucked pill, the hotkey, the
         // menu-bar item) is always the user asking for the bar back, the same
@@ -210,6 +317,10 @@ final class NotchModel: ObservableObject {
             revealMeetingBar()
             return
         }
+        // A click on the setup card's background is not the person leaving
+        // the flow — the card has its own way out. And the Ask box has a
+        // caret in it: a tap beside the field must not fold it away.
+        if setup != nil || isAsking { return }
         // Delegates to `open()`/`close()` rather than toggling `isOpened`
         // directly, so whatever either of those already does on the way in or
         // out — dismissing the notice, forgetting a stale assist card — only
@@ -251,7 +362,13 @@ final class NotchModel: ObservableObject {
         // dismissing it either. Its own close glyph is the only way out.
         // The room card is the same: it arrived on its own, and it has its own
         // "Not now".
-        case .updateRequired, .dormant, .tucked, .offer, .liveRoom, .noticed, .recalled, .recap,
+        // Asking closes on a click away, like any launcher — except while
+        // an answer is still on its way, or a write is waiting on the person:
+        // clicking into another app is what people do while they wait.
+        case .ask: !knowledgeChat.isSending && knowledgeChat.pendingApproval == nil
+        // Setup sends the person to System Settings and back; a click there
+        // must not lose the card they are coming back to.
+        case .updateRequired, .dormant, .voice, .tucked, .offer, .liveRoom, .noticed, .recalled, .recap, .setup,
              .languageConfirm, .consent, .systemAudioAccess, .alert, .demo: false
         }
     }
@@ -280,6 +397,7 @@ final class NotchModel: ObservableObject {
         } else {
             cancelPendingRecordingStart()
             isOpened = false
+            isAsking = false
             gate = nil
         }
         refresh()
@@ -466,6 +584,7 @@ final class NotchModel: ObservableObject {
         guard !isRequestingRecording else { return }
         guard let captureID = pendingCaptureID else { return }
         gate = nil
+        isAsking = false
         resetMeetingBar()
         meetingBarHidden = false
         session.clearAutoStartRequest()
@@ -619,7 +738,10 @@ final class NotchModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        Publishers.MergeMany(
+        // Two lists because one is more than the type-checker will resolve in
+        // one expression. The split is by who publishes: the session and its
+        // company first, the services the setup and Ask cards watch second.
+        let sessionSignals: [AnyPublisher<Void, Never>] = [
             demo.$stage.map { _ in () }.eraseToAnyPublisher(),
             session.$meeting.map { _ in () }.eraseToAnyPublisher(),
             session.$autoEndPrompt.map { _ in () }.eraseToAnyPublisher(),
@@ -642,15 +764,23 @@ final class NotchModel: ObservableObject {
             // The greeting reads the profile, which loads after the notch is built.
             profiles.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             updateGate.$status.map { _ in () }.eraseToAnyPublisher()
-        )
-        // `@Published` fires in `willSet`, so the new value isn't readable until
-        // the next turn of the runloop — and this derivation reads all four.
-        .receive(on: RunLoop.main)
-        .sink { [weak self] in self?.refresh() }
-        .store(in: &cancellables)
+        ]
+        // The setup cards redraw on the grant they are waiting for, and the
+        // Ask box on the answer it is waiting for.
+        let serviceSignals: [AnyPublisher<Void, Never>] = [
+            permissions.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            screenContext.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            calendar.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            integrations.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            knowledgeChat.$isSending.map { _ in () }.eraseToAnyPublisher()
+        ]
+        Publishers.MergeMany(sessionSignals + serviceSignals)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.refresh() }
+            .store(in: &cancellables)
     }
 
-    private func refresh() {
+    func refresh() {
         // Mirrored rather than reached for from the view: the bar is drawn from
         // one value, and the gate is the one thing about it that changes from
         // outside this class.
@@ -724,6 +854,7 @@ final class NotchModel: ObservableObject {
         NotchStateResolver(
             demoStage: demo.stage,
             isUpdateRequired: updateGate.status == .required,
+            setup: setup,
             gate: gate,
             session: session,
             offer: offers.current,
@@ -732,7 +863,9 @@ final class NotchModel: ObservableObject {
             meetingBarPanel: meetingBarPanel,
             isMeetingBarHidden: meetingBarHidden,
             recap: recapState,
-            isOpened: isOpened
+            isAsking: isAsking,
+            isOpened: isOpened,
+            voiceAsk: voiceAsk
         ).resolve()
     }
 
@@ -756,6 +889,38 @@ final class NotchModel: ObservableObject {
 /// purely to keep `NotchModel`'s own body under the house size limit; this is
 /// as much a part of the model as anything above.
 extension NotchModel {
+    /// The hotkey, from anywhere: a question for Nod. During a meeting that is
+    /// the bar's own Ask box; idle, it is the Ask card; mid-setup, the last
+    /// step's field. Whichever it is, the panel takes the keyboard so the
+    /// person can type without first clicking the field.
+    func askNod() {
+        if demo.isRunning { return }
+        if let setup {
+            guard setup == .firstAsk else { return }
+            onWantsKeyboard?()
+            return
+        }
+        if barRole != nil {
+            meetingBarHidden = false
+            meetingBarPanel.expand(.ask)
+            refresh()
+            onWantsKeyboard?()
+            return
+        }
+        if isAsking {
+            closeAsk()
+        } else {
+            openAsk()
+        }
+    }
+
+    /// Whether the Ask box may answer across sessions. Fails OPEN on an
+    /// unresolved entitlement, matching the Library dock: the proxy is the real
+    /// gate, so a Pro user with a failed fetch isn't blocked.
+    var canAskAcrossSessions: Bool {
+        entitlements.entitlement == nil || entitlements.can(.askAcrossMeetings)
+    }
+
     /// The Ask row's own button: opens the box, or folds it back to the
     /// passive row if it's already open. Reopening lands on whatever the box
     /// was last showing — a question still being answered, or the answer —
@@ -793,16 +958,26 @@ extension NotchModel {
         // ended mid-approval sends nothing on its way out.
         session.analyst.askToolGate.cancelPending()
         askTask?.cancel()
+        voice.stop()
         meetingBarPanel = MeetingBarPanel()
+        // The hold outlives the bar it started on: a recording that begins
+        // mid-hold draws a fresh panel, and it has to say the mic is open too.
+        meetingBarPanel.voice = voiceAsk
         askThread = AskThread()
     }
 
     /// The Ask box's own free-text question. Blank input is a no-op rather
     /// than a round trip that would just come back empty.
     func submitAsk(_ question: String) {
+        submitAsk(question, spoken: false)
+    }
+
+    /// `spoken` is a question that came in by voice, so the answer goes back
+    /// out the same way.
+    func submitAsk(_ question: String, spoken: Bool) {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        runAsk(question: trimmed) { thread in
+        runAsk(question: trimmed, spoken: spoken) { thread in
             self.isListening
                 ? try await self.rooms.ask(trimmed, thread: thread, language: self.language.current)
                 : try await self.session.analyst.ask(trimmed, thread: thread, language: self.language.current)
@@ -816,6 +991,50 @@ extension NotchModel {
     /// one more thing to keep true.
     private var isListening: Bool {
         barRole?.room != nil
+    }
+
+    /// Whether a question right now belongs to a meeting bar rather than the
+    /// idle card — the held key asks this to pick where its words go.
+    var hasMeetingBar: Bool {
+        barRole != nil
+    }
+
+    /// Brings the surface a question is typed into forward, whichever it is:
+    /// the bar's Ask box during a meeting, the idle card otherwise.
+    func showAskSurface() {
+        if barRole != nil {
+            meetingBarHidden = false
+            meetingBarPanel.expand(.ask)
+            refresh()
+        } else if !isAsking {
+            openAsk()
+        }
+    }
+
+    /// The question's phase, written to both places that draw it.
+    func setVoiceAsk(_ phase: VoiceAskPhase) {
+        voicePhase = phase
+        syncVoiceDisplay()
+    }
+
+    /// The question's phase outranks the words: "Thinking…" stays up while
+    /// the acknowledgement plays under it.
+    func syncVoiceDisplay() {
+        // Words being said outrank the pipeline phase: while the acknowledgement
+        // plays there is something better to show than a generic "Thinking…",
+        // and between it ending and the answer's own audio starting — the
+        // script-then-speech round trip is a real second or two — showing
+        // nothing at all reads as the whole exchange restarting from scratch.
+        let shown: VoiceAskPhase = if let speakingWords {
+            .speaking(speakingWords)
+        } else if voicePhase != .idle {
+            voicePhase
+        } else {
+            .idle
+        }
+        voiceAsk = shown
+        meetingBarPanel.voice = shown
+        refresh()
     }
 
     /// Whose meeting bar belongs on screen right now, or nil for neither.
@@ -866,6 +1085,7 @@ extension NotchModel {
     private func runAsk(
         question: String,
         feature: ProductAnalytics.AIFeature = .liveAsk,
+        spoken: Bool = false,
         call: @escaping (AskThread) async throws -> String
     ) {
         askTask?.cancel()
@@ -881,6 +1101,7 @@ extension NotchModel {
                 guard !Task.isCancelled else { return }
                 askThread.append(question: question, answer: answer)
                 meetingBarPanel.land(.answered(question: question, answer: answer))
+                if spoken { voice.say(answer, asking: question, language: voiceLanguage ?? language.current) }
                 report(feature, outcome: .success)
             } catch {
                 guard !Task.isCancelled else { return }

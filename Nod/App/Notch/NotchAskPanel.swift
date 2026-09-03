@@ -14,6 +14,9 @@ struct MeetingAskPanel: View {
     /// answered no — the same reason the listening bar spells out its `loops`
     /// and its approval handlers.
     let canReachTools: Bool
+    /// A question being spoken rather than typed; the field steps aside for
+    /// as long as it lasts.
+    var voice: VoiceAskPhase = .idle
     let onSubmit: (String) -> Void
     let onSummarize: () -> Void
     let onApprove: () -> Void
@@ -26,7 +29,12 @@ struct MeetingAskPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             result
-            inputRow
+            if voice != .idle {
+                VoiceAskRow(phase: voice)
+            }
+            if voice == .idle || voice.isSpeaking {
+                inputRow
+            }
             if approval == nil {
                 if canName {
                     ConnectedToolsRow(aimed: Set(MentionMark.namedTools(in: draft)), onTap: toggle)

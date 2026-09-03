@@ -12,6 +12,9 @@ enum NotchPresentation: Equatable {
     case updateRequired
     /// Out of the way: the bare cut-out with no Nod chrome on it at all.
     case dormant
+    /// A question being spoken, or answered, while the surface stays at rest:
+    /// the pill says listening, then thinking, and only the answer opens it.
+    case voice(VoiceAskPhase)
     /// Nod is asking whether to record — from the calendar, or from a call it
     /// can see running. One state, because it is one question: two of them
     /// meant one meeting could be asked about twice.
@@ -57,6 +60,14 @@ enum NotchPresentation: Equatable {
     case recap(RecapState)
     /// Idle, opened by hotkey or menu bar — pick what to capture and start.
     case launch
+    /// Idle, and the person has a question — for the sessions, the calendar,
+    /// and whatever has been on screen. The one idle state that takes the
+    /// keyboard.
+    case ask
+    /// The second half of onboarding, run in the notch: permissions, the
+    /// calendar, and the first question. Outranks everything but the demo and
+    /// a required update, because nothing else can happen until it is done.
+    case setup(NotchSetupStage)
     /// Confirming which language the output comes back in, on the way to Start.
     case languageConfirm
     /// The recording disclaimer, before the first capture ever runs.
@@ -141,6 +152,9 @@ struct MeetingBarPanel: Equatable {
     /// Typing → asking → answered, kept across every expansion change until the
     /// next recording starts.
     var ask: AskPhase = .composing
+    /// The held key's question, while it is being heard or written down. On
+    /// the panel for the reason `approval` is: the bar is drawn from one value.
+    var voice: VoiceAskPhase = .idle
     /// An answer arrived while the box was not the thing on screen, so nobody
     /// has laid eyes on it yet. Drives the mark on the Ask button — without it
     /// the answer this panel now keeps alive would be waiting behind a button
@@ -226,6 +240,48 @@ struct MeetingBarPanel: Equatable {
 /// Where the Ask box is in its one-shot round trip. One shape for a typed
 /// question, a tapped suggestion chip, and "Summarize" alike — all three are
 /// "some text goes to the live analyst, some text comes back."
+/// Where a spoken question is: the key is down and the microphone is open,
+/// or the key is up and the clip is on its way to text. `idle` between.
+enum VoiceAskPhase: Equatable {
+    case idle
+    case listening
+    case transcribing
+    /// The words are understood and the answer is being worked out.
+    case thinking
+    /// The voice is saying these words. Escape cuts it off.
+    case speaking(String)
+    /// Nothing usable came of the hold, and why, for a moment before the
+    /// field comes back — a row that simply vanished would say nothing.
+    case failed(String)
+}
+
+extension VoiceAskPhase {
+    var isSpeaking: Bool {
+        if case .speaking = self { return true }
+        return false
+    }
+
+    /// The pill's one word for the phase.
+    var restingLabel: String {
+        switch self {
+        case .idle, .listening: "Listening…"
+        case .transcribing, .thinking: "Thinking…"
+        case .speaking: "Speaking…"
+        case let .failed(reason): reason
+        }
+    }
+
+    /// Half the pill: the label side, measured, and never narrower than the
+    /// indicator on the other side. Both halves stretch equally, so a word
+    /// wider than its half would be drawn under the hardware, not truncated —
+    /// which is how "Listening…" went missing.
+    var restingSideWidth: CGFloat {
+        let font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        let text = (restingLabel as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
+        return max(text, 40)
+    }
+}
+
 enum AskPhase: Equatable {
     case composing
     case loading
@@ -260,6 +316,7 @@ extension NotchPresentation {
         switch self {
         case .updateRequired: "updateRequired"
         case .dormant: "dormant"
+        case .voice: "voice"
         case let .offer(offer): "offer.\(offer.identity)"
         case let .liveRoom(room, _): "liveRoom.\(room.hostName ?? "someone")"
         case let .noticed(finding): "noticed.\(finding.id.uuidString)"
@@ -268,6 +325,8 @@ extension NotchPresentation {
         case let .meetingBar(role, panel): "meetingBar.\(role.contentID).\(panel.contentID)"
         case let .recap(state): "recap.\(state.contentID)"
         case .launch: "launch"
+        case .ask: "ask"
+        case let .setup(stage): "setup.\(stage.rawValue)"
         case .languageConfirm: "languageConfirm"
         case .consent: "consent"
         case .systemAudioAccess: "systemAudioAccess"
@@ -291,8 +350,8 @@ extension NotchPresentation {
     /// comes from the content or from the hardware.
     var isOpen: Bool {
         switch self {
-        case .dormant, .tucked: false
-        case .updateRequired, .offer, .liveRoom, .noticed, .recalled, .meetingBar, .recap, .launch,
+        case .dormant, .tucked, .voice: false
+        case .updateRequired, .offer, .liveRoom, .noticed, .recalled, .meetingBar, .recap, .launch, .ask, .setup,
              .languageConfirm, .consent, .systemAudioAccess, .alert: true
         case let .demo(stage): stage.form != .resting
         }
@@ -314,6 +373,8 @@ extension NotchPresentation {
         case .noticed, .recalled, .recap: return 360
         case let .meetingBar(_, panel): return panel.surfaceWidth
         case .launch: return 384
+        case .ask: return 440
+        case let .setup(stage): return stage == .calendar || stage == .firstAsk ? 440 : 400
         case .languageConfirm: return 340
         case .consent: return 380
         case .systemAudioAccess: return 400
@@ -322,6 +383,8 @@ extension NotchPresentation {
             return geometry.hasCutout ? geometry.collapsedSize.width + flare : nil
         case .tucked:
             return geometry.hasCutout ? geometry.collapsedSize.width + flare + 124 : nil
+        case let .voice(phase):
+            return geometry.hasCutout ? geometry.collapsedSize.width + flare + 24 + phase.restingSideWidth * 2 : nil
         case let .demo(stage):
             guard stage.form == .resting else { return stage.surfaceWidth }
             guard geometry.hasCutout else { return nil }
@@ -347,9 +410,9 @@ extension NotchPresentation {
         // would otherwise silently take its content's height instead of the
         // cut-out's, and leave daylight around the hardware notch.
         switch self {
-        case .dormant, .tucked:
+        case .dormant, .tucked, .voice:
             geometry.collapsedSize.height
-        case .updateRequired, .offer, .liveRoom, .noticed, .recalled, .meetingBar, .recap, .launch,
+        case .updateRequired, .offer, .liveRoom, .noticed, .recalled, .meetingBar, .recap, .launch, .ask, .setup,
              .languageConfirm, .consent, .systemAudioAccess, .alert:
             nil
         case let .demo(stage):

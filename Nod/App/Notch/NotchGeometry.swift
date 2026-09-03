@@ -30,12 +30,15 @@ struct NotchGeometry: Equatable {
         hasCutout ? "Tuck into the notch" : "Minimize"
     }
 
-    /// The resting surface. With a cut-out it must match the hardware exactly —
-    /// a pixel of daylight around a notch is instantly visible. Without one it
-    /// is a compact pill, sized for a glance rather than to cover anything.
+    /// The resting surface. With a cut-out it must cover the hardware exactly
+    /// — a pixel of daylight around a notch is instantly visible — and reach
+    /// the bottom of the menu bar, which on recent macOS sits a couple of
+    /// points below the notch; a surface cut to the notch alone left its
+    /// lower edge showing under a wider pill. Without a cut-out it is a
+    /// compact pill, sized for a glance rather than to cover anything.
     var collapsedSize: CGSize {
         guard hasCutout else { return CGSize(width: 132, height: 26) }
-        return CGSize(width: cutoutWidth, height: cutoutHeight)
+        return CGSize(width: cutoutWidth, height: max(cutoutHeight, menuBarHeight))
     }
 
     /// How far the top corners flare outward to meet the menu bar. Zero without
