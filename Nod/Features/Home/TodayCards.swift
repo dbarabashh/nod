@@ -11,6 +11,7 @@ import SwiftUI
 struct TodayMeetingCard: View {
     let occurrence: CalendarOccurrence?
     let lastTime: Meeting?
+    let meetingBriefing: RemoteCalendar.MeetingBriefing?
     let rest: [TodayMeetingRow]
     let now: Date
     let taskError: String?
@@ -71,7 +72,7 @@ struct TodayMeetingCard: View {
         }
         if let lastTime {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Last time: \(TodayBrief.knowledgeLine(for: lastTime))")
+                Text(meetingBriefing?.summary ?? "Last time: \(TodayBrief.knowledgeLine(for: lastTime))")
                     .font(.system(size: 12.5))
                     .foregroundStyle(Theme.Palette.ink.opacity(0.85))
                 Text("From \(lastTime.displayTitle(dateFormatter: Meeting.shortDateFormatter))")

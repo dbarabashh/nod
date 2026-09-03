@@ -37,6 +37,10 @@ struct TodayView: View {
     @State private var taskError: String?
     /// The last conversation with the same people, per upcoming entry.
     @State private var lastTimeByStart: [Date: Meeting] = [:]
+    /// The evidence-linked "last time" sentence for `nextMeeting`, when the
+    /// server found a confident prior-meeting match. Nil is the common,
+    /// correct case today — see `RemoteCalendar.briefing(forICalUID:)`.
+    @State private var meetingBriefing: RemoteCalendar.MeetingBriefing?
     @State private var beatReports: [BeatReportRow] = []
     /// The open items split once, not on every body pass: which wait on you,
     /// which were handed over. Rebuilt when the store or a delegation changes.
@@ -83,6 +87,7 @@ struct TodayView: View {
         let newestRecapReady: Bool
         let newestEndedAt: Date?
         let latestBeatRun: UUID?
+        let calendarGeneration: Int
     }
 
     private var reloadKey: ReloadKey {
@@ -95,7 +100,8 @@ struct TodayView: View {
             latestBeatRun: beatStore.runs
                 .filter { $0.status == .done }
                 .max { $0.scheduledFor < $1.scheduledFor }?
-                .id
+                .id,
+            calendarGeneration: calendar.remoteGeneration
         )
     }
 
@@ -113,6 +119,20 @@ struct TodayView: View {
 
     private var lastTime: Meeting? {
         nextMeeting.flatMap { lastTimeByStart[$0.startsAt] }
+    }
+
+    /// What the card actually shows as "last time": the server briefing's own
+    /// matched meeting when one exists, never `lastTime` in that case — the
+    /// two come from independent matchers that can legitimately disagree, and
+    /// showing one's summary next to the other's title/date/open-action is
+    /// exactly the "wrong meeting attached" failure this was built to avoid.
+    /// Falls back to the client heuristic only when there is no briefing.
+    private var displayedLastTime: Meeting? {
+        if let briefing = meetingBriefing,
+           let matched = meetingStore.meetings.first(where: { $0.id == briefing.meetingID }) {
+            return matched
+        }
+        return lastTime
     }
 
     private var waitingOnYou: [ActionItem] {
@@ -162,7 +182,8 @@ struct TodayView: View {
                         // Above the cards that follow: an open drawer's pickers
                         // float past the card's edge, and a later sibling would
                         // otherwise paint over them.
-                        commitmentsCard.zIndex(1)
+                        commitmentsCard
+                            .zIndex(1)
                     }
                     if !waitingOnOthers.isEmpty {
                         TodayWaitingOnOthersCard(items: Array(waitingOnOthers.prefix(3)))
@@ -250,7 +271,8 @@ struct TodayView: View {
     private var meetingCard: some View {
         TodayMeetingCard(
             occurrence: nextMeeting,
-            lastTime: lastTime,
+            lastTime: displayedLastTime,
+            meetingBriefing: meetingBriefing,
             rest: laterToday,
             now: now,
             taskError: taskError,
@@ -378,7 +400,10 @@ struct TodayView: View {
     /// half its results into the other's.
     private func load() async {
         now = Date()
-        await calendar.refreshRemoteIfStale(maxAge: 300)
+        // Off this path: the rows below come from the snapshot already held,
+        // and a read that lands later bumps `remoteGeneration` and reloads.
+        let calendar = calendar
+        Task { await calendar.syncRemote(.open) }
         guard !Task.isCancelled else { return }
         let horizon = DateInterval(start: now, duration: 12 * 3600)
         let ahead = calendar.meetings(overlapping: horizon)
@@ -393,6 +418,15 @@ struct TodayView: View {
             },
             uniquingKeysWith: { first, _ in first }
         )
+
+        let nextExternalID = MeetingAttendance.next(in: upcoming, now: now, skipping: Set(answers.keys))?.externalID
+        let briefing: RemoteCalendar.MeetingBriefing? = if let nextExternalID {
+            await calendar.remote?.briefing(forICalUID: nextExternalID)
+        } else {
+            nil
+        }
+        guard !Task.isCancelled else { return }
+        meetingBriefing = briefing
 
         // The store's cache is what the rows and the checkbox both read, so it
         // is the thing to refresh. Forced: the plain refresh is a one-time
