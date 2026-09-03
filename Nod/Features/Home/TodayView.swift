@@ -163,6 +163,12 @@ struct TodayView: View {
         if let expandedItemID, !partition.waitingOnYou.contains(where: { $0.id == expandedItemID }) {
             self.expandedItemID = nil
         }
+        // Opened on arrival, once: the first load's own repartition, before
+        // `hasLoaded` flips — a later one (a beat landing, a checkbox tick)
+        // must not re-force a drawer the person already closed back open.
+        if !hasLoaded, expandedItemID == nil, let first = partition.waitingOnYou.first {
+            expandedItemID = first.id
+        }
     }
 
     /// Open but not on today's screen: neither shown nor counted as urgent.
@@ -225,36 +231,15 @@ struct TodayView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(TodayBrief.greeting(for: profileStore.profile?.displayName, at: now))
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                Text(subtitle)
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.Palette.muted)
-            }
-            Spacer(minLength: 8)
-            // Ad-hoc capture lives on the meeting card when one is coming; with
-            // nothing scheduled it still needs a door on this screen.
-            if nextMeeting == nil {
-                Button {
-                    onCapture()
-                } label: {
-                    HStack(spacing: 5) {
-                        Image("nc-plus").icon(10)
-                        Text("New capture")
-                    }
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 6)
-                    .background(Capsule(style: .continuous).fill(Theme.Palette.surfaceStrong))
-                }
-                .buttonStyle(.plain)
-                .linkCursor()
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            Text(TodayBrief.greeting(for: profileStore.profile?.displayName, at: now))
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(Theme.Palette.ink)
+            Text(subtitle)
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.Palette.muted)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var subtitle: String {
@@ -299,7 +284,7 @@ struct TodayView: View {
 
     private var commitmentsCard: some View {
         TodayCommitmentsCard(
-            openItems: Array(waitingOnYou.prefix(Self.rowLimit)),
+            openItems: waitingOnYou,
             ambientHints: ambientHints,
             expandedItemID: $expandedItemID,
             onAsk: onAsk,

@@ -44,19 +44,15 @@ struct HomeSidebar: View {
             OrgSidebarRow()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
-                    // Today carries the capture door itself — the meeting-named
-                    // Start on its card, "New capture" when nothing is coming —
-                    // so beside it this button was the same action twice.
-                    if surface != .today {
-                        captureButton
-                        captureHint
-                        // A wider gap than the rows keep between themselves:
-                        // the primary action and a list of places are not
-                        // peers.
-                        Color.clear.frame(height: 20)
-                    } else {
-                        Color.clear.frame(height: 8)
-                    }
+                    // The one capture door, everywhere — Today used to carry
+                    // its own header button for the no-meeting-coming case,
+                    // which made this row disappear exactly where a person
+                    // would look for it first.
+                    captureButton
+                    captureHint
+                    // A wider gap than the rows keep between themselves: the
+                    // primary action and a list of places are not peers.
+                    Color.clear.frame(height: 20)
                     SidebarNavRow(
                         title: "Today",
                         icon: "nc-sparkle-3",

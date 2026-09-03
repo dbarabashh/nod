@@ -4,6 +4,9 @@ import SwiftUI
 /// machine — checkbox, in-place drawer, delegate form — and the home surface
 /// reads better without owning its plumbing.
 struct TodayCommitmentsCard: View {
+    /// Every open commitment, uncapped — how many of them actually render is
+    /// this view's own call (`shown`), not the caller's, so "see all" has
+    /// something to reveal without a second round trip to the store.
     let openItems: [ActionItem]
     let ambientHints: [UUID: [ScreenObservation]]
     @Binding var expandedItemID: UUID?
@@ -13,12 +16,38 @@ struct TodayCommitmentsCard: View {
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var actionItemStore: ActionItemStore
 
+    @State private var showAll = false
+
+    private static let rowLimit = 4
+
+    private var shown: [ActionItem] {
+        showAll ? openItems : Array(openItems.prefix(Self.rowLimit))
+    }
+
+    private var hiddenCount: Int {
+        max(0, openItems.count - Self.rowLimit)
+    }
+
     var body: some View {
-        TodayCardList(title: "Waiting on you", items: openItems) { item in
-            row(item)
-                // The drawer's pickers float out of their row; without
-                // this the rows below, drawn later, paint over them.
-                .zIndex(expandedItemID == item.id ? 1 : 0)
+        VStack(alignment: .leading, spacing: 8) {
+            TodayCardList(title: "Waiting on you", items: shown) { item in
+                row(item)
+                    // The drawer's pickers float out of their row; without
+                    // this the rows below, drawn later, paint over them.
+                    .zIndex(expandedItemID == item.id ? 1 : 0)
+            }
+            if hiddenCount > 0 {
+                Button {
+                    showAll.toggle()
+                } label: {
+                    Text(showAll ? "Show less" : "See \(hiddenCount) more")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.Palette.muted)
+                }
+                .buttonStyle(.plain)
+                .linkCursor()
+                .padding(.leading, 2)
+            }
         }
     }
 
