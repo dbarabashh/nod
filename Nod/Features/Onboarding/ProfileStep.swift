@@ -28,7 +28,6 @@ struct ProfileStep: View {
     @State private var preferences: String
     @State private var role: WorkRole?
     @State private var heardFrom: AcquisitionSource?
-    @EnvironmentObject private var narrator: SpokenAnswer
 
     init(
         initialName: String,
@@ -56,7 +55,6 @@ struct ProfileStep: View {
                 .font(.system(size: 26, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
                 .padding(.bottom, 8)
-                .onAppear { narrator.sayScripted(OnboardingNarration.profile, language: .english) }
 
             Text(
                 "Your name and how you like Nod to respond — used in every kind of session. You can change or clear it anytime in Settings."

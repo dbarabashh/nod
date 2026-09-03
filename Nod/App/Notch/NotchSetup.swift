@@ -408,16 +408,6 @@ struct NotchSetupContent: View {
 
     var body: some View {
         content
-            // `.id(stage)` gives each stage its own view identity, so
-            // `onAppear` fires again on the way back to a card the person
-            // already saw — exactly when the voiceover is wanted again: they
-            // came back to look, not stayed on the one they left.
-            .id(stage)
-            .onAppear {
-                if let line = OnboardingNarration.setupStage(stage) {
-                    model.voice.sayScripted(line, language: .english)
-                }
-            }
     }
 
     @ViewBuilder

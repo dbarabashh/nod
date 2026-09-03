@@ -230,7 +230,6 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         .environmentObject(services.auth)
         .environmentObject(services.onboardingTelemetry)
         .environmentObject(services.modeStore)
-        .environmentObject(services.onboardingNarrator)
 
         let hosting = NSHostingController(rootView: root)
         // The window is one size for the whole flow. Left to itself the hosting

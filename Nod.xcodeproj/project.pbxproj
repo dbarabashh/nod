@@ -99,7 +99,6 @@
 		338B67448086ED2EF7E97DD0 /* DemoScenario.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E9CE7FA82E51123E5BA9886 /* DemoScenario.swift */; };
 		33CCB24D7BC76B3DD6CD21FB /* DeleteOrganizationCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B3041C37281785F9528152D /* DeleteOrganizationCard.swift */; };
 		34CE7E0CDD13B578B19E757D /* MeetingBarPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4EFA3F52588FD549265719 /* MeetingBarPanelTests.swift */; };
-		35D98A6C3F7CE377664CD684 /* OnboardingNarration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F8412FAC1EE0653C2A7017 /* OnboardingNarration.swift */; };
 		36E0A9B04DCCD56236B72A7F /* NotchStates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31508F13449912B12788FFB1 /* NotchStates.swift */; };
 		372CB2F5EED0B023909ABA4D /* NotchCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0534919E92AAD56E7A18419F /* NotchCollector.swift */; };
 		37612B3D92D7C738CC85A4EB /* WebsiteCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A3821FF0DDA1ACC6EE3C54F /* WebsiteCategory.swift */; };
@@ -913,7 +912,6 @@
 		C41BD3A94B1EAFD733577F10 /* SpeakerCorrection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerCorrection.swift; sourceTree = "<group>"; };
 		C43EF01173202096F72CB414 /* UISound.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UISound.swift; sourceTree = "<group>"; };
 		C4C309A19091BC81031E0E7D /* ProposalRaiser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProposalRaiser.swift; sourceTree = "<group>"; };
-		C4F8412FAC1EE0653C2A7017 /* OnboardingNarration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingNarration.swift; sourceTree = "<group>"; };
 		C58A2D868FB2F3B55068580F /* ServerTimestamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerTimestamp.swift; sourceTree = "<group>"; };
 		C608D6A5BBA5D4CA8861F6E7 /* NotchShape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchShape.swift; sourceTree = "<group>"; };
 		C62DA3A2A3F37237F264DF56 /* ThemedRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemedRenderingTests.swift; sourceTree = "<group>"; };
@@ -1398,7 +1396,6 @@
 			isa = PBXGroup;
 			children = (
 				AD2C15CA71714F0200AD4631 /* CalendarPrompt.swift */,
-				C4F8412FAC1EE0653C2A7017 /* OnboardingNarration.swift */,
 				6E7DB2CEFD16D7D1AA1C6DC9 /* OnboardingProgress.swift */,
 				736C5AC42FF7736D5C14B5C5 /* OnboardingState.swift */,
 				73358F5121D4B8DF22D81BF2 /* OnboardingStrings.swift */,
@@ -2393,7 +2390,6 @@
 				89FE74A773DA8D4390EDB120 /* NotchStateResolver.swift in Sources */,
 				36E0A9B04DCCD56236B72A7F /* NotchStates.swift in Sources */,
 				9D4D81E90325EB35A39F06EE /* NotchView.swift in Sources */,
-				35D98A6C3F7CE377664CD684 /* OnboardingNarration.swift in Sources */,
 				5C1109740D0DA771C040A6F4 /* OnboardingProgress.swift in Sources */,
 				82ED5BC1553793F6FABF5282 /* OnboardingState.swift in Sources */,
 				72D5A4B3C55A13D533972924 /* OnboardingStrings.swift in Sources */,

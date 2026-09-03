@@ -17,7 +17,6 @@ struct WelcomeStep: View {
     let onContinue: (AppLanguage) -> Void
 
     @State private var selection: AppLanguage
-    @EnvironmentObject private var narrator: SpokenAnswer
 
     init(
         strings: OnboardingStrings,
@@ -37,7 +36,6 @@ struct WelcomeStep: View {
             Spacer(minLength: 0)
 
             NotchCollector(size: 88)
-                .onAppear { narrator.sayScripted(OnboardingNarration.welcome(firstName: firstName), language: .english) }
                 .padding(.bottom, 26)
 
             Text(greeting)

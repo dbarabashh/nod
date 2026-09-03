@@ -44,10 +44,6 @@ struct AppServices {
     /// A live spoken conversation's own bounded thread — see `voiceChat` in
     /// `init`.
     let voiceChat: KnowledgeChatStore
-    /// Narrates onboarding — the window's two steps, before the notch (and
-    /// its own `voice`) exist. The notch's own setup cards reuse
-    /// `NotchModel.voice` for the same purpose once they exist.
-    let onboardingNarrator: SpokenAnswer
     /// Saved cross-session conversations, listed and reopened from the rail.
     let knowledgeThreads: KnowledgeThreadStore
     let agentStore: AgentStore
@@ -289,7 +285,6 @@ struct AppServices {
         // and it survives the live session itself ending (a slipped tap, a
         // dropped connection) since it lives here, not inside the session.
         let voiceChat = makeChat(unattended: false, readsRunUnasked: true, maxTurns: 5)
-        let onboardingNarrator = SpokenAnswer(llmClient: llmClient)
         let agentStore = AgentStore(
             supabase: supabase,
             chat: agentChat,
@@ -327,7 +322,6 @@ struct AppServices {
             knowledgeStore: knowledgeStore,
             knowledgeChat: makeChat(unattended: false, toolLog: toolApprovalLog),
             voiceChat: voiceChat,
-            onboardingNarrator: onboardingNarrator,
             knowledgeThreads: knowledgeThreads,
             agentStore: agentStore,
             beats: beats,

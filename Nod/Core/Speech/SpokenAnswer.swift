@@ -15,9 +15,6 @@ final class SpokenAnswer: ObservableObject {
     private enum Line {
         case acknowledgement(question: String)
         case answer(String, question: String)
-        /// Already-final, authored copy — one step of onboarding, never a
-        /// reply to anything asked.
-        case scripted(String)
 
         var isAnswer: Bool {
             if case .answer = self { return true }
@@ -28,7 +25,6 @@ final class SpokenAnswer: ObservableObject {
             switch self {
             case .acknowledgement: "acknowledgement"
             case .answer: "answer"
-            case .scripted: "narration"
             }
         }
 
@@ -36,14 +32,12 @@ final class SpokenAnswer: ObservableObject {
             switch self {
             case let .acknowledgement(question): question
             case let .answer(answer, _): answer
-            case let .scripted(text): text
             }
         }
 
         var question: String {
             switch self {
             case let .acknowledgement(question), let .answer(_, question): question
-            case .scripted: ""
             }
         }
     }
@@ -102,14 +96,6 @@ final class SpokenAnswer: ObservableObject {
             cutCurrent()
         }
         enqueue(.answer(String(answer.prefix(Self.maxLineLength)), question: question), language: language)
-    }
-
-    /// One line of pre-written copy — an onboarding step's narration. Queued
-    /// like any other line, so it never talks over an acknowledgement or an
-    /// answer already in flight; several steps in a row simply queue in
-    /// order rather than interrupting each other.
-    func sayScripted(_ text: String, language: AppLanguage) {
-        enqueue(.scripted(String(text.prefix(Self.maxLineLength))), language: language)
     }
 
     func stop() {
