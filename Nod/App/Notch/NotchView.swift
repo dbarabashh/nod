@@ -119,10 +119,36 @@ struct NotchView: View {
     /// cut-out gives the illusion away instantly. A free-floating card is not
     /// pretending to be anything, so it keeps its edge at every size — without
     /// one it reads as a hole punched in the desktop.
+    ///
+    /// A live or held voice exchange overrides this with a colored edge —
+    /// green while it is listening, amber while it is working out the answer
+    /// — visible at rest too: the resting pill *is* the surface's edge in
+    /// that size, and the color is exactly what says which one is true
+    /// without the person having to read the word next to it.
+    @ViewBuilder
     private func edge(_ shape: AnyShape) -> some View {
-        shape.stroke(
-            Theme.Palette.border.opacity(presentation.isOpen || geometry.showsEdgeAtRest ? 1 : 0),
-            lineWidth: 0.5
-        )
+        if let voiceColor {
+            shape.stroke(
+                LinearGradient(
+                    colors: [voiceColor.opacity(0.25), voiceColor, voiceColor.opacity(0.25)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                ),
+                lineWidth: 1.5
+            )
+        } else {
+            shape.stroke(
+                Theme.Palette.border.opacity(presentation.isOpen || geometry.showsEdgeAtRest ? 1 : 0),
+                lineWidth: 0.5
+            )
+        }
+    }
+
+    private var voiceColor: Color? {
+        switch model.voiceAsk {
+        case .listening: Theme.Palette.success
+        case .transcribing, .thinking: Theme.Palette.warning
+        case .idle, .speaking, .failed: nil
+        }
     }
 }

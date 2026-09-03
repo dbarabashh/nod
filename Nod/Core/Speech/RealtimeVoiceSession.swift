@@ -17,6 +17,12 @@ final class RealtimeVoiceSession: NSObject {
         case connecting
         case listening
         case userSpeaking
+        /// `ask_nod` is running — a real search, seconds long, with nothing to
+        /// play yet. Without this the display kept showing whatever it last
+        /// showed (usually "Listening…", read during a tool call as "it heard
+        /// nothing and gave up"), because the WebSocket itself has nothing to
+        /// say about a function call still in flight.
+        case thinking
         /// The model's audio is playing; the words said so far, as they arrive.
         case responding(String)
         case failed(String)
@@ -59,6 +65,28 @@ final class RealtimeVoiceSession: NSObject {
     /// and be mistaken for a barge-in. The one cost is that talking over the
     /// assistant no longer interrupts it; a tap of the hotkey still does.
     private var isModelSpeaking = false
+    /// Buffers handed to `playbackNode` that haven't finished playing yet.
+    /// `response.done` means the server stopped *generating* — audio arrives
+    /// well ahead of real time, so a several-second answer can still have
+    /// seconds of it queued at the speaker when that event lands. Closing the
+    /// mic gate on `response.done` alone reopened it while the assistant's
+    /// own voice was still audibly playing; the tail bled into the mic,
+    /// server VAD read it as the user talking, and — with server VAD's
+    /// default `create_response: true` — that started an unprompted new
+    /// turn. The gate now stays shut until every queued buffer has actually
+    /// finished (see `enqueuePlayback`'s completion handler).
+    private var pendingPlaybackBuffers = 0
+    /// Set on `response.done`; read by the last buffer's completion handler
+    /// to know the mic gate should reopen the moment it fires. Split from
+    /// `isModelSpeaking` because the server can say "done" before the last
+    /// buffer has finished playing.
+    private var serverResponseDone = false
+    /// True for the whole `ask_nod` round trip — the mic stays open during
+    /// it (nothing is playing, so nothing needs gating), and a stray sound
+    /// the server's VAD reads as a word or two used to cost the display: the
+    /// unconditional `speech_stopped` handler dropped straight back to
+    /// `.listening`, stomping the `.thinking` this flag now restores instead.
+    private var toolCallInFlight = false
     /// Broader than `isModelSpeaking`: true for any response the server is
     /// generating, audio or not — including the ones server VAD creates on
     /// its own between `speech_stopped` and the app ever hearing a word back.
@@ -110,7 +138,7 @@ final class RealtimeVoiceSession: NSObject {
     var isActive: Bool {
         switch state {
         case .idle, .failed: false
-        case .connecting, .listening, .userSpeaking, .responding: true
+        case .connecting, .listening, .userSpeaking, .thinking, .responding: true
         }
     }
 
@@ -155,6 +183,7 @@ final class RealtimeVoiceSession: NSObject {
         stopMicrophone()
         stopPlayback()
         cancelTranscriptFlush()
+        toolCallInFlight = false
     }
 
     private func cancelTranscriptFlush() {
@@ -242,6 +271,7 @@ final class RealtimeVoiceSession: NSObject {
             guard let base64 = object["delta"] as? String, let bytes = Data(base64Encoded: base64) else { return }
             if !isModelSpeaking {
                 isModelSpeaking = true
+                serverResponseDone = false
                 state = .responding("")
             }
             enqueuePlayback(pcm16: bytes)
@@ -253,10 +283,11 @@ final class RealtimeVoiceSession: NSObject {
             guard let callID = object["call_id"] as? String, let name = object["name"] as? String else { return }
             handleToolCall(name: name, callID: callID, argumentsJSON: object["arguments"] as? String ?? "{}")
         case "response.done":
-            isModelSpeaking = false
             hasActiveResponse = false
-            cancelTranscriptFlush()
-            if state != .idle { state = .listening }
+            serverResponseDone = true
+            // No audio ever played for this response (a function call, or a
+            // turn cut short) — nothing queued means nothing to wait for.
+            if pendingPlaybackBuffers == 0 { finishSpeaking() }
         case "input_audio_buffer.speech_started":
             // Local playback has to be cleared here regardless — audio
             // already queued on this Mac keeps playing until told otherwise.
@@ -269,6 +300,7 @@ final class RealtimeVoiceSession: NSObject {
             // trying to give is just lost.
             if isModelSpeaking {
                 flushPlayback()
+                pendingPlaybackBuffers = 0
                 isModelSpeaking = false
                 cancelTranscriptFlush()
             }
@@ -278,7 +310,7 @@ final class RealtimeVoiceSession: NSObject {
             }
             state = .userSpeaking
         case "input_audio_buffer.speech_stopped":
-            if state == .userSpeaking { state = .listening }
+            if state == .userSpeaking { state = toolCallInFlight ? .thinking : .listening }
         case "error":
             let detail = (object["error"] as? [String: Any])?["message"] as? String ?? "unknown"
             // `response.cancel` sent above races the server's own bookkeeping
@@ -298,6 +330,15 @@ final class RealtimeVoiceSession: NSObject {
         }
     }
 
+    /// The mic gate actually reopens here — once the server says a response
+    /// is done AND every buffer it sent has finished playing (see
+    /// `pendingPlaybackBuffers`), never on `response.done` alone.
+    private func finishSpeaking() {
+        isModelSpeaking = false
+        cancelTranscriptFlush()
+        if state != .idle { state = .listening }
+    }
+
     /// Runs the account's own knowledge pipeline for a question the live
     /// model asked for, and hands the answer back so it can speak it. The
     /// model keeps talking about something else while this runs — a search
@@ -312,10 +353,13 @@ final class RealtimeVoiceSession: NSObject {
             ""
         }
         let generation = generation
+        state = .thinking
+        toolCallInFlight = true
         Task { @MainActor [weak self] in
             guard let self else { return }
             let answer = question.isEmpty ? "The question didn't come through — ask again." : await askNod(question)
             guard generation == self.generation else { return }
+            toolCallInFlight = false
             // `askNod` can run long enough for a stray utterance to reach the
             // server and auto-create its own response in the meantime —
             // server VAD does that on its own, with nothing to tell this
@@ -439,6 +483,12 @@ final class RealtimeVoiceSession: NSObject {
         playbackEngine?.stop()
         playbackEngine = nil
         playbackNode = nil
+        // Not relied on for correctness — `generation` already guards every
+        // completion handler — but stopping the node doesn't promise every
+        // pending one actually fires, and a stale nonzero count would start
+        // the next session's mic gate already (and permanently) shut.
+        pendingPlaybackBuffers = 0
+        serverResponseDone = false
     }
 
     /// Cuts whatever is queued or playing, for a barge-in. The node keeps
@@ -463,7 +513,21 @@ final class RealtimeVoiceSession: NSObject {
                 channel[i] = Float(samples[i]) / Float(Int16.max)
             }
         }
-        node.scheduleBuffer(buffer)
+        pendingPlaybackBuffers += 1
+        let generation = generation
+        // `.dataPlayedBack`, not the default `.dataConsumed` — the mic gate
+        // needs to know the audio actually finished coming out of the
+        // speaker, not just that this buffer was handed to the render
+        // thread (which can be a second or more ahead of what's audible).
+        node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, generation == self.generation else { return }
+                pendingPlaybackBuffers = max(0, pendingPlaybackBuffers - 1)
+                if pendingPlaybackBuffers == 0, serverResponseDone {
+                    finishSpeaking()
+                }
+            }
+        }
     }
 
     private enum ClientAudioError: Error {

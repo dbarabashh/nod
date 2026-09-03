@@ -79,6 +79,7 @@ extension NotchModel {
             guard let wav = await heldQuestion.stop() else {
                 setVoiceAsk(.idle)
                 guard !hasMeetingBar else { return }
+                UISound.meetingDetected.play(recording: false)
                 await realtimeVoice.start(language: voiceLanguage ?? language.current)
                 return
             }
@@ -186,8 +187,19 @@ extension NotchModel {
         case .listening, .userSpeaking:
             noteSpeaking(nil)
             setVoiceAsk(.listening)
-        case let .responding(wordsSoFar):
+        case .thinking:
+            noteSpeaking(nil)
             setVoiceAsk(.thinking)
+        case let .responding(wordsSoFar):
+            // Never `setVoiceAsk(.thinking)` here: `noteSpeaking` below
+            // already puts the display in `.speaking` the moment there are
+            // any words (see `syncVoiceDisplay`, which prefers
+            // `speakingWords` over `voicePhase` whenever it is non-nil,
+            // including the empty string the very first delta arrives with).
+            // Setting `.thinking` first and trusting the next line to
+            // overwrite it left a real gap: `wordsSoFar` starts as `""`, and
+            // an audio-only stretch before the transcript catches up could
+            // hold `.thinking` on screen for longer than one frame.
             noteSpeaking(wordsSoFar)
         case let .failed(reason):
             noteSpeaking(nil)
