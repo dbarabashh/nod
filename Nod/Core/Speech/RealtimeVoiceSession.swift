@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Foundation
 
@@ -339,19 +340,32 @@ final class RealtimeVoiceSession: NSObject {
         if state != .idle { state = .listening }
     }
 
+    private func handleToolCall(name: String, callID: String, argumentsJSON: String) {
+        switch name {
+        case "ask_nod":
+            handleAskNod(callID: callID, argument: stringArgument("question", from: argumentsJSON))
+        case "open_url":
+            handleOpenURL(callID: callID, argument: stringArgument("url", from: argumentsJSON))
+        case "open_app":
+            handleOpenApp(callID: callID, argument: stringArgument("name", from: argumentsJSON))
+        default:
+            break
+        }
+    }
+
+    private func stringArgument(_ key: String, from argumentsJSON: String) -> String {
+        guard let data = argumentsJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = object[key] as? String
+        else { return "" }
+        return value
+    }
+
     /// Runs the account's own knowledge pipeline for a question the live
     /// model asked for, and hands the answer back so it can speak it. The
     /// model keeps talking about something else while this runs — a search
     /// is not instant, and a live conversation does not stop to wait quietly.
-    private func handleToolCall(name: String, callID: String, argumentsJSON: String) {
-        guard name == "ask_nod" else { return }
-        let question: String = if let data = argumentsJSON.data(using: .utf8),
-                                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                                  let text = object["question"] as? String {
-            text
-        } else {
-            ""
-        }
+    private func handleAskNod(callID: String, argument question: String) {
         let generation = generation
         state = .thinking
         toolCallInFlight = true
@@ -360,22 +374,50 @@ final class RealtimeVoiceSession: NSObject {
             let answer = question.isEmpty ? "The question didn't come through — ask again." : await askNod(question)
             guard generation == self.generation else { return }
             toolCallInFlight = false
-            // `askNod` can run long enough for a stray utterance to reach the
-            // server and auto-create its own response in the meantime —
-            // server VAD does that on its own, with nothing to tell this
-            // class it happened. Cancelling first (only when the flag says
-            // one is actually there) is what stops that response from
-            // colliding with the one about to be created for this answer.
-            if hasActiveResponse {
-                send(["type": "response.cancel"])
-                hasActiveResponse = false
-            }
-            send([
-                "type": "conversation.item.create",
-                "item": ["type": "function_call_output", "call_id": callID, "output": answer]
-            ])
-            send(["type": "response.create"])
+            respondToTool(callID: callID, output: answer)
         }
+    }
+
+    /// `open_url`/`open_app` both resolve and act synchronously — nothing
+    /// here is worth a "Thinking…" pill for.
+
+    private func handleOpenURL(callID: String, argument raw: String) {
+        guard let url = VoiceOpenActions.validatedURL(raw) else {
+            respondToTool(callID: callID, output: "That wasn't a link Nod can open.")
+            return
+        }
+        NSWorkspace.shared.open(url)
+        respondToTool(callID: callID, output: "Opened.")
+    }
+
+    private func handleOpenApp(callID: String, argument name: String) {
+        guard let appURL = VoiceOpenActions.resolveApplication(named: name) else {
+            respondToTool(callID: callID, output: "Couldn't find an app called \"\(name)\" on this Mac.")
+            return
+        }
+        NSWorkspace.shared.openApplication(at: appURL, configuration: .init()) { [weak self] _, error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                respondToTool(callID: callID, output: error == nil ? "Opened." : "Couldn't open \(name).")
+            }
+        }
+    }
+
+    /// Hands a tool's result back to the model and lets it continue —
+    /// shared by all three tools so the same server-side bookkeeping
+    /// (cancelling a response the server auto-created while this ran, so it
+    /// doesn't collide with the one about to be created for this answer)
+    /// isn't repeated three times.
+    private func respondToTool(callID: String, output: String) {
+        if hasActiveResponse {
+            send(["type": "response.cancel"])
+            hasActiveResponse = false
+        }
+        send([
+            "type": "conversation.item.create",
+            "item": ["type": "function_call_output", "call_id": callID, "output": output]
+        ])
+        send(["type": "response.create"])
     }
 
     // MARK: - Microphone

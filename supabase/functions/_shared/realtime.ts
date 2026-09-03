@@ -56,6 +56,44 @@ const ASK_NOD_TOOL = {
     },
 };
 
+// Non-mutating "open" — nothing here changes any of the user's data, which
+// is what lets it run without the approval card every write elsewhere in
+// this app goes through (see `ChatToolGate`). The description is the only
+// thing standing between this and the model opening a page it invented;
+// `open_url` is deliberately not told it may guess.
+const OPEN_URL_TOOL = {
+    type: "function",
+    name: "open_url",
+    description:
+        "Opens a web link in the user's default browser. Use it when the user asks to open something ask_nod " +
+        "just found for them (a Linear issue, an email thread, a calendar event, a document) or a page they " +
+        "named directly. Only pass a URL you actually have — from ask_nod's own answer, or one the user said " +
+        "themselves. Never invent, guess, or complete a URL from a company or product name.",
+    parameters: {
+        type: "object",
+        properties: {
+            url: { type: "string", description: "The exact http(s) URL to open, verbatim." },
+        },
+        required: ["url"],
+    },
+};
+
+const OPEN_APP_TOOL = {
+    type: "function",
+    name: "open_app",
+    description:
+        "Opens an application already installed on the user's Mac, by name — e.g. \"Slack\", \"Mail\", " +
+        "\"Finder\", \"System Settings\". Use it when the user asks to open, switch to, or launch an app. Not " +
+        "for opening a document, a website, or a file — those go through open_url or aren't supported.",
+    parameters: {
+        type: "object",
+        properties: {
+            name: { type: "string", description: "The application's name, as the user said it." },
+        },
+        required: ["name"],
+    },
+};
+
 export function realtimeSessionBody(request: RealtimeTokenRequest, voice: string): Record<string, unknown> {
     return {
         expires_after: { anchor: "created_at", seconds: REALTIME_TOKEN_TTL_SECONDS },
@@ -70,7 +108,7 @@ export function realtimeSessionBody(request: RealtimeTokenRequest, voice: string
                 input: { format: { type: "audio/pcm", rate: 24_000 }, turn_detection: { type: "server_vad" } },
                 output: { format: { type: "audio/pcm", rate: 24_000 }, voice },
             },
-            tools: [ASK_NOD_TOOL],
+            tools: [ASK_NOD_TOOL, OPEN_URL_TOOL, OPEN_APP_TOOL],
             tool_choice: "auto",
         },
     };
