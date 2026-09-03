@@ -327,6 +327,11 @@ async function syncAccount(
         if (error) throw new Error(`upsert failed: ${error.message}`);
     }
 
+    // Prune before the dual-write: a cancelled event must be gone from
+    // source_objects before it can become a briefing candidate this cycle,
+    // not tombstoned after the fact.
+    await pruneWindow(admin, userId, from, to, stampedAt);
+
     // Dark until INGESTION_V2 is flipped (see context-platform-implementation
     // plan, Phase 4). Scoped to this user only — the global backfill already
     // caught everyone up once; a sync only needs to keep its own rows current.
@@ -338,7 +343,6 @@ async function syncAccount(
         else if (briefingsV1Enabled()) await generateUpcomingMeetingBriefings(admin, userId);
     }
 
-    await pruneWindow(admin, userId, from, to, stampedAt);
     const syncedAt = await recordState(admin, userId, null);
     return { fetched: events.length, stored: rows.length, syncedAt };
 }
@@ -491,6 +495,10 @@ async function fetchWindow(connection: Connection, from: Date, to: Date, purpose
 /// Scoped to the window on purpose: rows outside it are not evidence of
 /// anything, and deleting on a wider net would clear a neighbouring window that
 /// this call never looked at.
+///
+/// One RPC rather than a client-side delete: the matching source_objects row
+/// (Phase 4 dual-write) must be tombstoned in the same statement that removes
+/// the calendar_events row, or a cancelled event's stale copy lives on forever.
 async function pruneWindow(
     admin: Admin,
     userId: string,
@@ -498,15 +506,14 @@ async function pruneWindow(
     to: Date,
     stampedAt: string,
 ): Promise<void> {
-    const { error } = await admin
-        .from("calendar_events")
-        .delete()
-        .eq("user_id", userId)
-        .eq("provider", PROVIDER)
-        .eq("calendar_id", CALENDAR_ID)
-        .gte("starts_at", from.toISOString())
-        .lte("starts_at", to.toISOString())
-        .lt("updated_at", stampedAt);
+    const { error } = await admin.rpc("prune_calendar_window", {
+        p_user_id: userId,
+        p_provider: PROVIDER,
+        p_calendar_id: CALENDAR_ID,
+        p_from: from.toISOString(),
+        p_to: to.toISOString(),
+        p_stamped_at: stampedAt,
+    });
     if (error) console.error(`calendar-sync prune failed: ${error.message}`);
 }
 
