@@ -205,7 +205,7 @@ final class ActionItemStore: ObservableObject {
             // the recap has already landed.
             if didLoad {
                 let known = Set(items.map(\.id))
-                items.append(contentsOf: inserts.filter { !known.contains($0.id) })
+                items.append(contentsOf: inserts.filter { !known.contains($0.id) && Self.belongsInCache($0) })
             }
             return inserts
         } catch {
@@ -280,6 +280,16 @@ final class ActionItemStore: ObservableObject {
             .limit(2000)
             .execute()
             .value
+    }
+
+    /// What `allItems` would have brought back, asked of a row already in hand.
+    ///
+    /// `items` is a local copy of that query and nothing else, so a row
+    /// appended past this is one no refresh will ever produce again — which is
+    /// how a finalized meeting came to show its retired live guesses and its
+    /// open questions as checkable tasks until the next relaunch removed them.
+    nonisolated static func belongsInCache(_ item: ActionItem) -> Bool {
+        item.deletedAt == nil && item.kind == .action && item.status == .confirmed
     }
 
     /// What a meeting produced that is NOT a task — the decisions it settled,

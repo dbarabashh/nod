@@ -222,7 +222,20 @@ final class MeetingEnrichment {
         // Distillation follows in the same task, not beside it: it wants the
         // entities this pass just saved, and running it after the index keeps
         // the two edge calls off one worker instance.
-        let producedWork = !saved.isEmpty
+        // The tasks the meeting stands behind, not every row it wrote. A live
+        // guess the recap did not corroborate is saved already retired, and an
+        // agent told a meeting produced three tasks it did not is acting on
+        // findings the app itself has withdrawn.
+        //
+        // Tasks, and both kinds of them: `itemTitles` is what the drafting
+        // prompt is told already exists, so `theirs` belongs — it is a real
+        // commitment somebody made — while a decision or an open question is
+        // not something an agent could draft twice, and listing one only
+        // suppresses the draft that would have answered it.
+        let produced = saved.filter {
+            $0.status == .confirmed && ($0.kind == .action || $0.kind == .theirs)
+        }
+        let producedWork = !produced.isEmpty
         Task { [agents] in
             await knowledgeStore.index(meetingID: meeting.id, transcript: transcript)
             await knowledgeStore.distill(meetingID: meeting.id)
@@ -233,7 +246,7 @@ final class MeetingEnrichment {
             await agents.runAfterMeeting(
                 meeting: meeting,
                 producedWork: producedWork,
-                itemTitles: saved.map(\.text)
+                itemTitles: produced.map(\.text)
             )
             await agents.refreshCandidates()
         }
