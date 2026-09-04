@@ -38,6 +38,35 @@ final class LiveMeetingAnalystTests: XCTestCase {
         XCTAssertFalse(LiveMeetingAnalyst.isQuoted("", in: window))
     }
 
+    // MARK: - One sentence, one finding
+
+    func testTheSameSentenceReadTwiceIsTheSameEvidence() {
+        XCTAssertTrue(LiveMeetingAnalyst.sameEvidence(
+            "I'll send the updated deck before Friday",
+            "I'll   send the UPDATED\n deck before Friday"
+        ))
+    }
+
+    func testADifferentSentenceIsDifferentEvidence() {
+        XCTAssertFalse(LiveMeetingAnalyst.sameEvidence(
+            "I'll send the updated deck before Friday",
+            "let's park the enterprise tier until we hear from legal"
+        ))
+    }
+
+    func testALongerSpanFromTheSameTurnIsNotTheSameEvidence() {
+        // Two commitments in one turn are two findings, and the second one's
+        // span containing the first is not grounds to refuse it.
+        XCTAssertFalse(LiveMeetingAnalyst.sameEvidence(
+            "I'll send the updated deck",
+            "I'll send the updated deck and Anna will book the room"
+        ))
+    }
+
+    func testAFindingWithNoQuoteBlocksNothing() {
+        XCTAssertFalse(LiveMeetingAnalyst.sameEvidence(nil, "I'll send the updated deck before Friday"))
+    }
+
     // MARK: - Window sizing
 
     func testWindowCoversTheNewMaterialPlusItsLookback() {

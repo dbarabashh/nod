@@ -47,11 +47,13 @@ extension LiveMeetingAnalyst {
                 Log.llm.info("live: open loops considered, nothing worth surfacing")
                 return false
             }
+            guard !Task.isCancelled else { return false }
             recallsUsed += 1
             Log.llm.info("live: open loop surfaced (\(recallsUsed)/\(Self.recallsPerMeeting))")
             raise(recall)
             return true
         } catch {
+            guard !Task.isCancelled else { return false }
             Log.llm.error("live: open-loop recall failed: \(error.localizedDescription)")
             return false
         }

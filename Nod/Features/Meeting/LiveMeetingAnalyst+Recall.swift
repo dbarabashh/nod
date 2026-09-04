@@ -103,6 +103,7 @@ extension LiveMeetingAnalyst {
             guard let source = chosen.sourceMeetingID,
                   let label = recallSourceLabel?(source)
             else { return }
+            guard !Task.isCancelled else { return }
             recallsUsed += 1
             Log.llm.info(
                 "live: recall surfaced kind=\(kind.rawValue) concept=\(chosen.conceptID != nil) (\(recallsUsed)/\(Self.recallsPerMeeting))"
@@ -116,6 +117,7 @@ extension LiveMeetingAnalyst {
                 replacement: verdict.replacement?.trimmingCharacters(in: .whitespacesAndNewlines)
             ))
         } catch {
+            guard !Task.isCancelled else { return }
             Log.llm.error("live: recall failed: \(error.localizedDescription)")
         }
     }

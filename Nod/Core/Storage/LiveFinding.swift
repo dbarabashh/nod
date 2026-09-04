@@ -90,6 +90,27 @@ struct LiveFinding: Identifiable, Equatable {
         }
     }
 
+    /// The same finding, read as a change to one already open.
+    ///
+    /// Minted rather than mutated so `revisionOf` stays `let`: what a finding
+    /// replaces is decided once, when it is accepted, and a row that can be
+    /// re-pointed later is a row whose history nothing can be read off.
+    func revising(_ earlier: UUID) -> LiveFinding {
+        LiveFinding(
+            id: id,
+            kind: kind,
+            text: text,
+            tier: tier,
+            deadline: deadline,
+            evidenceIdx: evidenceIdx,
+            quote: quote,
+            spokenAt: spokenAt,
+            revisionOf: earlier,
+            foundAt: foundAt,
+            state: state
+        )
+    }
+
     /// What the live pass heard, as lines for the recap prompt.
     ///
     /// The recap reads the whole transcript in one go and is the authority; this
