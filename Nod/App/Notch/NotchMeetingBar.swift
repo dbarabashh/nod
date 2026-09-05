@@ -410,15 +410,7 @@ struct NotchLanguageMenuButton: View {
 
     var body: some View {
         Menu {
-            Picker("Nod language — summaries and answers", selection: Binding(
-                get: { language.current },
-                set: { language.current = $0 }
-            )) {
-                ForEach(AppLanguage.allCases, id: \.self) { option in
-                    Text(option.nativeName).tag(option)
-                }
-            }
-            .pickerStyle(.inline)
+            LanguageMenu(selected: language.current) { language.current = $0 }
         } label: {
             // A two-letter chip is wider than the glyphs it sits beside, so it
             // reads as the biggest thing in the row at the same nominal size.

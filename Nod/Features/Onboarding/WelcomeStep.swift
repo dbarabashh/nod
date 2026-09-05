@@ -107,18 +107,29 @@ private struct LanguageRow: View {
 
             Spacer(minLength: 0)
 
-            // Picker with .menu style handles selection-state semantics,
-            // VoiceOver "selected" announcements, and keyboard interaction
-            // correctly — including the Return-key conflict with the
-            // Continue button's `.keyboardShortcut(.defaultAction)`. The
-            // raw `Menu` previously here had to fake all of that.
-            Picker("Nod language", selection: $selection) {
-                ForEach(AppLanguage.allCases, id: \.self) { lang in
-                    Text(lang.nativeName).tag(lang)
+            // A `Menu` over `LanguageMenu`, not a flat `Picker`. A `Picker`
+            // renders one list of every language, which at thirty-five runs off
+            // the bottom of the screen; only a menu can hold the submenus that
+            // keep it short. The two things the `Picker` was here for both
+            // survive: `LanguageMenu` marks the selection with a `Toggle`, so
+            // AppKit draws the checked item VoiceOver announces, and an open
+            // menu tracks its own key events — Return picks the highlighted
+            // language rather than falling through to Continue's
+            // `.keyboardShortcut(.defaultAction)`.
+            Menu {
+                LanguageMenu(selected: selection) { selection = $0 }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selection.nativeName)
+                        .font(.system(size: 13, weight: .medium))
+                    Image("nc-chevron-expand-y")
+                        .icon(8)
                 }
+                .foregroundStyle(Theme.Palette.ink.opacity(0.95))
             }
-            .pickerStyle(.menu)
-            .labelsHidden()
+            .plainMenuChrome()
+            .accessibilityLabel("Nod language")
+            .accessibilityValue(selection.nativeName)
             // Stable trigger width so the row doesn't jitter as the
             // user steps through native names with wildly different
             // glyph widths (中文 vs Українська).

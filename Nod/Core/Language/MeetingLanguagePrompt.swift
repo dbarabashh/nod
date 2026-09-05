@@ -69,9 +69,7 @@ struct MeetingLanguagePrompt: View {
 
     private var picker: some View {
         Menu {
-            ForEach(AppLanguage.allCases, id: \.self) { option in
-                Button(option.nativeName) { language = option }
-            }
+            LanguageMenu(selected: language) { language = $0 }
         } label: {
             HStack(spacing: 4) {
                 Text(language.nativeName)

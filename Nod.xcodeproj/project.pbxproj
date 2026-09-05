@@ -129,6 +129,7 @@
 		44AF2D9FE185C7136381552D /* MeetingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F1EC22DCDC03DC33EBB6EFB /* MeetingStore.swift */; };
 		44D8A56C31A240E907818536 /* MentionResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 464DBB59C09CBC2905793614 /* MentionResolutionTests.swift */; };
 		45004E23C0A57AE2562B349F /* MeetingRosterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71C5FAD49FF9308677FC7A15 /* MeetingRosterTests.swift */; };
+		451B5B71391902E0CA9B3479 /* LanguageMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92F6CC2374B2F564837C93C9 /* LanguageMenu.swift */; };
 		45488BECC5918B78653F2CBD /* WindowBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1EFEC847FBE3EA10AC2575F /* WindowBackdrop.swift */; };
 		455BA1F77CB1563122C0895E /* CalendarPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD2C15CA71714F0200AD4631 /* CalendarPrompt.swift */; };
 		4642F1D3FCF051D58459A38C /* MeetingDetailHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBF8F012180EB14AE7C0C9D1 /* MeetingDetailHeader.swift */; };
@@ -820,6 +821,7 @@
 		90B9A0E58621C399E4C8BE89 /* SampleBufferConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleBufferConverter.swift; sourceTree = "<group>"; };
 		91EC1F3CB967E89C69FD46C4 /* TeamRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamRow.swift; sourceTree = "<group>"; };
 		92F3B81F02B25F8E53733099 /* ConsentStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsentStrings.swift; sourceTree = "<group>"; };
+		92F6CC2374B2F564837C93C9 /* LanguageMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageMenu.swift; sourceTree = "<group>"; };
 		9304B4FAD03EB638DDBAD2E7 /* ActionCheckbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionCheckbox.swift; sourceTree = "<group>"; };
 		933A850695F0E3F68D8F28C4 /* VoiceOpenActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceOpenActions.swift; sourceTree = "<group>"; };
 		945B63787862EC41E640DC3D /* SidebarNavRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarNavRow.swift; sourceTree = "<group>"; };
@@ -1755,6 +1757,7 @@
 				A08F6491DAD5DDAB1F7A35DD /* InlineField.swift */,
 				2840FE8610BEB136EE34EF8A /* InlineFormHeader.swift */,
 				19A9758C570690CC4B71C91F /* LabelComponents.swift */,
+				92F6CC2374B2F564837C93C9 /* LanguageMenu.swift */,
 				63CC627D56CF5E1DAA293689 /* MeetingShareButton.swift */,
 				8CA9B3FD211FE756C0BC03E5 /* MentionTextView.swift */,
 				797D5358C62588EC4E085451 /* MenuTrigger.swift */,
@@ -2336,6 +2339,7 @@
 				8DB7C032D3B04312F90D7874 /* Label.swift in Sources */,
 				E8F917A7CCDE767A295B98A5 /* LabelComponents.swift in Sources */,
 				945DADFE2F34D1D030698608 /* LabelStore.swift in Sources */,
+				451B5B71391902E0CA9B3479 /* LanguageMenu.swift in Sources */,
 				E4E1AB7B1AC596CEA443332B /* LaunchBehavior.swift in Sources */,
 				C2D8F51E3F1FC626C08A5167 /* LeaveOrganizationCard.swift in Sources */,
 				66CB1379E597D7C6D11F1832 /* LiveFinding.swift in Sources */,
