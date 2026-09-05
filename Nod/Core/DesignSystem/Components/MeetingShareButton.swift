@@ -101,6 +101,10 @@ struct MeetingSharePicker: View {
     let existing: [MeetingGrant]
     let orgID: UUID
     let orgName: String
+    /// Audiences that reach this session through a project it is filed in.
+    /// Shown, never toggled: unsharing one is the project's decision and would
+    /// take the access from every other session in it.
+    var viaProjects: [MeetingAudience.Reach] = []
 
     @EnvironmentObject private var grants: MeetingGrantStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -132,12 +136,42 @@ struct MeetingSharePicker: View {
                         grant: existing.first { $0.orgID != nil },
                         share: { await grants.share(meetingID, withTeam: nil, org: orgID) }
                     )
+                    ForEach(viaProjects, id: \.project) { reach in
+                        viaProject(reach)
+                    }
                 }
             }
             .frame(maxHeight: 260)
             .fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: 264)
+    }
+
+    /// What a project already reaches, stated where somebody is deciding who
+    /// can see this. Without it the list above reads as the whole answer, and
+    /// a session inside a shared project looks private in the one place built
+    /// to say whether it is.
+    private func viaProject(_ reach: MeetingAudience.Reach) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Divider()
+            HStack(alignment: .top, spacing: Theme.Space.x2) {
+                Image("nc-tag")
+                    .icon(Theme.Control.iconMicro)
+                    .foregroundStyle(Theme.Palette.muted)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(reach.audiences.joined(separator: ", "))
+                        .textStyle(Theme.Typography.secondary)
+                        .foregroundStyle(Theme.Palette.ink)
+                    Text("through the \(reach.project) project")
+                        .textStyle(Theme.Typography.meta)
+                        .foregroundStyle(Theme.Palette.muted)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Theme.Space.x3)
+            .padding(.vertical, Theme.Space.x2)
+            .help("Shared by the project. Remove the session from it, or stop sharing the project.")
+        }
     }
 
     private func row(

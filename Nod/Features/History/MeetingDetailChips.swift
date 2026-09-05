@@ -480,14 +480,17 @@ struct MeetingAccessChip: View {
 
     @EnvironmentObject private var grants: MeetingGrantStore
     @EnvironmentObject private var organizations: OrganizationService
+    @EnvironmentObject private var labelStore: LabelStore
     @State private var isPicking = false
 
     var body: some View {
         if let orgID = organizations.activeOrgID, let membership = organizations.activeMembership {
             let teams = organizations.teams(in: orgID)
-            let existing = grants.grants(forMeeting: meetingID)
+            let audience = audience(teams: teams, orgName: membership.organization.name)
             Button { isPicking = true } label: {
-                chip(for: existing, teams: teams, orgName: membership.organization.name)
+                MeetingChipSurface {
+                    content(title: audience.title, isShared: !audience.isPrivate)
+                }
             }
             .buttonStyle(.plain)
             .disabled(!isReady)
@@ -505,9 +508,10 @@ struct MeetingAccessChip: View {
                 MeetingSharePicker(
                     meetingID: meetingID,
                     teams: teams,
-                    existing: existing,
+                    existing: grants.grants(forMeeting: meetingID),
                     orgID: orgID,
-                    orgName: membership.organization.name
+                    orgName: membership.organization.name,
+                    viaProjects: audience.viaProjects
                 )
             }
         } else {
@@ -521,10 +525,18 @@ struct MeetingAccessChip: View {
         }
     }
 
-    private func chip(for existing: [MeetingGrant], teams: [Team], orgName: String) -> some View {
-        MeetingChipSurface {
-            content(title: Self.title(for: existing, teams: teams, orgName: orgName), isShared: !existing.isEmpty)
-        }
+    /// Both routes a person controls: a grant on the session, and a project it
+    /// is filed in that somebody shared. Counting only the first is how a
+    /// session inside a shared project came to read "Only me".
+    private func audience(teams: [Team], orgName: String) -> MeetingAudience {
+        MeetingAudience.of(
+            grants: grants.grants(forMeeting: meetingID),
+            projects: labelStore.labels(for: meetingID).map {
+                (name: $0.name, shares: labelStore.shares[$0.id] ?? [])
+            },
+            teams: teams.map { (id: $0.id, name: $0.name) },
+            orgName: orgName
+        )
     }
 
     private func content(title: String, isShared: Bool) -> some View {
@@ -533,35 +545,8 @@ struct MeetingAccessChip: View {
                 .icon(Theme.Control.iconMicro)
             Text(title)
                 .textStyle(Theme.Typography.meta.weight(.medium))
+                .lineLimit(1)
         }
         .foregroundStyle(isShared ? Theme.Palette.ink.opacity(0.9) : Theme.Palette.muted)
-    }
-
-    /// Names the audience rather than counting it: "Shared with 2 groups" tells
-    /// you a number and leaves you to go and find out which two.
-    ///
-    /// An organization-wide grant does not replace the teams beside it. Naming
-    /// only the org was how a session shared with Founders *and* all of Nod
-    /// read as plain "Nod" — the wider audience hiding the narrower one, which
-    /// is the wrong direction for a control whose whole job is saying who can
-    /// see this.
-    ///
-    /// "Shared with" is not decoration either. An organization and a project
-    /// can carry the same name, and they did: this chip read "Nod" beside a
-    /// project chip reading "Nod", two different facts wearing one word. The
-    /// verb is what separates them.
-    static func title(for existing: [MeetingGrant], teams: [Team], orgName: String) -> String {
-        guard !existing.isEmpty else { return "Only me" }
-        var named = existing
-            .filter { $0.orgID != nil }
-            .isEmpty ? [] : [orgName]
-        named += existing.compactMap { grant in
-            teams.first { $0.id == grant.teamID }?.name
-        }
-        switch named.count {
-        case 0: return "Shared"
-        case 1: return "Shared with \(named[0])"
-        default: return "Shared with \(named[0]) +\(named.count - 1)"
-        }
     }
 }

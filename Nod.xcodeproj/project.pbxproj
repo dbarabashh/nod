@@ -387,6 +387,7 @@
 		C7B524DC6679D9B4A217462F /* NodApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 649AEFDC67FDD49A98A082B0 /* NodApp.swift */; };
 		C7DC3B75FAF006CB40497191 /* SessionsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 770362DCD474A56B51F13FDB /* SessionsListView.swift */; };
 		C7E6963ED271DFA9E3C6564F /* ActionItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF895B234715E259A07D54C2 /* ActionItem.swift */; };
+		C8094782AF96DD007616141D /* MeetingAudienceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A7FDEAEF4AA9D10C372C7 /* MeetingAudienceTests.swift */; };
 		C9A2642FD2CEB61B09E65475 /* BeatDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E719B0E746B49E5E4DDB355 /* BeatDetailView.swift */; };
 		C9DF023BC2973920976ACD4D /* DemoDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D61035651485268416FBDA8 /* DemoDirector.swift */; };
 		CA5650CBF3F0982F4117AEFF /* CatalogueRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDB0ECEF713AE24C9FF9DFB /* CatalogueRow.swift */; };
@@ -457,6 +458,7 @@
 		E7F3FA659A2024E075F31D6C /* AppearancePreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AA753B9CADBF3ABC8DBDF23 /* AppearancePreferenceTests.swift */; };
 		E8A1F2535941211C34978529 /* DemoDailyModeContent+Sales.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF533D51B2184D2DA39ECC35 /* DemoDailyModeContent+Sales.swift */; };
 		E8DC321B43A36D6F5C9707F4 /* ConnectionsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D681C52183CA72F086243B /* ConnectionsSection.swift */; };
+		E8E08DAEB2A68D4AFF2D690C /* MeetingAudience.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3896C8DFA6729361F99DD4D6 /* MeetingAudience.swift */; };
 		E8F917A7CCDE767A295B98A5 /* LabelComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A9758C570690CC4B71C91F /* LabelComponents.swift */; };
 		E9050D088F78FE1C13676557 /* NetworkReachability.swift in Sources */ = {isa = PBXBuildFile; fileRef = A735CA1F36ECAD9357461E92 /* NetworkReachability.swift */; };
 		E967CCAAF22351E10DA8F9D5 /* ToolArgumentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1804E6D38EF66CF0780DB4A8 /* ToolArgumentsTests.swift */; };
@@ -640,6 +642,7 @@
 		36C4ED67CDED9B8CE1CA42C0 /* MeetingAttendance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingAttendance.swift; sourceTree = "<group>"; };
 		372D41E10944F97809710B6A /* NotchModel+Ask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotchModel+Ask.swift"; sourceTree = "<group>"; };
 		37448AC9EC09078EF72C8F09 /* BeatRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeatRunner.swift; sourceTree = "<group>"; };
+		3896C8DFA6729361F99DD4D6 /* MeetingAudience.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingAudience.swift; sourceTree = "<group>"; };
 		3945E2F6E438FBEBE9BE3B5A /* GlyphIconInkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlyphIconInkTests.swift; sourceTree = "<group>"; };
 		39A09FBE62C4EFB394C785E4 /* DemoStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoStage.swift; sourceTree = "<group>"; };
 		39A728A30D94C2517BB0A715 /* AmbientScopes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientScopes.swift; sourceTree = "<group>"; };
@@ -799,6 +802,7 @@
 		7F01CAB663B9FB190EC56BD3 /* TagPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagPill.swift; sourceTree = "<group>"; };
 		7F4BF92715AC74FC50F8ABDE /* DemoDailyModeContent+Management.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DemoDailyModeContent+Management.swift"; sourceTree = "<group>"; };
 		7F896F2D2B496CCF0E5E2051 /* UpdateGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateGate.swift; sourceTree = "<group>"; };
+		805A7FDEAEF4AA9D10C372C7 /* MeetingAudienceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingAudienceTests.swift; sourceTree = "<group>"; };
 		81AC443AD9961AB0EF4FE0F4 /* ToolApprovalPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolApprovalPreference.swift; sourceTree = "<group>"; };
 		8218A4D4A8BE7FB051C4A81D /* PromptLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptLibrary.swift; sourceTree = "<group>"; };
 		82386F87AF5C9593617BE703 /* CalendarSourceState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarSourceState.swift; sourceTree = "<group>"; };
@@ -1503,6 +1507,7 @@
 				7335E1F2F10BCF874BC7B634 /* LoopGraphTests.swift */,
 				33AA5EE661750C74AF11A026 /* LoopResolverTests.swift */,
 				2A8FCA9EB5206F84B92990A9 /* MeetingActionPromptTests.swift */,
+				805A7FDEAEF4AA9D10C372C7 /* MeetingAudienceTests.swift */,
 				9C4EFA3F52588FD549265719 /* MeetingBarPanelTests.swift */,
 				B2D042486B145B121958603A /* MeetingDetectionTests.swift */,
 				D2BD7296E771E66D9A7F8743 /* MeetingMarkdownExportTests.swift */,
@@ -1853,6 +1858,7 @@
 				87586E3F354FB30A3844F7C3 /* LiveLookup.swift */,
 				5E27FCFEADD9DAFE6443C167 /* LiveRecall.swift */,
 				9D29E16C2F0B2E3B6F300CDE /* Meeting.swift */,
+				3896C8DFA6729361F99DD4D6 /* MeetingAudience.swift */,
 				D598BFE82FF1FAD8C4A792DD /* MeetingGrant.swift */,
 				2917098F221A8A8743FE1BF8 /* MeetingOutbox.swift */,
 				7BAD820C5BFFC1AD54E21FBD /* MeetingSpeaker.swift */,
@@ -2137,6 +2143,7 @@
 				5422F9C9862800CF76985BCF /* LoopGraphTests.swift in Sources */,
 				85796F97655412AC8F4A01F0 /* LoopResolverTests.swift in Sources */,
 				7DE0E8DF01311C614BB09D81 /* MeetingActionPromptTests.swift in Sources */,
+				C8094782AF96DD007616141D /* MeetingAudienceTests.swift in Sources */,
 				34CE7E0CDD13B578B19E757D /* MeetingBarPanelTests.swift in Sources */,
 				D23F4F8D452823631D7EBE7B /* MeetingDetectionTests.swift in Sources */,
 				913DE8BBF461E188D011DCFB /* MeetingMarkdownExportTests.swift in Sources */,
@@ -2376,6 +2383,7 @@
 				AEFD65223AB58E5BDE635CA6 /* MainWindowView.swift in Sources */,
 				98B2905254779E89A9483FA0 /* Meeting.swift in Sources */,
 				8A9EDD71C69F3B13E5DD61DE /* MeetingAttendance.swift in Sources */,
+				E8E08DAEB2A68D4AFF2D690C /* MeetingAudience.swift in Sources */,
 				671ED4123EE39647F39BEAB5 /* MeetingAutoEnd.swift in Sources */,
 				E14A4B916D1A2BD3658CA9EE /* MeetingDetailChips.swift in Sources */,
 				4642F1D3FCF051D58459A38C /* MeetingDetailHeader.swift in Sources */,
