@@ -100,6 +100,37 @@ fits, the ambient row fits with its status word, the capture pill sets on one
 line, and one grid step narrower has to actually break something — otherwise
 the width is not earned.
 
+## Migrating a size
+
+This was written up as "the scale contradicts the app — adopting a role is an
+enlargement, so the migration is a redesign wearing a refactor's clothes". That
+was measured afterwards and it is not true. **608 of 664 call sites are within
+half a point of a role**, and the four most-used sizes are exact or half-point
+matches:
+
+| In the tree | Count | Role | Move |
+|---|---|---|---|
+| 11.5 | 118 | `meta` | −0.5 |
+| 12 | 115 | `secondary` | — |
+| 12.5 | 112 | `secondary` | −0.5 |
+| 11 | 112 | `meta` | — |
+| 13 | 54 | `ui` | — |
+| 10.5 | 35 | `meta` | +0.5 |
+| 10 | 22 | `micro` | — |
+| 13.5 | 13 | `ui` | −0.5 |
+| 15 | 12 | `editor` | — |
+
+So a migration is a rounding, not a resize. What it is *not* is mechanical: at a
+half point either way, which role a site takes is a judgement about what the
+text is — a row, a caption, a heading — and that is the decision the scale
+exists to force. The 56 sites more than half a point out (14, 16, 18, 22 and
+friends) are the ones that need a look rather than a rename.
+
+The 13pt floor in `DesignScaleTests` is the platform's own: `.body` on macOS is
+13pt, and the app's rows sit below it. Adopting `ui` where a row is at 11.5 is a
+1.5pt enlargement of that row, and that one is a real change — but it is a
+handful of surfaces, not the whole tree.
+
 ## Adoption
 
 Done — the shared components, so the grid reaches every feature that draws
@@ -125,17 +156,9 @@ change on every screen, so it wants to be reviewed a surface at a time.
 
 ## Open questions before this stops being an experiment
 
-- **The scale's values contradict the app's.** The primary role is 13pt; the
-  four most-used sizes today are 11.5, 12.5, 12 and 11. So adopting a role is an
-  enlargement, not a rename — the migration is a redesign wearing a refactor's
-  clothes. Either re-anchor the roles to what the app ships, or accept the
-  enlargement deliberately. The lint count makes the choice visible; it does not
-  make it.
-
-- The report's floor is 13pt for anything a person operates; the app's rows are
-  at 11 and 11.5 today. `DesignScaleTests` asserts the floor for the *role*, but
-  adopting it in the feature views makes the whole UI visibly larger. That is a
-  product call, not a token one.
 - The content column at 488 is narrower than what Today and the chat were drawn
   at (640 and 780). It is applied, and it wants a look on a real window before
   it is kept.
+- Nothing in the shipped half has been seen in a running window. The pill
+  icons, the sidebar, Today and the chat all moved; the evidence so far is a
+  passing test suite, which is not the same thing.
