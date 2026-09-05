@@ -2,28 +2,16 @@ import SwiftUI
 
 /// The quiet pill beside a glass one — "Ask Nod" next to "Take action" — and,
 /// with `isSelected` driven by state, a row of category tabs where only the
-/// chosen one keeps its fill.
+/// chosen one keeps its fill. What separates a tab from a pill is the fill,
+/// not its measurements: there used to be a `Size` for it, and once both cases
+/// sat on the grid they were the same component twice.
 struct SecondaryPillButton: View {
-    enum Size {
-        case compact
-        case tab
-
-        var horizontalPadding: CGFloat {
-            switch self {
-            case .compact: 11
-            case .tab: 10
-            }
-        }
-    }
-
     let title: String
-    let size: Size
     let isSelected: Bool
     let action: () -> Void
 
-    init(_ title: String, size: Size = .compact, isSelected: Bool = true, action: @escaping () -> Void) {
+    init(_ title: String, isSelected: Bool = true, action: @escaping () -> Void) {
         self.title = title
-        self.size = size
         self.isSelected = isSelected
         self.action = action
     }
@@ -31,10 +19,10 @@ struct SecondaryPillButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                .textStyle(isSelected ? Theme.Typography.uiEmphasis : Theme.Typography.ui)
                 .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.6))
-                .padding(.horizontal, size.horizontalPadding)
-                .padding(.vertical, 5)
+                .padding(.horizontal, Theme.Space.x3)
+                .padding(.vertical, Theme.Space.x1)
                 .background(
                     Capsule(style: .continuous)
                         .fill(isSelected ? Theme.Palette.surfaceStrong : Color.clear)
@@ -47,14 +35,14 @@ struct SecondaryPillButton: View {
 }
 
 #Preview {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: Theme.Space.x3) {
         SecondaryPillButton("Ask Nod") {}
-        HStack(spacing: 6) {
-            SecondaryPillButton("All", size: .tab, isSelected: true) {}
-            SecondaryPillButton("Sales", size: .tab, isSelected: false) {}
-            SecondaryPillButton("Product", size: .tab, isSelected: false) {}
+        HStack(spacing: Theme.Space.x2) {
+            SecondaryPillButton("All", isSelected: true) {}
+            SecondaryPillButton("Sales", isSelected: false) {}
+            SecondaryPillButton("Product", isSelected: false) {}
         }
     }
-    .padding(24)
+    .padding(Theme.Space.x6)
     .background(Theme.Palette.bg)
 }

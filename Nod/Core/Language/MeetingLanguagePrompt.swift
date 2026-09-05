@@ -91,10 +91,10 @@ struct MeetingLanguagePrompt: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
             if primary {
-                label.glassButtonSurface(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                label.glassButtonSurface(RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous))
             } else {
                 label.background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                         .fill(Theme.Palette.overlay.opacity(0.06))
                 )
             }

@@ -136,7 +136,7 @@ struct BeatsView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(BeatTemplates.Category.allCases) { option in
-                    SecondaryPillButton(option.rawValue, size: .tab, isSelected: option == category) {
+                    SecondaryPillButton(option.rawValue, isSelected: option == category) {
                         category = option
                     }
                 }

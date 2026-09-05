@@ -50,7 +50,7 @@ struct QuickStart: View {
                     action: onStartCapture
                 )
             }
-            .frame(maxWidth: 460)
+            .frame(maxWidth: Theme.Layout.content)
             .surfaceCard()
             .sheet(isPresented: $isAskingForCalendar) {
                 // The canonical two-source ask, rather than a jump to Settings:
@@ -102,7 +102,7 @@ struct QuickStart: View {
                 .padding(.top, 1)
         } trailing: {
             if !isDone, let action {
-                GlassPillButton("Start", size: .row, action: action)
+                GlassPillButton("Start", size: .compact, action: action)
                     .linkCursor()
             }
         }

@@ -7,52 +7,26 @@ import SwiftUI
 struct GlassPillButton: View {
     enum Size {
         case compact
-        // Only the sidebar's quick-start rows: a pill a half-point smaller so a
-        // row with a "Start" stays the height of the rows without one.
-        case row
         case regular
-        case sheet
         case large
 
-        var fontSize: CGFloat {
-            switch self {
-            case .compact: 12
-            case .row: 11.5
-            case .regular, .sheet: 12.5
-            case .large: 13
-            }
+        var style: Theme.TextStyle {
+            self == .compact ? Theme.Typography.secondary : Theme.Typography.uiEmphasis
         }
 
         var horizontalPadding: CGFloat {
             switch self {
-            case .compact: 12
-            case .row, .regular: 14
-            case .sheet: 16
-            case .large: 20
+            case .compact: Theme.Space.x3
+            case .regular: Theme.Space.x4
+            case .large: Theme.Space.x6
             }
         }
 
-        var verticalPadding: CGFloat {
-            switch self {
-            case .compact, .row: 5
-            case .regular, .sheet: 8
-            case .large: 9
-            }
-        }
-
-        var iconSize: CGFloat {
-            switch self {
-            case .compact, .row: 8
-            case .regular, .sheet: 10
-            case .large: 11
-            }
-        }
-
-        var iconSpacing: CGFloat {
-            switch self {
-            case .compact, .row: 4
-            case .regular, .sheet, .large: 6
-            }
+        /// One value for the padding above and below and for the gap after the
+        /// icon — they were two switches over the same cases returning the same
+        /// numbers, which is one decision written twice.
+        var innerSpacing: CGFloat {
+            self == .compact ? Theme.Space.x1 : Theme.Space.x2
         }
     }
 
@@ -81,19 +55,19 @@ struct GlassPillButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: size.iconSpacing) {
+            HStack(spacing: size.innerSpacing) {
                 if let leadingIcon {
-                    Image(leadingIcon).icon(size.iconSize)
+                    Image(leadingIcon).icon(Theme.Control.iconMicro)
                 }
                 Text(title)
-                    .font(.system(size: size.fontSize, weight: .semibold))
+                    .textStyle(size.style.weight(.semibold))
                 if let trailingIcon {
-                    Image(trailingIcon).icon(size.iconSize)
+                    Image(trailingIcon).icon(Theme.Control.iconMicro)
                 }
             }
             .foregroundStyle(Theme.GlassButton.text)
             .padding(.horizontal, size.horizontalPadding)
-            .padding(.vertical, size.verticalPadding)
+            .padding(.vertical, size.innerSpacing)
             .glassButtonSurface(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
@@ -105,11 +79,11 @@ struct GlassPillButton: View {
     VStack(alignment: .leading, spacing: 12) {
         GlassPillButton("Create in Linear", size: .compact) {}
         GlassPillButton("Open NOD-12", size: .compact, trailingIcon: "nc-arrow-up-right") {}
-        GlassPillButton("Start", size: .row) {}
+        GlassPillButton("Start", size: .compact) {}
         GlassPillButton("Invite people", leadingIcon: "nc-plus") {}
-        GlassPillButton("Send invite", size: .sheet, shortcut: .defaultAction) {}
+        GlassPillButton("Send invite", size: .regular, shortcut: .defaultAction) {}
         GlassPillButton("Retry", size: .large) {}
-        GlassPillButton("Disabled", size: .sheet) {}
+        GlassPillButton("Disabled", size: .regular) {}
             .disabled(true)
     }
     .padding(24)

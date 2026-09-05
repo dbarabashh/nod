@@ -47,10 +47,10 @@ struct SegmentedControl<Value: Hashable>: View {
         }
         .padding(2)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                 .fill(Theme.Palette.surface)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                         .stroke(Theme.Palette.border, lineWidth: 0.5)
                 )
         )

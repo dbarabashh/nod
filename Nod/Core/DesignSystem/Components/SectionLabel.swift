@@ -4,21 +4,17 @@ import SwiftUI
 /// one re-typed the same three modifiers and picked its own tracking by eye —
 /// 0.4, 0.6, 0.7 and 0.8 all shipped at the same 10pt bold.
 ///
-/// The notch runs a size smaller and a shade quieter than the window does, which
-/// is a real difference and not drift: its cards sit over whatever the user was
-/// already looking at. That is the `compact` size, and it is a choice made once
-/// here rather than re-typed at each of the six places it appears.
+/// The notch runs quieter than the window does, which is a real difference and
+/// not drift: its cards sit over whatever the user was already looking at. That
+/// is the `compact` size, and it is a choice made once here rather than
+/// re-typed at each of the six places it appears. It used to run half a point
+/// smaller as well; the size is now the scale's `micro` in both, and only the
+/// tracking and the tint carry the difference — half-point steps were how the
+/// same label came to set six different ways.
 struct SectionLabel: View {
     enum Size {
         case standard
         case compact
-
-        var font: Font {
-            switch self {
-            case .standard: .system(size: 10, weight: .bold)
-            case .compact: .system(size: 9.5, weight: .bold)
-            }
-        }
 
         var tracking: CGFloat {
             switch self {
@@ -30,7 +26,7 @@ struct SectionLabel: View {
         var tint: Color {
             switch self {
             case .standard: Theme.Palette.muted
-            case .compact: Theme.Palette.muted.opacity(0.9)
+            case .compact: Theme.Palette.muted.opacity(0.7)
             }
         }
     }
@@ -48,14 +44,14 @@ struct SectionLabel: View {
     }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Theme.Space.x1) {
             Text(text.uppercased())
-                .font(size.font)
+                .textStyle(Theme.Typography.micro)
                 .tracking(size.tracking)
                 .foregroundStyle(size.tint)
             if let trailing {
                 Text(trailing)
-                    .font(.system(size: 9.5, weight: .regular))
+                    .textStyle(Theme.Typography.micro.weight(.regular))
                     .foregroundStyle(Theme.Palette.muted.opacity(0.65))
             }
         }

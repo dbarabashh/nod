@@ -13,20 +13,10 @@ struct SearchField: View {
         /// it filters for is itself the smaller of the two.
         case compact
 
-        var iconSize: CGFloat {
-            self == .standard ? 12 : 11
-        }
-
-        var fontSize: CGFloat {
-            self == .standard ? 13 : 12
-        }
-
-        var spacing: CGFloat {
-            self == .standard ? 8 : 7
-        }
-
-        var horizontalPadding: CGFloat {
-            self == .standard ? 10 : 9
+        /// The only thing the two sizes differ by. Padding and spacing used to
+        /// differ too — 8/7 and 10/9 — which is three decisions describing one.
+        var style: Theme.TextStyle {
+            self == .standard ? Theme.Typography.ui : Theme.Typography.secondary
         }
     }
 
@@ -35,18 +25,18 @@ struct SearchField: View {
     var size: Size = .standard
 
     var body: some View {
-        HStack(spacing: size.spacing) {
+        HStack(spacing: Theme.Space.x2) {
             Image("nc-magnifier")
-                .icon(size.iconSize)
+                .icon(Theme.Control.iconMicro)
                 .foregroundStyle(Theme.Palette.muted)
             TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
-                .font(.system(size: size.fontSize))
+                .textStyle(size.style)
                 .foregroundStyle(Theme.Palette.ink)
             if !text.isEmpty {
                 Button { text = "" } label: {
                     Image("nc-circle-xmark")
-                        .icon(size.iconSize)
+                        .icon(Theme.Control.iconMicro)
                         .foregroundStyle(Theme.Palette.muted)
                         .contentShape(Rectangle())
                 }
@@ -55,8 +45,8 @@ struct SearchField: View {
                 .help("Clear")
             }
         }
-        .padding(.horizontal, size.horizontalPadding)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Theme.Space.x3)
+        .padding(.vertical, Theme.Space.x2)
         // The row is as tall as its own text: left free it takes a share of any
         // height it is given, and a field editor draws its line at the top of
         // the box it was handed — so the text climbs away from the magnifier.

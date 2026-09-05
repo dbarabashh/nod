@@ -24,14 +24,14 @@ struct HotkeyRecorderView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
                         .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                                 .glassFill()
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                                         .fill(Theme.Palette.overlay.opacity(isRecording ? 0.04 : 0.06))
                                 )
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                                         .stroke(
                                             isRecording
                                                 ? Theme.Palette.controlEnd.opacity(0.6)

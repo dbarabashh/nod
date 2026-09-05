@@ -137,7 +137,7 @@ struct InviteSheet: View {
                 .font(.system(size: 12.5))
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.Palette.muted)
-            GlassPillButton(isSending ? "Sending…" : "Send invite", size: .sheet, shortcut: .defaultAction, action: send)
+            GlassPillButton(isSending ? "Sending…" : "Send invite", size: .regular, shortcut: .defaultAction, action: send)
                 .disabled(!isAddressable || isSending)
         }
         .padding(.horizontal, 20)

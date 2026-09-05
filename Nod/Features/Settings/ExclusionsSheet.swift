@@ -62,7 +62,7 @@ struct ExclusionsSheet: View {
     private var footer: some View {
         HStack {
             Spacer(minLength: 0)
-            GlassPillButton("Done", size: .sheet, shortcut: .defaultAction) { dismiss() }
+            GlassPillButton("Done", size: .regular, shortcut: .defaultAction) { dismiss() }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
