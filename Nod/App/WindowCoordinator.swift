@@ -541,11 +541,10 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         window.contentViewController = hosting
         // With the hosting controller no longer sizing the window, set the opening
         // size and the floor explicitly AFTER attaching it (assigning a
-        // contentViewController resets the window's size constraints). Three
-        // columns now: 1240×760 opens comfortably; 980×560 is where the sidebar,
-        // the centre column, and the context column all still work.
+        // contentViewController resets the window's size constraints). 1240×760
+        // opens comfortably; the floor is `mainWindowFloor`.
         window.setContentSize(NSSize(width: 1240, height: 760))
-        window.contentMinSize = NSSize(width: 980, height: 560)
+        window.contentMinSize = Self.mainWindowFloor
         window.center()
         window.makeKeyAndOrderFront(nil)
         mainWindow = window
@@ -560,6 +559,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         didApplyLaunchBehavior = false
     }
 
+    /// The smallest the main window may be. The width comes from the type that
+    /// enforces the column clamp, so the floor and the clamp cannot disagree;
+    /// it was a flat 980 typed here and again in the live-resize delegate.
+    private static let mainWindowFloor = NSSize(width: ContextColumnWidth.windowMinWidth, height: 560)
+
     // MARK: - NSWindowDelegate
 
     /// Hard floor on the History window's size. `contentMinSize` proved
@@ -571,7 +575,10 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     nonisolated func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
         MainActor.assumeIsolated {
             guard sender === mainWindow else { return frameSize }
-            return NSSize(width: max(frameSize.width, 980), height: max(frameSize.height, 560))
+            return NSSize(
+                width: max(frameSize.width, Self.mainWindowFloor.width),
+                height: max(frameSize.height, Self.mainWindowFloor.height)
+            )
         }
     }
 

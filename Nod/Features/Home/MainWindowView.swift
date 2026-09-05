@@ -246,7 +246,7 @@ struct MainWindowView: View {
     /// across the whole window — a composer 900pt wide is a worse composer.
     private var chatHome: some View {
         KnowledgeChatView(onOpenMeeting: openMeeting)
-            .frame(maxWidth: 780)
+            .frame(maxWidth: Theme.Layout.editor)
             .frame(maxWidth: .infinity)
     }
 

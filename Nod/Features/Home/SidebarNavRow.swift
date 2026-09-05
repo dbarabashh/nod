@@ -13,6 +13,17 @@ enum SidebarRowTone {
 /// Split from `SidebarNavRow` for the one row that cannot be a button — a chat
 /// row's delete confirmation has to sit *beside* the row's hit area, not inside
 /// it, or confirming a delete also opens the chat being deleted.
+/// A sidebar row's own geometry, named so the row and the test that measures it
+/// read the same numbers. `SidebarFitTests` used to carry its own copy and was
+/// three points out of step the day it landed — which is the failure mode the
+/// test exists to prevent, one level up.
+enum SidebarRowMetrics {
+    static let inset = Theme.Space.x2
+    /// What a row spends before its title: its inset either side, the icon
+    /// slot, and the gap after it.
+    static let chrome = inset * 2 + Theme.Control.icon + Theme.Space.x2
+}
+
 struct SidebarRowLabel<Leading: View, Trailing: View>: View {
     let title: String
     let subtitle: String?
@@ -43,12 +54,12 @@ struct SidebarRowLabel<Leading: View, Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: Theme.Space.x2) {
             leading
-                .frame(width: 16)
+                .frame(width: Theme.Control.icon)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .textStyle(isSelected ? Theme.Typography.uiEmphasis : Theme.Typography.ui)
                     .lineLimit(1)
                     .minimumScaleFactor(0.9)
                 if let subtitle {
@@ -62,7 +73,7 @@ struct SidebarRowLabel<Leading: View, Trailing: View>: View {
             trailing
         }
         .foregroundStyle(tint)
-        .padding(.horizontal, 9)
+        .padding(.horizontal, SidebarRowMetrics.inset)
         .padding(.vertical, verticalPadding)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
@@ -192,6 +203,6 @@ struct SidebarRowGlyph: View {
         }
     }
     .padding(10)
-    .frame(width: 232)
+    .frame(width: HomeSidebar.width)
     .background(Theme.Palette.bg)
 }

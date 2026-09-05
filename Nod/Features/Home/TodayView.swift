@@ -199,9 +199,9 @@ struct TodayView: View {
                         allClearCard
                     }
                 }
-                .frame(maxWidth: 640, alignment: .leading)
+                .frame(maxWidth: Theme.Layout.content, alignment: .leading)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 28)
+                .padding(.horizontal, Theme.Layout.pageInset)
                 .padding(.top, 36)
                 .padding(.bottom, 20)
             }
@@ -326,8 +326,8 @@ struct TodayView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .surfaceCard()
-        .frame(maxWidth: 640)
-        .padding(.horizontal, 28)
+        .frame(maxWidth: Theme.Layout.content)
+        .padding(.horizontal, Theme.Layout.pageInset)
         .padding(.bottom, 20)
     }
 

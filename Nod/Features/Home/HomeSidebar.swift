@@ -33,10 +33,10 @@ struct HomeSidebar: View {
     /// shortcut that summons it has to be said out loud somewhere.
     @AppStorage("home.captureHintSeen") private var captureHintSeen = false
 
-    static let width: CGFloat = 232
+    static let width: CGFloat = Theme.Layout.sidebar
     /// Clear band at the top for the window's traffic lights — the window has no
     /// toolbar, so they float over the content's top-left corner.
-    private static let topBand: CGFloat = 40
+    private static let topBand: CGFloat = Theme.Space.x10
 
     var body: some View {
         VStack(spacing: 0) {
@@ -90,8 +90,8 @@ struct HomeSidebar: View {
                     sharedProjectsSection
                     threadsSection
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 12)
+                .padding(.horizontal, Theme.Space.x3)
+                .padding(.bottom, Theme.Space.x3)
             }
             Spacer(minLength: 0)
             HomeSidebarFooter(surface: surface)
@@ -144,17 +144,17 @@ struct HomeSidebar: View {
                 // this sidebar uses for adding a thing, and a button that opens
                 // a recording read as one more "new item" because of it.
                 Image("nc-mic")
-                    .icon(13)
+                    .icon(Theme.Control.iconMicro)
                 // "New capture", not "Start Nod": Today carries its own,
                 // meeting-named Start button, and two dark buttons doing one
                 // thing taught people the sidebar one was something else.
                 Text("New capture")
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .textStyle(Theme.Typography.uiEmphasis.weight(.semibold))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(Theme.GlassButton.text)
-            .padding(.horizontal, 14)
-            .frame(height: 38)
+            .padding(.horizontal, Theme.Space.x3)
+            .frame(height: Theme.Control.heightCompact)
             .frame(maxWidth: .infinity)
             // The app's primary-action surface, which every other call to
             // action already wears and the main verb did not. A capsule, not the
@@ -187,8 +187,8 @@ struct HomeSidebar: View {
                 .buttonStyle(.plain)
                 .help("Got it")
             }
-            .padding(.horizontal, 4)
-            .padding(.top, 6)
+            .padding(.horizontal, Theme.Space.x1)
+            .padding(.top, Theme.Space.x2)
             .transition(.opacity)
         }
     }
@@ -237,9 +237,9 @@ struct HomeSidebar: View {
 
     private func sectionHeader(_ title: String) -> some View {
         SectionLabel(title)
-            .padding(.horizontal, 9)
-            .padding(.top, 16)
-            .padding(.bottom, 4)
+            .padding(.horizontal, Theme.Space.x2)
+            .padding(.top, Theme.Space.x4)
+            .padding(.bottom, Theme.Space.x1)
     }
 
     private var projectsSection: some View {
@@ -253,8 +253,8 @@ struct HomeSidebar: View {
                     .font(.system(size: 10.5))
                     .foregroundStyle(Theme.Palette.danger)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, Theme.Space.x2)
+                    .padding(.vertical, Theme.Space.x1)
             }
             addProjectRow
         }

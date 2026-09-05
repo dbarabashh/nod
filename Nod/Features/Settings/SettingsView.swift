@@ -230,7 +230,7 @@ struct SettingsView: View {
         .padding(12)
         // Clear the traffic-light buttons that float over the transparent titlebar.
         .padding(.top, 28)
-        .frame(width: 210, alignment: .top)
+        .frame(width: Theme.Layout.sidebar, alignment: .top)
     }
 
     /// The only way out of the account from inside the app. The menu-bar item
@@ -528,5 +528,5 @@ struct SettingsView: View {
 #Preview {
     SettingsView(feed: UpdaterChannelDelegate(), hotkey: HotkeyManager())
         .environmentObject(SettingsFocus())
-        .frame(width: 740, height: 560)
+        .frame(width: Theme.Layout.sidebar + Theme.Layout.content + Theme.Layout.pageInset * 2, height: 560)
 }
