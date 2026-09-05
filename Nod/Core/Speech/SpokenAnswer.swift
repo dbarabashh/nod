@@ -196,6 +196,10 @@ final class SpokenAnswer: ObservableObject {
         finished()
     }
 
+    // A switch rather than a table, so adding a language to `AppLanguage` fails
+    // to compile until somebody writes what Nod says in it. The complexity
+    // metric counts thirty-five one-line cases as branching; it isn't.
+    // swiftlint:disable:next cyclomatic_complexity
     private static func fallbackAcknowledgement(_ language: AppLanguage) -> String {
         switch language {
         case .english: "Okay, one moment."
@@ -209,9 +213,30 @@ final class SpokenAnswer: ObservableObject {
         case .russian: "Хорошо, секунду."
         case .urdu: "ٹھیک ہے، ایک لمحہ۔"
         case .german: "Okay, einen Moment."
+        case .japanese: "はい、少々お待ちください。"
+        case .marathi: "ठीक आहे, एक क्षण."
+        case .turkish: "Tamam, bir saniye."
+        case .cantonese: "好，等一陣。"
+        case .vietnamese: "Được, chờ một chút."
+        case .korean: "네, 잠시만요."
+        case .persian: "باشه، یک لحظه."
         case .italian: "Ok, un attimo."
+        case .polish: "Dobrze, chwileczkę."
         case .ukrainian: "Окей, зараз гляну."
+        case .zulu: "Kulungile, umzuzwana."
+        case .dutch: "Oké, een moment."
+        case .romanian: "Bine, o clipă."
+        case .afrikaans: "Goed, een oomblik."
+        case .xhosa: "Kulungile, umzuzwana."
+        case .swedish: "Okej, ett ögonblick."
         case .serbian: "Važi, samo tren."
+        case .hebrew: "בסדר, רגע אחד."
+        case .catalan: "D'acord, un moment."
+        case .danish: "Okay, et øjeblik."
+        case .finnish: "Selvä, hetki."
+        case .norwegian: "Ok, et øyeblikk."
+        case .galician: "Vale, un momento."
+        case .estonian: "Selge, üks hetk."
         }
     }
 
@@ -219,7 +244,11 @@ final class SpokenAnswer: ObservableObject {
     /// Nil rather than the system default: an English voice reading Ukrainian
     /// is noise, and silence at least says something is missing.
     static func voice(for language: AppLanguage) -> AVSpeechSynthesisVoice? {
-        let code = language.rawValue.lowercased()
+        // Not the raw value: `AVSpeechSynthesisVoice` files Cantonese under the
+        // Chinese macrolanguage with a Hong Kong region, so matching on "yue"
+        // finds nothing and the one language with a shipped voice reads as the
+        // one without.
+        let code = language == .cantonese ? "zh-hk" : language.rawValue.lowercased()
         return AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language.lowercased().hasPrefix(code) }
             .max { $0.quality.rawValue < $1.quality.rawValue }

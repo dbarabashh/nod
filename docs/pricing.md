@@ -124,7 +124,7 @@ happens to be true because no plan restricts it.
 | | Trial | Starter | Pro | Enforced where |
 |---|---|---|---|---|
 | Records you + the other side | ✅ | ✅ | ✅ | — |
-| Live transcription, 14 languages | ✅ | ✅ | ✅ | — |
+| Live transcription, 35 languages | ✅ | ✅ | ✅ | — |
 | Summary, title, action items | ✅ | ✅ | ✅ | `action_items` flag, client UI only |
 | Ask Nod about one meeting | ✅ | ✅ | ✅ | `llm-proxy`, `ask_single_meeting` |
 | Unlimited history, folders, search | ✅ | ✅ | ✅ | — |
