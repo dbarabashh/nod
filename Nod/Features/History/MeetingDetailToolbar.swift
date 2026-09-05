@@ -55,12 +55,13 @@ struct MeetingDetailToolbar: View {
                     }
                     copyButton(isEnabled: !isGenerating, action: copySummary)
                     SubToolbarDivider()
+                    // The public link, not the audience. Who inside the
+                    // organization can open this is stated by the header's
+                    // access chip and changed from there — a second control
+                    // saying "Shared with Nod" four lines below one already
+                    // saying it is the same fact twice, and the row of verbs is
+                    // the wrong place for a state.
                     shareButton
-                    SubToolbarDivider()
-                    MeetingShareButton(
-                        meetingID: meeting.id,
-                        isReady: meetingStore.isPersisted(meeting.id)
-                    )
                 } else {
                     copyButton(isEnabled: transcript.loadedRecords?.isEmpty == false, action: copyTranscript)
                 }

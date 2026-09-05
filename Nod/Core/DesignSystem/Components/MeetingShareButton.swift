@@ -22,52 +22,35 @@ struct MeetingShareButton: View {
 
     @EnvironmentObject private var grants: MeetingGrantStore
     @EnvironmentObject private var organizations: OrganizationService
+    @State private var isPicking = false
 
     var body: some View {
         if let orgID = organizations.activeOrgID, let membership = organizations.activeMembership {
             let teams = organizations.teams(in: orgID)
             let existing = grants.grants(forMeeting: meetingID)
-            Menu {
-                audiences(teams: teams, existing: existing, orgID: orgID, orgName: membership.organization.name)
-            } label: {
+            Button { isPicking = true } label: {
                 label(
                     title: title(for: existing, teams: teams, orgName: membership.organization.name),
                     isShared: !existing.isEmpty
                 )
             }
-            // Not `.borderlessButton`, which centres the title and drops
-            // anything beside it — the glyph would vanish. See `plainMenuChrome`.
             // Disabled until the row is on the server: the recap card appears
             // the instant a recording stops, and `grant_meeting` refuses a
             // meeting it cannot find.
-            .plainMenuChrome()
+            .buttonStyle(.plain)
             .fixedSize()
             .disabled(!isReady)
             .opacity(isReady ? 1 : 0.4)
             .linkCursor()
-        }
-    }
-
-    @ViewBuilder
-    private func audiences(teams: [Team], existing: [MeetingGrant], orgID: UUID, orgName: String) -> some View {
-        ForEach(teams) { team in
-            if let grant = existing.first(where: { $0.teamID == team.id }) {
-                Button("Stop sharing with \(team.name)") {
-                    Task { await grants.unshare(grant) }
-                }
-            } else {
-                Button("Share with \(team.name)") {
-                    Task { await grants.share(meetingID, withTeam: team.id, org: nil) }
-                }
-            }
-        }
-        if let grant = existing.first(where: { $0.orgID != nil }) {
-            Button("Stop sharing with \(orgName)") {
-                Task { await grants.unshare(grant) }
-            }
-        } else {
-            Button("Share with all of \(orgName)") {
-                Task { await grants.share(meetingID, withTeam: nil, org: orgID) }
+            .dismissWhenMoved($isPicking)
+            .popover(isPresented: $isPicking, arrowEdge: .bottom) {
+                MeetingSharePicker(
+                    meetingID: meetingID,
+                    teams: teams,
+                    existing: existing,
+                    orgID: orgID,
+                    orgName: membership.organization.name
+                )
             }
         }
     }
@@ -98,6 +81,101 @@ struct MeetingShareButton: View {
             return "Shared with \(orgName)"
         }
         return teams.first { $0.id == only.teamID }.map { "Shared with \($0.name)" } ?? "Shared"
+    }
+}
+
+/// Who a meeting is handed to, as a list you tick.
+///
+/// The same surface the project and calendar pickers open — one card, one row
+/// per choice, a check on what is already true. It was a menu of verbs ("Stop
+/// sharing with Founders", "Share with all of Nod"), which is the same
+/// information written as instructions: a person had to read four sentences to
+/// work out that two of them were on. A list of audiences with two ticks says
+/// it once.
+///
+/// The audience is a team, never a person — a grant written per-person changes
+/// meaning every time the roster does.
+struct MeetingSharePicker: View {
+    let meetingID: UUID
+    let teams: [Team]
+    let existing: [MeetingGrant]
+    let orgID: UUID
+    let orgName: String
+
+    @EnvironmentObject private var grants: MeetingGrantStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering: UUID?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SectionLabel("Who can see this")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Theme.Space.x3)
+                .padding(.top, Theme.Space.x3)
+                .padding(.bottom, Theme.Space.x2)
+            Divider()
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(teams) { team in
+                        row(
+                            id: team.id,
+                            icon: "nc-users",
+                            title: team.name,
+                            grant: existing.first { $0.teamID == team.id },
+                            share: { await grants.share(meetingID, withTeam: team.id, org: nil) }
+                        )
+                    }
+                    row(
+                        id: orgID,
+                        icon: "nc-users",
+                        title: "Everyone at \(orgName)",
+                        grant: existing.first { $0.orgID != nil },
+                        share: { await grants.share(meetingID, withTeam: nil, org: orgID) }
+                    )
+                }
+            }
+            .frame(maxHeight: 260)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: 264)
+    }
+
+    private func row(
+        id: UUID,
+        icon: String,
+        title: String,
+        grant: MeetingGrant?,
+        share: @escaping () async -> Void
+    ) -> some View {
+        HStack(spacing: Theme.Space.x2) {
+            Image(icon)
+                .icon(Theme.Control.iconMicro)
+                .foregroundStyle(Theme.Palette.muted)
+            Text(title)
+                .textStyle(Theme.Typography.secondary)
+                .foregroundStyle(Theme.Palette.ink)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if grant != nil {
+                Image("nc-check")
+                    .icon(11)
+                    .foregroundStyle(Theme.Palette.violet)
+            }
+        }
+        .padding(.horizontal, Theme.Space.x3)
+        .padding(.vertical, Theme.Space.x2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            Task {
+                if let grant {
+                    await grants.unshare(grant)
+                } else {
+                    await share()
+                }
+            }
+        }
+        .onHover { if $0 { hovering = id } else if hovering == id { hovering = nil } }
+        .animation(.hoverReveal(reduceMotion: reduceMotion), value: hovering)
     }
 }
 

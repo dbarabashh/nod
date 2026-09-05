@@ -106,7 +106,6 @@ struct MeetingDetailView: View {
                     onDelete: deleteMeeting,
                     onTitleEdited: scheduleSave
                 )
-                if !isFinalizing { MeetingFoldersRow(meetingID: meeting.id) }
                 if !sameMeetings.isEmpty, !isFinalizing {
                     SameMeetingBanner(
                         candidates: sameMeetings,
@@ -116,7 +115,7 @@ struct MeetingDetailView: View {
                         onDismiss: { sameMeetings = [] }
                     )
                 }
-                MeetingDetailMetadata(meeting: current, isUnsynced: isUnsynced)
+                MeetingDetailChips(meeting: current, isUnsynced: isUnsynced, isReady: !isFinalizing)
                 MeetingDetailTabBar(selection: $selectedTab)
                 subToolbar
                 Divider().overlay(Theme.Palette.border)

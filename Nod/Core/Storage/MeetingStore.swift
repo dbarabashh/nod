@@ -479,6 +479,46 @@ final class MeetingStore: ObservableObject {
     /// exist by the time the row is written. This is the other case: clustering
     /// overran, the row landed unnamed minutes ago, and the names can only be
     /// patched in.
+    /// Point a session at a calendar entry, by hand.
+    ///
+    /// The automatic path is the server's: `_stamp_lease_identity` derives the
+    /// identity from a device lease and its value always beats a client's. This
+    /// writes the one case that leaves — a session the lease never identified,
+    /// which is exactly the session a person is looking at when they reach for
+    /// a picker. Where the server knows better it keeps knowing better, and the
+    /// pick is quietly ignored rather than fought over.
+    func link(_ meetingID: UUID, toCalendarEvent externalID: String?) async throws {
+        Log.ui.info("MeetingStore.link id=\(meetingID.uuidString) event=\(externalID != nil)")
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+        struct Patch: Encodable {
+            let icalUID: String?
+
+            enum CodingKeys: String, CodingKey {
+                case icalUID = "ical_uid"
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                if let icalUID {
+                    try container.encode(icalUID, forKey: .icalUID)
+                } else {
+                    try container.encodeNil(forKey: .icalUID)
+                }
+            }
+        }
+        try await supabase
+            .from(Self.tableName)
+            .update(Patch(icalUID: externalID))
+            .eq("id", value: meetingID.uuidString)
+            .execute()
+
+        if let index = meetings.firstIndex(where: { $0.id == meetingID }) {
+            meetings[index].icalUID = externalID
+        }
+    }
+
     func updateSpeakerNames(_ names: [String: String], for meetingID: UUID) async throws {
         guard !names.isEmpty else { return }
         Log.ui.info("MeetingStore.updateSpeakerNames id=\(meetingID.uuidString) count=\(names.count)")
