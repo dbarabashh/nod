@@ -91,6 +91,15 @@ custom_rules:
     regex: '(?<![.\w])(Color|NSColor)\.(white|black)\b|(?<![.\w])Color\((red|white|hex):|(?<![\w])\.(white|black)\.opacity\('
     message: "Use a Theme.Palette token; declare a new slot as Color.themed(light:dark:)."
     severity: warning
+  # The migration's progress bar. The `\d` is what scopes it: the theme itself
+  # writes `.system(size: size, …)` from a role, which is the one legitimate
+  # form, so no path exclusion is needed. Advisory like everything else here —
+  # see docs/design-scale.md for the count and the plan.
+  hardcoded_type_size:
+    name: "Hardcoded type size"
+    regex: '\.system\(size:\s*\d'
+    message: "Use a Theme.Typography role — see docs/design-scale.md"
+    severity: warning
     excluded:
       - "Nod/Core/DesignSystem/Theme"
       - "Nod/Core/Storage/Label.swift"

@@ -130,8 +130,8 @@ enum Theme {
     }
 
     enum Radii {
-        static let card: CGFloat = DesignTokens.Radius.xxl // 18 (was 20)
-        static let surface: CGFloat = DesignTokens.Radius.xl // 12 (was 16)
-        static let chip: CGFloat = DesignTokens.Radius.lg //  9 (was 10)
+        static let card: CGFloat = DesignTokens.Radius.xxl
+        static let surface: CGFloat = DesignTokens.Radius.xl
+        static let chip: CGFloat = DesignTokens.Radius.lg
     }
 }

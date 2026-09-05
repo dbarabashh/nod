@@ -86,10 +86,13 @@ enum DesignTokens {
 
     // MARK: - Radii
 
+    /// On the 4pt grid, like everything else. These were 9 / 12 / 18 — one
+    /// step on the grid, two off it — which is how a chip and the field beside
+    /// it came to round differently by a point nobody chose.
     enum Radius {
-        static let lg:    CGFloat = 9
+        static let lg:    CGFloat = 8
         static let xl:    CGFloat = 12
-        static let xxl:   CGFloat = 18
+        static let xxl:   CGFloat = 16
     }
 
     // MARK: - Shadows
