@@ -97,11 +97,15 @@ final class MeetingGrantStore: ObservableObject {
         let wasAt = grants[grant.meetingID]?.firstIndex { $0.id == grant.id }
         grants[grant.meetingID] = (grants[grant.meetingID] ?? []).filter { $0.id != grant.id }
         do {
+            // `p_share`, not `p_grant`: PostgREST resolves an RPC by argument
+            // name, so a wrong one is not a bad value — it is a function that
+            // does not exist. Every revoke failed, the optimistic removal was
+            // put back, and the row read as "Shared" again a moment later.
             struct Params: Encodable {
-                let p_grant: UUID
+                let p_share: UUID
             }
             _ = try await supabase
-                .rpc("revoke_meeting_grant", params: Params(p_grant: grant.id))
+                .rpc("revoke_meeting_grant", params: Params(p_share: grant.id))
                 .execute()
             await refresh()
             Log.ui.info("meeting unshared")
