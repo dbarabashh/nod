@@ -4,20 +4,25 @@ import SwiftUI
 ///
 /// The session is evidence, not the destination — so the row expands into what
 /// can be done about the item, and the source is a line to click rather than
-/// where the click lands. "Take action" leads because acting on the item is
-/// the product act; "Ask Nod" stays secondary.
+/// where the click lands. It opens straight into the outcomes: the row's own
+/// "Take action" pill is what the person already clicked to get here.
 struct ActionItemDrawer: View {
     let item: ActionItem
     let sourceTitle: String?
     /// Related on-screen work, already fetched under the person's own opt-in.
     /// Empty when the scope is off — the drawer then simply has no such rows.
     let ambientHints: [ScreenObservation]
+    /// An outcome the caller already named — a right-click that picked
+    /// "Schedule a follow-up" opens that form, not the menu holding it.
+    let preselectedIntent: ActionIntent?
     let onAsk: (String) -> Void
     let onOpenSource: () -> Void
+    /// Collapse the whole row. The menu is the drawer's resting state, so
+    /// dismissing it has nowhere left to go inside the drawer.
+    let onClose: () -> Void
 
     @EnvironmentObject private var integrations: IntegrationService
 
-    @State private var isChoosingIntent = false
     @State private var intent: ActionIntent?
     @State private var plan = ""
     /// An outcome that just landed — its line, and the created thing's own
@@ -25,6 +30,25 @@ struct ActionItemDrawer: View {
     /// result. Not a delegation: a reminder does not move the item to
     /// "waiting on others".
     @State private var completed: (record: String, url: URL?)?
+
+    init(
+        item: ActionItem,
+        sourceTitle: String?,
+        ambientHints: [ScreenObservation],
+        preselectedIntent: ActionIntent? = nil,
+        onAsk: @escaping (String) -> Void,
+        onOpenSource: @escaping () -> Void,
+        onClose: @escaping () -> Void
+    ) {
+        self.item = item
+        self.sourceTitle = sourceTitle
+        self.ambientHints = ambientHints
+        self.preselectedIntent = preselectedIntent
+        self.onAsk = onAsk
+        self.onOpenSource = onOpenSource
+        self.onClose = onClose
+        _intent = State(initialValue: preselectedIntent)
+    }
 
     /// The first connected product that can carry a message. Slack today; the
     /// array is what keeps tomorrow's chat product a one-line change.
@@ -61,10 +85,8 @@ struct ActionItemDrawer: View {
                     },
                     onClose: { intent = nil }
                 )
-            } else if isChoosingIntent {
-                intentMenu
             } else {
-                actionsRow
+                intentMenu
             }
         }
     }
@@ -120,25 +142,6 @@ struct ActionItemDrawer: View {
         }
     }
 
-    /// The action item is the outcome; the products are only how. So the row
-    /// names the act, never a logo — with twelve integrations a Slack button
-    /// beside a Linear button beside a calendar button is a toolbar, not a
-    /// decision.
-    private var actionsRow: some View {
-        HStack(spacing: 8) {
-            if !intents.isEmpty {
-                GlassPillButton("Take action", size: .compact) {
-                    isChoosingIntent = true
-                }
-                .linkCursor()
-            }
-            SecondaryPillButton("Ask Nod") {
-                onAsk(ActionDelegation.askPrompt(for: item, source: sourceTitle))
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
     private var intents: [ActionIntent] {
         ActionIntent.available(usable: integrations.isUsable)
     }
@@ -149,7 +152,7 @@ struct ActionItemDrawer: View {
     /// recommendation, never the intent's identity.
     private var intentMenu: some View {
         VStack(alignment: .leading, spacing: 6) {
-            InlineFormHeader("What should happen?") { isChoosingIntent = false }
+            InlineFormHeader("What should happen?", onDismiss: onClose)
             InlineTextField("Describe the outcome… @ names a tool", text: $plan)
                 .onSubmit {
                     // Return while a tool is being named completes the name;
@@ -178,9 +181,35 @@ struct ActionItemDrawer: View {
                 ForEach(intents) { offered in
                     intentRow(offered)
                 }
+                askRow
             }
             .inlineFieldSurface()
         }
+    }
+
+    /// Asking is an outcome too, so it sits with the others rather than beside
+    /// them as a second pill. It also keeps the list from being empty for
+    /// someone with nothing connected yet.
+    private var askRow: some View {
+        Button {
+            onAsk(ActionDelegation.askPrompt(for: item, source: sourceTitle))
+        } label: {
+            HStack(spacing: 8) {
+                Image("nc-msgs")
+                    .icon(11)
+                    .foregroundStyle(Theme.Palette.muted)
+                    .frame(width: 14)
+                Text("Ask Nod about this")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.ink)
+                Spacer(minLength: 8)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .linkCursor()
     }
 
     /// The products the typed `@` could mean. Picking one writes the same
@@ -247,7 +276,6 @@ struct ActionItemDrawer: View {
     }
 
     private func choose(_ offered: ActionIntent) {
-        isChoosingIntent = false
         completed = nil
         intent = offered
     }
@@ -259,7 +287,6 @@ struct ActionItemDrawer: View {
         let typed = plan.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty else { return }
         plan = ""
-        isChoosingIntent = false
         onAsk("\(typed)\n\nThis is about my open action: \(item.text)" +
             (sourceTitle.map { " (from \"\($0)\")" } ?? ""))
     }

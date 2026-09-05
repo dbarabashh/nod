@@ -140,7 +140,10 @@ struct HomeSidebar: View {
             onCapture()
         } label: {
             HStack(spacing: 8) {
-                Image("nc-plus")
+                // A microphone, not a plus: "+" is the glyph every other row in
+                // this sidebar uses for adding a thing, and a button that opens
+                // a recording read as one more "new item" because of it.
+                Image("nc-mic")
                     .icon(13)
                 // "New capture", not "Start Nod": Today carries its own,
                 // meeting-named Start button, and two dark buttons doing one

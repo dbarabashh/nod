@@ -65,9 +65,19 @@ extension View {
     /// Fade + subtle scale-in that keeps the view's layout slot and disables
     /// hits while hidden. Sets no animation itself — pair with `.hoverReveal`
     /// on an ancestor keyed to the same state.
-    func revealOnHover(_ isVisible: Bool, reduceMotion: Bool, anchor: UnitPoint = .center) -> some View {
+    ///
+    /// `scale` is the size it grows from. The 0.82 default was tuned on small
+    /// icon buttons, where the zoom reads as the control arriving; on anything
+    /// wider — a labelled pill — the same factor travels far enough to read as
+    /// a pop, so those callers pass a gentler value.
+    func revealOnHover(
+        _ isVisible: Bool,
+        reduceMotion: Bool,
+        anchor: UnitPoint = .center,
+        scale: CGFloat = 0.82
+    ) -> some View {
         opacity(isVisible ? 1 : 0)
-            .scaleEffect(reduceMotion ? 1 : (isVisible ? 1 : 0.82), anchor: anchor)
+            .scaleEffect(reduceMotion ? 1 : (isVisible ? 1 : scale), anchor: anchor)
             .allowsHitTesting(isVisible)
     }
 
@@ -75,15 +85,21 @@ extension View {
     /// on hover, with the timing and the Reduce Motion collapse already right.
     /// Every list that re-rolled this drifted on the fill, so adjacent panes
     /// highlighted at different strengths.
+    ///
+    /// `fill` is the one thing a caller legitimately changes: the default is
+    /// tuned for a row on the window's own background, and a row already
+    /// sitting inside a `surfaceCard` needs the lighter step or the two fills
+    /// stack into a slab.
     func hoverHighlight(
         _ isHovering: Bool,
         cornerRadius: CGFloat = 8,
         reduceMotion: Bool,
-        inset: CGSize = .zero
+        inset: CGSize = .zero,
+        fill: Color = Theme.Palette.surfaceStrong
     ) -> some View {
         background(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Theme.Palette.surfaceStrong)
+                .fill(fill)
                 .opacity(isHovering ? 1 : 0)
                 .padding(.horizontal, inset.width)
                 .padding(.vertical, inset.height)

@@ -58,8 +58,6 @@ struct TodayView: View {
     /// it is also how often the clock this view reads moves.
     private let clock = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
-    private static let rowLimit = 4
-
     /// One delivered beat result, resolved off the stores once per load so the
     /// body never awaits.
     struct BeatReportRow: Identifiable, Equatable {
@@ -163,17 +161,17 @@ struct TodayView: View {
         if let expandedItemID, !partition.waitingOnYou.contains(where: { $0.id == expandedItemID }) {
             self.expandedItemID = nil
         }
-        // Opened on arrival, once: the first load's own repartition, before
-        // `hasLoaded` flips — a later one (a beat landing, a checkbox tick)
-        // must not re-force a drawer the person already closed back open.
-        if !hasLoaded, expandedItemID == nil, let first = partition.waitingOnYou.first {
-            expandedItemID = first.id
-        }
+        // Nothing is opened on arrival. One row standing open among four reads
+        // as "this one is special", which is the opposite of what it has to
+        // teach — that every row opens. The row's own chevron says that now.
     }
 
-    /// Open but not on today's screen: neither shown nor counted as urgent.
+    /// Open commitments past the briefing's first few, and out of the attention
+    /// count: thirty-one things cannot all need attention. The card can reveal
+    /// them grouped by session, so this counts what Nod is holding rather than
+    /// what is hidden.
     private var trackedCount: Int {
-        max(0, waitingOnYou.count - Self.rowLimit)
+        max(0, waitingOnYou.count - TodayCommitmentsCard.rowLimit)
     }
 
     var body: some View {
@@ -227,7 +225,7 @@ struct TodayView: View {
     }
 
     private var attentionCount: Int {
-        (nextMeeting == nil ? 0 : 1) + min(waitingOnYou.count, Self.rowLimit) + beatReports.filter(\.isNew).count
+        (nextMeeting == nil ? 0 : 1) + min(waitingOnYou.count, TodayCommitmentsCard.rowLimit) + beatReports.filter(\.isNew).count
     }
 
     private var header: some View {
@@ -426,7 +424,7 @@ struct TodayView: View {
         // does its own term extraction from the words it is given.
         var hints: [UUID: [ScreenObservation]] = [:]
         if AmbientScopes.todaySuggestions {
-            for item in waitingOnYou.prefix(Self.rowLimit) {
+            for item in waitingOnYou.prefix(TodayCommitmentsCard.rowLimit) {
                 let related = await screenContext.linkedContext(aboutProjects: [[item.matchable]], limit: 2)
                 guard !Task.isCancelled else { return }
                 if !related.isEmpty { hints[item.id] = related }

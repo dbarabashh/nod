@@ -29,7 +29,7 @@ struct TodayCardList<Item: Identifiable, Row: View>: View {
         let id = UUID()
         let text: String
     }
-    return TodayCardList(title: "Waiting on you", items: [Line(text: "Send the deck"), Line(text: "Reply to Sasha")]) { line in
+    return TodayCardList(title: "Waiting on others", items: [Line(text: "Send the deck"), Line(text: "Reply to Sasha")]) { line in
         HStack(spacing: 12) {
             ActionCheckbox(done: false)
             Text(line.text)
