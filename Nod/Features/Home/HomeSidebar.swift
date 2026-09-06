@@ -25,6 +25,7 @@ struct HomeSidebar: View {
     @State private var isAddingProject = false
     @State private var editingLabel: SessionLabel?
     @State private var confirmingDeleteThread: UUID?
+    @State private var isConfirmingClearChats = false
     /// "3 sessions · 2h ago" per project, counted over LIVE sessions only — the
     /// raw link tally includes rows pointing at trashed sessions, which reads as
     /// "5 sessions" on a project that opens showing four.
@@ -364,7 +365,30 @@ struct HomeSidebar: View {
     private var threadsSection: some View {
         if !threads.threads.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
-                sectionHeader("Chats")
+                HStack(spacing: 6) {
+                    sectionHeader("Chats")
+                    Spacer(minLength: 0)
+                    if isConfirmingClearChats {
+                        InlineConfirmButtons(
+                            confirmIcon: "nc-trash",
+                            confirmHelp: "Delete every chat",
+                            cancelHelp: "Keep them",
+                            onConfirm: clearChats,
+                            onCancel: { isConfirmingClearChats = false }
+                        )
+                        .padding(.top, Theme.Space.x4)
+                        .padding(.trailing, Theme.Space.x2)
+                    }
+                }
+                .contentShape(Rectangle())
+                .contextMenu {
+                    Button(role: .destructive) {
+                        confirmingDeleteThread = nil
+                        isConfirmingClearChats = true
+                    } label: {
+                        IconLabel(title: "Clear all chats", icon: "nc-trash")
+                    }
+                }
                 ForEach(threads.threads) { thread in
                     threadRow(thread)
                 }
@@ -401,6 +425,11 @@ struct HomeSidebar: View {
                 IconLabel(title: "Delete", icon: "nc-trash")
             }
         }
+    }
+
+    private func clearChats() {
+        isConfirmingClearChats = false
+        Task { await threads.deleteAll() }
     }
 
     private func delete(_ thread: KnowledgeThreadStore.Thread) {

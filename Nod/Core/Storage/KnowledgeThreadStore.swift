@@ -96,6 +96,10 @@ final class KnowledgeThreadStore: ObservableObject {
     }
 
     @Published private(set) var threads: [Thread] = []
+    /// Bumped when every thread was deleted at once, so each chat holding one
+    /// of them lets go: a thread id kept past this points at nothing, and the
+    /// next answer's persist would fail on it.
+    @Published private(set) var purges = 0
     @Published private(set) var isLoading = false
 
     private static let threadsTable = "knowledge_threads"
@@ -299,6 +303,27 @@ final class KnowledgeThreadStore: ObservableObject {
         } catch {
             threads = previous
             Log.ui.error("KnowledgeThreadStore.delete failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Every conversation at once, beats' own threads left alone. One request
+    /// rather than a loop of `delete`: a list of eighty deletes that stops at
+    /// forty leaves a sidebar nobody asked for.
+    func deleteAll() async {
+        guard let userID = supabase.auth.currentUser?.id else { return }
+        let previous = threads
+        threads = []
+        do {
+            try await supabase
+                .from(Self.threadsTable)
+                .delete()
+                .eq("user_id", value: userID.uuidString)
+                .is("beat_id", value: nil)
+                .execute()
+            purges += 1
+        } catch {
+            threads = previous
+            Log.ui.error("KnowledgeThreadStore.deleteAll failed: \(error.localizedDescription)")
         }
     }
 
