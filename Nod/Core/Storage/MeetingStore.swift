@@ -149,6 +149,8 @@ final class MeetingStore: ObservableObject {
     @Published private(set) var streamingSummaries: [UUID: String] = [:]
 
     private let supabase: SupabaseClient
+    /// Counts links minted. Set by the composition root.
+    var analytics: ProductAnalytics?
     private static let tableName = "meetings"
     private static let speakersTableName = "meeting_speakers"
 
@@ -920,6 +922,7 @@ final class MeetingStore: ObservableObject {
         guard let url = URL(string: "\(Self.shareViewerBaseURL)/share/\(token.uuidString.lowercased())") else {
             throw URLError(.badURL)
         }
+        analytics?.record(.meetingShared, properties: .init(surface: .share, detail: .link))
         return url
     }
 

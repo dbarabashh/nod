@@ -20,6 +20,8 @@ final class LabelStore: ObservableObject {
     @Published var lastError: String?
 
     private let supabase: SupabaseClient
+    /// Counts shares and their ends. Set by the composition root.
+    var analytics: ProductAnalytics?
     private let auth: AuthService
     private static let labelsTable = "labels"
     private static let linksTable = "meeting_labels"
@@ -285,6 +287,7 @@ final class LabelStore: ObservableObject {
             await refreshShares()
             lastError = nil
             Log.ui.info("folder shared")
+            analytics?.record(.meetingShared, properties: .init(surface: .share, detail: teamID != nil ? .team : .organization))
         } catch {
             lastError = ServerError.rpcMessage(error) ?? "Couldn't share that project."
             Log.ui.error("LabelStore.share failed: \(error.localizedDescription)")
@@ -305,6 +308,7 @@ final class LabelStore: ObservableObject {
             await refreshShares()
             lastError = nil
             Log.ui.info("folder unshared")
+            analytics?.record(.shareRevoked, properties: .init(surface: .share, detail: share.teamID != nil ? .team : .organization))
         } catch {
             // Only this share back, never the list as it was: a refresh can land
             // during the await, and replacing the key wholesale would resurrect

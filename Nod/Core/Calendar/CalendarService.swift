@@ -54,6 +54,8 @@ final class CalendarService: ObservableObject {
     /// on. Nil until the same detached task that resolves the grant has made it.
     private var store: EKEventStore?
     private let defaults: UserDefaults
+    /// Counts the one answer macOS gives. Set by the composition root.
+    var analytics: ProductAnalytics?
     private var activationObserver: NSObjectProtocol?
 
     /// The server's copy of a calendar this Mac cannot see for itself. Optional
@@ -269,6 +271,7 @@ final class CalendarService: ObservableObject {
         // access" for a question nobody was ever asked.
         refresh()
         Log.ui.info("calendar: access \(status == .authorized ? "granted" : "not granted")")
+        analytics?.record(.calendarConnected, properties: .init(outcome: status == .authorized ? .granted : .declined))
     }
 
     func openSystemSettings() {

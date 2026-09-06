@@ -70,6 +70,9 @@ final class OrganizationService: ObservableObject {
     /// on the order of two side effects is a guard waiting to be reordered.
     private var isRedeeming = false
 
+    /// Counts invitations. Set by the composition root.
+    var analytics: ProductAnalytics?
+
     init(supabase: SupabaseClient?) {
         self.supabase = supabase
     }
@@ -347,6 +350,7 @@ final class OrganizationService: ObservableObject {
             await switchContext(to: orgID)
             lastError = nil
             Log.ui.info("organization invite accepted")
+            analytics?.record(.inviteAccepted)
             return true
         } catch {
             lastError = "That invite couldn't be used. It may have expired, or been sent to a different address."
@@ -385,6 +389,7 @@ final class OrganizationService: ObservableObject {
             lastError = result.emailed ? nil : "Invite created, but the email couldn't be sent — copy the link instead."
             await loadMembers(in: orgID)
             Log.ui.info("organization invite created emailed=\(result.emailed)")
+            analytics?.record(.teamMemberInvited, properties: .init(outcome: result.emailed ? .success : .empty))
             return true
         } catch {
             // The RPC writes its refusals for the person doing the inviting —

@@ -19,6 +19,7 @@ struct TodayView: View {
 
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var actionItemStore: ActionItemStore
+    @EnvironmentObject private var analytics: ProductAnalytics
     @EnvironmentObject private var calendar: CalendarService
     @EnvironmentObject private var beatStore: BeatStore
     @EnvironmentObject private var profileStore: ProfileStore
@@ -342,6 +343,11 @@ struct TodayView: View {
         MeetingAttendance.mark(occurrence, as: answer, now: now)
         answers[MeetingAttendance.fingerprint(occurrence)] = answer
         taskError = nil
+        analytics.record(
+            .meetingAttendanceAnswered,
+            // Not going, or turned into a task instead of a recording.
+            properties: .init(surface: .home, outcome: answer == .notGoing ? .declined : .filed)
+        )
     }
 
     /// Clearing says nothing about the Google task: it is the person's now,
