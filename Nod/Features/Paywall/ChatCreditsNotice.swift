@@ -15,6 +15,7 @@ struct ChatCreditsNotice: View {
     @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var billing: BillingService
     @EnvironmentObject private var organizations: OrganizationService
+    @EnvironmentObject private var analytics: ProductAnalytics
 
     /// The entitlement the row was born with is the one the refusal was made
     /// against, but the app's copy of it can lag the server by a read or two.
@@ -35,6 +36,15 @@ struct ChatCreditsNotice: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 9)
+        .onAppear {
+            // Once per app session: the row stays on screen across turns, and
+            // every turn it survives is not a new refusal.
+            analytics.record(
+                .errorShown,
+                properties: .init(reasonCode: .creditsExhausted, surface: .ask),
+                oncePerSession: "credits"
+            )
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
@@ -158,6 +168,7 @@ struct ChatCreditsNotice: View {
         .environmentObject(EntitlementService(supabase: supabase))
         .environmentObject(BillingService(supabase: supabase))
         .environmentObject(OrganizationService.preview(memberships: []))
+        .environmentObject(ProductAnalytics.preview)
         .padding()
         .frame(width: 520)
         .background(Theme.Palette.bg)

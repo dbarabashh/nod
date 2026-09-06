@@ -777,6 +777,7 @@ final class IntegrationService: ObservableObject {
             return String(bytes: response, encoding: .utf8) ?? Self.unreadableResult
         } catch {
             Log.llm.error("tool \(tool.name) failed: \(error.localizedDescription)")
+            analytics?.record(.errorShown, properties: .init(reasonCode: .integrationFailed, provider: tool.provider.rawValue))
             return #"{"error":{"code":"unreachable","message":"The action could not be run."}}"#
         }
     }

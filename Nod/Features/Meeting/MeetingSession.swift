@@ -1274,6 +1274,7 @@ final class MeetingSession: ObservableObject {
             await drainOutbox()
             if sessionGeneration == generation { store.clear() }
             Log.ui.error("Meeting summary generation failed: \(error.localizedDescription)")
+            analytics.record(.errorShown, properties: .init(stage: .finalization, reasonCode: .summaryFailed, surface: .capture))
             // The same note the WAL and the server row carry, not the raw
             // error: the detail view keys the "Generate summary" retry off
             // it, and a cache that reads differently from the persisted row

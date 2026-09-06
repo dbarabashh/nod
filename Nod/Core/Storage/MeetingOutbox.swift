@@ -70,6 +70,13 @@ actor MeetingOutbox {
 
     /// `directory` is injectable so tests run against a temp dir, not the real
     /// Application Support location.
+    /// Counts a save that stayed on disk. Set by the composition root.
+    private var analytics: ProductAnalytics?
+
+    func attach(_ analytics: ProductAnalytics) {
+        self.analytics = analytics
+    }
+
     init(directory: URL? = nil) {
         // `AppSupport` creates what it hands back; an injected test directory is
         // ours to create. Note the fallback there lands the WAL in the temp
@@ -270,6 +277,12 @@ actor MeetingOutbox {
                 // Leave the entry on disk for the next flush (launch, focus,
                 // manual retry). Durability is the whole point — never drop it.
                 Log.ui.error("MeetingOutbox.flush kept \(id.uuidString) on disk — \(error.localizedDescription)")
+                if let analytics {
+                    let key = id.uuidString
+                    await MainActor.run {
+                        analytics.record(.errorShown, properties: .init(stage: .persistence, reasonCode: .syncFailed), oncePerSession: key)
+                    }
+                }
             }
         }
     }
