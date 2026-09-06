@@ -11,6 +11,7 @@
 // question names, then transcript chunks — written into an ordinary thread
 // exactly where the Mac would have written it. Marking the run `done` fires
 // the existing push trigger; this function never talks to APNs itself.
+import { modelFor } from "../_shared/models.ts";
 import { adminClient } from "../_shared/supabase.ts";
 import { json } from "../_shared/http.ts";
 import { completeOnce } from "../_shared/complete.ts";
@@ -21,7 +22,7 @@ const INTERNAL_JOB_SECRET = Deno.env.get("INTERNAL_JOB_SECRET");
 
 // The same default a stock client's chat runs on, overridable per branch the
 // same way every other task model is.
-const BEAT_MODEL = Deno.env.get("BEAT_MODEL") ?? Deno.env.get("CHAT_MODEL") ?? "anthropic/claude-sonnet-4.6";
+const BEAT_MODEL = modelFor("beat");
 
 // Matches the client's grounding floor: below this a chunk is a coincidence.
 const MIN_SIMILARITY = 0.3;

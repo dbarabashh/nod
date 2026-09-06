@@ -1,10 +1,11 @@
+import { modelFor } from "./models.ts";
 // A live voice session: OpenAI's Realtime API, over a WebSocket the client
 // holds itself. This proxy's one job is to mint the short-lived credential
 // that lets it do that without ever holding the real API key — the same
 // shape as every other secret in this app, just handed out per session
 // instead of per call.
 
-export const REALTIME_MODEL = "gpt-realtime-2";
+export const REALTIME_MODEL = modelFor("realtime");
 export const REALTIME_DEFAULT_VOICE = "cedar";
 // Long enough to cover a real conversation's connect handshake and any
 // retry, short enough that a leaked token is worthless within the hour.

@@ -189,15 +189,67 @@ auth config:
 
 ## Model routing secrets — what to set at the next prod release
 
-`_shared/model-policy.ts` decides which model serves which task. Each task reads
-one secret (`SUMMARY_MODEL`, `TITLE_MODEL`, `UTILITY_MODEL`, `CHAT_MODEL`); an
-unset variable means "no policy" and the client's own default is used unchanged.
+**`supabase/functions/_shared/models.ts` is the one file that lists every
+model Nod consumes** — task, secret, default, where it goes, and why. Nothing
+else in the functions names a model; `_shared/model-policy.ts` only applies that
+table to a request. The rule since 2026-09-06: **no model is switched by
+shipping a desktop build.** Every external model has a secret (the in-runtime
+`gte-small` embedding is the one without), so a change is either an edit to the
+table plus a deploy, or a `secrets set` with no deploy at all.
+
+| Secret | Task | Runs today (`default`) | Stock client id |
+|---|---|---|---|
+| `SUMMARY_MODEL` | session summary | `anthropic/claude-sonnet-5` | `anthropic/claude-sonnet-4.6` |
+| `TITLE_MODEL` | session title, reasoning off | `mistralai/mistral-small-2603` | `anthropic/claude-sonnet-4.6` |
+| `UTILITY_MODEL` | HyDE, router, live analyst, lookups | `mistralai/mistral-small-2603` | `anthropic/claude-haiku-4.5` |
+| `CHAT_MODEL` | session chat, Ask Nod | `anthropic/claude-sonnet-5` | `anthropic/claude-sonnet-5` |
+| `STT_MODEL` | transcription and dictation | `openai/gpt-4o-transcribe` | `openai/gpt-4o-transcribe` |
+| `DISTILL_MODEL` | knowledge distillation | `mistralai/mistral-small-2603` | — |
+| `BEAT_MODEL` | beat reports (falls back to `CHAT_MODEL`) | `deepseek/deepseek-v4-flash-0731` | — |
+| `BRIEFING_MODEL` | calendar briefings | `deepseek/deepseek-v4-flash-0731` | — |
+| `SHARE_ASK_MODEL` | public share page questions | `openai/gpt-4o-mini` | — |
+| `SPEECH_SCRIPT_MODEL` | script for spoken answers | `openai/gpt-4o-mini` | — |
+| `TTS_MODEL` | OpenAI speech synthesis | `gpt-4o-mini-tts` | — |
+| `REALTIME_MODEL` | OpenAI live voice | `gpt-realtime-2` | — |
+
+A request carrying the stock id is re-routed to `default`; a person's own
+`defaults write … openrouter.model` override is anything else and is passed
+through. A secret wins over `default` while set, so once a choice is in the
+table, unset its secret or the file stops telling the truth.
 `DISABLE_REASONING_TASKS` is a comma-separated task list whose reasoning the
 proxy forces off — the client can only do that for `utility`.
 
-**Production carries no model overrides today.** Every task runs the client
-default, which is why `usage_events` shows `requested_model = resolved_model` on
-every row.
+Two floors sit under every OpenRouter **chat** request, in code rather than in
+the OpenRouter account (`withProviderFloor`): `provider.zdr = true`, so only
+endpoints OpenRouter lists as zero-data-retention can serve us (first-party
+Anthropic, OpenAI and Google AI Studio are not on that list; Bedrock, Vertex and
+Azure are), and `provider.quantizations` that turns away any host labelling
+itself below fp8. An unlabelled host still passes, because first-party
+endpoints report nothing, so the floor filters rather than pins. The live list
+is `https://openrouter.ai/api/v1/endpoints/zdr`; a chat model with no ZDR
+endpoint fails every request, so check it there before choosing one.
+
+**Transcription has no floor in code.** OpenRouter's audio endpoint takes no
+`provider` field, and `gpt-4o-transcribe` has no ZDR endpoint listed at all, so
+audio goes to OpenAI first-party under OpenAI's own API retention terms. This
+predates the table; it is written down here so nobody reads the paragraph above
+as covering it.
+
+Transcription is OpenRouter-only by default (`STT_ROUTING_MODE` unset). The
+direct Groq and OpenAI Whisper chain still exists behind `openrouter_primary` /
+`groq_primary` as an outage path for Whisper models; it cannot serve
+`gpt-4o-transcribe`.
+
+The table above landed in code on 2026-09-06 (Sonnet 5 for summary, Mistral Small for title,
+Mistral Small for utility and distillation, DeepSeek V4 Flash for background
+jobs; chat and STT unchanged). The same values were set as sandbox secrets the
+same day and are now redundant there; unset them so the file is the one truth.
+Pending verification on real sandbox traffic.
+
+Since the table routes on its own, a stock client's rows show
+`requested_model` (what the client sent) differing from `resolved_model` (what
+served) on every summary, title and utility call. That is the table working,
+not a secret; `x-nod-model-routed` on the response says the same.
 
 The order matters, because one step gates the others:
 
@@ -214,7 +266,7 @@ The order matters, because one step gates the others:
 
 ```sh
 SUPABASE_ACCESS_TOKEN=sbp_… supabase secrets set --project-ref <ref> \
-  UTILITY_MODEL=google/gemini-2.5-flash-lite
+  UTILITY_MODEL=google/gemini-3.1-flash-lite
 ```
 
 Verified on sandbox 2026-08-27: `utility` resolved to
@@ -222,8 +274,11 @@ Verified on sandbox 2026-08-27: `utility` resolved to
 price with no failover. Roughly 11x cheaper than `claude-haiku-4.5` on the same
 prompts.
 
-Rollback is `supabase secrets unset --project-ref <ref> UTILITY_MODEL`; routing
-returns to the client default on the next isolate.
+Rollback of a secret is `supabase secrets unset --project-ref <ref>
+UTILITY_MODEL`, which returns the task to the **table** default on the next
+isolate, not to the client's id. Going back to what the client sends means
+editing `default` in `models.ts` and deploying, or setting the secret to the
+stock id.
 
 ### Why routing a task is safe to try
 

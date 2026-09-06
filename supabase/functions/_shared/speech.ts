@@ -1,3 +1,4 @@
+import { modelFor } from "./models.ts";
 // A spoken line: what Nod says after a question asked by voice.
 //
 // Two steps, two providers. `completeOnce` (OpenRouter, `_shared/complete.ts`)
@@ -28,12 +29,12 @@ export const SPEECH_LANGUAGES: Record<string, string> = {
     sr: "Serbian",
 };
 
-export const SCRIPT_MODEL = "openai/gpt-4o-mini";
+export const SCRIPT_MODEL = modelFor("speechScript");
 // The proxy's own ceiling on what it will bill and speak, regardless of what
 // the script-writing step returns — a runaway completion must not become a
 // runaway TTS bill or a runaway wait.
 export const SCRIPT_MAX_CHARS = 500;
-export const TTS_MODEL = "gpt-4o-mini-tts";
+export const TTS_MODEL = modelFor("tts");
 // OpenAI's own recommendation for the two newest, most natural voices;
 // cedar is the male one.
 export const DEFAULT_VOICE = "cedar";

@@ -20,7 +20,7 @@
 
 import { adminClient, authenticate } from "../_shared/supabase.ts";
 import { isObject, json } from "../_shared/http.ts";
-import { ROUTING_VERSION } from "../_shared/model-policy.ts";
+import { applySttModelPolicy, ROUTING_VERSION } from "../_shared/model-policy.ts";
 import { callTranscribe } from "../_shared/stt-providers.ts";
 import { forwardChat } from "../_shared/chat.ts";
 import { recordUsage } from "../_shared/usage.ts";
@@ -48,6 +48,7 @@ import {
     realtimeTokenRequest,
     RealtimeSessionMeter,
     REALTIME_DEFAULT_VOICE,
+    REALTIME_MODEL,
 } from "../_shared/realtime.ts";
 
 const OPENROUTER_API_KEY        = Deno.env.get("OPENROUTER_API_KEY");
@@ -59,7 +60,6 @@ const SPEECH_VOICE              = Deno.env.get("SPEECH_VOICE") ?? DEFAULT_VOICE;
 const SPEECH_TIMEOUT_MS         = 30_000;
 const speechMeter = new SpeechMeter();
 const REALTIME_VOICE = Deno.env.get("REALTIME_VOICE") ?? REALTIME_DEFAULT_VOICE;
-const REALTIME_MODEL = "gpt-realtime-2";
 const realtimeMeter = new RealtimeSessionMeter();
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_ANON_KEY         = Deno.env.get("SUPABASE_ANON_KEY");
@@ -601,8 +601,11 @@ async function endMeeting(
     return json({ ended: data === true, meeting_id: meetingId }, 200);
 }
 
-async function forwardTranscribe(payload: unknown, userId: string, entitlement: Entitlement | null, admin: ReturnType<typeof adminClient>): Promise<Response> {
+async function forwardTranscribe(rawPayload: unknown, userId: string, entitlement: Entitlement | null, admin: ReturnType<typeof adminClient>): Promise<Response> {
+    const requested = isObject(rawPayload) && typeof rawPayload.model === "string" ? rawPayload.model : "unknown";
+    const payload = isObject(rawPayload) ? applySttModelPolicy(rawPayload) : rawPayload;
     const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";
+    if (model !== requested) console.log(`routing user=${userId} task=stt requested=${requested} routed=${model} policy=${ROUTING_VERSION}`);
     const audioSeconds = audioSecondsFromPayload(payload);
 
     const { status, text, provider, failover } = await callTranscribe(payload, userId);
@@ -639,7 +642,7 @@ async function forwardTranscribe(payload: unknown, userId: string, entitlement: 
             failover: failover.length > 0 ? failover : null,
             task: "stt",
             routing_version: ROUTING_VERSION,
-            requested_model: model,
+            requested_model: requested,
             resolved_model: `${provider}:${model}`,
             // The entitlement is cached per user for up to a minute, so a member
             // who switches workspace mid-meeting is stamped with the previous

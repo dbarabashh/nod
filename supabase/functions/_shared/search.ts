@@ -1,3 +1,4 @@
+import { MODELS } from "./models.ts";
 import { adminClient } from "./supabase.ts";
 import { isObject, json } from "./http.ts";
 import { recordUsage } from "./usage.ts";
@@ -15,7 +16,7 @@ declare const Supabase: {
 
 // gte-small produces 384-dim normalised embeddings — matches the
 // `vector(384)` column in `session_embeddings`.
-const EMBEDDING_MODEL = "gte-small";
+const EMBEDDING_MODEL = MODELS.embedding.default;
 
 // Upper bound on how many chunks a single search may pull. The client asks for
 // 8; the cap stops a crafted `match_count` from turning the vector scan into a

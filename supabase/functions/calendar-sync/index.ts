@@ -26,6 +26,7 @@
 // Reads `primary` only. A person's other calendars — a partner's, a subscribed
 // holiday feed — are not where their meetings are, and asking for the calendar
 // list is a wider grant for worse data.
+import { modelFor } from "../_shared/models.ts";
 import { isObject, json } from "../_shared/http.ts";
 import { adminClient, authenticate } from "../_shared/supabase.ts";
 import { ActionError, proxy } from "../_shared/integrations/pipedream.ts";
@@ -355,7 +356,7 @@ async function syncAccount(
 // conservative. Best-effort throughout: a briefing is a nice-to-have on top
 // of a sync that has already committed its calendar rows, never something a
 // failure here should turn into a sync error.
-const BRIEFING_MODEL = Deno.env.get("BRIEFING_MODEL") ?? "anthropic/claude-haiku-4.5";
+const BRIEFING_MODEL = modelFor("briefing");
 const BRIEFING_GENERATOR_VERSION = "context-platform-briefing-v1";
 
 async function generateUpcomingMeetingBriefings(admin: Admin, userId: string): Promise<void> {

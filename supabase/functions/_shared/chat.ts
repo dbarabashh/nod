@@ -1,5 +1,11 @@
 import { isObject, json } from "./http.ts";
-import { applyModelPolicy, reasoningDisabled, ROUTING_VERSION, supportsExplicitPromptCache } from "./model-policy.ts";
+import {
+    applyModelPolicy,
+    reasoningDisabled,
+    ROUTING_VERSION,
+    supportsExplicitPromptCache,
+    withProviderFloor,
+} from "./model-policy.ts";
 import { recordUsage } from "./usage.ts";
 
 // Everything between the client's chat request and OpenRouter: prompt caching,
@@ -91,7 +97,7 @@ export async function forwardChat(rawPayload: unknown, userId: string): Promise<
     // that internal flag before forwarding. Non-opted calls pass through
     // unchanged. The client still sends plain string message content; the
     // cache_control content-block rewrite happens here.
-    const payload = applyPromptCaching(reasoned);
+    const payload = withProviderFloor(applyPromptCaching(reasoned));
 
     // Streaming path (used by "Suggest reply"): pass the upstream SSE through
     // verbatim so the client renders tokens as they arrive. Usage is captured

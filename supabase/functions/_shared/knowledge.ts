@@ -1,3 +1,4 @@
+import { modelFor } from "./models.ts";
 import { adminClient } from "./supabase.ts";
 import { isObject, json } from "./http.ts";
 import { completeOnce } from "./complete.ts";
@@ -13,7 +14,7 @@ import { getTranscript } from "./meetings.ts";
 // Haiku-class by default: the hard part of distillation is restraint, not
 // prose, and the expected output is usually empty. Overridable per branch the
 // same way every other task model is.
-const DISTILL_MODEL = Deno.env.get("DISTILL_MODEL") ?? "anthropic/claude-haiku-4.5";
+const DISTILL_MODEL = modelFor("distill");
 
 // A session trying to write more than this is a distillation bug, not a
 // productive meeting.

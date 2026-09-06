@@ -1,3 +1,4 @@
+import { withProviderFloor } from "./model-policy.ts";
 import { recordUsage } from "./usage.ts";
 
 // One-shot OpenRouter completion for server-originated calls (the distiller,
@@ -37,7 +38,7 @@ export async function completeOnce(req: CompleteRequest): Promise<string | null>
                 "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
                 "Content-Type": "application/json",
             },
-            body: JSON.stringify({
+            body: JSON.stringify(withProviderFloor({
                 model: req.model,
                 messages: [
                     { role: "system", content: req.system },
@@ -46,7 +47,7 @@ export async function completeOnce(req: CompleteRequest): Promise<string | null>
                 ...(req.temperature === undefined ? {} : { temperature: req.temperature }),
                 ...(req.reasoningOff ? { reasoning: { enabled: false } } : {}),
                 usage: { include: true },
-            }),
+            })),
             signal: controller.signal,
         });
         const parsed = await upstream.json().catch(() => null);
