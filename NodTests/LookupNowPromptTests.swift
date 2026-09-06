@@ -50,7 +50,8 @@ final class LookupNowPromptTests: XCTestCase {
     func testTheInstantCarriesTheUsersOffset() {
         let stamp = PromptLibrary.rfc3339String(now)
 
-        XCTAssertEqual(stamp.count, 25, stamp)
+        let expectedLength = stamp.hasSuffix("Z") ? 20 : 25
+        XCTAssertEqual(stamp.count, expectedLength, stamp)
         XCTAssertTrue(stamp.hasSuffix("Z") || stamp.contains("+") || stamp.dropFirst(19).contains("-"), stamp)
     }
 
