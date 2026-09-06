@@ -11,6 +11,8 @@ struct OnboardingView: View {
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var telemetry: OnboardingTelemetry
     @EnvironmentObject private var modeStore: ModeStore
+    @EnvironmentObject private var analytics: ProductAnalytics
+    @EnvironmentObject private var consent: ConsentPreference
 
     /// Pad past the traffic-light strip so step titles never collide with the
     /// close button. macOS chrome occupies ~28pt of the window's top.
@@ -117,6 +119,11 @@ struct OnboardingView: View {
                     state.goNext()
                 }
             )
+        case .diagnostics:
+            DiagnosticsChoice(analytics: analytics, consent: consent) { state.goNext() }
+                .frame(maxWidth: 520)
+                .padding(.horizontal, 40)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .notch, .calendar, .permissions, .emailPreferences:
             // Never on screen for more than a frame: the `.task` above hands
             // the window off the moment the step lands here.

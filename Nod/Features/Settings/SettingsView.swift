@@ -518,6 +518,7 @@ struct SettingsView: View {
                 if let productAnalytics {
                     ProductAnalyticsSection(analytics: productAnalytics)
                 }
+                CrashReportsSection()
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel("Your data")
                     AccountDataSection(auth: auth, export: accountExport)

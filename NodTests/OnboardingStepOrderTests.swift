@@ -16,9 +16,17 @@ final class OnboardingStepOrderTests: XCTestCase {
         return status.currentStep
     }
 
-    func testTheWindowAsksTwoThingsAndHandsOff() {
-        XCTAssertEqual(OnboardingStep.allCases, [.welcome, .profile, .notch])
-        XCTAssertEqual(OnboardingStep.notch.position, 3)
+    func testTheWindowAsksThreeThingsAndHandsOff() {
+        XCTAssertEqual(OnboardingStep.allCases, [.welcome, .profile, .diagnostics, .notch])
+        XCTAssertEqual(OnboardingStep.notch.position, 4)
+    }
+
+    /// Somebody who was already in the notch on 1.6 is not pulled back to a
+    /// question the window has since gained; the main window asks it once.
+    func testAPersonMidFlowOn16StaysWhereTheyWere() throws {
+        XCTAssertEqual(try decode(step: 3, version: "1.6"), .notch)
+        let json = #"{"version":"1.6","stepName":"notch","currentStep":3,"completed":false}"#
+        XCTAssertEqual(try JSONDecoder().decode(OnboardingStatus.self, from: Data(json.utf8)).currentStep, .notch)
     }
 
     /// The expand phase: the name is what a current build reads back, and the
@@ -83,7 +91,7 @@ final class OnboardingStepOrderTests: XCTestCase {
     /// must not be run through the rename table a second time.
     func testACurrentValueIsLeftAlone() throws {
         for step in OnboardingStep.allCases {
-            XCTAssertEqual(try decode(step: step.position, version: "1.6"), step)
+            XCTAssertEqual(try decode(step: step.position, version: OnboardingStatus.currentVersion), step)
         }
     }
 
@@ -95,7 +103,8 @@ final class OnboardingStepOrderTests: XCTestCase {
     /// same direction — stopping on the first satisfied step would leave it on
     /// a screen it had just decided not to show.
     func testAdvancingStepsOverWhatIsAlreadyAnswered() {
-        XCTAssertEqual(OnboardingStep.welcome.advanced(by: 1, skipping: [.profile]), .notch)
+        XCTAssertEqual(OnboardingStep.welcome.advanced(by: 1, skipping: [.profile]), .diagnostics)
+        XCTAssertEqual(OnboardingStep.welcome.advanced(by: 1, skipping: [.profile, .diagnostics]), .notch)
     }
 
     /// Nil at the ends rather than a wrap or a clamp: the caller stays put.

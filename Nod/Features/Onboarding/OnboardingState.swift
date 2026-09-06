@@ -15,13 +15,14 @@ import Foundation
 enum OnboardingStep: String, Codable, CaseIterable {
     case welcome
     case profile
+    case diagnostics
     case notch
     case calendar
     case permissions
     case emailPreferences
 
     /// The steps the flow actually shows, in order.
-    static let allCases: [OnboardingStep] = [.welcome, .profile, .notch]
+    static let allCases: [OnboardingStep] = [.welcome, .profile, .diagnostics, .notch]
 
     /// Where this step sits today, for the dots and for next/previous. Read
     /// rather than stored: nothing persists it any more.
@@ -32,7 +33,7 @@ enum OnboardingStep: String, Codable, CaseIterable {
     /// Where somebody standing on a step this build no longer shows resumes.
     var current: OnboardingStep {
         switch self {
-        case .welcome, .profile, .notch: self
+        case .welcome, .profile, .diagnostics, .notch: self
         case .calendar, .permissions, .emailPreferences: .notch
         }
     }
@@ -59,7 +60,7 @@ enum OnboardingStep: String, Codable, CaseIterable {
 }
 
 struct OnboardingStatus: Codable {
-    static let currentVersion = "1.6"
+    static let currentVersion = "1.7"
 
     var version: String = currentVersion
 
@@ -129,7 +130,8 @@ struct OnboardingStatus: Codable {
         "1.2": [.welcome, .profile, .permissions, .calendar, .emailPreferences],
         "1.3": [.welcome, .profile, .permissions, .calendar, .calendar, .emailPreferences],
         "1.4": [.welcome, .calendar, .permissions, .profile, .emailPreferences],
-        "1.5": [.welcome, .calendar, .permissions, .profile, .emailPreferences]
+        "1.5": [.welcome, .calendar, .permissions, .profile, .emailPreferences],
+        "1.6": [.welcome, .profile, .notch]
     ]
 
     /// An unknown version is one this build has never shipped — a downgrade, or

@@ -218,6 +218,9 @@ final class OnboardingTelemetry: ObservableObject {
         switch step {
         case .welcome: "welcome"
         case .profile: "profile"
+        // The server's stage list has no "diagnostics"; this is a consent
+        // question and files under the name the list already has for one.
+        case .diagnostics: "consent"
         case .notch: "notch"
         case .permissions: "permissions"
         case .calendar: "calendar"

@@ -104,10 +104,9 @@ struct ProductAnalyticsSection: View {
                     title: "Share usage events",
                     // The guarantee comes first, and it is specific: a vague
                     // "we respect your privacy" is exactly what nobody believes.
-                    subtitle: "What you record is never touched by this. No transcript, summary, "
-                        + "meeting title, question, or answer is ever part of these events, and "
-                        + "nothing here goes to a third party — it stays in Nod's own database. "
-                        + "Counted: which screens and actions you used, and whether they worked. "
+                    subtitle: "Counts of which features get used and whether they worked, so we know what to fix. "
+                        + "Never what you say or write: no transcript, summary, meeting title, question or answer. "
+                        + "Kept in Nod's own database, never a third party. "
                         + "Turning this off also discards anything still waiting to be sent."
                 ) {
                     Toggle("", isOn: Binding(
@@ -117,6 +116,34 @@ struct ProductAnalyticsSection: View {
                     .labelsHidden()
                     .nodSwitch()
                     .accessibilityLabel("Share usage events")
+                }
+            }
+        }
+    }
+}
+
+/// Crash reports are the one thing that leaves the Mac to a third party
+/// without a question being asked, so the switch sits beside the analytics
+/// one and says exactly what a report holds.
+struct CrashReportsSection: View {
+    @State private var isEnabled = CrashReporting.isEnabled()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionLabel("Crash reports")
+            SettingsCard {
+                SettingsRow(
+                    icon: "nc-triangle-warning",
+                    title: "Send crash reports",
+                    subtitle: "When Nod crashes or freezes, the stack trace, app version, macOS version and "
+                        + "Mac model go to Sentry so it can be fixed. Never a transcript, summary, question, "
+                        + "answer, email address or IP address. Switching this off takes effect at once."
+                ) {
+                    Toggle("", isOn: $isEnabled)
+                        .labelsHidden()
+                        .nodSwitch()
+                        .accessibilityLabel("Send crash reports")
+                        .onChange(of: isEnabled) { on in CrashReporting.record(enabled: on) }
                 }
             }
         }
