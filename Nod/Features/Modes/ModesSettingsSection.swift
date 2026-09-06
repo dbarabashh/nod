@@ -33,7 +33,7 @@ struct ModesSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(
-                "Modes apply to every session. Each mode sets the recap layout, the reply framing, and a focus — pick one from the panel when you start a meeting instead of changing settings each time."
+                "The active mode shapes every meeting recap and its replies: the recap layout, and a focus Nod keeps in mind. Pick one here; it stays until you pick another."
             )
             .font(.system(size: 12.5))
             .foregroundStyle(Theme.Palette.muted)
@@ -44,11 +44,9 @@ struct ModesSettingsSection: View {
             if let mode = store.modes.first(where: { $0.id == editingID }) {
                 ModeEditorForm(
                     mode: mode,
-                    isActive: mode.id == store.selectedID,
                     iconChoices: Self.iconChoices,
                     canDelete: store.modes.count > 1,
                     onChange: { store.update($0) },
-                    onUse: { store.select(mode.id) },
                     onDelete: {
                         store.delete(mode.id)
                         editingID = store.modes.first?.id ?? mode.id
@@ -113,8 +111,11 @@ struct ModesSettingsSection: View {
     private func chip(_ mode: MeetingMode) -> some View {
         let isEditing = mode.id == editingID
         let isActive = mode.id == store.selectedID
+        // One click does both: the chip is the mode, so choosing it is choosing
+        // it. Editing without activating was a second step nobody found.
         return Button {
             editingID = mode.id
+            store.select(mode.id)
         } label: {
             HStack(spacing: 6) {
                 Image(mode.icon)
@@ -148,28 +149,22 @@ struct ModesSettingsSection: View {
 /// through `onChange` so the store (and the live panel chip) stay in sync.
 private struct ModeEditorForm: View {
     @State private var draft: MeetingMode
-    let isActive: Bool
     let iconChoices: [String]
     let canDelete: Bool
     let onChange: (MeetingMode) -> Void
-    let onUse: () -> Void
     let onDelete: () -> Void
 
     init(
         mode: MeetingMode,
-        isActive: Bool,
         iconChoices: [String],
         canDelete: Bool,
         onChange: @escaping (MeetingMode) -> Void,
-        onUse: @escaping () -> Void,
         onDelete: @escaping () -> Void
     ) {
         _draft = State(initialValue: mode)
-        self.isActive = isActive
         self.iconChoices = iconChoices
         self.canDelete = canDelete
         self.onChange = onChange
-        self.onUse = onUse
         self.onDelete = onDelete
     }
 
@@ -232,13 +227,9 @@ private struct ModeEditorForm: View {
             }
 
             HStack(spacing: 12) {
-                if isActive {
-                    IconLabel(title: "Active mode", icon: "nc-circle-check", size: 12)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Theme.Palette.muted)
-                } else {
-                    Button("Use this mode", action: onUse)
-                }
+                IconLabel(title: "Active mode", icon: "nc-circle-check", size: 12)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.Palette.muted)
                 Spacer(minLength: 0)
                 if canDelete {
                     Button(role: .destructive, action: onDelete) {
