@@ -62,19 +62,10 @@ struct SettingsRow<Leading: View, Trailing: View>: View {
     /// `muted` is opaque slate, tuned for the app's own dark surfaces. A row on
     /// a coloured ground — the welcome sky — needs the subtitle to be the ink at
     /// reduced weight instead, or it sinks into the background.
-    var subtitleTone: SubtitleTone = .muted
+    var subtitleTone: SettingsSubtitleTone = .muted
     var alignment: VerticalAlignment = .center
     @ViewBuilder var leading: () -> Leading
     @ViewBuilder var trailing: () -> Trailing
-
-    enum SubtitleTone {
-        case muted
-        case secondary
-
-        var color: Color {
-            self == .muted ? Theme.Palette.muted : Theme.Palette.inkSecondary
-        }
-    }
 
     enum TitleStyle {
         case standard
@@ -114,14 +105,25 @@ extension SettingsRow where Leading == SettingsRowIcon {
         icon: String,
         title: String,
         subtitle: String?,
+        subtitleTone: SettingsSubtitleTone = .muted,
         @ViewBuilder trailing: @escaping () -> Trailing
     ) {
         self.init(
             title: title,
             subtitle: subtitle,
+            subtitleTone: subtitleTone,
             leading: { SettingsRowIcon(icon) },
             trailing: trailing
         )
+    }
+}
+
+enum SettingsSubtitleTone {
+    case muted
+    case secondary
+
+    var color: Color {
+        self == .muted ? Theme.Palette.muted : Theme.Palette.inkSecondary
     }
 }
 

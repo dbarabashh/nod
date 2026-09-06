@@ -8,26 +8,45 @@ import SwiftUI
 /// one-time prompt for an install that updated into this build. Reports are
 /// off until this is answered; usage events keep their existing state, which
 /// a person may already have set in Settings.
+///
+/// `style` is which ground it sits on. `muted` and `cyan` are tuned for the
+/// app's own dark surfaces; on the welcome sky the secondary text sinks into
+/// the blue and the accent icon vanishes, so the step takes the ink instead.
 struct DiagnosticsChoice: View {
     @ObservedObject var analytics: ProductAnalytics
     let consent: ConsentPreference
+    var style: PolicyFooter.Style = .prompt
     let onFinish: () -> Void
 
     @State private var sendsCrashReports = CrashReporting.isEnabledByDefault
     @State private var sharesUsage: Bool
 
-    init(analytics: ProductAnalytics, consent: ConsentPreference, onFinish: @escaping () -> Void) {
+    init(
+        analytics: ProductAnalytics,
+        consent: ConsentPreference,
+        style: PolicyFooter.Style = .prompt,
+        onFinish: @escaping () -> Void
+    ) {
         self.analytics = analytics
         self.consent = consent
+        self.style = style
         self.onFinish = onFinish
         _sharesUsage = State(initialValue: !analytics.isOptedOut)
+    }
+
+    private var secondaryText: Color {
+        style == .onboarding ? Theme.Palette.inkSecondary : Theme.Palette.muted
+    }
+
+    private var subtitleTone: SettingsSubtitleTone {
+        style == .onboarding ? .secondary : .muted
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Image("nc-shield-check")
                 .icon(22)
-                .foregroundStyle(Theme.Palette.cyan)
+                .foregroundStyle(style == .onboarding ? Theme.Palette.ink : Theme.Palette.cyan)
             VStack(alignment: .leading, spacing: 7) {
                 Text("Help make Nod better?")
                     .font(.system(size: 21, weight: .bold))
@@ -36,14 +55,15 @@ struct DiagnosticsChoice: View {
                     "Neither of these ever includes a transcript, summary, question, answer, name, email or IP address. Both can be changed any time in Settings → Privacy."
                 )
                 .font(.system(size: 12.5))
-                .foregroundStyle(Theme.Palette.muted)
+                .foregroundStyle(secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             }
             SettingsCard {
                 SettingsRow(
                     icon: "nc-triangle-warning",
                     title: "Send crash reports",
-                    subtitle: "When Nod crashes or freezes, the stack trace, app version, macOS version and Mac model go to Sentry so it can be fixed."
+                    subtitle: "When Nod crashes or freezes, the stack trace, app version, macOS version and Mac model go to Sentry so it can be fixed.",
+                    subtitleTone: subtitleTone
                 ) {
                     Toggle("", isOn: $sendsCrashReports)
                         .labelsHidden()
@@ -54,7 +74,8 @@ struct DiagnosticsChoice: View {
                 SettingsRow(
                     icon: "nc-window-chart-line",
                     title: "Share usage events",
-                    subtitle: "Counts of which features get used and whether they worked, so we know what to fix. Never what you say or write. Kept in Nod's own database."
+                    subtitle: "Counts of which features get used and whether they worked, so we know what to fix. Never what you say or write. Kept in Nod's own database.",
+                    subtitleTone: subtitleTone
                 ) {
                     Toggle("", isOn: $sharesUsage)
                         .labelsHidden()
@@ -62,7 +83,7 @@ struct DiagnosticsChoice: View {
                         .accessibilityLabel("Share usage events")
                 }
             }
-            PolicyFooter(primary: TitledAction("Continue") { finish() })
+            PolicyFooter(primary: TitledAction("Continue") { finish() }, style: style)
         }
     }
 

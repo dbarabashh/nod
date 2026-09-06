@@ -120,7 +120,7 @@ struct OnboardingView: View {
                 }
             )
         case .diagnostics:
-            DiagnosticsChoice(analytics: analytics, consent: consent) { state.goNext() }
+            DiagnosticsChoice(analytics: analytics, consent: consent, style: .onboarding) { state.goNext() }
                 .frame(maxWidth: 520)
                 .padding(.horizontal, 40)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
