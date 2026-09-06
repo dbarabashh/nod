@@ -279,6 +279,9 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
 
     private var gateChanges: AnyCancellable?
     private var purges: AnyCancellable?
+    /// Counts a question that got no answer. Set by the composition root; the
+    /// unattended chats leave it nil, having nobody to show the failure to.
+    var analytics: ProductAnalytics?
 
     /// The user opened a session from an answer's sources. Attributed to the
     /// question that produced them, which is the last thing they asked.
@@ -889,6 +892,7 @@ extension KnowledgeChatStore {
             // The steps ride along: a tool that ran before the answer broke is
             // the difference between "nothing happened" and "the ticket exists".
             failure = ChatFailure(error, steps: turnSteps)
+            analytics?.record(.errorShown, properties: .init(reasonCode: .searchFailed, surface: .ask))
         }
     }
 

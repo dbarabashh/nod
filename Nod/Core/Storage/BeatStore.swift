@@ -25,6 +25,8 @@ final class BeatStore: ObservableObject {
     /// same reason `ActionProposalStore` does.
     private let supabase: SupabaseClient?
     private let auth: AuthService?
+    /// Counts what happens to beats. Set by the composition root.
+    var analytics: ProductAnalytics?
     private static let beatsTable = "beats"
     private static let runsTable = "beat_runs"
     /// How much history the list needs. A beat that ran every weekday for a
@@ -170,6 +172,7 @@ final class BeatStore: ObservableObject {
                 .execute()
                 .value
             beats.insert(saved, at: 0)
+            analytics?.record(.beatChanged, properties: .init(outcome: .created, detail: Self.detail(of: saved.cadence)))
             return saved
         } catch {
             Log.ui.error("BeatStore.create failed: \(error.localizedDescription)")
@@ -189,7 +192,14 @@ final class BeatStore: ObservableObject {
                 .single()
                 .execute()
                 .value
+            let wasEnabled = beats.first { $0.id == saved.id }?.enabled
             replace(saved)
+            if let wasEnabled, wasEnabled != saved.enabled {
+                analytics?.record(
+                    .beatChanged,
+                    properties: .init(outcome: saved.enabled ? .enabled : .disabled, detail: Self.detail(of: saved.cadence))
+                )
+            }
         } catch {
             Log.ui.error("BeatStore.update failed: \(error.localizedDescription)")
             lastError = error.localizedDescription
@@ -204,11 +214,22 @@ final class BeatStore: ObservableObject {
                 .delete()
                 .eq("id", value: beatID.uuidString)
                 .execute()
+            let cadence = beats.first { $0.id == beatID }?.cadence
             beats.removeAll { $0.id == beatID }
             runs.removeAll { $0.beatID == beatID }
+            analytics?.record(.beatChanged, properties: .init(outcome: .deleted, detail: cadence.map(Self.detail(of:))))
         } catch {
             Log.ui.error("BeatStore.delete failed: \(error.localizedDescription)")
             lastError = error.localizedDescription
+        }
+    }
+
+    nonisolated static func detail(of cadence: Beat.Cadence) -> ProductAnalytics.Detail {
+        switch cadence {
+        case .daily: .daily
+        case .weekdays: .weekdays
+        case .weekly: .weekly
+        case .monthly: .monthly
         }
     }
 

@@ -12,6 +12,7 @@ struct DelegateForm: View {
     let onCancel: () -> Void
 
     @EnvironmentObject private var integrations: IntegrationService
+    @EnvironmentObject private var analytics: ProductAnalytics
     @AppStorage(AmbientScopes.draftingKey) private var offersAmbientAdditions = false
 
     @State private var recipient = ""
@@ -182,6 +183,7 @@ struct DelegateForm: View {
             via: messenger
         )
         ActionDelegation.remember(record, for: item.id)
+        analytics.record(.actionItemActed, properties: .init(surface: .home, outcome: .delegated, provider: messenger.rawValue))
         onDone()
     }
 }

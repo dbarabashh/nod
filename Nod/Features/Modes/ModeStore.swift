@@ -6,6 +6,7 @@ import Foundation
 /// (Codable → `UserDefaults`), not synced anywhere. `MeetingSession` reads
 /// `selected` at generation time via `MeetingFraming`, so there's no global
 /// side channel to keep in sync.
+@MainActor
 final class ModeStore: ObservableObject {
     @Published var modes: [MeetingMode]
     @Published private(set) var selectedID: UUID
@@ -90,9 +91,26 @@ final class ModeStore: ObservableObject {
     }
 
     func select(_ id: UUID) {
-        guard modes.contains(where: { $0.id == id }) else { return }
+        guard let mode = modes.first(where: { $0.id == id }) else { return }
         selectedID = id
         writeSelection()
+        analytics?.record(.modeChanged, properties: .init(detail: Self.detail(of: mode)))
+    }
+
+    /// Counts a change of framing. Set by the composition root.
+    var analytics: ProductAnalytics?
+
+    /// A preset by its own name; anything a person made is `custom`, because
+    /// its name is theirs and not a number.
+    nonisolated static func detail(of mode: MeetingMode) -> ProductAnalytics.Detail {
+        switch mode.name {
+        case "General": .general
+        case "Interview": .interview
+        case "Sales call": .salesCall
+        case "1:1": .oneOnOne
+        case "Standup": .standup
+        default: .custom
+        }
     }
 
     /// Points a new user at the mode their role usually needs, so the first

@@ -8,6 +8,7 @@ import SwiftUI
 /// gesture.
 struct BeatDetailView: View {
     @EnvironmentObject private var beats: BeatStore
+    @EnvironmentObject private var analytics: ProductAnalytics
     @EnvironmentObject private var runner: BeatRunner
 
     let beat: Beat
@@ -46,7 +47,10 @@ struct BeatDetailView: View {
             guard let run = shown else { return }
             // Read here counts as read: Today's "New" badge and its attention
             // count were only ever cleared by opening the report from Today.
-            if run.status == .done { TodayBrief.markSeen(run, of: beat) }
+            if run.status == .done {
+                TodayBrief.markSeen(run, of: beat)
+                analytics.record(.beatReportOpened, properties: .init(surface: .beats, detail: BeatStore.detail(of: beat.cadence)))
+            }
             await beats.loadReport(for: run)
         }
     }
@@ -269,6 +273,7 @@ struct BeatDetailView: View {
             onEdit: {}
         )
         .environmentObject(BeatStore(supabase: nil, auth: nil))
+        .environmentObject(ProductAnalytics.preview)
         .frame(width: 900, height: 560)
         .background(Theme.Palette.bg)
     }

@@ -303,6 +303,7 @@ struct KnowledgeChatView: View {
                 // which by whether it responds to the pointer.
                 ChatSourcesRow(sources: message.sources) { source, rank in
                     chat.noteOpenedSource(meetingID: source.id, rank: rank, in: message.id)
+                    analytics.record(.answerSourceOpened, properties: .init(surface: .ask))
                     onOpenMeeting(source.id)
                 }
             }
@@ -487,9 +488,19 @@ struct KnowledgeChatView: View {
 
     private func ask(_ question: QueuedQuestion) {
         let baseline = chat.messages.count
+        let aim: ProductAnalytics.Detail = if !question.pinned.isEmpty {
+            .pinned
+        } else if !question.scope.isEmpty {
+            .project
+        } else if chat.threadID != nil {
+            .followUp
+        } else {
+            .open
+        }
+        analytics.record(.questionAsked, properties: .init(entryPoint: .ask, surface: .ask, detail: aim))
         Task {
             await chat.ask(question.text, pinned: question.pinned, scope: question.scope)
-            if chat.answer(after: baseline) != nil {
+            if let answer = chat.answer(after: baseline) {
                 analytics.record(
                     .aiActionCompleted,
                     properties: .init(
@@ -497,7 +508,10 @@ struct KnowledgeChatView: View {
                         surface: .ask,
                         contentType: .answer,
                         aiFeature: .knowledgeAsk,
-                        outcome: .success
+                        // Answered from nothing is its own number: a reply
+                        // with no session behind it is the retrieval failing,
+                        // however fluent the words.
+                        outcome: answer.sources.isEmpty ? .empty : .success
                     )
                 )
             }

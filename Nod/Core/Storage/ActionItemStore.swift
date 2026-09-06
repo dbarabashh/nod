@@ -23,6 +23,9 @@ final class ActionItemStore: ObservableObject {
     private var didLoad = false
     private var loading: Task<Void, Never>?
     private let mirrorCompletion: ((ProviderLinkItem, Bool) async -> Void)?
+    /// Counts each move a loop makes. Set by the composition root; nil in
+    /// tests and previews.
+    var analytics: ProductAnalytics?
 
     /// `mirrorCompletion` carries a tick on a filed task out to the product it
     /// was filed in. Injected rather than reached for: this store must not know
@@ -523,6 +526,8 @@ final class ActionItemStore: ObservableObject {
             return
         }
 
+        analytics?.record(.actionItemActed, properties: .init(outcome: Self.moveOutcome(to: state, by: actor)))
+
         // Only when the tick itself changed, and never when the tracker is the
         // one that told us: telling it what it just said is a wasted call, and
         // on a reconnect it would be a whole list of them.
@@ -544,6 +549,17 @@ final class ActionItemStore: ObservableObject {
             resolver: resolver
         )
         await record(transition)
+    }
+
+    /// What a move counts as: a person ticking or unticking, or a rule
+    /// closing on evidence. A rule reopening is counted as a reopen too.
+    nonisolated static func moveOutcome(to state: ActionItem.LoopState, by actor: ActionItemTransition.Actor) -> ProductAnalytics.Outcome {
+        switch (actor, state) {
+        case (.user, .confirmed): .done
+        case (.user, _): .reopened
+        case (_, .open), (_, .inProgress): .reopened
+        case (_, _): .autoClosed
+        }
     }
 
     private func persistLoopState(_ state: ActionItem.LoopState, itemID: UUID) async throws {
@@ -616,6 +632,7 @@ final class ActionItemStore: ObservableObject {
         let previous = items[index]
         let filedAt = Date()
         items[index] = previous.filed(in: reference, at: filedAt)
+        analytics?.record(.actionItemActed, properties: .init(outcome: .filed, provider: reference.provider.rawValue))
 
         let body = FilingBody(
             external_provider: reference.provider.rawValue,

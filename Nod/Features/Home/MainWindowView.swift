@@ -17,6 +17,7 @@ struct MainWindowView: View {
     let settings: AnyView
 
     @EnvironmentObject private var meetingStore: MeetingStore
+    @EnvironmentObject private var analytics: ProductAnalytics
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var chatStore: ChatStore
@@ -354,6 +355,9 @@ struct MainWindowView: View {
     /// A question typed on Today lands in the chat mid-flight: the composer
     /// there is the real one, this only saves retyping the thought.
     private func askFromToday(_ request: ActionDelegation.AskRequest) {
+        if request.session != nil {
+            analytics.record(.actionItemActed, properties: .init(surface: .home, outcome: .asked))
+        }
         // A fresh thread: a question raised from Today is its own subject,
         // not a continuation of whatever chat happened to be open last.
         knowledgeChat.startNewThread()

@@ -161,6 +161,7 @@ struct TodayMeetingRow: Identifiable, Equatable {
 struct TodayBeatsCard: View {
     let reports: [TodayView.BeatReportRow]
     let onOpenReport: (TodayView.BeatReportRow) -> Void
+    @EnvironmentObject private var analytics: ProductAnalytics
 
     var body: some View {
         TodayCardList(title: "From your beats", items: reports, row: beatRow)
@@ -169,6 +170,7 @@ struct TodayBeatsCard: View {
     private func beatRow(_ row: TodayView.BeatReportRow) -> some View {
         Button {
             TodayBrief.markSeen(row.run, of: row.beat)
+            analytics.record(.beatReportOpened, properties: .init(surface: .home, detail: BeatStore.detail(of: row.beat.cadence)))
             onOpenReport(row)
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
