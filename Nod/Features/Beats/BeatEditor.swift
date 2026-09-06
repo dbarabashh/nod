@@ -1,3 +1,4 @@
+import Supabase
 import SwiftUI
 
 /// Writing a beat: a sentence and a time. No conditions, no steps, no target —
@@ -29,6 +30,9 @@ struct BeatEditor: View {
     let mode: Mode
 
     @EnvironmentObject private var beats: BeatStore
+    @EnvironmentObject private var integrations: IntegrationService
+    @EnvironmentObject private var entitlements: EntitlementService
+    @EnvironmentObject private var settingsFocus: SettingsFocus
     @Environment(\.dismiss) private var dismiss
 
     @State private var title: String
@@ -39,6 +43,9 @@ struct BeatEditor: View {
     @State private var weekday: Int
     @State private var dayOfMonth: Int
     @State private var enabled: Bool
+    /// Nil is "every connected product", which is what a beat reads unless
+    /// the person narrows it here.
+    @State private var providers: Set<IntegrationProvider>?
     @State private var isDeleting = false
     @FocusState private var titleFocused: Bool
     @FocusState private var promptFocused: Bool
@@ -54,6 +61,7 @@ struct BeatEditor: View {
         _weekday = State(initialValue: beat?.weekday ?? 1)
         _dayOfMonth = State(initialValue: beat?.dayOfMonth ?? 1)
         _enabled = State(initialValue: beat?.enabled ?? true)
+        _providers = State(initialValue: beat?.providers.map(Set.init))
     }
 
     private var isAsked: Bool {
@@ -167,6 +175,7 @@ struct BeatEditor: View {
                 .foregroundStyle(Theme.Palette.ink.opacity(0.6))
                 .fixedSize(horizontal: false, vertical: true)
             promptField
+            reads
             if let error = beats.lastError {
                 Text(error)
                     .font(.system(size: 11.5))
@@ -246,6 +255,7 @@ struct BeatEditor: View {
                 existing.weekday = weekday
                 existing.dayOfMonth = dayOfMonth
                 existing.enabled = enabled
+                existing.providers = providers.map { Array($0).sorted { $0.rawValue < $1.rawValue } }
                 await beats.update(existing)
             } else {
                 await beats.create(
@@ -255,11 +265,126 @@ struct BeatEditor: View {
                     hour: hour,
                     minute: minute,
                     weekday: weekday,
-                    dayOfMonth: dayOfMonth
+                    dayOfMonth: dayOfMonth,
+                    providers: providers.map { Array($0).sorted { $0.rawValue < $1.rawValue } }
                 )
             }
             dismiss()
         }
+    }
+
+    /// Whether the plan lets this account connect anything at all. Read from
+    /// the entitlement the same way Settings → Integrations decides what to
+    /// offer, so the two never disagree about a plan.
+    private var planAllowsIntegrations: Bool {
+        guard let entitlement = entitlements.entitlement else { return true }
+        return entitlement.can(.integrationsCore) || entitlement.can(.integrationsAll)
+    }
+
+    /// Which connected products the beat may read. Every one is on until the
+    /// person switches one off; a product connected later joins a beat that
+    /// was never narrowed, and stays out of one that was. The last chip goes
+    /// to Settings → Integrations, because the way to give a beat another
+    /// product is to connect it, and that has to be findable from here.
+    private var reads: some View {
+        let linked = integrations.usable
+        return VStack(alignment: .leading, spacing: 6) {
+            SectionLabel("Reads", size: .compact)
+            if !planAllowsIntegrations {
+                HStack(spacing: 8) {
+                    Text("Connected products are not included in your plan. This beat reads your sessions, screen record and calendar.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.Palette.ink.opacity(0.6))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button("See plans") { leave(for: .subscription) }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Theme.Palette.violet)
+                        .linkCursor()
+                }
+            } else if linked.isEmpty {
+                HStack(spacing: 8) {
+                    Text("Nothing connected yet. Connect a product and this beat can read it.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.Palette.ink.opacity(0.6))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button("Connect a product") { leave(for: .integrations) }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Theme.Palette.violet)
+                        .linkCursor()
+                }
+            } else {
+                WrapRow(spacing: 6) {
+                    ForEach(linked, id: \.self) { product in
+                        let isOn = providers?.contains(product) ?? true
+                        Button {
+                            // Judged against the chips on screen: a slug for
+                            // a product since disconnected must not keep the
+                            // beat narrowed once every visible chip is on.
+                            var chosen = (providers ?? Set(linked)).intersection(linked)
+                            if isOn { chosen.remove(product) } else { chosen.insert(product) }
+                            providers = chosen == Set(linked) ? nil : chosen
+                        } label: {
+                            HStack(spacing: 5) {
+                                ProviderMark(provider: product, size: 12)
+                                Text(product.displayName)
+                                    .font(.system(size: 11.5, weight: .medium))
+                                    .lineLimit(1)
+                            }
+                            .fixedSize()
+                            .foregroundStyle(isOn ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.45))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                                    .fill(isOn ? Theme.Palette.surfaceStrong : Theme.Palette.surface)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                                            .stroke(isOn ? Theme.Palette.borderStrong : Theme.Palette.border, lineWidth: 0.5)
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .linkCursor()
+                        .help(isOn ? "This beat may read \(product.displayName)" : "This beat will not read \(product.displayName)")
+                    }
+                    Button { leave(for: .integrations) } label: {
+                        HStack(spacing: 4) {
+                            Image("nc-plus").icon(9)
+                            Text("Connect more")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .lineLimit(1)
+                        }
+                        .fixedSize()
+                        .foregroundStyle(Theme.Palette.violet)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                                .stroke(Theme.Palette.border, style: StrokeStyle(lineWidth: 0.5, dash: [3, 2]))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .linkCursor()
+                    .help("Opens Settings → Integrations. Anything you connect there appears here.")
+                }
+                Text("Anything you connect later appears here. A beat that was never narrowed reads it too.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// The sheet cannot show Settings behind itself, so the way there is to
+    /// close and land on the pane; what was typed is lost, which is why this
+    /// is offered before the question rather than after a long one.
+    private func leave(for pane: SettingsFocus.Pane) {
+        dismiss()
+        settingsFocus.open(pane)
     }
 
     private func delete() {
@@ -276,5 +401,10 @@ struct BeatEditor: View {
     #Preview("New beat") {
         BeatEditor(mode: .create)
             .environmentObject(BeatStore(supabase: nil, auth: nil))
+            .environmentObject(IntegrationService(supabase: nil))
+            .environmentObject(
+                EntitlementService(supabase: SupabaseClient(supabaseURL: SupabaseConfig.url, supabaseKey: SupabaseConfig.anonKey))
+            )
+            .environmentObject(SettingsFocus())
     }
 #endif

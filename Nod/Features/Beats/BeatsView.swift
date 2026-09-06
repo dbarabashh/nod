@@ -1,3 +1,4 @@
+import Supabase
 import SwiftUI
 
 /// The Beats surface: the questions that ask themselves, and what each one
@@ -10,6 +11,8 @@ import SwiftUI
 struct BeatsView: View {
     @EnvironmentObject private var beats: BeatStore
     @EnvironmentObject private var integrations: IntegrationService
+    @EnvironmentObject private var settingsFocus: SettingsFocus
+    @EnvironmentObject private var entitlements: EntitlementService
 
     /// Opens the thread a run wrote, in the chat surface.
     let onOpenThread: (UUID) -> Void
@@ -57,11 +60,21 @@ struct BeatsView: View {
                 if !beats.beats.isEmpty {
                     section("Yours") {
                         ForEach(beats.beats) { beat in
+                            let template = BeatTemplates.template(of: beat)
+                            // A required product the person narrowed away is
+                            // not missing; the beat was told not to read it.
+                            let required = template?.requires.flatMap { product in
+                                beat.providers.map { $0.contains(product) } ?? true ? product : nil
+                            }
                             BeatCard(
                                 title: beat.displayTitle,
                                 summary: BeatsView.preview(of: beat, in: beats),
                                 schedule: BeatSchedule.describe(beat),
                                 note: BeatSchedule.lastRun(beats.latestRun(of: beat.id)),
+                                products: beat.providers ?? template?.products ?? [],
+                                linked: integrations.linked,
+                                required: required,
+                                planLacks: required.map(planLacks) ?? false,
                                 isPaused: !beat.enabled,
                                 // The card itself is the way in — a beat exists
                                 // to be read, so reading it cannot be a small
@@ -69,7 +82,9 @@ struct BeatsView: View {
                                 onOpen: { opened = beat },
                                 onEdit: { editor = .edit(beat) },
                                 onDelete: { Task { await beats.delete(beat.id) } },
-                                setUp: nil
+                                setUp: nil,
+                                connect: { settingsFocus.open(.integrations) },
+                                upgrade: { settingsFocus.open(.subscription) }
                             )
                         }
                     }
@@ -106,28 +121,26 @@ struct BeatsView: View {
             SectionLabel(beats.beats.isEmpty ? "Start with one of these" : "Library")
             categoryTabs
             LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
-                ForEach(BeatTemplates.inCategory(category, linked: integrations.linked)) { template in
+                ForEach(BeatTemplates.inCategory(category)) { template in
+                    let missing = template.requires.map { !integrations.usable.contains($0) } ?? false
                     BeatCard(
                         title: template.title,
                         summary: template.summary,
                         schedule: BeatSchedule.describe(template),
-                        note: template.requires?.displayName,
+                        note: nil,
+                        products: template.products,
+                        linked: integrations.linked,
+                        required: template.requires,
+                        planLacks: template.requires.map(planLacks) ?? false,
                         isPaused: false,
                         onOpen: nil,
                         onEdit: nil,
                         onDelete: nil,
-                        setUp: { Task { await create(template) } }
+                        setUp: missing ? nil : { Task { await create(template) } },
+                        connect: { settingsFocus.open(.integrations) },
+                        upgrade: { settingsFocus.open(.subscription) }
                     )
                 }
-            }
-            if BeatTemplates.inCategory(category, linked: integrations.linked).isEmpty {
-                // Every beat in this category reads a product that isn't
-                // connected. Saying so beats an empty grid — and beats offering
-                // a beat that would come back with nothing.
-                Text("These read from a product you haven't connected yet. Settings → Integrations.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.Palette.ink.opacity(0.6))
-                    .padding(.vertical, 8)
             }
         }
     }
@@ -169,6 +182,14 @@ struct BeatsView: View {
         }
     }
 
+    /// The plan does not reach this product, so connecting it is not the next
+    /// step — a plan is. Unknown entitlement is treated as allowed, the same
+    /// way Settings → Integrations does; the server is the gate that matters.
+    private func planLacks(_ product: IntegrationProvider) -> Bool {
+        guard let entitlement = entitlements.entitlement else { return false }
+        return !entitlement.can(product.requiredFeature)
+    }
+
     private func create(_ template: BeatTemplates.Template) async {
         await beats.create(
             title: template.title,
@@ -194,13 +215,31 @@ private struct BeatCard: View {
     let schedule: String
     /// What became of the last run, when there was one.
     let note: String?
+    /// The products this beat reads, required one first, shown as marks.
+    /// Empty when the beat answers from Nod's own record alone.
+    let products: [IntegrationProvider]
+    let linked: Set<IntegrationProvider>
+    /// The product the beat cannot answer without, when it has one.
+    let required: IntegrationProvider?
+    /// `required` is outside the plan, so connecting is not on offer.
+    let planLacks: Bool
+
+    private var missing: Bool {
+        required.map { !linked.contains($0) } ?? false
+    }
+
     let isPaused: Bool
     /// Nil for a template — there is nothing to read yet.
     let onOpen: (() -> Void)?
     let onEdit: (() -> Void)?
     let onDelete: (() -> Void)?
-    /// Nil for a beat that already exists.
+    /// Nil for a beat that already exists, and for a template whose product
+    /// is not connected — the way in is `connect`.
     let setUp: (() -> Void)?
+    /// Opens Settings → Integrations, for a card whose product is missing.
+    let connect: () -> Void
+    /// Opens Settings → Subscription, for a card whose product the plan lacks.
+    let upgrade: () -> Void
 
     @State private var isHovering = false
 
@@ -250,9 +289,22 @@ private struct BeatCard: View {
             Divider().overlay(Theme.Palette.border)
 
             HStack(spacing: 6) {
-                Image("nc-stopwatch")
-                    .icon(10)
-                    .foregroundStyle(Theme.Palette.ink.opacity(0.5))
+                if products.isEmpty {
+                    Image("nc-stopwatch")
+                        .icon(10)
+                        .foregroundStyle(Theme.Palette.ink.opacity(0.5))
+                } else {
+                    HStack(spacing: 3) {
+                        ForEach(products, id: \.self) { product in
+                            let isLinked = linked.contains(product)
+                            ProviderMark(provider: product, size: 12)
+                                .opacity(isLinked ? 1 : 0.4)
+                                .help(isLinked
+                                    ? "Reads \(product.displayName)"
+                                    : "Reads \(product.displayName) once it is connected")
+                        }
+                    }
+                }
                 // Both, not one or the other: a card that swapped its schedule
                 // for "last ran an hour ago" stopped answering the question the
                 // row exists to answer — when does this happen next.
@@ -262,7 +314,25 @@ private struct BeatCard: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
-                if let setUp {
+                if missing, planLacks, let reads = required {
+                    Button(action: upgrade) {
+                        Text("Not in your plan")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(Theme.Palette.ink.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                    .linkCursor()
+                    .help("\(reads.displayName) is not included in your plan. Opens Subscription.")
+                } else if missing, let reads = required {
+                    Button(action: connect) {
+                        Text("Connect \(reads.displayName)")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(Theme.Palette.brand)
+                    }
+                    .buttonStyle(.plain)
+                    .linkCursor()
+                    .help("This beat can only run once \(reads.displayName) is connected")
+                } else if let setUp {
                     Button(action: setUp) {
                         HStack(spacing: 4) {
                             Image("nc-plus").icon(9)
@@ -308,6 +378,11 @@ private struct BeatCard: View {
     #Preview("Beats") {
         BeatsView(onOpenThread: { _ in })
             .environmentObject(BeatStore(supabase: nil, auth: nil))
+            .environmentObject(IntegrationService(supabase: nil))
+            .environmentObject(SettingsFocus())
+            .environmentObject(
+                EntitlementService(supabase: SupabaseClient(supabaseURL: SupabaseConfig.url, supabaseKey: SupabaseConfig.anonKey))
+            )
             .frame(width: 900, height: 620)
             .background(Theme.Palette.bg)
     }

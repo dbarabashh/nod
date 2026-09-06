@@ -11,8 +11,8 @@ import Foundation
 ///
 /// **Nothing here can lie about what Nod holds.** No beat needs the open web,
 /// nothing sends anything anywhere, and a beat that needs a connected product
-/// says which one and stays hidden until it is linked — an empty report is a
-/// worse answer than an absent card.
+/// says which one on its card and cannot be set up until it is linked — an
+/// empty report is a worse answer than a card that says what to connect.
 enum BeatTemplates {
     enum Category: String, CaseIterable, Identifiable {
         case day = "Your day"
@@ -49,17 +49,25 @@ enum BeatTemplates {
         /// The product this beat reads. Nil when it answers from Nod's own
         /// record — sessions, the screen record, the calendar.
         var requires: IntegrationProvider?
-    }
+        /// Read when connected, done without when not.
+        var uses: [IntegrationProvider] = []
 
-    static func all(linked: Set<IntegrationProvider>) -> [Template] {
-        every.filter { template in
-            guard let provider = template.requires else { return true }
-            return linked.contains(provider)
+        var products: [IntegrationProvider] {
+            ([requires].compactMap { $0 } + uses).reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
         }
     }
 
-    static func inCategory(_ category: Category, linked: Set<IntegrationProvider>) -> [Template] {
-        all(linked: linked).filter { $0.category == category }
+    /// Every template in the category, the ones whose product is not linked
+    /// included: those are the reason to connect it, and hiding them made the
+    /// library shrink without saying why.
+    static func inCategory(_ category: Category) -> [Template] {
+        every.filter { $0.category == category }
+    }
+
+    /// The template a saved beat was set up from, when its question is still
+    /// the template's.
+    static func template(of beat: Beat) -> Template? {
+        every.first { $0.prompt == beat.prompt }
     }
 
     static let every: [Template] = [
@@ -74,7 +82,8 @@ enum BeatTemplates {
             category: .day,
             cadence: .weekdays,
             hour: 9,
-            minute: 0
+            minute: 0,
+            uses: [.googleCalendar]
         ),
         Template(
             title: "What did I get done today?",
@@ -86,7 +95,8 @@ enum BeatTemplates {
             category: .day,
             cadence: .weekdays,
             hour: 18,
-            minute: 0
+            minute: 0,
+            uses: [.linear, .github]
         ),
         Template(
             title: "What did I leave open yesterday?",
@@ -107,7 +117,8 @@ enum BeatTemplates {
             category: .day,
             cadence: .weekdays,
             hour: 17,
-            minute: 30
+            minute: 30,
+            uses: [.googleCalendar]
         ),
 
         Template(
@@ -120,7 +131,8 @@ enum BeatTemplates {
             category: .people,
             cadence: .weekdays,
             hour: 9,
-            minute: 15
+            minute: 15,
+            uses: [.gmail, .slack]
         ),
         Template(
             title: "What did I promise out loud?",
@@ -159,7 +171,8 @@ enum BeatTemplates {
             cadence: .weekly,
             hour: 16,
             minute: 0,
-            weekday: 5
+            weekday: 5,
+            uses: [.gmail, .slack]
         ),
 
         Template(
@@ -255,7 +268,8 @@ enum BeatTemplates {
             hour: 17,
             minute: 30,
             weekday: 5,
-            requires: .github
+            requires: .github,
+            uses: [.linear]
         ),
 
         Template(
@@ -309,7 +323,8 @@ enum BeatTemplates {
             cadence: .weekly,
             hour: 17,
             minute: 0,
-            weekday: 5
+            weekday: 5,
+            uses: [.googleCalendar, .linear]
         ),
         Template(
             title: "Where did the week actually go?",
@@ -335,7 +350,8 @@ enum BeatTemplates {
             cadence: .weekly,
             hour: 16,
             minute: 0,
-            weekday: 5
+            weekday: 5,
+            uses: [.googleCalendar]
         ),
         Template(
             title: "What changed this month?",
