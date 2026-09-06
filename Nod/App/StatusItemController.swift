@@ -197,6 +197,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
 
             if signedIn {
+                let history = NSMenuItem(
+                    title: "Open Nod…",
+                    action: #selector(showHistoryAction),
+                    // No keyEquivalent — `"h"` defaults to ⌘H which the
+                    // system reserves for "Hide Application".
+                    keyEquivalent: ""
+                )
+                history.target = self
+                menu.addItem(history)
+
                 let toggle = NSMenuItem(
                     title: "Open Capture",
                     action: #selector(toggleFloatingPanel),
@@ -209,16 +219,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                     toggle.keyEquivalentModifierMask = mask
                 }
                 menu.addItem(toggle)
-
-                let history = NSMenuItem(
-                    title: "Open Nod…",
-                    action: #selector(showHistoryAction),
-                    // No keyEquivalent — `"h"` defaults to ⌘H which the
-                    // system reserves for "Hide Application".
-                    keyEquivalent: ""
-                )
-                history.target = self
-                menu.addItem(history)
 
                 let settings = NSMenuItem(
                     title: "Settings…",
