@@ -65,6 +65,19 @@ struct TodayCommitmentsCard: View {
         ActionIntent.available(usable: integrations.isUsable)
     }
 
+    /// What the grouping is a function of, as one value: `onChange` hands the
+    /// new value to its closure, and the closure must use that rather than
+    /// read `openItems` off `self` — the closure SwiftUI runs can belong to
+    /// the previous body, whose `self` still holds the list before the tick.
+    private struct GroupingInput: Equatable {
+        let items: [ActionItem]
+        let digest: MeetingStore.DigestKey
+    }
+
+    private var groupingInput: GroupingInput {
+        GroupingInput(items: openItems, digest: meetingStore.digestKey)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if showAll {
@@ -87,8 +100,7 @@ struct TodayCommitmentsCard: View {
                 revealButton
             }
         }
-        .onChange(of: openItems) { _ in regroup() }
-        .onChange(of: meetingStore.digestKey) { _ in regroup() }
+        .onChange(of: groupingInput) { input in regroup(input.items) }
     }
 
     private var revealButton: some View {
@@ -96,7 +108,7 @@ struct TodayCommitmentsCard: View {
             withAnimation(.standard(reduceMotion: reduceMotion)) {
                 showAll.toggle()
                 collapsedGroupIDs = []
-                regroup()
+                regroup(openItems)
                 collapse()
             }
         } label: {
@@ -109,12 +121,12 @@ struct TodayCommitmentsCard: View {
         .padding(.leading, 2)
     }
 
-    private func regroup() {
+    private func regroup(_ items: [ActionItem]) {
         guard showAll else {
             groups = []
             return
         }
-        groups = ActionGrouping.bySession(openItems, meetings: meetingStore.byID)
+        groups = ActionGrouping.bySession(items, meetings: meetingStore.byID)
     }
 
     private func groupCard(_ group: ActionGroup) -> some View {
