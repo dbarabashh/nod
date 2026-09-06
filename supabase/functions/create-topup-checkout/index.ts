@@ -1,7 +1,8 @@
 // Top-up checkout — an explicit, non-recurring purchase of extra meeting hours
-// for the CURRENT billing period. Which pack, and how many hours it grants, is
-// the catalogue's business: this function only decides that the sku is one we
-// sell.
+// or integration credits for the CURRENT billing period. Which pack, what it
+// grants, and whether the person or their workspace is buying, is the
+// catalogue's and the intent's business: this function only decides that the
+// sku is one we sell.
 //
 // The order matters and is the whole point of this function:
 //   1. Supabase mints an intent that pins the period, the included allowance and
@@ -15,7 +16,8 @@
 // Deployed per-branch via git: develop (sandbox) and main (live) each from theirs.
 
 import { adminClient, authenticate } from "../_shared/supabase.ts";
-import { json } from "../_shared/http.ts";
+import { isObject, json } from "../_shared/http.ts";
+import { eventPlan } from "../_shared/product-events.ts";
 import { PADDLE_API_BASE, PADDLE_HEADERS } from "../_shared/paddle.ts";
 
 const PADDLE_API_KEY = Deno.env.get("PADDLE_API_KEY");
@@ -25,6 +27,9 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 interface TopupCheckoutRequest {
     sku: string;
+    /// Where the person pressed the button. Older clients send nothing and
+    /// only ever bought from the allowance gate in the notch.
+    surface?: string;
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -67,11 +72,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const priceId = typeof intent.paddle_price_id === "string" ? intent.paddle_price_id : "";
     if (!intentId || !priceId) return json({ error: "topup_unavailable" }, 503);
 
-    const { data: subscription } = await admin
-        .from("subscriptions")
-        .select("paddle_customer_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
+    // A workspace pack is paid by the workspace's Paddle customer, so it lands
+    // on the same invoices as its seats; a personal one by the person's own.
+    const orgId = typeof intent.org_id === "string" ? intent.org_id : null;
+    const { data: subscription } = orgId
+        ? await admin.from("org_subscriptions").select("paddle_customer_id").eq("org_id", orgId).maybeSingle()
+        : await admin.from("subscriptions").select("paddle_customer_id").eq("user_id", user.id).maybeSingle();
     let customerId = typeof subscription?.paddle_customer_id === "string"
         ? subscription.paddle_customer_id
         : undefined;
@@ -90,6 +96,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
             purchase_type: "starter_topup",
             sku: body.sku,
             topup_intent_id: intentId,
+            // Marks the transaction as the workspace's for the webhook, which
+            // then books no personal conversion against the buyer.
+            ...(orgId ? { org_id: orgId } : {}),
         },
         collection_mode: "automatic",
     };
@@ -138,13 +147,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "topup_checkout_unavailable" }, 502);
     }
 
+    const fromSettings = body.surface === "settings";
     const { error: telemetryError } = await admin.rpc("record_server_product_event", {
         p_user_id: user.id,
         p_event: "topup_checkout_started",
         p_properties: {
-            surface: "capture",
-            entry_point: "notch",
-            plan: "starter",
+            surface: fromSettings ? "settings" : "capture",
+            entry_point: fromSettings ? "settings" : "notch",
+            plan: eventPlan(intent.plan),
             billing: "one_time",
             outcome: "success",
         },
@@ -173,8 +183,4 @@ async function findOrCreateCustomer(email: string): Promise<string | undefined> 
         return typeof id === "string" ? id : undefined;
     }
     return undefined;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

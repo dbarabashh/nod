@@ -39,6 +39,40 @@ enum PaywallFormat {
         guard let amount = currency(price) else { return "—" }
         return "\(amount)/mo per seat"
     }
+
+    /// A whole number with its thousands separator: seats, credits, hours.
+    static func count(_ value: Double) -> String {
+        countFormatter.string(from: NSNumber(value: value)) ?? String(Int(value))
+    }
+
+    /// `Aug 12` — a date inside the period at hand.
+    static func day(_ date: Date) -> String {
+        dayFormatter.string(from: date)
+    }
+
+    /// `Aug 12, 2027` — a date that may be a year away.
+    static func fullDay(_ date: Date) -> String {
+        fullDayFormatter.string(from: date)
+    }
+
+    private static let countFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 0
+        return formatter
+    }()
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
+    private static let fullDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter
+    }()
 }
 
 /// The in-app subscription surface, in the order somebody actually asks about
@@ -53,6 +87,10 @@ enum PaywallFormat {
 struct PaywallView: View {
     @ObservedObject var billing: BillingService
     @ObservedObject var entitlements: EntitlementService
+    /// Absent in previews and for someone in no organization. Decides only
+    /// whether the credits card offers a workspace pack — buying for the
+    /// workspace is an owner's or admin's act, and the server refuses the rest.
+    var organizations: OrganizationService?
     @EnvironmentObject private var analytics: ProductAnalytics
 
     @State private var cycle = "yearly"
@@ -106,6 +144,7 @@ struct PaywallView: View {
             }
             section("This period") {
                 SubscriptionPeriodTiles(billing: billing, entitlements: entitlements)
+                EntitlementCreditsCard(entitlements: entitlements, billing: billing, organizations: organizations)
             }
             comparison
             if let error = billing.lastError {

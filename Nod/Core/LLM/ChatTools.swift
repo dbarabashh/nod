@@ -456,10 +456,20 @@ enum ChatTools {
         ChatTool(
             provider: .jira,
             name: "jira_search_issues",
-            description: "Search the user's Jira issues by keyword. Use before claiming a task does or doesn't exist.",
+            description: "Search the user's Jira issues by keyword. Returns titles and states only — call jira_read_issue for the description and comments of the one that matters. Use before claiming a task does or doesn't exist.",
             parameters: ChatToolSchema(
                 properties: ["query": .init(description: "Keywords to search for.")],
                 required: ["query"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .jira,
+            name: "jira_read_issue",
+            description: "Read one Jira issue in full: description, status, assignee, priority, labels and its last comments. Use when a specific issue is named or was found by search and the user wants what it says.",
+            parameters: ChatToolSchema(
+                properties: ["key": .init(description: "The issue key, e.g. NOD-138.")],
+                required: ["key"]
             ),
             mutating: false
         ),
@@ -636,10 +646,20 @@ enum ChatTools {
         ChatTool(
             provider: .linear,
             name: "linear_search_issues",
-            description: "Search the user's Linear issues by keyword. Use before claiming a task does or doesn't exist.",
+            description: "Search the user's Linear issues by keyword. Returns titles and states only — call linear_read_issue for the description and comments of the one that matters. Use before claiming a task does or doesn't exist.",
             parameters: ChatToolSchema(
                 properties: ["query": .init(description: "Keywords to search for.")],
                 required: ["query"]
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .linear,
+            name: "linear_read_issue",
+            description: "Read one Linear issue in full: description, state, assignee, priority, labels and its last comments. Use when a specific issue is named or was found by search and the user wants what it says.",
+            parameters: ChatToolSchema(
+                properties: ["key": .init(description: "The issue identifier, e.g. NOD-138.")],
+                required: ["key"]
             ),
             mutating: false
         ),

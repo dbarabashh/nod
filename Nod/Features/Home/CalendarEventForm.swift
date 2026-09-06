@@ -228,7 +228,8 @@ struct CalendarEventForm: View {
                 "starts_at": PromptLibrary.rfc3339String(day),
                 "ends_at": PromptLibrary.rfc3339String(day.addingTimeInterval(24 * 3600))
             ]),
-            tool: ActionDelegation.tool(action: "check_availability", of: .googleCalendar)
+            tool: ActionDelegation.tool(action: "check_availability", of: .googleCalendar),
+            origin: .app
         )
         guard !Task.isCancelled else { return }
         // A failed check is not an empty one: nothing shown reads as "all
@@ -251,7 +252,8 @@ struct CalendarEventForm: View {
         )
         let result = await integrations.run(
             ActionDelegation.call(action: "create_event", of: .googleCalendar, arguments: arguments),
-            tool: ActionDelegation.tool(action: "create_event", of: .googleCalendar)
+            tool: ActionDelegation.tool(action: "create_event", of: .googleCalendar),
+            origin: .app
         )
         isSending = false
         if let failure = IntegrationService.failure(in: result) {

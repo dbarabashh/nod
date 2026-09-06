@@ -394,7 +394,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var subscriptionPane: some View {
         if let billing, let entitlements {
-            PaywallView(billing: billing, entitlements: entitlements)
+            PaywallView(billing: billing, entitlements: entitlements, organizations: organizations)
         } else {
             Text("Sign in to manage your subscription.")
                 .font(.system(size: 12.5))
@@ -485,7 +485,8 @@ struct SettingsView: View {
                 service: integrations,
                 catalogue: integrationCatalogue,
                 organizations: organizations,
-                entitlements: entitlements
+                entitlements: entitlements,
+                billing: billing
             )
         } else {
             Text("Sign in to connect Nod to your tools.")

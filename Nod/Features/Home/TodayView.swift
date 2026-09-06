@@ -361,7 +361,8 @@ struct TodayView: View {
     private func fileTask(_ occurrence: CalendarOccurrence) async {
         let result = await integrations.run(
             ActionDelegation.call(action: "create_task", of: .googleTasks, arguments: TodayBrief.taskArguments(for: occurrence)),
-            tool: ActionDelegation.tool(action: "create_task", of: .googleTasks)
+            tool: ActionDelegation.tool(action: "create_task", of: .googleTasks),
+            origin: .app
         )
         if let failure = IntegrationService.failure(in: result) {
             taskError = failure

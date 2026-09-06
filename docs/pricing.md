@@ -1,6 +1,6 @@
 # Nod — Pricing
 
-_Last updated: 2026-08-15_
+_Last updated: 2026-09-06_
 
 The spec the pricing surfaces are built from. Three of them have to agree, and
 each has its own copy: `plans` / `plan_prices` in Supabase (the only enforced
@@ -31,9 +31,12 @@ Prices are **tax-inclusive**: the figure above is what the customer is charged,
 and Paddle remits VAT/GST out of it. `terms.md` § 7 says so; it used to say the
 opposite.
 
-There is no overage and no usage credits. Both were built once and deleted
-(`df98ba8 remove overage feature`); the landing advertised `$0.60 / hr` for
-weeks after the code stopped being able to charge it.
+There is no automatic overage: nothing is ever charged without a checkout.
+Per-hour overage was built once and deleted (`df98ba8 remove overage feature`);
+the landing advertised `$0.60 / hr` for weeks after the code stopped being able
+to charge it. What does exist is explicit, one-time **packs** bought for the
+current period (hours; and, on the `integrations` branch, integration
+credits — see "Built on `integrations`, sandbox only").
 
 ## Cutover status — live since 2026-08-12
 
@@ -220,6 +223,54 @@ the cap makes a promise true rather than breaking one.
   not in this repo. One subscriber is on a manually granted 80% discount.
 - **No overage, ever.** Fixed subscription. `terms.md` § 7 promises we do not
   meter, do not bill overage, and do not cut off mid-meeting.
+
+## Built on `integrations`, sandbox only — NOD-138
+
+Everything in this section is applied to the sandbox branch
+(`zdpvmwqauczsfwlgflas`) and dark on prod. It is the proposal in NOD-138 made
+real so it can be measured before it is approved; the prod catalogue above is
+untouched. Source: `supabase/migrations/20260905203754` … `20260906130516`.
+
+| | **Trial** | **Starter** | **Pro** | **Teams** (per seat, min 3) |
+|---|---|---|---|---|
+| Price, billed yearly | $0 for 14 days | $12 / mo | **$24 / mo** ($288 / yr) | **$32 / mo** per seat |
+| Price, billed monthly | — | $15 / mo | **$29 / mo** | **$39 / mo** per seat |
+| Meeting hours / month | 5 | 8 | **20**, metered | 20 × seats, pooled |
+| Integration credits / month | 100 | 100 | **500** | 500 × seats, pooled |
+| Integrations | core | core (Google Calendar, Notion, Google Drive) | all | all |
+| Hour pack | — | 5 h · $12 | 10 h · $29 | — |
+| Automation Pack | — | 1,000 credits · $10 | 1,000 credits · $10 | 1,000 credits · $10, bought by an owner/admin for the workspace |
+
+- **Pro is metered at 20 h**, no longer "unlimited with fair use". Every
+  subscriber who was on Pro when the change landed keeps what they were sold:
+  `limit_overrides.hours_per_month = 40` and, where the row said so,
+  `subscriptions.hours_are_unlimited`, both cleared only by a plan change.
+  Prod still carries the `unlimited` promise and has not been pinned — that
+  decision is open.
+- **An integration credit is one metered call** to a connected product through
+  the broker. A *read the chat makes* is metered; a write (filing a ticket,
+  posting a message, appending notes, a draft, an invite) is free; the reads
+  the app makes for its own screens (ticket-status mirror, form pickers, the
+  free-slot check) are throttled instead and stay outside the pool. The
+  app's own calendar sync is throttled (30-minute floor on open) and never
+  metered; asking the chat to list events is a read like any other.
+  `integration-action` refuses with `integration_credits_exhausted` at zero and
+  the model answers from what it already knows; nothing is charged.
+- **Pools are per payer.** A person's pool is `plans.limits.integration_credits_per_month`;
+  a workspace's is that × seats, spent by `usage_events.org_id`-stamped rows.
+  `resolve_entitlement` reports `integration_credits_included/used/remaining`
+  and `can_run_integration_action` beside the hours.
+- **Packs are explicit purchases for the current period**, minted through
+  `create_topup_checkout_intent` and fulfilled by `apply_topup_purchase`. A
+  workspace pack is bought from Organization → Billing by an owner or admin,
+  billed to the workspace's Paddle customer, and lands in `usage_topups.org_id`.
+  A refund gives back only what was unused, in the unit the pack granted.
+- **Surfaces**: the credit pool sits first on Settings → Integrations, under
+  "This period" on Subscription, and on Organization → Billing, each with the
+  pack beside the count and a plain sentence about what happens at zero.
+- Paddle **sandbox** prices exist for every row above; live prices do not.
+  `terms.md` § 7 ("we do not meter") and `hellonod.app/pricing` still describe
+  prod and must move with the cutover, not before.
 
 ## Not shipped yet
 

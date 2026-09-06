@@ -168,7 +168,7 @@ final class ChatToolGate: ObservableObject {
         }
         for (call, tool) in zip(calls, tools) {
             let result = allowed
-                ? await integrations.run(call, tool: tool)
+                ? await integrations.run(call, tool: tool, origin: .chat)
                 : IntegrationService.declinedResult()
             outcome.turns.append(.init(role: .tool, content: result, toolCallID: call.id))
             outcome.steps.append(ChatTurnStep(

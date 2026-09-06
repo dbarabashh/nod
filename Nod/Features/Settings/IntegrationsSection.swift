@@ -28,6 +28,8 @@ struct IntegrationsSection: View {
     /// rows because it failed to load an entitlement is worse than one that lets
     /// somebody press a button and read why.
     var entitlements: EntitlementService?
+    /// Absent in previews, and then so is the credit counter.
+    var billing: BillingService?
 
     /// Which provider the user has asked to disconnect, while they confirm it.
     @State private var disconnecting: IntegrationProvider?
@@ -57,6 +59,9 @@ struct IntegrationsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let entitlements, let billing {
+                EntitlementCreditsCard(entitlements: entitlements, billing: billing, organizations: organizations)
+            }
             SettingsCard {
                 SettingsRow(
                     icon: "nc-link",
@@ -86,7 +91,7 @@ struct IntegrationsSection: View {
 
             requestSection
 
-            if let error = service.lastError {
+            if let error = service.lastError ?? billing?.lastError {
                 Text(error)
                     .font(.system(size: 11))
                     .foregroundColor(Theme.Palette.danger)

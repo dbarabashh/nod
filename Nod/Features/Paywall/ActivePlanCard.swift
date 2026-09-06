@@ -103,7 +103,7 @@ struct ActivePlanCard: View {
         switch ent.status {
         case .trialing:
             guard let ends = ent.trialEndsAt else { return "On free trial" }
-            return "On free trial until \(Self.dayFormatter.string(from: ends))"
+            return "On free trial until \(PaywallFormat.fullDay(ends))"
         case .pastDue: return "Payment needs attention"
         case .canceled: return "Canceled"
         case .expired: return "Expired"
@@ -156,10 +156,10 @@ struct ActivePlanCard: View {
     private var footnote: String? {
         guard let ent = entitlements.entitlement else { return nil }
         if ent.status == .trialing, let ends = ent.trialEndsAt {
-            return "Trial ends automatically on \(Self.dayFormatter.string(from: ends))."
+            return "Trial ends automatically on \(PaywallFormat.fullDay(ends))."
         }
         if ent.status == .active, let renews = ent.renewalDate {
-            return "Renews on \(Self.dayFormatter.string(from: renews))."
+            return "Renews on \(PaywallFormat.fullDay(renews))."
         }
         return nil
     }
@@ -320,12 +320,6 @@ struct ActivePlanCard: View {
     private var hasPersonalSubscription: Bool {
         billing.hasPersonalSubscription
     }
-
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, yyyy"
-        return formatter
-    }()
 }
 
 /// The state badge beside the plan name — trial expiry, a failed card, a
@@ -409,14 +403,8 @@ struct SubscriptionPeriodTiles: View {
             ? ent.trialEndsAt
             : ent.renewalDate
         guard let date else { return "—" }
-        return Self.shortFormatter.string(from: date)
+        return PaywallFormat.day(date)
     }
-
-    private static let shortFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter
-    }()
 }
 
 /// The bottom of the page, where the self-serve ladder runs out. Teams is on the

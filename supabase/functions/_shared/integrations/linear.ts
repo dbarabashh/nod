@@ -10,6 +10,7 @@ import { requireBoolean, requireList, requireString } from "./params.ts";
 
 const SEARCH_LIMIT = 10;
 const STATUS_LIMIT = 50;
+const COMMENT_LIMIT = 8;
 
 /// `NOD-31` — a team key and a number, which is all Linear's API can filter on.
 /// There is no lookup by identifier, so every read has to be taken apart.
@@ -35,12 +36,20 @@ async function graphql(
     return payload.data;
 }
 
-/// The issue behind a `NOD-31`, with what an update needs to know about it.
-async function resolveIssue(connection: Connection, key: string) {
+function parseIdentifier(key: string): { team: string; number: number } {
     const parts = IDENTIFIER.exec(key);
     if (!parts) {
         throw new ActionError("invalid_params", `"${key}" is not a Linear identifier.`);
     }
+    return { team: parts[1].toUpperCase(), number: Number(parts[2]) };
+}
+
+function isClosed(state: { type?: string } | null | undefined): boolean {
+    return state?.type === "completed" || state?.type === "canceled";
+}
+
+/// The issue behind a `NOD-31`, with what an update needs to know about it.
+async function resolveIssue(connection: Connection, key: string) {
     const data = await graphql(
         connection,
         `query($team: String!, $number: Float!) {
@@ -48,7 +57,7 @@ async function resolveIssue(connection: Connection, key: string) {
                 nodes { id description state { type } team { id } }
             }
         }`,
-        { team: parts[1].toUpperCase(), number: Number(parts[2]) },
+        parseIdentifier(key),
     );
     const issue = (data.issues as {
         nodes?: { id: string; description?: string; state?: { type?: string }; team?: { id?: string } }[];
@@ -60,7 +69,7 @@ async function resolveIssue(connection: Connection, key: string) {
         id: issue.id,
         teamID: issue.team.id,
         description: issue.description ?? "",
-        closed: issue.state?.type === "completed" || issue.state?.type === "canceled",
+        closed: isClosed(issue.state),
     };
 }
 
@@ -163,7 +172,7 @@ export const LINEAR_ACTIONS: ActionHandlers = {
         return {
             tasks: nodes.map((issue) => ({
                 key: issue.identifier,
-                closed: issue.state?.type === "completed" || issue.state?.type === "canceled",
+                closed: isClosed(issue.state),
             })),
         };
     },
@@ -227,6 +236,76 @@ export const LINEAR_ACTIONS: ActionHandlers = {
         };
     },
 
+    /// One issue in full, with the tail of its discussion.
+    ///
+    /// `search_issues` is deliberately a list of titles: a model deciding which
+    /// ticket somebody meant needs ten names, not ten essays. This is the second
+    /// step — the description and the last few comments of the one it chose —
+    /// and the last few rather than all, because the question is almost always
+    /// "where did this get to" and the answer is at the end.
+    read_issue: async (connection, params) => {
+        const key = requireString(params, "key");
+        const data = await graphql(
+            connection,
+            `query($team: String!, $number: Float!, $comments: Int!) {
+                issues(filter: { team: { key: { eq: $team } }, number: { eq: $number } }, first: 1) {
+                    nodes {
+                        identifier title description url priorityLabel dueDate updatedAt
+                        state { name type }
+                        assignee { name }
+                        creator { name }
+                        project { name }
+                        labels { nodes { name } }
+                        comments(last: $comments) {
+                            nodes { body createdAt user { name } }
+                        }
+                    }
+                }
+            }`,
+            { ...parseIdentifier(key), comments: COMMENT_LIMIT },
+        );
+        const issue = (data.issues as {
+            nodes?: {
+                identifier: string;
+                title: string;
+                description?: string | null;
+                url: string;
+                priorityLabel?: string;
+                dueDate?: string | null;
+                updatedAt?: string;
+                state?: { name?: string; type?: string };
+                assignee?: { name?: string } | null;
+                creator?: { name?: string } | null;
+                project?: { name?: string } | null;
+                labels?: { nodes?: { name?: string }[] };
+                comments?: { nodes?: { body?: string; createdAt?: string; user?: { name?: string } | null }[] };
+            }[];
+        } | undefined)?.nodes?.[0];
+        if (!issue) {
+            throw new ActionError("not_found", `${key.toUpperCase()} is not visible to this account.`, 404);
+        }
+        return {
+            key: issue.identifier,
+            title: issue.title,
+            url: issue.url,
+            state: issue.state?.name,
+            closed: isClosed(issue.state),
+            assignee: issue.assignee?.name ?? null,
+            author: issue.creator?.name ?? null,
+            project: issue.project?.name ?? null,
+            priority: issue.priorityLabel ?? null,
+            labels: (issue.labels?.nodes ?? []).map((label) => label.name).filter(Boolean),
+            due: issue.dueDate ?? null,
+            updated: issue.updatedAt,
+            description: issue.description ?? "",
+            latest_comments: (issue.comments?.nodes ?? []).map((comment) => ({
+                author: comment.user?.name ?? null,
+                at: comment.createdAt,
+                text: comment.body ?? "",
+            })),
+        };
+    },
+
     search_issues: async (connection, params) => {
         const term = requireString(params, "query");
         const data = await graphql(
@@ -257,7 +336,7 @@ export const LINEAR_ACTIONS: ActionHandlers = {
                 key: issue.identifier,
                 title: issue.title,
                 url: issue.url,
-                closed: issue.state?.type === "completed" || issue.state?.type === "canceled",
+                closed: isClosed(issue.state),
                 state: issue.state?.name,
                 assignee: issue.assignee?.name,
             })),

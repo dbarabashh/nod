@@ -33,6 +33,8 @@ struct OrgBilling: Decodable {
     let billingCycle: String?
     let hoursIncluded: Double?
     let hoursUsed: Double?
+    let integrationCreditsIncluded: Double
+    let integrationCreditsUsed: Double
     let trialEndsAt: Date?
     let renewalDate: Date?
     let members: [Seat]
@@ -61,6 +63,8 @@ struct OrgBilling: Decodable {
         case billingCycle = "billing_cycle"
         case hoursIncluded = "hours_included"
         case hoursUsed = "hours_used"
+        case integrationCreditsIncluded = "integration_credits_included"
+        case integrationCreditsUsed = "integration_credits_used"
         case trialEndsAt = "trial_ends_at"
         case renewalDate = "renewal_date"
     }
@@ -75,6 +79,8 @@ struct OrgBilling: Decodable {
         billingCycle = try c.decodeIfPresent(String.self, forKey: .billingCycle)
         hoursIncluded = try c.decodeIfPresent(Double.self, forKey: .hoursIncluded)
         hoursUsed = try c.decodeIfPresent(Double.self, forKey: .hoursUsed)
+        integrationCreditsIncluded = try c.decodeIfPresent(Double.self, forKey: .integrationCreditsIncluded) ?? 0
+        integrationCreditsUsed = try c.decodeIfPresent(Double.self, forKey: .integrationCreditsUsed) ?? 0
         trialEndsAt = try c.decodeIfPresent(String.self, forKey: .trialEndsAt).flatMap(ServerTimestamp.date)
         renewalDate = try c.decodeIfPresent(String.self, forKey: .renewalDate).flatMap(ServerTimestamp.date)
         members = try c.decodeIfPresent([Seat].self, forKey: .members) ?? []
@@ -97,6 +103,18 @@ struct OrganizationBilling: View {
             if let overview = service.billing {
                 if overview.hasSubscription {
                     planCard(overview)
+                    if overview.integrationCreditsIncluded > 0, let plan = overview.plan {
+                        IntegrationCreditsCard(
+                            used: overview.integrationCreditsUsed,
+                            included: overview.integrationCreditsIncluded,
+                            plan: plan,
+                            isShared: true,
+                            isActive: overview.status == "active",
+                            administers: overview.viewerAdministers,
+                            renewalDate: overview.renewalDate,
+                            billing: billing
+                        )
+                    }
                     seatsCard(overview)
                 } else {
                     noPlanCard(overview)
@@ -105,6 +123,11 @@ struct OrganizationBilling: View {
                 SettingsCard {
                     SettingsEmptyRow("Reading what this workspace is on…")
                 }
+            }
+            if let error = billing.lastError {
+                Text(error)
+                    .textStyle(Theme.Typography.secondary)
+                    .foregroundStyle(Theme.Palette.danger)
             }
         }
         .task(id: membership.organization.id) {
@@ -167,7 +190,7 @@ struct OrganizationBilling: View {
         switch overview.status {
         case "trialing":
             if let ends = overview.trialEndsAt {
-                parts.append("On trial until \(Self.dayFormatter.string(from: ends))")
+                parts.append("On trial until \(PaywallFormat.fullDay(ends))")
             } else {
                 parts.append("On trial")
             }
@@ -179,7 +202,7 @@ struct OrganizationBilling: View {
         if overview.billingCycle == "yearly" { parts.append("billed yearly") }
         if overview.billingCycle == "monthly" { parts.append("billed monthly") }
         if overview.status != "trialing", let renews = overview.renewalDate {
-            parts.append("renews \(Self.dayFormatter.string(from: renews))")
+            parts.append("renews \(PaywallFormat.fullDay(renews))")
         }
         return parts.isEmpty ? "Paid by this workspace." : parts.joined(separator: " · ")
     }
@@ -261,10 +284,4 @@ struct OrganizationBilling: View {
             }
         }
     }
-
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, yyyy"
-        return formatter
-    }()
 }

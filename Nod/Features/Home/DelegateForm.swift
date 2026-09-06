@@ -144,11 +144,13 @@ struct DelegateForm: View {
         guard directory == nil else { return }
         async let people = integrations.run(
             ActionDelegation.call(action: "list_users", of: messenger),
-            tool: ActionDelegation.tool(action: "list_users", of: messenger)
+            tool: ActionDelegation.tool(action: "list_users", of: messenger),
+            origin: .app
         )
         async let channels = integrations.run(
             ActionDelegation.call(action: "list_channels", of: messenger),
-            tool: ActionDelegation.tool(action: "list_channels", of: messenger)
+            tool: ActionDelegation.tool(action: "list_channels", of: messenger),
+            origin: .app
         )
         directory = await ActionDelegation.directory(people: people, channels: channels)
     }
@@ -167,7 +169,8 @@ struct DelegateForm: View {
         let arguments = ActionDelegation.sendArguments(target: target, typed: typed, message: message)
         let result = await integrations.run(
             ActionDelegation.call(action: "post_message", of: messenger, arguments: arguments),
-            tool: ActionDelegation.tool(action: "post_message", of: messenger)
+            tool: ActionDelegation.tool(action: "post_message", of: messenger),
+            origin: .app
         )
         isSending = false
         if let failure = IntegrationService.failure(in: result) {

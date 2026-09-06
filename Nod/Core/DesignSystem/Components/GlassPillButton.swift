@@ -35,6 +35,9 @@ struct GlassPillButton: View {
     let leadingIcon: String?
     let trailingIcon: String?
     let shortcut: KeyboardShortcut?
+    /// Shows a spinner before the title and refuses presses while true. The
+    /// label stays, so the button keeps its name for VoiceOver and its width.
+    let isLoading: Bool
     let action: () -> Void
 
     init(
@@ -43,6 +46,7 @@ struct GlassPillButton: View {
         leadingIcon: String? = nil,
         trailingIcon: String? = nil,
         shortcut: KeyboardShortcut? = nil,
+        isLoading: Bool = false,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -50,13 +54,16 @@ struct GlassPillButton: View {
         self.leadingIcon = leadingIcon
         self.trailingIcon = trailingIcon
         self.shortcut = shortcut
+        self.isLoading = isLoading
         self.action = action
     }
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: size.innerSpacing) {
-                if let leadingIcon {
+                if isLoading {
+                    ProgressView().controlSize(.small).tint(Theme.GlassButton.text)
+                } else if let leadingIcon {
                     Image(leadingIcon).icon(Theme.Control.iconMicro)
                 }
                 Text(title)
@@ -72,6 +79,7 @@ struct GlassPillButton: View {
         }
         .buttonStyle(.plain)
         .keyboardShortcut(shortcut)
+        .disabled(isLoading)
     }
 }
 
@@ -85,6 +93,7 @@ struct GlassPillButton: View {
         GlassPillButton("Retry", size: .large) {}
         GlassPillButton("Disabled", size: .regular) {}
             .disabled(true)
+        GlassPillButton("Opening checkout", size: .compact, isLoading: true) {}
     }
     .padding(24)
     .background(Theme.Palette.bg)

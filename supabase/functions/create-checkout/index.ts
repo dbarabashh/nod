@@ -40,6 +40,7 @@
 
 import { adminClient, authenticate } from "../_shared/supabase.ts";
 import { json } from "../_shared/http.ts";
+import { eventPlan } from "../_shared/product-events.ts";
 import { PADDLE_API_BASE, PADDLE_HEADERS } from "../_shared/paddle.ts";
 
 const PADDLE_API_KEY              = Deno.env.get("PADDLE_API_KEY");
@@ -383,7 +384,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }
     }
 
-    const plan = ["starter", "pro", "teams"].includes(price.plan) ? price.plan : "unknown";
+    const plan = eventPlan(price.plan);
     const billing = price.billing_cycle === "monthly" || price.billing_cycle === "yearly"
         ? price.billing_cycle
         : "unknown";

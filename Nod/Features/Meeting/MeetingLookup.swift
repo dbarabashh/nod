@@ -328,7 +328,7 @@ struct MeetingLookup {
             guard let gate else { return .failed(routed.tool, .provider(routed.provider, nil)) }
             return await confirm(call, routed: routed, through: gate)
         }
-        return await Self.settle(routed.tool, integrations.run(call, tool: routed.tool))
+        return await Self.settle(routed.tool, integrations.run(call, tool: routed.tool, origin: .chat))
     }
 
     /// A write, put to the person before it goes anywhere.

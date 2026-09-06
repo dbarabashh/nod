@@ -189,7 +189,8 @@ struct TaskCreateForm: View {
         guard supportsAssignment, people.isEmpty, let tracker else { return }
         let result = await integrations.run(
             ActionDelegation.call(action: "list_users", of: tracker),
-            tool: ActionDelegation.tool(action: "list_users", of: tracker)
+            tool: ActionDelegation.tool(action: "list_users", of: tracker),
+            origin: .app
         )
         guard !Task.isCancelled else { return }
         people = ActionDelegation.people(in: result).sorted { $0.name < $1.name }

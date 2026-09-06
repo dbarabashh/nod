@@ -10,7 +10,9 @@
 /// Why the app is asking, and the least time that must have passed since the
 /// calendar was last read for that ask to be honoured.
 export const FLOOR_SECONDS = {
-    open: 15 * 60,
+    /// Half an hour, not fifteen minutes: each read is a metered broker call and
+    /// the app is opened far more often than a calendar changes.
+    open: 30 * 60,
     idle: 60 * 60,
     /// A meeting on the calendar starts within half an hour — the one moved
     /// five minutes before it begins is the case the read exists for.

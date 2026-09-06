@@ -678,7 +678,7 @@ final class NotchModel: ObservableObject {
     func buyTopUp() {
         guard let offer = allowanceTopUp, let sku = offer.sku else { return }
         Task { @MainActor in
-            let outcome = await billing.startTopUp(sku: sku)
+            let outcome = await billing.startTopUp(sku: sku, surface: .capture)
             session.recordAllowanceGate(
                 .allowanceGateAction,
                 outcome: outcome == .opened ? .success : .failure,

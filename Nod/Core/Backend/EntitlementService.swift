@@ -94,6 +94,11 @@ struct Entitlement: Decodable {
     /// grandfathered price is hidden from the client catalogue, so the app cannot
     /// derive it from `priceID` alone.
     let billingCycle: String?
+    /// Integration credits: one per metered action Nod runs in a connected tool
+    /// on the person's behalf. Pooled across a workspace's seats when the
+    /// organization pays. Writes after a meeting are not metered; reads are.
+    let integrationCreditsIncluded: Double
+    let integrationCreditsUsed: Double
     let payer: Payer
     /// Set only when the organization pays: which workspace, and how many seats
     /// the pooled allowance was bought for.
@@ -131,6 +136,8 @@ struct Entitlement: Decodable {
         case remainingSeconds = "remaining_seconds"
         case canStartMeeting = "can_start_meeting"
         case billingCycle = "billing_cycle"
+        case integrationCreditsIncluded = "integration_credits_included"
+        case integrationCreditsUsed = "integration_credits_used"
         case payer
         case orgID = "org_id"
         case seats
@@ -158,6 +165,10 @@ struct Entitlement: Decodable {
             ?? max(0, includedSeconds + topUpSeconds - consumedSeconds)
         canStartMeeting = try c.decodeIfPresent(Bool.self, forKey: .canStartMeeting)
         billingCycle = try c.decodeIfPresent(String.self, forKey: .billingCycle)
+        // Absent on a server that predates metering, where every action was
+        // free — so absent reads as "no ceiling", not as "none left".
+        integrationCreditsIncluded = try c.decodeIfPresent(Double.self, forKey: .integrationCreditsIncluded) ?? 0
+        integrationCreditsUsed = try c.decodeIfPresent(Double.self, forKey: .integrationCreditsUsed) ?? 0
         // Absent on a server that predates workspace plans, where everything was
         // personal and there was nothing else it could have been.
         payer = try Payer(raw: c.decodeIfPresent(String.self, forKey: .payer) ?? "personal")

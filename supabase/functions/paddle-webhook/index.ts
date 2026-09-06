@@ -32,6 +32,7 @@ import { adminClient } from "../_shared/supabase.ts";
 import { isObject, json } from "../_shared/http.ts";
 import { currencyAmount, paidSubscriptionTransaction } from "../_shared/paddle-transaction.ts";
 import { payoutDueRewards } from "../_shared/reward-payout.ts";
+import { eventPlan } from "../_shared/product-events.ts";
 
 // Reject a validly-signed delivery whose `ts` is older than this — a captured
 // event (e.g. an old `subscription.activated`) can't be replayed later to
@@ -149,12 +150,12 @@ async function handleCompletedTransaction(
     for (const priceId of priceIds(data.items)) {
         const { data: price } = await admin
             .from("plan_prices")
-            .select("kind")
+            .select("kind, plan")
             .eq("paddle_price_id", priceId)
             .maybeSingle();
 
         if (price?.kind === "topup") {
-            await fulfilTopup(admin, transactionId, priceId, origin, occurredAt, data);
+            await fulfilTopup(admin, transactionId, { id: priceId, plan: str(price.plan) }, origin, occurredAt, data, isWorkspaceTransaction);
         } else if (price?.kind === "subscription") {
             if (!userId || !subscriptionId) {
                 console.warn(`subscription transaction missing identity txn=${transactionId}`);
@@ -215,11 +216,13 @@ async function handleCompletedTransaction(
 async function fulfilTopup(
     admin: ReturnType<typeof adminClient>,
     transactionId: string,
-    priceId: string,
+    price: { id: string; plan: string },
     origin: string,
     occurredAt: string,
     data: Record<string, unknown>,
+    isWorkspaceTransaction: boolean,
 ): Promise<void> {
+    const priceId = price.id;
     if (origin !== "api") {
         console.warn(`top-up ignored for unexpected origin=${origin} txn=${transactionId}`);
         return;
@@ -273,9 +276,13 @@ async function fulfilTopup(
         const { error: telemetryError } = await admin.rpc("record_server_product_event", {
             p_user_id: intent.user_id,
             p_event: "topup_purchased",
-            p_properties: { plan: "starter", billing: "one_time", outcome: "success" },
+            p_properties: { plan: eventPlan(price.plan), billing: "one_time", outcome: "success" },
         });
         if (telemetryError) console.warn(`top-up telemetry failed: ${telemetryError.message}`);
+
+        // A workspace's pack is the company's money, not the buyer's conversion —
+        // the same reason the subscription path skips it above.
+        if (isWorkspaceTransaction) return;
 
         const totals = isObject(data.details) && isObject(data.details.totals) ? data.details.totals : {};
         const value = currencyAmount(str(totals.earnings), str(data.currency_code).toUpperCase());

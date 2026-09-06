@@ -26,6 +26,10 @@ export const isConfigured = Boolean(CLIENT_ID && CLIENT_SECRET && PROJECT_ID);
 export interface Connection {
     /// Connect's account id (`apn_…`).
     id: string;
+    /// How many requests `proxy()` has sent through this connection. The action
+    /// gate charges the pool only when this moved — a handler that refused
+    /// before calling the broker costs nothing on either side.
+    proxied?: number;
     provider: string;
     /// Every proxied call is scoped to the person as well as the account, so a
     /// stolen account id alone addresses nothing.
@@ -228,11 +232,16 @@ export async function proxy(
         headers: { ...await connectHeaders(), ...forwarded },
         body: method === "GET" ? undefined : JSON.stringify(body),
     });
+    connection.proxied = (connection.proxied ?? 0) + 1;
     // Counted whether or not the provider was happy: Connect meters the
-    // request, not the answer.
-    await tally(countRequest(connection, options.purpose ?? "action"));
-
-    const raw = await response.text().catch(() => "");
+    // request, not the answer. Awaited on purpose — `waitUntil` lost the count
+    // in every short-lived isolate (0 of 31 actions metered in one measured
+    // hour while Pipedream billed all of them). Bounded to two seconds, and a
+    // failure is a warning, so the request it meters is never failed by it.
+    const [raw] = await Promise.all([
+        response.text().catch(() => ""),
+        countRequest(connection, options.purpose ?? "action"),
+    ]);
     let payload: unknown = null;
     try {
         payload = JSON.parse(raw);
@@ -274,16 +283,6 @@ async function countRequest(connection: Connection, purpose: string): Promise<vo
     } catch (cause) {
         console.warn(`proxy request count failed: ${cause instanceof Error ? cause.message : String(cause)}`);
     }
-}
-
-/// Lets the count finish after the response has gone out. Supabase's edge
-/// runtime keeps the isolate alive for work handed to `waitUntil`, so the
-/// count never sits on a response's critical path; anywhere without it
-/// (tests, another host) the count is simply awaited.
-async function tally(work: Promise<void>): Promise<void> {
-    const runtime = (globalThis as { EdgeRuntime?: { waitUntil(promise: Promise<unknown>): void } }).EdgeRuntime;
-    if (runtime?.waitUntil) runtime.waitUntil(work);
-    else await work;
 }
 
 /// However long the provider was, this is a tool result the model re-reads on

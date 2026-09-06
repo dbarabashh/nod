@@ -15,7 +15,9 @@ import { requireBoolean, requireList, requireString } from "./params.ts";
 
 const SEARCH_LIMIT = 10;
 const STATUS_LIMIT = 50;
+const COMMENT_LIMIT = 8;
 const FIELDS = "summary,status,assignee,updated";
+const DETAIL_FIELDS = "summary,description,status,assignee,reporter,priority,labels,duedate,updated,comment";
 
 /// `NOD-31` — a project key and a number.
 const KEY = /^[A-Z][A-Z0-9]*-\d+$/i;
@@ -104,6 +106,35 @@ function document(text: string) {
     };
 }
 
+/// The other direction: what Jira hands back is a document tree, and a model
+/// wants the words. Text nodes are kept, block boundaries become line breaks,
+/// mentions become their display text, and everything else — marks, media,
+/// layout — is dropped rather than rendered.
+export function plainText(node: unknown): string {
+    if (!node || typeof node !== "object") return "";
+    const value = node as { type?: string; text?: string; content?: unknown[]; attrs?: { text?: string } };
+    if (value.type === "text") return value.text ?? "";
+    if (value.type === "mention" || value.type === "emoji") return value.attrs?.text ?? "";
+    if (value.type === "hardBreak") return "\n";
+    const inner = (value.content ?? []).map(plainText);
+    switch (value.type) {
+        case "doc":
+            return inner.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+        case "paragraph":
+        case "heading":
+        case "blockquote":
+        case "codeBlock":
+        case "listItem":
+        case "tableRow":
+            return inner.join("") + "\n";
+        case "bulletList":
+        case "orderedList":
+            return inner.map((item) => `- ${item.trimEnd()}`).join("\n") + "\n";
+        default:
+            return inner.join("");
+    }
+}
+
 /// Escapes a JQL string literal. A summary carrying a quote would otherwise end
 /// the clause and change what the query asks.
 function quoted(value: string): string {
@@ -122,6 +153,48 @@ export const JIRA_ACTIONS: ActionHandlers = {
         }) as { issues?: Issue[] } | null;
 
         return { results: (payload?.issues ?? []).map(summarise) };
+    },
+
+    /// One issue in full, with the tail of its discussion — the second step
+    /// after `search_issues`, which lists titles on purpose.
+    read_issue: async (connection, params) => {
+        const key = requireKey(params, "key");
+        const issue = await api(connection, `issue/${key}`, null, {
+            query: { fields: DETAIL_FIELDS },
+        }).catch((error) => {
+            if (error instanceof ActionError && error.providerStatus === 404) return null;
+            throw error;
+        }) as {
+            key?: string;
+            fields?: Issue["fields"] & {
+                description?: unknown;
+                reporter?: { displayName?: string } | null;
+                priority?: { name?: string } | null;
+                labels?: string[];
+                duedate?: string | null;
+                comment?: { comments?: { author?: { displayName?: string }; created?: string; body?: unknown }[] };
+            };
+        } | null;
+        if (!issue?.key) {
+            throw new ActionError("not_found", `${key} is not visible to this account.`, 404);
+        }
+        const comments = issue.fields?.comment?.comments ?? [];
+        return {
+            ...summarise(issue),
+            closed: issue.fields?.status?.statusCategory?.key === "done",
+            author: issue.fields?.reporter?.displayName ?? null,
+            priority: issue.fields?.priority?.name ?? null,
+            labels: issue.fields?.labels ?? [],
+            due: issue.fields?.duedate ?? null,
+            updated: issue.fields?.updated,
+            description: plainText(issue.fields?.description),
+            // Jira returns comments oldest-first; the model reads the tail.
+            latest_comments: comments.slice(-COMMENT_LIMIT).map((comment) => ({
+                author: comment.author?.displayName ?? null,
+                at: comment.created,
+                text: plainText(comment.body),
+            })),
+        };
     },
 
     /// Whether issues Nod filed have since been finished, for the reconciliation

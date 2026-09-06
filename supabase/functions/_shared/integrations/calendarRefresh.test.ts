@@ -24,8 +24,8 @@ Deno.test("a calendar never read may be read for any reason", () => {
 // client says, and the floors are ordered by how much freshness the reason
 // is worth paying for.
 Deno.test("each reason waits its own floor", () => {
-    assertFalse(mayRead("open", ago(14 * 60), now));
-    assert(mayRead("open", ago(15 * 60), now));
+    assertFalse(mayRead("open", ago(29 * 60), now));
+    assert(mayRead("open", ago(30 * 60), now));
     assertFalse(mayRead("idle", ago(59 * 60), now));
     assert(mayRead("idle", ago(60 * 60), now));
     assertFalse(mayRead("approaching", ago(4 * 60), now));

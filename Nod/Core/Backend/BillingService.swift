@@ -18,6 +18,8 @@ struct PlanPrice: Decodable, Identifiable {
     let sku: String?
     /// One-time packs only: hours this purchase adds to the current period.
     let topUpHours: Double?
+    /// One-time packs only: integration credits this purchase adds instead.
+    let topUpCredits: Double?
 
     var id: String {
         paddlePriceID
@@ -33,6 +35,7 @@ struct PlanPrice: Decodable, Identifiable {
         case sortOrder = "sort_order"
         case sku
         case topUpHours = "top_up_hours"
+        case topUpCredits = "top_up_credits"
     }
 }
 
@@ -194,6 +197,12 @@ final class BillingService: ObservableObject {
         prices.first { $0.plan == plan && $0.kind == "topup" && $0.topUpHours != nil && $0.sku != nil }
     }
 
+    /// The credit pack this plan sells, if it sells one — same rule as the hour
+    /// pack: absent until the real Paddle price exists.
+    func creditPackOffer(plan: String) -> PlanPrice? {
+        prices.first { $0.plan == plan && $0.kind == "topup" && $0.topUpCredits != nil && $0.sku != nil }
+    }
+
     /// `opened` — a checkout URL was launched in the browser (new subscriber).
     /// `planChanged` — the existing subscription was switched in place (no
     /// browser); the caller should re-resolve the entitlement. `failed` — error.
@@ -252,21 +261,30 @@ final class BillingService: ObservableObject {
         }
     }
 
-    /// Buys an hour pack for the CURRENT period. Never automatic, never
-    /// recurring — the person chooses it in the allowance gate.
-    func startTopUp(sku: String) async -> CheckoutOutcome {
+    /// Where a pack was bought from, for the funnel only.
+    enum TopUpSurface: String {
+        case capture, settings
+    }
+
+    /// Buys a pack — hours or credits — for the CURRENT period. Never
+    /// automatic, never recurring: the person chooses it in the allowance gate
+    /// or on a billing page.
+    func startTopUp(sku: String, surface: TopUpSurface) async -> CheckoutOutcome {
         guard !isStartingTopUp else { return .failed }
         isStartingTopUp = true
         lastError = nil
         defer { isStartingTopUp = false }
 
-        struct Request: Encodable { let sku: String }
+        struct Request: Encodable {
+            let sku: String
+            let surface: String
+        }
         struct Response: Decodable { let url: URL }
 
         do {
             let response: Response = try await supabase.functions.invoke(
                 "create-topup-checkout",
-                options: FunctionInvokeOptions(body: Request(sku: sku))
+                options: FunctionInvokeOptions(body: Request(sku: sku, surface: surface.rawValue))
             )
             Log.ui.info("BillingService.startTopUp sku=\(sku) opening checkout")
             NSWorkspace.shared.open(response.url)

@@ -471,7 +471,7 @@ final class IntegrationService: ObservableObject {
         params.merge(extra) { current, _ in current }
 
         do {
-            let data = try await invokeAction(provider: provider, action: action, params: params)
+            let data = try await invokeAction(provider: provider, action: action, params: params, origin: .app)
             let body = String(bytes: data, encoding: .utf8) ?? ""
             if let message = Self.failure(in: body) {
                 Log.ui.error("IntegrationService.file refused: \(message)")
@@ -500,7 +500,8 @@ final class IntegrationService: ObservableObject {
             let data = try await invokeAction(
                 provider: reference.provider,
                 action: action,
-                params: ["key": reference.title, "closed": closed ? "true" : "false"]
+                params: ["key": reference.title, "closed": closed ? "true" : "false"],
+                origin: .app
             )
             if let message = Self.failure(in: String(bytes: data, encoding: .utf8) ?? "") {
                 Log.ui.error("IntegrationService.setTaskClosed refused: \(message)")
@@ -527,7 +528,8 @@ final class IntegrationService: ObservableObject {
             let data = try await invokeAction(
                 provider: reference.provider,
                 action: action,
-                params: ["key": reference.title, "note": trimmed]
+                params: ["key": reference.title, "note": trimmed],
+                origin: .app
             )
             if let message = Self.failure(in: String(bytes: data, encoding: .utf8) ?? "") {
                 Log.ui.error("IntegrationService.update refused: \(message)")
@@ -599,7 +601,7 @@ final class IntegrationService: ObservableObject {
         }
 
         do {
-            let data = try await invokeAction(provider: provider, action: action, params: ["query": query])
+            let data = try await invokeAction(provider: provider, action: action, params: ["query": query], origin: .app)
             if let message = Self.failure(in: String(bytes: data, encoding: .utf8) ?? "") {
                 Log.ui.error("IntegrationService.taskSearch refused: \(message)")
                 return []
@@ -633,6 +635,9 @@ final class IntegrationService: ObservableObject {
     /// Throttled rather than driven by a timer: the caller is app activation,
     /// which fires on every window focus, and a tracker's answer does not change
     /// between two of those.
+    ///
+    /// Thirty minutes, not one: at a one-minute floor this mirror alone was 109
+    /// Linear reads in a day, more than every question asked of every tool.
     func remoteCompletions(among items: [ActionItem]) async -> [UUID: Bool] {
         let now = Date()
         if let lastStatusRead, now.timeIntervalSince(lastStatusRead) < Self.statusInterval { return [:] }
@@ -667,7 +672,7 @@ final class IntegrationService: ObservableObject {
     /// Matches `STATUS_LIMIT` in the Linear handler — the batch is what the
     /// provider will accept in one call, not a preference.
     private static let statusBatch = 50
-    private static let statusInterval: TimeInterval = 60
+    private static let statusInterval: TimeInterval = 30 * 60
     private var lastStatusRead: Date?
 
     private func taskStates(
@@ -687,7 +692,8 @@ final class IntegrationService: ObservableObject {
             let data = try await invokeAction(
                 provider: provider,
                 action: action,
-                params: ["keys": keys.joined(separator: ",")]
+                params: ["keys": keys.joined(separator: ",")],
+                origin: .app
             )
             if let message = Self.failure(in: String(bytes: data, encoding: .utf8) ?? "") {
                 Log.ui.error("IntegrationService.taskStates refused: \(message)")
@@ -759,12 +765,13 @@ final class IntegrationService: ObservableObject {
     /// teams, the provider said no — is worth more as a readable result than as
     /// a broken turn. A thrown error would end the agent's turn and lose the
     /// question.
-    func run(_ call: ChatToolCall, tool: ChatTool) async -> String {
+    func run(_ call: ChatToolCall, tool: ChatTool, origin: ActionOrigin) async -> String {
         do {
             let response = try await invokeAction(
                 provider: tool.provider,
                 action: tool.action,
-                params: call.arguments
+                params: call.arguments,
+                origin: origin
             )
             Log.llm.info("tool \(tool.name) returned \(response.count) bytes")
             return String(bytes: response, encoding: .utf8) ?? Self.unreadableResult
@@ -772,6 +779,12 @@ final class IntegrationService: ObservableObject {
             Log.llm.error("tool \(tool.name) failed: \(error.localizedDescription)")
             return #"{"error":{"code":"unreachable","message":"The action could not be run."}}"#
         }
+    }
+
+    /// Who asked. The chat's reads draw on the integration credit pool; the
+    /// app's own throttled reads (ticket mirror, pickers, free-slot check) do not.
+    enum ActionOrigin: String {
+        case chat, app
     }
 
     /// The one door to `integration-action`.
@@ -783,18 +796,20 @@ final class IntegrationService: ObservableObject {
     private func invokeAction(
         provider: IntegrationProvider,
         action: String,
-        params: [String: String]
+        params: [String: String],
+        origin: ActionOrigin
     ) async throws -> Data {
         guard let supabase else { throw Unavailable.noClient }
         struct Request: Encodable {
             let provider: String
             let action: String
             let params: [String: String]
+            let origin: String
         }
         return try await supabase.functions.invoke(
             "integration-action",
             options: FunctionInvokeOptions(
-                body: Request(provider: provider.rawValue, action: action, params: params)
+                body: Request(provider: provider.rawValue, action: action, params: params, origin: origin.rawValue)
             ),
             decode: { data, _ in data }
         )

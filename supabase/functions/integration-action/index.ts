@@ -11,16 +11,23 @@
 // use, but a client's hidden button is a courtesy, not the gate.
 //
 // Request  (POST /functions/v1/integration-action):
-//   { "provider": "linear", "action": "search_issues", "params": { … } }
+//   { "provider": "linear", "action": "search_issues", "params": { … }, "origin"?: "chat" | "app" }
 // Response: { "result": … } or { "error": { "code", "message" } }
 //
 // Errors come back 200 with an `error` body when the model can do something
 // about them — "not connected", "which team?" — because a failed HTTP call ends
 // the agent turn while a readable error lets it recover or ask.
-import { json } from "../_shared/http.ts";
-import { authenticate } from "../_shared/supabase.ts";
+import { isObject, json } from "../_shared/http.ts";
+import { adminClient, authenticate } from "../_shared/supabase.ts";
 import { ActionError, resolveConnection } from "../_shared/integrations/pipedream.ts";
 import { apiBase, handlerFor, hasActions } from "../_shared/integrations/registry.ts";
+import { isMetered } from "../_shared/integrations/metering.ts";
+import { recordUsage } from "../_shared/usage.ts";
+
+// What a metered action costs us at the broker, per call, so the row carries a
+// number the founder dashboard can add up. Pipedream's list rate for a Connect
+// credit; a proxied read is one credit.
+const CREDIT_COST_USD = 0.012;
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
@@ -35,6 +42,7 @@ Deno.serve(async (req) => {
   const provider = body?.provider;
   const action = body?.action;
   const params = (body?.params ?? {}) as Record<string, unknown>;
+  const origin = body?.origin;
 
   if (typeof provider !== "string" || !hasActions(provider)) {
     return json({ error: { code: "unknown_provider", message: "Unknown provider." } }, 400);
@@ -48,8 +56,50 @@ Deno.serve(async (req) => {
     return json({ error: { code: "unknown_action", message: `${provider} has no action \`${action}\`.` } }, 400);
   }
 
+  // The gate and the connection are two reads keyed on the same person, so
+  // they are asked together; the gate is answered first. Read through the
+  // resolver, like every other gate: a workspace's pool, or the person's own.
+  const metered = isMetered(action, origin);
+  const [gate, resolved] = await Promise.all([
+    metered ? adminClient().rpc("resolve_entitlement", { p_user_id: user.id }) : Promise.resolve(null),
+    resolveConnection(user.id, provider, apiBase(provider) ?? "").then(
+      (connection) => ({ connection }),
+      (error: unknown) => ({ error }),
+    ),
+  ]);
+
+  let orgId: string | null = null;
+  if (gate) {
+    const { data: entitlement, error } = gate;
+    if (error || !isObject(entitlement)) {
+      console.warn(`integration action entitlement lookup failed (fail-open): ${error?.message ?? "unexpected shape"}`);
+    } else {
+      // `=== false`, not `!== true`: a resolver that predates the pool answers
+      // with no key at all, and the app treats that as "no ceiling". The
+      // gate says the same, or a function deployed ahead of its migration
+      // refuses every read.
+      if (entitlement.can_run_integration_action === false) {
+        const active = entitlement.status === "active" || entitlement.status === "trialing";
+        return json({
+          error: {
+            code: "integration_credits_exhausted",
+            message: active
+              ? "This period's integration credits are used up. Answer with what you already know; the user can add credits from Settings → Subscription, or a workspace owner or admin from Organization → Billing."
+              : "The user has no active plan, so connected tools cannot be read. Answer with what you already know.",
+          },
+        }, 200);
+      }
+      orgId = entitlement.payer === "organization" && typeof entitlement.org_id === "string" ? entitlement.org_id : null;
+    }
+  }
+
+  // Charged once the broker was actually called, whether or not the provider
+  // answered well: Connect bills the attempt. Anything refused before that —
+  // not connected, a missing parameter, an ambiguous team — costs nothing on
+  // either side, so a model retrying bad arguments cannot drain the pool.
+  const connection = "connection" in resolved ? resolved.connection : null;
   try {
-    const connection = await resolveConnection(user.id, provider, apiBase(provider) ?? "");
+    if (!connection) throw "error" in resolved ? resolved.error : new Error("no connection");
     const result = await handler(connection, params, { userId: user.id });
     console.info(`integration action ok: ${provider}.${action}`);
     return json({ result }, 200);
@@ -60,5 +110,17 @@ Deno.serve(async (req) => {
     }
     console.error(`integration action ${provider}.${action} crashed: ${error}`);
     return json({ error: { code: "internal", message: "The action failed." } }, 500);
+  } finally {
+    if (metered && (connection?.proxied ?? 0) > 0) {
+      await recordUsage({
+        user_id: user.id,
+        kind: "integration",
+        model: `${provider}.${action}`,
+        status: 200,
+        cost_usd: CREDIT_COST_USD,
+        task: "ask",
+        org_id: orgId,
+      });
+    }
   }
 });
