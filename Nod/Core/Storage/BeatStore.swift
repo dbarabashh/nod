@@ -138,6 +138,7 @@ final class BeatStore: ObservableObject {
         minute: Int,
         weekday: Int = 1,
         dayOfMonth: Int = 1,
+        providers: [IntegrationProvider]? = nil,
         timezone: String = TimeZone.current.identifier
     ) async -> Beat? {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -156,6 +157,7 @@ final class BeatStore: ObservableObject {
             dayOfMonth: dayOfMonth,
             timezone: timezone,
             enabled: true,
+            providers: providers,
             nextRunAt: nil,
             createdAt: nil
         )

@@ -33,6 +33,9 @@ struct Beat: Codable, Identifiable, Equatable {
     var dayOfMonth: Int
     var timezone: String
     var enabled: Bool
+    /// The connected products this beat may read. Nil is every product the
+    /// person has connected; empty is none.
+    var providers: [IntegrationProvider]?
     let nextRunAt: Date?
     let createdAt: Date?
 
@@ -48,8 +51,62 @@ struct Beat: Codable, Identifiable, Equatable {
         case dayOfMonth = "day_of_month"
         case timezone
         case enabled
+        case providers
         case nextRunAt = "next_run_at"
         case createdAt = "created_at"
+    }
+
+    init(
+        id: UUID,
+        userID: UUID,
+        title: String,
+        prompt: String,
+        cadence: Cadence,
+        hour: Int,
+        minute: Int,
+        weekday: Int,
+        dayOfMonth: Int,
+        timezone: String,
+        enabled: Bool,
+        providers: [IntegrationProvider]? = nil,
+        nextRunAt: Date?,
+        createdAt: Date?
+    ) {
+        self.id = id
+        self.userID = userID
+        self.title = title
+        self.prompt = prompt
+        self.cadence = cadence
+        self.hour = hour
+        self.minute = minute
+        self.weekday = weekday
+        self.dayOfMonth = dayOfMonth
+        self.timezone = timezone
+        self.enabled = enabled
+        self.providers = providers
+        self.nextRunAt = nextRunAt
+        self.createdAt = createdAt
+    }
+
+    /// A slug this build does not know is dropped rather than failing the
+    /// whole beat: a product added later must not hide the beats that name it.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        userID = try container.decode(UUID.self, forKey: .userID)
+        title = try container.decode(String.self, forKey: .title)
+        prompt = try container.decode(String.self, forKey: .prompt)
+        cadence = try container.decode(Cadence.self, forKey: .cadence)
+        hour = try container.decode(Int.self, forKey: .hour)
+        minute = try container.decode(Int.self, forKey: .minute)
+        weekday = try container.decode(Int.self, forKey: .weekday)
+        dayOfMonth = try container.decode(Int.self, forKey: .dayOfMonth)
+        timezone = try container.decode(String.self, forKey: .timezone)
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+        providers = try container.decodeIfPresent([String].self, forKey: .providers)?
+            .compactMap(IntegrationProvider.init(rawValue:))
+        nextRunAt = try container.decodeIfPresent(Date.self, forKey: .nextRunAt)
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
     }
 
     /// Insert payload. `next_run_at` and `created_at` are server-owned — a
@@ -68,6 +125,7 @@ struct Beat: Codable, Identifiable, Equatable {
         try container.encode(dayOfMonth, forKey: .dayOfMonth)
         try container.encode(timezone, forKey: .timezone)
         try container.encode(enabled, forKey: .enabled)
+        try container.encode(providers?.map(\.rawValue), forKey: .providers)
     }
 
     var displayTitle: String {

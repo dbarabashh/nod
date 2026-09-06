@@ -107,7 +107,7 @@ final class BeatRunner: ObservableObject {
         }
         let started = ContinuousClock.now
         chat.startNewThread()
-        await chat.ask(beat.prompt)
+        await chat.ask(beat.prompt, products: beat.providers)
         guard let threadID = chat.threadID else {
             await beats.fail(claimed.id, reason: chat.failure?.message ?? "The answer could not be saved.")
             Log.ui.error("beat \(beat.displayTitle) produced no thread")
