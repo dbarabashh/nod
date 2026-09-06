@@ -313,6 +313,7 @@
 		97BAD20279199CD41CA33700 /* ConceptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6853F5AE399298C5095FF686 /* ConceptTests.swift */; };
 		98B2905254779E89A9483FA0 /* Meeting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D29E16C2F0B2E3B6F300CDE /* Meeting.swift */; };
 		98F2A0F8EC1E79AFE0E92184 /* PromptTailLanguageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCC5A77B5474D8F0A93528D3 /* PromptTailLanguageTests.swift */; };
+		99C7360408C96CA484630000 /* CrashReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25CBB14C470EFB5B829E1B89 /* CrashReporting.swift */; };
 		99CF191E53AD421F5EF9F205 /* LiveMeetingAnalystTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6C7D15D215FA2082DB86C32 /* LiveMeetingAnalystTests.swift */; };
 		99DAC5B2312683C254865BD2 /* OrganizationOverview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B941C19DD34AD9C5247BC7 /* OrganizationOverview.swift */; };
 		9A41E20961D847438D97AB67 /* MeetingStoreMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71D490D0577937862FE6A22 /* MeetingStoreMergeTests.swift */; };
@@ -402,6 +403,7 @@
 		C9DF023BC2973920976ACD4D /* DemoDirector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D61035651485268416FBDA8 /* DemoDirector.swift */; };
 		CA5650CBF3F0982F4117AEFF /* CatalogueRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DDB0ECEF713AE24C9FF9DFB /* CatalogueRow.swift */; };
 		CAA2260E98A8D49A4039586F /* PromptLibrary+Extraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AEE025DF0CCB53B16B2FE1F /* PromptLibrary+Extraction.swift */; };
+		CAB053326BEDB8678576CA03 /* CrashReportingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD822DA47272D8A7890C220 /* CrashReportingTests.swift */; };
 		CAD36FC8E16D240932D2A0E1 /* HeldQuestionRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EADC381495152222701B304 /* HeldQuestionRecorder.swift */; };
 		CB089E68E792F7D123B9BD1E /* TooltipPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCACAA7C7EF18D808DBBB25 /* TooltipPlacementTests.swift */; };
 		CB4063FA642B571B7933C3A5 /* ScreenTextRecognizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECABE4A3FD41FA08CB5597C /* ScreenTextRecognizerTests.swift */; };
@@ -431,10 +433,12 @@
 		D7E2D914A12612D46977211E /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE28F6AA9F8A89E081448732 /* Connection.swift */; };
 		D880C2CAB023E6E99D449C82 /* NotchSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53AA683086CC01B4589E5B69 /* NotchSetup.swift */; };
 		D891613014AF43BEB5C82E55 /* PromptLibrary+Assist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E262BBE3ACF9732C0FDA8EE /* PromptLibrary+Assist.swift */; };
+		D8CF8B50C4D4E1200812A16E /* DiagnosticsChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872FD52D2D347C93DF346E96 /* DiagnosticsChoice.swift */; };
 		D90D0BDAEF6DBBFF0FABDC6B /* AppearancePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DD4A68D8E88ECBCB84B90E2 /* AppearancePreference.swift */; };
 		D91349578F2E855B7ECFB818 /* ScreenBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 573E11866E242C3F0BA5D6AC /* ScreenBudgetTests.swift */; };
 		D979A638DDC7CA60C4B767CD /* ServerError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88D0543E3FE7068DF6906A0C /* ServerError.swift */; };
 		D984A6B0A241FE07CEDD8B81 /* VoiceChatWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C7113D4E2BE82D27A103A0 /* VoiceChatWindowTests.swift */; };
+		DAB81F141638B9D53E0731CF /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 7677956FECF7C5D8C7F1B648 /* Sentry */; };
 		DAD57B9415A070B133BB16BF /* PromptLibrary+Task.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E2D736A1AB7EA4EA4214B4 /* PromptLibrary+Task.swift */; };
 		DB440E5D9C513F7B9CFA1639 /* ViewWidthReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8E532D092AC652ED8FE19B2 /* ViewWidthReader.swift */; };
 		DBB24079D9D283AC777AA3EC /* IntegrationFreshnessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A4986353E0094C1CF0EC15 /* IntegrationFreshnessTests.swift */; };
@@ -621,6 +625,7 @@
 		246A91E973D648E863F689F3 /* TodayCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayCards.swift; sourceTree = "<group>"; };
 		256900EE119D73E24C5BB6A3 /* MeetingDetailChips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingDetailChips.swift; sourceTree = "<group>"; };
 		25AC2A9B11485458A7A6D352 /* LiveMeetingAnalyst+Settlement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LiveMeetingAnalyst+Settlement.swift"; sourceTree = "<group>"; };
+		25CBB14C470EFB5B829E1B89 /* CrashReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporting.swift; sourceTree = "<group>"; };
 		2639554E40767ADB6818B63C /* SupportSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportSection.swift; sourceTree = "<group>"; };
 		266D9BC4EB3B4D14F9C217DD /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		27470CFBCF4474C0A4CDFF46 /* AttributionRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttributionRelay.swift; sourceTree = "<group>"; };
@@ -835,6 +840,7 @@
 		86B941C19DD34AD9C5247BC7 /* OrganizationOverview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrganizationOverview.swift; sourceTree = "<group>"; };
 		86C2AEF0258D0210A93932E6 /* NotchAskPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchAskPanel.swift; sourceTree = "<group>"; };
 		872EE05908937004E97ECE11 /* KnowledgeChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeChatView.swift; sourceTree = "<group>"; };
+		872FD52D2D347C93DF346E96 /* DiagnosticsChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsChoice.swift; sourceTree = "<group>"; };
 		87586E3F354FB30A3844F7C3 /* LiveLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveLookup.swift; sourceTree = "<group>"; };
 		879FF1EE856AFC4ACAA628E2 /* Concept.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Concept.swift; sourceTree = "<group>"; };
 		8832BAD2DAAE05BEC82F0569 /* ChatHomeSuggestionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHomeSuggestionsTests.swift; sourceTree = "<group>"; };
@@ -1019,6 +1025,7 @@
 		DC58FA0EB4DF64C449857718 /* TranscriptOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptOrderingTests.swift; sourceTree = "<group>"; };
 		DC80AF2B31FAC0D973F4DEB9 /* MeetingStoreTrashChangeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingStoreTrashChangeTests.swift; sourceTree = "<group>"; };
 		DD172F6445902644F14E924F /* ChatTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTools.swift; sourceTree = "<group>"; };
+		DFD822DA47272D8A7890C220 /* CrashReportingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReportingTests.swift; sourceTree = "<group>"; };
 		E0C431767878A03C0AB833CA /* Nod.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Nod.entitlements; sourceTree = "<group>"; };
 		E15AD36808CDF3F9B679C536 /* MeetingParticipants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingParticipants.swift; sourceTree = "<group>"; };
 		E2AE2DC62AC838C93F79A66F /* PersonRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonRow.swift; sourceTree = "<group>"; };
@@ -1087,6 +1094,7 @@
 				2484EA93E6A4F4DC7305E7BE /* Supabase in Frameworks */,
 				AFEE441085ADE17C5D17D3B5 /* Sparkle in Frameworks */,
 				869D621D2D080A416C7516FB /* SpeakerKit in Frameworks */,
+				DAB81F141638B9D53E0731CF /* Sentry in Frameworks */,
 				502B52A47B55266A19FD9D06 /* sherpa-onnx.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1459,6 +1467,7 @@
 			isa = PBXGroup;
 			children = (
 				AD2C15CA71714F0200AD4631 /* CalendarPrompt.swift */,
+				872FD52D2D347C93DF346E96 /* DiagnosticsChoice.swift */,
 				6E7DB2CEFD16D7D1AA1C6DC9 /* OnboardingProgress.swift */,
 				736C5AC42FF7736D5C14B5C5 /* OnboardingState.swift */,
 				73358F5121D4B8DF22D81BF2 /* OnboardingStrings.swift */,
@@ -1510,6 +1519,7 @@
 				17FD9439B07D28CDAAA0F64A /* ChatToolGateTests.swift */,
 				6853F5AE399298C5095FF686 /* ConceptTests.swift */,
 				4437D30BD7C858B82BE704B7 /* ConnectedToolsPromptTests.swift */,
+				DFD822DA47272D8A7890C220 /* CrashReportingTests.swift */,
 				8F102E052CC755FB85E17782 /* DesignScaleTests.swift */,
 				E534C9790B566651C2DE985F /* DiarizationBenchmarkTests.swift */,
 				10DF54ECE09256160EB708EF /* DiarizationScore.swift */,
@@ -1778,6 +1788,7 @@
 				AE7A64513B1E469B1353E85F /* Backend */,
 				7DF3DEBBDF7CDE16109B21F5 /* Calendar */,
 				5308CBEED2F30F8CE748E3F2 /* DesignSystem */,
+				F96371872EA165084FC8DF49 /* Diagnostics */,
 				7A2FC19A9A191B5332AA6371 /* Hotkeys */,
 				C9016F7EB50DFED3790D0170 /* Language */,
 				99C5BFA16DE3C0A3CE1794AD /* LLM */,
@@ -1955,6 +1966,14 @@
 			path = Permissions;
 			sourceTree = "<group>";
 		};
+		F96371872EA165084FC8DF49 /* Diagnostics */ = {
+			isa = PBXGroup;
+			children = (
+				25CBB14C470EFB5B829E1B89 /* CrashReporting.swift */,
+			);
+			path = Diagnostics;
+			sourceTree = "<group>";
+		};
 		FCBE9254775DB1764278A325 /* Consent */ = {
 			isa = PBXGroup;
 			children = (
@@ -1987,6 +2006,7 @@
 				FD9425C84A5944FADFEE1DC0 /* Supabase */,
 				F9647C7A89FF4FDC6C10C454 /* Sparkle */,
 				B6B05AD5320B14CDB0588C6D /* SpeakerKit */,
+				7677956FECF7C5D8C7F1B648 /* Sentry */,
 			);
 			productName = Nod;
 			productReference = 4940AE0F466E23E8BD4994BD /* Nod.app */;
@@ -2040,6 +2060,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A57E7F81B6614A46E663563C /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
+				633BA966E31445AADB277354 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				BF172EF072AE5B2CA2452C86 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				014C2426E033A6DB50C0D0FD /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
@@ -2152,6 +2173,7 @@
 				9B9687932DA49570641095EA /* ChatToolGateTests.swift in Sources */,
 				97BAD20279199CD41CA33700 /* ConceptTests.swift in Sources */,
 				B17DB85245CAD65B3B7D7473 /* ConnectedToolsPromptTests.swift in Sources */,
+				CAB053326BEDB8678576CA03 /* CrashReportingTests.swift in Sources */,
 				88F3EFF2CEB92A1836A1C117 /* DesignScaleTests.swift in Sources */,
 				F8330655C3816A314EF35541 /* DiarizationBenchmarkTests.swift in Sources */,
 				FD8DD4296E60C631F106DE30 /* DiarizationScore.swift in Sources */,
@@ -2331,6 +2353,7 @@
 				AB9180C08829E72F431FF696 /* ConsentPreference.swift in Sources */,
 				216A59639956435390A597C8 /* ConsentStrings.swift in Sources */,
 				4F9C0767EBFC5E618B244DCB /* ContextColumnWidth.swift in Sources */,
+				99C7360408C96CA484630000 /* CrashReporting.swift in Sources */,
 				A8F49736506492DAAC70ADDA /* DayCount.swift in Sources */,
 				DED51029EFE5C033B4579919 /* DeadlinePill.swift in Sources */,
 				95EF0DE5BA1CF649181D283E /* DebugAudioDump.swift in Sources */,
@@ -2360,6 +2383,7 @@
 				EBEC61C56622C9628CAD0CEE /* DesignTokens.swift in Sources */,
 				4FBC3EEDE3B1DB238F4167D7 /* DestructiveActionCard.swift in Sources */,
 				1CDD698E65F33BFF1289D19F /* DeviceIdentity.swift in Sources */,
+				D8CF8B50C4D4E1200812A16E /* DiagnosticsChoice.swift in Sources */,
 				BF524B87A98F0B94E3219E90 /* DiarizationBuffer.swift in Sources */,
 				B91DB51FD48D7C5DF474AC5F /* EditableRecap.swift in Sources */,
 				557E83175EACAE0AC53ABE20 /* EmailConsentChoices.swift in Sources */,
@@ -2706,6 +2730,8 @@
 					"@executable_path/../Frameworks",
 				);
 				NOD_FEED_URL = "https://hellonod.app/appcast.xml";
+				NOD_SENTRY_DSN = "https://a7f3654f767a0e5eed435400dadb4eee@o4512040805335040.ingest.de.sentry.io/4512040812281936";
+				NOD_SENTRY_ENVIRONMENT = production;
 				NOD_URL_SCHEME = nod;
 				OTHER_LDFLAGS = (
 					"-lc++",
@@ -2943,6 +2969,8 @@
 					"@executable_path/../Frameworks",
 				);
 				NOD_FEED_URL = "https://hellonod.app/appcast.xml";
+				NOD_SENTRY_DSN = "";
+				NOD_SENTRY_ENVIRONMENT = debug;
 				NOD_URL_SCHEME = nod;
 				OTHER_LDFLAGS = (
 					"-lc++",
@@ -2971,6 +2999,8 @@
 					"@executable_path/../Frameworks",
 				);
 				NOD_FEED_URL = "https://hellonod.app/appcast-sandbox.xml";
+				NOD_SENTRY_DSN = "https://eadd66bb41749dc9b07c626058224d62@o4512040805335040.ingest.de.sentry.io/4512040816803920";
+				NOD_SENTRY_ENVIRONMENT = sandbox;
 				NOD_URL_SCHEME = "nod-sandbox";
 				OTHER_LDFLAGS = (
 					"-lc++",
@@ -3030,6 +3060,14 @@
 				minimumVersion = 2.0.0;
 			};
 		};
+		633BA966E31445AADB277354 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/getsentry/sentry-cocoa.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.27.0;
+			};
+		};
 		A57E7F81B6614A46E663563C /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git";
@@ -3049,6 +3087,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		7677956FECF7C5D8C7F1B648 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 633BA966E31445AADB277354 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
+		};
 		B6B05AD5320B14CDB0588C6D /* SpeakerKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A57E7F81B6614A46E663563C /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;

@@ -14,6 +14,9 @@ packages:
   ArgmaxOSS:
     url: https://github.com/argmaxinc/argmax-oss-swift.git
     from: 1.0.0
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa.git
+    from: 9.27.0
 configs:
   Debug: debug
   Release: release
@@ -45,6 +48,8 @@ targets:
         product: Sparkle
       - package: ArgmaxOSS
         product: SpeakerKit
+      - package: Sentry
+        product: Sentry
       # Universal (arm64+x86_64) static VAD lib with onnxruntime bundled —
       # links into the app binary, so nothing extra to embed/sign.
       - framework: Vendor/sherpa-onnx.xcframework
@@ -79,6 +84,8 @@ targets:
             CFBundleURLSchemes:
               - $(NOD_URL_SCHEME)
         SUFeedURL: "$(NOD_FEED_URL)"
+        NodSentryDSN: "$(NOD_SENTRY_DSN)"
+        NodSentryEnvironment: "$(NOD_SENTRY_ENVIRONMENT)"
         SUPublicEDKey: "/uu8USNElUMN+Bbw/SPdJywlJq2XfEVI/Rf+W7XzFBw="
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 14400
@@ -95,8 +102,16 @@ targets:
         OTHER_LDFLAGS: [-lc++]
         NOD_FEED_URL: https://hellonod.app/appcast.xml
         NOD_URL_SCHEME: nod
+        # Crash reports. Empty is "off": the SDK does not start without a DSN,
+        # and Debug leaves it empty so a developer's crashes stay their own.
+        # The prod and sandbox values are Sentry projects, not secrets — a DSN
+        # only lets a client submit — and are filled per configuration below.
+        NOD_SENTRY_DSN: ""
+        NOD_SENTRY_ENVIRONMENT: debug
       configs:
         Sandbox:
+          NOD_SENTRY_DSN: https://eadd66bb41749dc9b07c626058224d62@o4512040805335040.ingest.de.sentry.io/4512040816803920
+          NOD_SENTRY_ENVIRONMENT: sandbox
           # Its own feed, and never the public one. A build pointed at the
           # sandbox database must not be reachable by an appcast item built
           # against prod — Sparkle would install it happily and the app would
@@ -113,6 +128,8 @@ targets:
           STRIP_STYLE: all
           STRIP_SWIFT_SYMBOLS: YES
         Release:
+          NOD_SENTRY_DSN: https://a7f3654f767a0e5eed435400dadb4eee@o4512040805335040.ingest.de.sentry.io/4512040812281936
+          NOD_SENTRY_ENVIRONMENT: production
           # Strip the symbol table from shipped binaries so `nm` reveals no
           # internal names. Postprocessing makes stripping run on plain Release
           # builds too, not only `xcodebuild archive`. Swift type metadata

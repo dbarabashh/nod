@@ -66,6 +66,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Before anything else can crash, on the main thread as the SDK requires.
+        CrashReporting.start()
         let services = AppServices.make()
         let windows = WindowCoordinator(services: services)
         let statusBar = StatusItemController(

@@ -339,6 +339,28 @@ sidebar shows an "Update Nod" row above Ambient Context until the build is
 installed, the feed no longer offers it, or the person skips it in Sparkle's
 own prompt; the offer is remembered across launches (`update.available`).
 
+## Crash reports (Sentry)
+
+`Nod/Core/Diagnostics/CrashReporting.swift` starts the Sentry SDK only when
+the build carries a DSN. The DSN is a per-configuration build setting in
+`project.yml` (`NOD_SENTRY_DSN`, with `NOD_SENTRY_ENVIRONMENT` beside it):
+Debug is empty on purpose, Release and Sandbox take the prod and sandbox
+Sentry projects' DSNs. A DSN is a submit-only key, not a secret, and the
+values are set once in `project.yml` rather than injected at release time.
+
+Release builds are stripped (`STRIP_INSTALLED_PRODUCT`), so a production
+stack trace is unreadable in Sentry until the build's dSYM is uploaded. Until
+that step is in `scripts/release.sh`, upload by hand after notarization:
+
+```sh
+brew install getsentry/tools/sentry-cli
+sentry-cli debug-files upload --org <org> --project <project> \
+  "build/Nod.xcarchive/dSYMs"
+```
+
+What a report may contain is bound to `privacy.md` § 3.17; change the options
+in `CrashReporting.swift` and that section moves with them.
+
 ## Website download button (in nod-landing)
 
 ```html

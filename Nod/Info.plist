@@ -43,6 +43,10 @@
 	<string>Nod needs screen recording permission to capture your Mac's own audio — the other side of a call. The screen itself is never recorded.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Nod uses speech recognition to transcribe what is said in the sessions you capture.</string>
+	<key>NodSentryDSN</key>
+	<string>$(NOD_SENTRY_DSN)</string>
+	<key>NodSentryEnvironment</key>
+	<string>$(NOD_SENTRY_ENVIRONMENT)</string>
 	<key>SUAutomaticallyUpdate</key>
 	<true/>
 	<key>SUEnableAutomaticChecks</key>
