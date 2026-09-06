@@ -8,8 +8,8 @@ is ticked. `docs/supabase.md` stays the durable reference.
 State of the work needed before the 142 migrations on `integrations` that
 production does not have (255 in git + 4 added here, minus the 117 production
 already carries) can be pushed to `lptqvnizjwglilgeukwx`. Nothing here has
-been applied to production. The sandbox (`zdpvmwqauczsfwlgflas`) has **not**
-had the four new migrations applied either — see "Apply to sandbox".
+been applied to production. The sandbox (`zdpvmwqauczsfwlgflas`) carries all
+259 as of 2026-09-06.
 
 ## What was verified on 2026-09-06
 
@@ -60,21 +60,14 @@ had the four new migrations applied either — see "Apply to sandbox".
 
 ## Before the push
 
-- [ ] **Apply the four new migrations to the sandbox** and re-run the
-      Security Advisor there. The MCP write path is blocked for this session;
-      use the CLI against the branch:
-
-      ```sh
-      SUPABASE_ACCESS_TOKEN=sbp_… supabase link --project-ref zdpvmwqauczsfwlgflas
-      supabase db push --dry-run
-      supabase db push
-      supabase link --project-ref lptqvnizjwglilgeukwx    # relink to prod afterwards
-      ```
-
-      Expected on the sandbox: `meeting_shares.id` comes back, the advisor's
-      mutable-`search_path` list shrinks to `match_knowledge_events`, the
-      `private` schema has no table without RLS, and the definer-function
-      count executable by `authenticated` drops by one.
+- [x] **Apply the four new migrations to the sandbox** — done 2026-09-06
+      through the MCP write path, with the four versions recorded in
+      `schema_migrations` byte-identical to the git files (md5 of
+      `statements[1]` matches each file). Security Advisor afterwards: 163
+      findings, down from 167 — mutable `search_path` is now only
+      `match_knowledge_events`, no table in `private` lacks RLS, the
+      `authenticated` definer count is 121, `anon` stays at 9 (6 canonical +
+      the 3 deck functions below).
 
 - [ ] **Decide the sandbox-only objects.** Recommended: drop
       `knowledge_events`, `decisions`, `decision_events`,
@@ -157,6 +150,3 @@ had the four new migrations applied either — see "Apply to sandbox".
 
 - No production query was run from this session. Every production fact
   above is either from git or from the audit that prompted this document.
-- The four new migrations were not pushed to the sandbox from this session
-  (write path blocked), so the sandbox advisor numbers in the audit still
-  stand until the first checkbox is done.
