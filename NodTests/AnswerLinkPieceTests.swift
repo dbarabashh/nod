@@ -15,6 +15,7 @@ final class AnswerLinkPieceTests: XCTestCase {
             case .links: "links"
             case .heading: "heading"
             case .rule: "rule"
+            case .list: "list"
             }
         }
     }
@@ -26,7 +27,7 @@ final class AnswerLinkPieceTests: XCTestCase {
     /// The case from the screenshot: a sentence, then the ticket it names, in
     /// one paragraph. This used to render the ticket as blue markdown text.
     func testASentenceFollowedByItsReferenceSplitsInTwo() {
-        XCTAssertEqual(kinds("- **Consent:** уже є відкрита задача\n\(link)"), ["prose", "links"])
+        XCTAssertEqual(kinds("- **Consent:** уже є відкрита задача\n\(link)"), ["list", "links"])
     }
 
     func testSeveralReferencesUnderOneSentenceStayOneRow() {

@@ -288,12 +288,24 @@ struct AnswerPiece: Identifiable {
     enum Content {
         case prose(AttributedString)
         case links([ProviderLinkItem])
-        /// A `## ` line. `renderRecapMarkdown` parses inline-only — block
+        /// A `#`–`####` line. `renderRecapMarkdown` parses inline-only — block
         /// syntax would collapse the line breaks the answers rely on — so a
         /// heading reaches it as literal hashes unless it is split off here.
         case heading(String)
         /// A `---` line on its own, drawn as a rule rather than three dashes.
         case rule
+        /// A run of list items. Inline-only parsing leaves `- ` as a literal
+        /// dash and flattens the indent that carries nesting, so the marker and
+        /// the depth are read off here and drawn as a hanging bullet.
+        case list([ListItem])
+    }
+
+    struct ListItem: Equatable {
+        /// `0` is the outer list; each two-space (or tab) indent is one deeper.
+        let level: Int
+        /// What is drawn before the text: a bullet, or the number the model wrote.
+        let marker: String
+        let text: AttributedString
     }
 
     /// Position, not text: blocks are append-only while an answer streams, so
@@ -316,6 +328,7 @@ struct AnswerPiece: Identifiable {
         var pieces: [AnswerPiece] = []
         var prose: [String] = []
         var links: [ProviderLinkItem] = []
+        var items: [(level: Int, marker: String, lines: [String])] = []
 
         func flushProse() {
             guard !prose.isEmpty else { return }
@@ -327,35 +340,77 @@ struct AnswerPiece: Identifiable {
 
         func flushLinks() {
             guard !links.isEmpty else { return }
-            let items = links
+            let list = links
             links = []
-            pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .links(items)))
+            pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .links(list)))
+        }
+
+        func flushItems() {
+            guard !items.isEmpty else { return }
+            let rendered = items.map { item in
+                ListItem(level: item.level, marker: item.marker, text: renderRecapMarkdown(item.lines.joined(separator: " ")))
+            }
+            items = []
+            pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .list(rendered)))
         }
 
         for line in block.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if let item = ProviderLinkItem.item(in: line) {
                 flushProse()
+                flushItems()
                 links.append(item)
-            } else if trimmed.hasPrefix("## ") {
+            } else if let title = headingTitle(of: trimmed) {
                 flushProse()
                 flushLinks()
-                pieces.append(AnswerPiece(
-                    id: "\(index).\(pieces.count)",
-                    content: .heading(String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces))
-                ))
+                flushItems()
+                pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .heading(title)))
             } else if trimmed == "---" || trimmed == "***" {
                 flushProse()
                 flushLinks()
+                flushItems()
                 pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .rule))
+            } else if let item = listItem(of: line) {
+                flushProse()
+                flushLinks()
+                items.append((item.level, item.marker, [item.text]))
+            } else if !items.isEmpty, !trimmed.isEmpty, line.first?.isWhitespace == true {
+                // A wrapped line under the item it continues.
+                items[items.count - 1].lines.append(trimmed)
             } else {
                 flushLinks()
+                flushItems()
                 prose.append(line)
             }
         }
         flushProse()
         flushLinks()
+        flushItems()
         return pieces
+    }
+
+    /// `#` through `####`; every level draws the same, because an answer has
+    /// one kind of section and the model picks the count by mood.
+    private static func headingTitle(of trimmed: String) -> String? {
+        let hashes = trimmed.prefix { $0 == "#" }
+        guard (1 ... 4).contains(hashes.count), trimmed.dropFirst(hashes.count).first == " " else { return nil }
+        let title = trimmed.dropFirst(hashes.count).trimmingCharacters(in: .whitespaces)
+        return title.isEmpty ? nil : title
+    }
+
+    private static func listItem(of line: String) -> (level: Int, marker: String, text: String)? {
+        let indent = line.prefix { $0 == " " || $0 == "\t" }
+        let rest = line.dropFirst(indent.count)
+        let level = indent.reduce(0) { $0 + ($1 == "\t" ? 2 : 1) } / 2
+        if let first = rest.first, "-*+".contains(first), rest.dropFirst().first == " " {
+            return (level, "•", String(rest.dropFirst(2)))
+        }
+        let digits = rest.prefix { $0.isNumber }
+        guard !digits.isEmpty, digits.count <= 3 else { return nil }
+        let afterDigits = rest.dropFirst(digits.count)
+        guard let punctuation = afterDigits.first, punctuation == "." || punctuation == ")",
+              afterDigits.dropFirst().first == " " else { return nil }
+        return (level, "\(digits).", String(afterDigits.dropFirst(2)))
     }
 }
 
@@ -394,6 +449,20 @@ struct AnswerPieceView: View {
                 .fill(Theme.Palette.border)
                 .frame(height: 1)
                 .padding(.vertical, 2)
+        case let .list(items):
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(item.marker)
+                            .foregroundStyle(Theme.Palette.muted)
+                            .frame(minWidth: 10, alignment: .trailing)
+                        Text(item.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.leading, CGFloat(item.level) * 16)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
