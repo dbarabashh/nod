@@ -162,14 +162,16 @@ struct ChatCreditsNotice: View {
     }
 }
 
-#Preview {
-    let supabase = SupabaseClient(supabaseURL: SupabaseConfig.url, supabaseKey: SupabaseConfig.anonKey)
-    return ChatCreditsNotice()
-        .environmentObject(EntitlementService(supabase: supabase))
-        .environmentObject(BillingService(supabase: supabase))
-        .environmentObject(OrganizationService.preview(memberships: []))
-        .environmentObject(ProductAnalytics.preview)
-        .padding()
-        .frame(width: 520)
-        .background(Theme.Palette.bg)
-}
+#if DEBUG
+    #Preview {
+        let supabase = SupabaseClient(supabaseURL: SupabaseConfig.url, supabaseKey: SupabaseConfig.anonKey)
+        ChatCreditsNotice()
+            .environmentObject(EntitlementService(supabase: supabase))
+            .environmentObject(BillingService(supabase: supabase))
+            .environmentObject(OrganizationService.preview(memberships: []))
+            .environmentObject(ProductAnalytics.preview)
+            .padding()
+            .frame(width: 520)
+            .background(Theme.Palette.bg)
+    }
+#endif
