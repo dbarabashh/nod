@@ -473,6 +473,17 @@ sure you comply with the rules where you and your participants are located.
   (TLS 1.3 by default; TLS 1.1 and below are rejected).
 - Per-user Row-Level Security on every table in the `public` schema.
 
+### Crash reports
+
+When the app crashes or freezes it reports the stack trace, app version and
+channel, macOS version and Mac model to Sentry, and nothing else: the SDK runs
+with personal data, network breadcrumbs, screenshots and logs all switched off
+in code (`Nod/Core/Diagnostics/CrashReporting.swift`), and no report is ever
+attached to an account. Nothing is sent until the person has answered the
+question, asked once in setup or once after updating. Debug builds carry no
+reporting key and send nothing. Anyone can switch reporting off in
+Settings → Privacy.
+
 ### Software updates
 
 The macOS app updates itself through Sparkle. Every release is code-signed

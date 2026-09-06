@@ -153,6 +153,12 @@ the disclaimer version you saw, its language code, and the app version that
 wrote the row. This is a durable audit trail in case a meeting participant
 later disputes consent.
 
+The same table records your answer to the diagnostics question (§ 3.17): the
+version of the wording you saw, and which way the two switches were set, so
+that "were you asked, and what did you say" has an answer without reading
+your Mac. Changing a switch later in Settings is not written here; the
+switch itself is what governs.
+
 Legal basis: legitimate interest in maintaining a legal-defence record
 (Art. 6(1)(f)), balanced by the fact that the row contains no meeting
 content.
@@ -271,13 +277,11 @@ in the same `eu-west-1` region.
 ### 3.8 What we do **not** collect
 
 - The macOS app embeds **no** analytics SDKs (PostHog, Mixpanel, Amplitude,
-  Segment, Google Analytics, Sentry, etc.). The only in-app product telemetry
-  is first-party operational and funnel data stored in our own database. The
+  Segment, Google Analytics, etc.). The only in-app product telemetry is
+  first-party operational and funnel data stored in our own database. The
   marketing website analytics described in § 3.13 is optional and stays off
-  until you consent.
-- We do **not** collect crash reports or diagnostics automatically. The only
-  way a description of your Mac reaches us is an email you write and send
-  yourself (§ 3.17).
+  until you consent. The one third-party SDK in the app is the crash reporter
+  (§ 3.17), which sends nothing about you, and which you can switch off.
 - We do **not** collect arbitrary screen names, dwell time, typed questions,
   answers, errors, titles, clipboard contents, or meeting content in product
   telemetry. Only the bounded events and categories in § 3.5 are accepted.
@@ -754,7 +758,7 @@ automatically, and we have not built one.
 the follow-up work a meeting decided on. The offer itself is prepared for you;
 the act that reaches another system is always yours.
 
-### 3.17 App updates and support requests
+### 3.17 App updates, crash reports and support requests
 
 **Checking for updates.** The app asks `hellonod.app` for its update feed every
 four hours while it is running, when you choose *Check for Updates…* in the
@@ -768,6 +772,21 @@ newer build is offered, the app remembers its version number locally
 note is deleted once the build is installed, withdrawn, or skipped. Updates
 install when you quit the app. `hellonod.app` is hosted by Vercel (§ 5).
 
+**Crash reports.** When the app crashes or freezes, it sends a report to
+**Sentry** (Functional Software, Inc., § 5) so the fault can be fixed. A
+report holds the stack trace, the app version and channel, your macOS version
+and Mac model, and a random installation identifier the crash reporter keeps
+on your Mac. It holds **no** transcript, summary, question, answer, name,
+email address, account identifier or IP address: the reporter is configured
+not to send personal data, not to record network requests, screenshots or
+logs, and the app never attaches any. A small share of app launches also
+reports how long the launch took, with the same facts and nothing more.
+**Nothing is sent until you have been asked**: a new install asks during
+setup, and an install that updated into this version asks once in the main
+window, with the same two switches Settings → Privacy shows afterwards. The
+switch takes effect at once and holds across launches. Debug builds report
+nothing.
+
 **Request a feature / Report a bug.** Both buttons in Settings → General open
 a **draft** in whatever handles mail on your Mac, addressed to
 **dmytro@hellonod.app**. Below a space for your message, the draft is
@@ -779,7 +798,7 @@ leaves your Mac, you can delete any of it, and nothing is sent unless you send
 it. What you send is handled as correspondence with us (§ 7).
 
 **Legal basis.** Legitimate interests (Art. 6(1)(f)) — keeping the app you
-installed current and secure, and answering the question you sent.
+installed current, secure and working, and answering the question you sent.
 
 ## 4. Model training
 
@@ -888,6 +907,7 @@ We can provide our SCCs and transfer impact assessments on request to
 | Encrypted database backups           | 7 days rolling.                                                      |
 | Server logs (OpenRouter calls, etc.) | 30 days.                                                             |
 | Support correspondence (§ 3.17)      | Kept in our mailbox while the request is open and for as long as a later request may need to refer to it; ask and we delete it. |
+| Crash reports (§ 3.17)               | 90 days at Sentry, then deleted by Sentry's retention. |
 
 When you delete your account from **Settings → Privacy**, we erase your
 auth profile, meetings (active and trashed), transcripts, summaries, chats,

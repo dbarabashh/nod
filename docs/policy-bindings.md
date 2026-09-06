@@ -18,6 +18,7 @@ is set, so neither is claimed anywhere. All contact emails resolve to
 | What changed in code/infra | Update in `docs/policies/` |
 |---|---|
 | New/changed subprocessor (third-party API, OAuth provider, billing, analytics) | `subprocessors.md`, `privacy.md` § 3/5/6 |
+| Crash reporting: what `CrashReporting.swift` enables (`sendDefaultPii`, breadcrumbs, logs, sampling), the DSN per build configuration, the Privacy switch | `privacy.md` § 3.8 and § 3.17, § 7 retention row, `security.md` "Crash reports", `subprocessors.md` Sentry row |
 | Update cadence, feed host, or what Sparkle sends (`SUScheduledCheckInterval`, `NOD_FEED_URL`, `UpdaterChannelDelegate`); the support email's pre-filled facts (`SupportReport`) | `privacy.md` § 3.17 and § 7, `security.md` "Software updates", `terms.md` § 2, `subprocessors.md` Vercel row |
 | Website consent, Google Tag Manager/Analytics/Ads, campaign storage, or browser-to-app attribution changes | `cookies.md`, `privacy.md` § 3.13/11, `subprocessors.md`, and the matching pages in `../nod-landing` |
 | Connector OAuth scopes, token claims, grant revocation, MCP tools, or the user data returned by `supabase/functions/mcp` changes | `privacy.md` § 3.12/5, `security.md` "Official AI connectors" + "Access control", `subprocessors.md` "What we do not use", and the matching pages in `../nod-landing` |
