@@ -241,7 +241,7 @@ struct AppServices {
         let modeStore = ModeStore()
         let beats = BeatStore(supabase: supabase, auth: auth)
         let toolApproval = ToolApprovalPreference()
-        let toolApprovalLog = ToolApprovalLog(supabase: supabase)
+        let toolApprovalLog = ToolApprovalLog(supabase: supabase, auth: auth)
         // Three chats, one recipe: the attended one on screen, and one
         // unattended store per background writer (beats, agents) so a run at
         // 09:00 can't clear a conversation somebody is typing into — and so a
@@ -249,7 +249,10 @@ struct AppServices {
         func makeChat(
             unattended: Bool,
             readsRunUnasked: Bool = false,
-            toolApproval: ToolApprovalPreference? = nil,
+            // No default: a chat that shows cards has to be handed the
+            // preference, or "Always allow" writes a decision nothing reads.
+            // A chat whose reads run unasked shows no card and takes nil.
+            toolApproval: ToolApprovalPreference?,
             toolLog: ToolApprovalLog? = nil,
             maxTurns: Int? = nil
         ) -> KnowledgeChatStore {
@@ -276,15 +279,15 @@ struct AppServices {
                 maxTurns: maxTurns
             )
         }
-        let beatChat = makeChat(unattended: true)
+        let beatChat = makeChat(unattended: true, toolApproval: nil)
         // The agents' own unattended chat — see `makeChat`.
-        let agentChat = makeChat(unattended: true)
+        let agentChat = makeChat(unattended: true, toolApproval: nil)
         // A live voice conversation's own thread — never the Library's. It
         // remembers the last five exchanges so a follow-up ("and tomorrow?")
         // resolves without carrying the whole call's history forward forever,
         // and it survives the live session itself ending (a slipped tap, a
         // dropped connection) since it lives here, not inside the session.
-        let voiceChat = makeChat(unattended: false, readsRunUnasked: true, maxTurns: 5)
+        let voiceChat = makeChat(unattended: false, readsRunUnasked: true, toolApproval: nil, maxTurns: 5)
         let agentStore = AgentStore(
             supabase: supabase,
             chat: agentChat,
@@ -320,7 +323,7 @@ struct AppServices {
             entityStore: entityStore,
             actionItemStore: actionItemStore,
             knowledgeStore: knowledgeStore,
-            knowledgeChat: makeChat(unattended: false, toolLog: toolApprovalLog),
+            knowledgeChat: makeChat(unattended: false, toolApproval: toolApproval, toolLog: toolApprovalLog),
             voiceChat: voiceChat,
             knowledgeThreads: knowledgeThreads,
             agentStore: agentStore,

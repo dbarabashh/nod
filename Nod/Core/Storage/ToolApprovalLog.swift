@@ -14,28 +14,41 @@ import Supabase
 @MainActor
 final class ToolApprovalLog {
     private let supabase: SupabaseClient
+    private let auth: AuthService
 
-    init(supabase: SupabaseClient) {
+    init(supabase: SupabaseClient, auth: AuthService) {
         self.supabase = supabase
+        self.auth = auth
     }
 
     /// `unasked` marks reads that ran because the person set "allow reads" —
     /// recorded, but excluded from mining, or a standing preference would count
     /// as a hundred enthusiastic approvals.
-    nonisolated func record(
+    func record(
         provider: IntegrationProvider,
         tools: [ChatTool],
         allowed: Bool,
         unasked: Bool
     ) {
+        // The table's insert policy checks `user_id` against the caller, and
+        // nothing fills the column in: a row without it is refused, and this
+        // log stayed empty from the day it shipped.
+        guard let userID = auth.session?.user.id else { return }
         struct Row: Encodable {
+            let userID: UUID
             let provider: String
             let actions: [String]
             let mutating: Bool
             let allowed: Bool
             let unasked: Bool
+
+            enum CodingKeys: String, CodingKey {
+                case userID = "user_id"
+                case provider, actions, mutating, allowed, unasked
+            }
         }
         let row = Row(
+            userID: userID,
             provider: provider.rawValue,
             actions: tools.map(\.action),
             mutating: tools.contains { $0.mutating },
