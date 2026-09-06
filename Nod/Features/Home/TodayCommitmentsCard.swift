@@ -22,7 +22,11 @@ struct TodayCommitmentsCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var showAll = false
-    @State private var hoveredItemID: UUID?
+    /// The full list by the session that produced each item, rebuilt when the
+    /// items or the sessions change rather than on every body pass: with a
+    /// hundred open commitments the grouping and its date formatting were
+    /// running on each hover.
+    @State private var groups: [ActionGroup] = []
     /// Rows ticked but not yet gone. The store drops a done item from
     /// `openItems` at once, which read as the row vanishing under the click;
     /// the tick shows for a beat first, and a second click in that beat undoes it.
@@ -36,7 +40,7 @@ struct TodayCommitmentsCard: View {
     /// land: the drawer seeds its intent from `State(initialValue:)`, which is
     /// read once per view identity, so re-opening a form the person cancelled
     /// needs a new identity rather than a new value.
-    private struct Preselection: Equatable {
+    struct Preselection: Equatable {
         let itemID: UUID
         let intent: ActionIntent
         var token = UUID()
@@ -57,11 +61,6 @@ struct TodayCommitmentsCard: View {
         max(0, openItems.count - Self.rowLimit)
     }
 
-    /// The full list, by the session that produced each item.
-    private var groups: [ActionGroup] {
-        ActionGrouping.bySession(openItems, meetings: meetingStore.byID)
-    }
-
     private var intents: [ActionIntent] {
         ActionIntent.available(usable: integrations.isUsable)
     }
@@ -70,7 +69,7 @@ struct TodayCommitmentsCard: View {
         VStack(alignment: .leading, spacing: 8) {
             if showAll {
                 SectionLabel("Waiting on you")
-                VStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(groups) { group in
                         groupCard(group)
                             .zIndex(group.items.contains { $0.id == expandedItemID } ? 1 : 0)
@@ -88,6 +87,8 @@ struct TodayCommitmentsCard: View {
                 revealButton
             }
         }
+        .onChange(of: openItems) { _ in regroup() }
+        .onChange(of: meetingStore.digestKey) { _ in regroup() }
     }
 
     private var revealButton: some View {
@@ -95,6 +96,7 @@ struct TodayCommitmentsCard: View {
             withAnimation(.standard(reduceMotion: reduceMotion)) {
                 showAll.toggle()
                 collapsedGroupIDs = []
+                regroup()
                 collapse()
             }
         } label: {
@@ -107,8 +109,16 @@ struct TodayCommitmentsCard: View {
         .padding(.leading, 2)
     }
 
+    private func regroup() {
+        guard showAll else {
+            groups = []
+            return
+        }
+        groups = ActionGrouping.bySession(openItems, meetings: meetingStore.byID)
+    }
+
     private func groupCard(_ group: ActionGroup) -> some View {
-        VStack(spacing: 0) {
+        LazyVStack(spacing: 0) {
             groupHeader(group)
             if !collapsedGroupIDs.contains(group.id) {
                 ForEach(group.items) { item in
@@ -190,105 +200,22 @@ struct TodayCommitmentsCard: View {
     /// `showsSource` is false inside a group: the header above already names the
     /// session, and repeating it per row is the noise the grouping removes.
     private func row(_ item: ActionItem, showsSource: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            rowHeader(item, showsSource: showsSource)
-            if expandedItemID == item.id {
-                let picked = preselected?.itemID == item.id ? preselected : nil
-                ActionItemDrawer(
-                    item: item,
-                    sourceTitle: meetingStore.byID[item.meetingID]?
-                        .displayTitle(dateFormatter: Meeting.shortDateFormatter),
-                    ambientHints: ambientHints[item.id] ?? [],
-                    preselectedIntent: picked?.intent,
-                    onAsk: onAsk,
-                    onOpenSource: {
-                        if let meeting = meetingStore.byID[item.meetingID] { onOpenMeeting(meeting) }
-                    },
-                    onClose: { collapse() }
-                )
-                // A fresh token is a fresh identity, which is the only thing
-                // that re-seeds the drawer's intent — picking an outcome from
-                // the context menu of a row that is already open, or picking
-                // the same one twice, would otherwise change nothing.
-                .id(picked?.token)
-                .padding(.leading, 44)
-                .padding(.trailing, 14)
-                .padding(.bottom, 12)
-            }
-        }
-    }
-
-    private func rowHeader(_ item: ActionItem, showsSource: Bool) -> some View {
-        HStack(spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Button {
-                    toggleDone(item)
-                } label: {
-                    ActionCheckbox(done: item.done || settling[item.id] != nil)
-                }
-                .buttonStyle(.plain)
-                .linkCursor()
-                .help(item.done || settling[item.id] != nil ? "Reopen" : "Mark done")
-
-                // The click opens the actions, in place. The session is
-                // evidence — reachable as the header's arrow, or the drawer's
-                // quote — not where a task's click should land.
-                Button {
-                    toggle(item)
-                } label: {
-                    summary(of: item, showsSource: showsSource)
-                }
-                .buttonStyle(.plain)
-                .linkCursor()
-            }
-            trailingControls(item)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        // Inset well clear of the card's own 18pt corner, and a step lighter
-        // than the default: the rows already sit on a `surfaceCard` fill, and
-        // the two together read as a slab rather than a pointer.
-        .hoverHighlight(
-            hoveredItemID == item.id,
-            cornerRadius: 10,
-            reduceMotion: reduceMotion,
-            inset: CGSize(width: 6, height: 3),
-            fill: Theme.Palette.surface
+        CommitmentRow(
+            item: item,
+            showsSource: showsSource,
+            isExpanded: expandedItemID == item.id,
+            isSettling: settling[item.id] != nil,
+            ambientHints: ambientHints[item.id] ?? [],
+            preselection: preselected?.itemID == item.id ? preselected : nil,
+            intents: intents,
+            onToggleDone: { toggleDone(item) },
+            onToggle: { toggle(item) },
+            onOpen: { open(item) },
+            onPreselect: { preselect($0, for: item) },
+            onClose: collapse,
+            onAsk: onAsk,
+            onOpenMeeting: onOpenMeeting
         )
-        .onHover { hovering in
-            if hovering {
-                hoveredItemID = item.id
-            } else if hoveredItemID == item.id {
-                hoveredItemID = nil
-            }
-        }
-        .contextMenu { menu(for: item) }
-    }
-
-    private func summary(of item: ActionItem, showsSource: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(item.text)
-                .font(.system(size: 12.5))
-                .foregroundStyle(Theme.Palette.ink)
-                .strikethrough(settling[item.id] != nil, color: Theme.Palette.muted)
-                .opacity(settling[item.id] != nil ? 0.55 : 1)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-            meta(for: item, showsSource: showsSource)
-            if let hint = ambientHints[item.id]?.first {
-                HStack(spacing: 5) {
-                    Image("nc-window-pointer").icon(10)
-                    Text("Looks like you worked on this — \(hint.appDisplayName): \(hint.sourceTitle)")
-                        .lineLimit(1)
-                    Text("· Ambient · Private")
-                }
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.Palette.cyan)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
     }
 
     private func toggleDone(_ item: ActionItem) {
@@ -308,28 +235,178 @@ struct TodayCommitmentsCard: View {
         }
     }
 
-    private func trailingControls(_ item: ActionItem) -> some View {
-        HStack(spacing: 10) {
-            SecondaryPillButton("Take action") {
-                open(item)
+    private func preselect(_ intent: ActionIntent, for item: ActionItem) {
+        withAnimation(.standard(reduceMotion: reduceMotion)) {
+            preselected = Preselection(itemID: item.id, intent: intent)
+            expandedItemID = item.id
+        }
+    }
+
+    private func toggle(_ item: ActionItem) {
+        if expandedItemID == item.id {
+            collapse()
+        } else {
+            open(item)
+        }
+    }
+
+    private func open(_ item: ActionItem) {
+        preselected = nil
+        withAnimation(.standard(reduceMotion: reduceMotion)) {
+            expandedItemID = item.id
+        }
+    }
+
+    private func collapse() {
+        preselected = nil
+        withAnimation(.standard(reduceMotion: reduceMotion)) {
+            expandedItemID = nil
+        }
+    }
+}
+
+/// One commitment. Owns its own hover so the pointer crossing a row redraws
+/// that row alone: hover kept on the card re-evaluated every row it held, and
+/// a hundred of them under a moving cursor is what a frozen scroll was.
+private struct CommitmentRow: View {
+    let item: ActionItem
+    let showsSource: Bool
+    let isExpanded: Bool
+    let isSettling: Bool
+    let ambientHints: [ScreenObservation]
+    let preselection: TodayCommitmentsCard.Preselection?
+    let intents: [ActionIntent]
+    let onToggleDone: () -> Void
+    let onToggle: () -> Void
+    let onOpen: () -> Void
+    let onPreselect: (ActionIntent) -> Void
+    let onClose: () -> Void
+    let onAsk: (ActionDelegation.AskRequest) -> Void
+    let onOpenMeeting: (Meeting) -> Void
+
+    @EnvironmentObject private var meetingStore: MeetingStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+
+    private var showsHover: Bool {
+        isHovered && !isExpanded
+    }
+
+    private var isTicked: Bool {
+        item.done || isSettling
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            if isExpanded {
+                ActionItemDrawer(
+                    item: item,
+                    sourceTitle: meetingStore.byID[item.meetingID]?
+                        .displayTitle(dateFormatter: Meeting.shortDateFormatter),
+                    ambientHints: ambientHints,
+                    preselectedIntent: preselection?.intent,
+                    onAsk: onAsk,
+                    onOpenSource: {
+                        if let meeting = meetingStore.byID[item.meetingID] { onOpenMeeting(meeting) }
+                    },
+                    onClose: onClose
+                )
+                // A fresh token is a fresh identity, which is the only thing
+                // that re-seeds the drawer's intent — picking an outcome from
+                // the context menu of a row that is already open, or picking
+                // the same one twice, would otherwise change nothing.
+                .id(preselection?.token)
+                .padding(.leading, 44)
+                .padding(.trailing, 14)
+                .padding(.bottom, 12)
             }
-            .revealOnHover(
-                hoveredItemID == item.id && expandedItemID != item.id,
-                reduceMotion: reduceMotion,
-                anchor: .trailing,
-                scale: 0.96
-            )
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Button(action: onToggleDone) {
+                    ActionCheckbox(done: isTicked)
+                }
+                .buttonStyle(.plain)
+                .linkCursor()
+                .help(isTicked ? "Reopen" : "Mark done")
+
+                // The click opens the actions, in place. The session is
+                // evidence — reachable as the header's arrow, or the drawer's
+                // quote — not where a task's click should land.
+                Button(action: onToggle) {
+                    summary
+                }
+                .buttonStyle(.plain)
+                .linkCursor()
+            }
+            trailingControls
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        // Inset well clear of the card's own 18pt corner, and a step lighter
+        // than the default: the rows already sit on a `surfaceCard` fill, and
+        // the two together read as a slab rather than a pointer.
+        .hoverHighlight(
+            showsHover,
+            cornerRadius: 10,
+            reduceMotion: reduceMotion,
+            inset: CGSize(width: 6, height: 3),
+            fill: Theme.Palette.surface
+        )
+        .onHover { isHovered = $0 }
+        .contextMenu { menu }
+    }
+
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(item.text)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.ink)
+                .strikethrough(isSettling, color: Theme.Palette.muted)
+                .opacity(isSettling ? 0.55 : 1)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            meta
+            if let hint = ambientHints.first {
+                HStack(spacing: 5) {
+                    Image("nc-window-pointer").icon(10)
+                    Text("Looks like you worked on this — \(hint.appDisplayName): \(hint.sourceTitle)")
+                        .lineLimit(1)
+                    Text("· Ambient · Private")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.Palette.cyan)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private var trailingControls: some View {
+        HStack(spacing: 10) {
+            SecondaryPillButton("Take action", action: onOpen)
+                .revealOnHover(
+                    showsHover,
+                    reduceMotion: reduceMotion,
+                    anchor: .trailing,
+                    scale: 0.96
+                )
             Image("nc-chevron-right")
                 .icon(9)
-                .foregroundStyle(hoveredItemID == item.id ? Theme.Palette.ink : Theme.Palette.muted)
-                .rotationEffect(.degrees(expandedItemID == item.id ? 90 : 0))
+                .foregroundStyle(showsHover ? Theme.Palette.ink : Theme.Palette.muted)
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
         }
-        .animation(.standard(reduceMotion: reduceMotion), value: hoveredItemID)
-        .animation(.standard(reduceMotion: reduceMotion), value: expandedItemID)
+        .animation(.standard(reduceMotion: reduceMotion), value: showsHover)
+        .animation(.standard(reduceMotion: reduceMotion), value: isExpanded)
     }
 
     @ViewBuilder
-    private func meta(for item: ActionItem, showsSource: Bool) -> some View {
+    private var meta: some View {
         let meeting = showsSource ? meetingStore.byID[item.meetingID] : nil
         if item.deadline != nil || meeting != nil || item.filed != nil {
             HStack(spacing: 6) {
@@ -364,62 +441,28 @@ struct TodayCommitmentsCard: View {
     }
 
     @ViewBuilder
-    private func menu(for item: ActionItem) -> some View {
-        Button(item.done || settling[item.id] != nil ? "Reopen" : "Mark done") {
-            toggleDone(item)
-        }
+    private var menu: some View {
+        Button(isTicked ? "Reopen" : "Mark done", action: onToggleDone)
         if !intents.isEmpty {
             Divider()
             ForEach(intents) { offered in
                 Button(offered.contextTitle(for: item)) {
-                    withAnimation(.standard(reduceMotion: reduceMotion)) {
-                        preselected = Preselection(itemID: item.id, intent: offered)
-                        hoveredItemID = nil
-                        expandedItemID = item.id
-                    }
+                    onPreselect(offered)
                 }
             }
         }
         Divider()
         Button("Ask Nod about this") {
-            onAsk(ActionDelegation.askPrompt(for: item, source: source(of: item)))
+            onAsk(ActionDelegation.askPrompt(for: item, source: source))
         }
         if let meeting = meetingStore.byID[item.meetingID] {
             Button("Open the source session") { onOpenMeeting(meeting) }
         }
     }
 
-    private func sourceTitle(of item: ActionItem) -> String? {
-        source(of: item)?.title
-    }
-
-    private func source(of item: ActionItem) -> KnowledgeChatStore.SessionRef? {
+    private var source: KnowledgeChatStore.SessionRef? {
         guard let meeting = meetingStore.byID[item.meetingID] else { return nil }
         return KnowledgeChatStore.SessionRef(id: meeting.id, title: meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter))
-    }
-
-    private func toggle(_ item: ActionItem) {
-        if expandedItemID == item.id {
-            collapse()
-        } else {
-            open(item)
-        }
-    }
-
-    private func open(_ item: ActionItem) {
-        preselected = nil
-        hoveredItemID = nil
-        withAnimation(.standard(reduceMotion: reduceMotion)) {
-            expandedItemID = item.id
-        }
-    }
-
-    private func collapse() {
-        preselected = nil
-        hoveredItemID = nil
-        withAnimation(.standard(reduceMotion: reduceMotion)) {
-            expandedItemID = nil
-        }
     }
 }
 
