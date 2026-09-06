@@ -370,8 +370,10 @@ struct GeneralSettingsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // First: every other switch on this pane is a preference, and this
-            // is the one card that decides whether recording works at all.
+            // Above the permissions card, which otherwise leads: a person who
+            // came here because something broke is looking for the way to say
+            // so, not for a switch.
+            SupportSection()
             if let permissions {
                 RecordingPermissionsSection(permissions: permissions)
             }
