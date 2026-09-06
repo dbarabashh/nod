@@ -115,7 +115,9 @@ function channelName(raw: string): string {
 }
 
 const MAX_INVITES = 50;
-const TOO_MANY_INVITES = { tooMany: `At most ${MAX_INVITES} people per invitation.` };
+const TOO_MANY_INVITES = {
+    tooMany: `At most ${MAX_INVITES} people per invitation.`,
+};
 
 function memberIDs(params: Record<string, unknown>, key: string): string[] {
     const list = listOf(params, key, MAX_INVITES, TOO_MANY_INVITES);
@@ -145,7 +147,10 @@ function memberIDs(params: Record<string, unknown>, key: string): string[] {
 /// Both end in member ids before anything is invited. An address that matches
 /// nobody in the workspace is an error and not a silent omission: "add Anna,
 /// Alex and John" that quietly adds two of them is worse than one that fails.
-async function invitees(connection: Connection, params: Record<string, unknown>): Promise<string[]> {
+async function invitees(
+    connection: Connection,
+    params: Record<string, unknown>,
+): Promise<string[]> {
     const ids = memberIDs(params, "invite_member_ids");
     // `invite_emails` is the older name and still arrives from the chat.
     const named = [
@@ -154,14 +159,20 @@ async function invitees(connection: Connection, params: Record<string, unknown>)
     ];
     if (named.length === 0) return ids;
     if (ids.length + named.length > MAX_INVITES) {
-        throw new ActionError("invalid_params", `At most ${MAX_INVITES} people per invitation.`);
+        throw new ActionError(
+            "invalid_params",
+            `At most ${MAX_INVITES} people per invitation.`,
+        );
     }
 
     const resolved: string[] = [];
     for (const person of named) {
         const member = await memberFor(connection, person);
         if (!member.id) {
-            throw new ActionError("unresolved_person", `"${person}" has no Slack account to invite.`);
+            throw new ActionError(
+                "unresolved_person",
+                `"${person}" has no Slack account to invite.`,
+            );
         }
         resolved.push(member.id);
     }
@@ -257,7 +268,8 @@ export function readable(
     message: SlackSaid,
 ): { author: string; text: string; at: string } {
     return {
-        author: names[message.user ?? ""] ?? message.username ?? message.user ?? "someone",
+        author: names[message.user ?? ""] ?? message.username ?? message.user ??
+            "someone",
         text: message.text ?? "",
         at: slackTimestamp(message.ts),
     };
@@ -274,8 +286,7 @@ function slackTimestamp(ts: string | undefined): string {
 /// One member of the workspace, as both readers of `users.list` need them.
 interface SlackMember {
     id: string;
-    /// The `@handle`, which is what search's `from:` modifier matches on —
-    /// distinct from every other name a member carries.
+    /// The `@handle`.
     name?: string;
     deleted?: boolean;
     is_bot?: boolean;
@@ -339,12 +350,16 @@ async function displayNames(
 /// An unmatched name is an error rather than a dropped filter: a search for
 /// what Vlad said that quietly returns what everybody said is worse than one
 /// that says it could not find Vlad.
-async function handleFor(connection: Connection, person: string): Promise<string> {
+async function authorFor(
+    connection: Connection,
+    person: string,
+): Promise<SearchAuthor> {
     const member = await memberFor(connection, person);
-    if (!member.name) {
-        throw new ActionError("unresolved_person", `"${person}" has no Slack handle to search by.`);
-    }
-    return member.name;
+    return {
+        id: member.id,
+        name: member.profile?.display_name || member.name ||
+            member.profile?.real_name || member.real_name || person,
+    };
 }
 
 /// Cyrillic written the way a Latin workspace writes it.
@@ -399,7 +414,9 @@ const ROMAN: Record<string, string> = {
 };
 
 export function latinise(text: string): string {
-    return [...text.toLowerCase()].map((letter) => ROMAN[letter] ?? letter).join("");
+    return [...text.toLowerCase()].map((letter) => ROMAN[letter] ?? letter).join(
+        "",
+    );
 }
 
 /// The workspace member somebody means, however they said it.
@@ -408,7 +425,10 @@ export function latinise(text: string): string {
 /// takes a member id, but neither is a thing a person says: they say "Vlad", or
 /// they know the address. Resolving that here is what lets a tool schema ask
 /// for what the asker actually has.
-async function memberFor(connection: Connection, person: string): Promise<SlackMember> {
+async function memberFor(
+    connection: Connection,
+    person: string,
+): Promise<SlackMember> {
     const wanted = person.trim().toLowerCase().replace(/^@/, "");
     if (!wanted) throw new ActionError("invalid_params", "`from` was empty.");
 
@@ -416,7 +436,12 @@ async function memberFor(connection: Connection, person: string): Promise<SlackM
     const alive = members.filter((member) => !member.deleted && !member.is_bot);
     const roman = latinise(wanted);
     const names = (member: SlackMember) =>
-        [member.name, member.profile?.display_name, member.profile?.real_name, member.real_name]
+        [
+            member.name,
+            member.profile?.display_name,
+            member.profile?.real_name,
+            member.real_name,
+        ]
             .filter((name): name is string => Boolean(name))
             .map((name) => name.toLowerCase());
 
@@ -479,11 +504,6 @@ export function isDirect(
     return id.startsWith("D");
 }
 
-/// The structured filters, assembled into the one string Slack's search takes.
-///
-/// Structured on the way in and a query string only here, because a model fills
-/// named parameters reliably and invents a query DSL unreliably — and a
-/// malformed modifier does not fail, it silently searches for its own text.
 /// One result from `assistant.search.context`. Nothing like `search.messages`
 /// answered with: the author's name and the channel's arrive resolved, so the
 /// roster lookup the old shape needed to turn `U0…` into a person is gone.
@@ -518,51 +538,212 @@ export function fromAChannel(hit: SearchHit): boolean {
     return !isDirect({ id: hit.channel_id });
 }
 
-/// The parts of a search, as the Real-time Search API wants them: the words to
-/// look for, and the filters that narrow where to look.
+/// The parts of a search, as `assistant.search.context` takes them.
 ///
-/// Separated rather than joined, because `assistant.search.context` takes them
-/// as two arguments. `query` is matched semantically; putting `from:@vlad` in
-/// there would have the search look for the *phrase*.
-export interface SearchTerms {
-    text: string;
-    modifiers: string;
+/// Not the `search.messages` query language. That method took one string with
+/// `from:@vlad in:#pricing on:2026-08-26` in it; this one has no such
+/// modifiers — its `modifiers` argument knows `has:`, `is:`, `with:` and a few
+/// others, and anything else in it is refused as `invalid_arguments`, which is
+/// how every search with a person or a day in it failed. So a day becomes the
+/// method's own `after`/`before` timestamps, a channel becomes
+/// `context_channel_id`, and a person becomes a filter applied to what comes
+/// back, because the method has no author argument at all.
+export interface SearchPlan {
+    /// What is searched for. The method requires one; when the question names
+    /// only a person or a day, the person's name stands in for the words.
+    query: string;
+    /// Unix seconds, exclusive at both ends, as the method takes them.
+    after?: number;
+    before?: number;
+    /// The Slack member id whose messages alone are wanted.
+    authorID?: string;
+    /// The channel id the search is confined to.
+    channelID?: string;
+    /// One line for the model to read back, the way a person would have typed
+    /// it into Slack.
+    described: string;
 }
 
-export function searchTerms(
-    params: Record<string, unknown>,
-    handle: string | null,
-): SearchTerms {
-    const text = typeof params?.text === "string" ? params.text.trim() : "";
-    const channel = typeof params?.in === "string" ? params.in.trim().replace(/^#/, "") : "";
+/// Who a search is about, once resolved from the roster.
+export interface SearchAuthor {
+    id: string;
+    name: string;
+}
 
-    const modifiers: string[] = [];
-    if (handle) modifiers.push(`from:@${handle}`);
-    if (channel) modifiers.push(`in:#${channel}`);
-    for (const key of ["on", "after", "before"] as const) {
-        const day = searchDate(params, key);
-        if (day) modifiers.push(`${key}:${day}`);
+const DAY = 86_400;
+
+/// Midnight UTC at the start of a `YYYY-MM-DD` day, in Unix seconds. The
+/// method takes timestamps, so a day is a window; days are read in UTC because
+/// the server has no other clock to read them in.
+function dayStart(day: string): number {
+    // `Date.parse` rolls "2026-02-30" over to March, so the day is read back
+    // and has to be the one that was given.
+    const start = Date.parse(`${day}T00:00:00Z`);
+    if (!Number.isFinite(start) || new Date(start).toISOString().slice(0, 10) !== day) {
+        throw new ActionError("invalid_params", `\`${day}\` is not a day on the calendar.`);
     }
+    return Math.floor(start / 1000);
+}
 
-    if (!text && modifiers.length === 0) {
+export function searchPlan(
+    params: Record<string, unknown>,
+    author: SearchAuthor | null,
+    channel: { id: string; name: string } | null,
+): SearchPlan {
+    const text = typeof params?.text === "string" ? params.text.trim() : "";
+    const on = searchDate(params, "on");
+    const after = searchDate(params, "after");
+    const before = searchDate(params, "before");
+    const wantsChannel = typeof params?.in === "string" &&
+        params.in.trim() !== "";
+    const wantsAuthor = typeof params?.from === "string" &&
+        params.from.trim() !== "";
+
+    if (!text && !on && !after && !before && !wantsChannel && !wantsAuthor) {
         throw new ActionError(
             "invalid_params",
             "Give at least one of `text`, `from`, `in`, `on`.",
         );
     }
-    return { text, modifiers: modifiers.join(" ") };
+
+    const plan: SearchPlan = {
+        query: text || (author ? author.name : "what was said"),
+        described: "",
+    };
+    if (author) plan.authorID = author.id;
+    if (channel) plan.channelID = channel.id;
+    if (on) {
+        plan.after = dayStart(on) - 1;
+        plan.before = dayStart(on) + DAY;
+    } else {
+        if (after) plan.after = dayStart(after) + DAY - 1;
+        if (before) plan.before = dayStart(before);
+    }
+
+    plan.described = [
+        text,
+        author ? `from:@${author.name}` : "",
+        channel ? `in:#${channel.name}` : "",
+        on ? `on:${on}` : "",
+        !on && after ? `after:${after}` : "",
+        !on && before ? `before:${before}` : "",
+    ].filter(Boolean).join(" ");
+    return plan;
 }
 
-/// What the search came down to, for the model to read back. Both parts as one
-/// line, which is also how a person would have typed it into Slack.
-export function searchQuery(terms: SearchTerms): string {
-    return [terms.text, terms.modifiers].filter(Boolean).join(" ");
+/// Whether a hit is by the person the search was about. No author means no
+/// filter; a hit that names nobody cannot be shown to be theirs and is dropped.
+export function byAuthor(
+    hit: SearchHit,
+    authorID: string | undefined,
+): boolean {
+    if (!authorID) return true;
+    return hit.author_user_id === authorID;
+}
+
+/// The channels the account can search: joined private ones and every public
+/// one, the same set `list_channels` shows.
+async function searchableChannels(
+    connection: Connection,
+): Promise<
+    {
+        id: string;
+        name?: string;
+        is_member?: boolean;
+        is_private?: boolean;
+        topic?: { value?: string };
+        purpose?: { value?: string };
+    }[]
+> {
+    const payload = await call(connection, "conversations.list", {}, {
+        method: "GET",
+        query: {
+            types: "public_channel,private_channel",
+            exclude_archived: "true",
+            limit: "200",
+        },
+    });
+    const channels = (payload.channels as {
+        id: string;
+        name?: string;
+        is_member?: boolean;
+        is_private?: boolean;
+        topic?: { value?: string };
+        purpose?: { value?: string };
+    }[] | undefined) ?? [];
+    return channels.filter((channel) => channel.is_member || !channel.is_private);
+}
+
+/// The channel a name refers to, or a refusal the model can act on: the list
+/// tool names every channel there is, so "no such channel" is a step away from
+/// the right name rather than a dead end.
+async function channelNamed(
+    connection: Connection,
+    raw: string,
+): Promise<{ id: string; name: string }> {
+    const wanted = raw.trim().replace(/^#/, "").toLowerCase();
+    if (!wanted) throw new ActionError("invalid_params", "`in` was empty.");
+    const channels = await searchableChannels(connection);
+    const found = channels.find((channel) => channel.id === raw.trim()) ??
+        channels.find((channel) => (channel.name ?? "").toLowerCase() === wanted);
+    if (!found) {
+        throw new ActionError(
+            "invalid_params",
+            `No Slack channel named "#${wanted}" that Nod can search. slack_list_channels shows the ones there are.`,
+        );
+    }
+    return { id: found.id, name: found.name ?? found.id };
 }
 
 // `assistant.search.context` caps a page at 20 and silently returns fewer
 // rather than refusing, so asking for more would quietly look like a thin
 // workspace instead of a truncated page.
 const SEARCH_LIMIT = 20;
+
+/// How many pages a search about one person may turn. The method has no
+/// author argument, so a person's messages are picked out of pages shared
+/// with everybody else's; one page of twenty in a busy channel can hold none
+/// of theirs, and "Vlad said nothing" would be the answer to a question about
+/// the page, not about Vlad.
+const AUTHOR_PAGES = 5;
+
+/// What one page of the search says: the hits, and where the next page starts.
+export interface SearchPage {
+    results?: { messages?: SearchHit[] };
+    response_metadata?: { next_cursor?: string };
+}
+
+/// The hits worth showing, across as many pages as the plan needs.
+///
+/// One page unless the search names a person; then pages are turned until a
+/// page's worth of their messages has been found, the cursor runs out, or
+/// `AUTHOR_PAGES` is spent. `seen` and `truncated` say how far it looked, so
+/// a thin answer can be read as a thin window rather than a quiet person.
+export async function searchPages(
+    plan: SearchPlan,
+    fetch: (cursor: string | undefined) => Promise<Record<string, unknown>>,
+): Promise<{ hits: SearchHit[]; seen: number; truncated: boolean }> {
+    const hits: SearchHit[] = [];
+    let seen = 0;
+    let cursor: string | undefined;
+    const pages = plan.authorID ? AUTHOR_PAGES : 1;
+    for (let page = 0; page < pages; page++) {
+        const payload = await fetch(cursor) as SearchPage;
+        const found = payload.results?.messages ?? [];
+        seen += found.length;
+        hits.push(
+            ...found
+                .filter(worthQuoting)
+                .filter(fromAChannel)
+                .filter((hit) => byAuthor(hit, plan.authorID)),
+        );
+        cursor = payload.response_metadata?.next_cursor || undefined;
+        if (!cursor || hits.length >= SEARCH_LIMIT) {
+            return { hits: hits.slice(0, SEARCH_LIMIT), seen, truncated: Boolean(cursor) };
+        }
+    }
+    return { hits: hits.slice(0, SEARCH_LIMIT), seen, truncated: true };
+}
 
 export const SLACK_ACTIONS: ActionHandlers = {
     /// Every channel Nod can reach: all public ones, plus the private channels
@@ -575,27 +756,10 @@ export const SLACK_ACTIONS: ActionHandlers = {
     /// open.
     list_channels: async (connection, params) => {
         const query = typeof params?.query === "string" ? params.query.toLowerCase().trim() : "";
-        const payload = await call(connection, "conversations.list", {}, {
-            method: "GET",
-            query: {
-                types: "public_channel,private_channel",
-                exclude_archived: "true",
-                limit: "200",
-            },
-        });
-        const channels = (payload.channels as {
-            id: string;
-            name?: string;
-            is_member?: boolean;
-            is_private?: boolean;
-            is_archived?: boolean;
-            topic?: { value?: string };
-            purpose?: { value?: string };
-        }[] | undefined) ?? [];
+        const channels = await searchableChannels(connection);
 
         return {
             channels: channels
-                .filter((channel) => channel.is_member || !channel.is_private)
                 .filter((channel) =>
                     !query ||
                     (channel.name ?? "").toLowerCase().includes(query) ||
@@ -711,41 +875,47 @@ export const SLACK_ACTIONS: ActionHandlers = {
         // Validated before the roster is touched: resolving a name downloads
         // up to 500 members, and a call with no filters at all — which is what
         // an under-constrained model produces — is rejected either way.
-        searchTerms(params, null);
+        searchPlan(params, null, null);
         const person = typeof params?.from === "string" ? params.from.trim() : "";
-        const terms = searchTerms(
+        const channel = typeof params?.in === "string" ? params.in.trim() : "";
+        const author = person ? await authorFor(connection, person) : null;
+        const plan = searchPlan(
             params,
-            person ? await handleFor(connection, person) : null,
+            author,
+            channel ? await channelNamed(connection, channel) : null,
         );
 
-        const payload = await call(connection, "assistant.search.context", {
-            query: terms.text,
-            modifiers: terms.modifiers,
-            channel_types: ["public_channel", "private_channel"],
-            // The same messages `worthReading` drops from a channel read. Asked
-            // of Slack as well as filtered here, so a page of results is not
-            // spent on posts that will be thrown away.
-            include_bots: false,
-            sort: "timestamp",
-            sort_dir: "desc",
-            limit: SEARCH_LIMIT,
-        });
-
-        const found = ((payload.results as { messages?: unknown[] } | undefined)?.messages ??
-            []) as SearchHit[];
+        const pages = await searchPages(plan, (cursor) =>
+            call(connection, "assistant.search.context", {
+                query: plan.query,
+                channel_types: "public_channel,private_channel",
+                content_types: "messages",
+                // The same messages `worthReading` drops from a channel read.
+                // Asked of Slack as well as filtered here, so a page of results
+                // is not spent on posts that will be thrown away.
+                include_bots: false,
+                sort: "timestamp",
+                sort_dir: "desc",
+                limit: SEARCH_LIMIT,
+                ...(plan.after !== undefined ? { after: plan.after } : {}),
+                ...(plan.before !== undefined ? { before: plan.before } : {}),
+                ...(plan.channelID ? { context_channel_id: plan.channelID } : {}),
+                ...(cursor ? { cursor } : {}),
+            }));
 
         return {
-            query: searchQuery(terms),
-            messages: found
-                .filter(worthQuoting)
-                .filter(fromAChannel)
-                .map((hit) => ({
-                    author: hit.author_name ?? hit.author_user_id ?? "someone",
-                    text: hit.content ?? "",
-                    at: slackTimestamp(hit.message_ts),
-                    channel: hit.channel_name ?? hit.channel_id ?? "",
-                    url: hit.permalink ?? "",
-                })),
+            query: plan.described,
+            // Said so the model does not read a thin page as a quiet person:
+            // the pages were the newest matches, and the person may have said
+            // more before them.
+            ...(pages.truncated ? { searched: `the ${pages.seen} most recent matches` } : {}),
+            messages: pages.hits.map((hit) => ({
+                author: hit.author_name ?? hit.author_user_id ?? "someone",
+                text: hit.content ?? "",
+                at: slackTimestamp(hit.message_ts),
+                channel: hit.channel_name ?? hit.channel_id ?? "",
+                url: hit.permalink ?? "",
+            })),
         };
     },
 
@@ -824,7 +994,10 @@ export const SLACK_ACTIONS: ActionHandlers = {
         const channel = requireString(params, "channel_id");
         const users = await invitees(connection, params);
         if (users.length === 0) {
-            throw new ActionError("invalid_params", "Give at least one person to invite.");
+            throw new ActionError(
+                "invalid_params",
+                "Give at least one person to invite.",
+            );
         }
 
         await call(connection, "conversations.invite", {
@@ -847,18 +1020,27 @@ export const SLACK_ACTIONS: ActionHandlers = {
         const channel = typeof params?.channel_id === "string" ? params.channel_id.trim() : "";
         const person = typeof params?.to === "string" ? params.to.trim() : "";
         if (channel && person) {
-            throw new ActionError("invalid_params", "Give either `channel_id` or `to`, not both.");
+            throw new ActionError(
+                "invalid_params",
+                "Give either `channel_id` or `to`, not both.",
+            );
         }
 
         let target = channel;
         if (!target) {
             if (!person) {
-                throw new ActionError("invalid_params", "Give a `channel_id` to post in, or `to` for a person.");
+                throw new ActionError(
+                    "invalid_params",
+                    "Give a `channel_id` to post in, or `to` for a person.",
+                );
             }
             target = (await memberFor(connection, person)).id;
         }
 
-        const payload = await call(connection, "chat.postMessage", { channel: target, text });
+        const payload = await call(connection, "chat.postMessage", {
+            channel: target,
+            text,
+        });
         return { key: target, ts: payload.ts ?? null };
     },
 };
