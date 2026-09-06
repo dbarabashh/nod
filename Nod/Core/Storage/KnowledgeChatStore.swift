@@ -1667,7 +1667,8 @@ extension KnowledgeChatStore {
             }
             return Grounding(
                 excerpts: conceptBlock + relevant.map { labeledExcerpt($0, in: byID) },
-                sources: resolveSources(relevant, in: byID) + screen.apps + linked.apps,
+                sources: resolveSources(Self.groundedSessionIDs(concepts: hits.concepts, chunks: relevant), in: byID)
+                    + screen.apps + linked.apps,
                 evidence:
                 // A row we can't name can't be opened either, so it isn't shown.
                 conceptEvidence + Self.strongestPerSession(relevant.compactMap { chunk in
@@ -1798,28 +1799,34 @@ extension KnowledgeChatStore {
     private static let relevanceFloor: Double = 0.45
     private static let relevanceBand: Double = 0.75
 
-    /// Distinct sessions behind the retrieved chunks, in retrieval order, so the
-    /// answer can show what it drew on.
-    ///
+    /// Distinct sessions the prompt was built from, in prompt order: the ones
+    /// behind the distilled facts first, then the ones behind the passages.
+    /// A fact can reach the model from a session none of whose passages
+    /// cleared `worthGrounding`; leaving that session out of the chips let the
+    /// answer name people the UI showed no source for.
+    static func groundedSessionIDs(concepts: [RetrievedConcept], chunks: [RetrievedChunk]) -> [UUID] {
+        var seen = Set<UUID>()
+        return (concepts.compactMap(\.meetingID) + chunks.map(\.meetingID)).filter { seen.insert($0).inserted }
+    }
+
     /// Once the list has loaded, a session it doesn't hold is one the user
     /// trashed — the list is `deleted_at is null`. It used to be chipped as
     /// "A past session", which names nothing and opens nothing, so it's dropped.
     /// Before the list loads, absence means nothing at all: keep the chip and
     /// let the title fill in rather than hiding a source the answer really used.
-    private func resolveSources(_ chunks: [RetrievedChunk], in byID: [UUID: Meeting]) -> [SessionRef] {
+    private func resolveSources(_ ids: [UUID], in byID: [UUID: Meeting]) -> [SessionRef] {
         let listed = meetings.loadState == .loaded
-        var seen = Set<UUID>()
         var refs: [SessionRef] = []
-        for chunk in chunks where seen.insert(chunk.meetingID).inserted {
-            guard let meeting = byID[chunk.meetingID] else {
+        for id in ids {
+            guard let meeting = byID[id] else {
                 if listed {
-                    Log.ui.debug("Sources: dropping unnamed session \(chunk.meetingID)")
+                    Log.ui.debug("Sources: dropping unnamed session \(id)")
                     continue
                 }
-                refs.append(SessionRef(id: chunk.meetingID, title: "A past session"))
+                refs.append(SessionRef(id: id, title: "A past session"))
                 continue
             }
-            refs.append(SessionRef(id: chunk.meetingID, title: meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter)))
+            refs.append(SessionRef(id: id, title: meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter)))
         }
         return refs
     }
