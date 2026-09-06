@@ -117,9 +117,8 @@ final class OnboardingStepOrderTests: XCTestCase {
     /// itself only ever has to know its own order.
     func testTheNotchAsksInOrderAndCountsOnlyTheAsks() {
         XCTAssertEqual(NotchSetupStage.intro.next, .microphone)
-        XCTAssertEqual(NotchSetupStage.calendar.next, .ready)
-        XCTAssertNil(NotchSetupStage.firstAsk.next)
+        XCTAssertNil(NotchSetupStage.calendar.next)
         XCTAssertEqual(NotchSetupStage.asks.map(\.askIndex), [0, 1, 2, 3])
-        XCTAssertNil(NotchSetupStage.ready.askIndex)
+        XCTAssertNil(NotchSetupStage.intro.askIndex)
     }
 }

@@ -374,7 +374,7 @@ extension NotchPresentation {
         case let .meetingBar(_, panel): return panel.surfaceWidth
         case .launch: return 384
         case .ask: return 440
-        case let .setup(stage): return stage == .calendar || stage == .firstAsk ? 440 : 400
+        case let .setup(stage): return stage == .calendar ? 440 : 400
         case .languageConfirm: return 340
         case .consent: return 380
         case .systemAudioAccess: return 400

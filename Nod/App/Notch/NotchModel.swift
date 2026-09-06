@@ -926,16 +926,11 @@ final class NotchModel: ObservableObject {
 /// as much a part of the model as anything above.
 extension NotchModel {
     /// The hotkey, from anywhere: a question for Nod. During a meeting that is
-    /// the bar's own Ask box; idle, it is the Ask card; mid-setup, the last
-    /// step's field. Whichever it is, the panel takes the keyboard so the
-    /// person can type without first clicking the field.
+    /// the bar's own Ask box; idle, it is the Ask card. Whichever it is, the
+    /// panel takes the keyboard so the person can type without first clicking
+    /// the field. Mid-setup it does nothing: the cards are not an Ask box.
     func askNod() {
-        if demo.isRunning { return }
-        if let setup {
-            guard setup == .firstAsk else { return }
-            onWantsKeyboard?()
-            return
-        }
+        if demo.isRunning || setup != nil { return }
         if barRole != nil {
             meetingBarHidden = false
             meetingBarPanel.expand(.ask)

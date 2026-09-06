@@ -2,7 +2,7 @@ import Foundation
 
 /// The notch's half of onboarding. Every card asks for one thing; a thing this
 /// Mac has already granted is stepped over rather than shown as a tick, and the
-/// flow ends the first time a real question comes back answered.
+/// flow ends when the last ask has been answered.
 extension NotchModel {
     /// Called by the coordinator once the window has handed off. A no-op for
     /// an account that has finished — the notch is built on every sign-in.
@@ -99,29 +99,11 @@ extension NotchModel {
         advanceSetup()
     }
 
-    /// The first question, from the last card. The thread is the Library's;
-    /// the card shows only what lands after it opened.
-    func submitSetupAsk(_ question: String) {
-        submitIdleAsk(question)
-    }
-
     private func show(_ stage: NotchSetupStage) {
         setup = stage
         isOpened = true
-        if stage == .firstAsk {
-            askBaseline = knowledgeChat.messages.count
-        }
         onboardingTelemetry.setupStageShown(stage)
         refresh()
-        if stage == .firstAsk {
-            onWantsKeyboard?()
-        }
-        // From here the flow is effectively done — the remaining cards are
-        // "here's how to use it", not more setup — so the room the person
-        // will actually work in is already open behind the notch.
-        if stage == .ready || stage == .firstAsk {
-            openLibrary()
-        }
     }
 
     /// Whether this Mac has already answered an ask, so the card is not shown.
@@ -134,7 +116,7 @@ extension NotchModel {
         case .systemAudio: permissions.screenRecording == .authorized
         case .ambient: screenContext.isRunning
         case .calendar: CalendarSourceState.isAnswered(calendar: calendar, integrations: integrations)
-        case .intro, .ready, .firstAsk: false
+        case .intro: false
         }
     }
 }

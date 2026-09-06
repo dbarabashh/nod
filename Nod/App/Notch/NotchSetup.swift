@@ -1,17 +1,14 @@
 import SwiftUI
 
 /// The second half of onboarding, run where Nod lives. The window asked who
-/// this is; the notch asks for what it needs, one thing per card, and ends on
-/// the first question — answered for real, from the calendar and the sessions
-/// the account already has.
+/// this is; the notch asks for what it needs, one thing per card, and the
+/// last card's own button hands off to the Library.
 enum NotchSetupStage: String, Equatable, CaseIterable {
     case intro
     case microphone
     case systemAudio
     case ambient
     case calendar
-    case ready
-    case firstAsk
 
     /// The asks, in order — the ones the progress marks count.
     static let asks: [NotchSetupStage] = [.microphone, .systemAudio, .ambient, .calendar]
@@ -330,75 +327,6 @@ struct NotchSetupCalendar: View {
     }
 }
 
-struct NotchSetupReady: View {
-    let onTry: () -> Void
-    let onLeave: () -> Void
-
-    var body: some View {
-        NotchSetupCard(
-            stage: .ready,
-            title: "All set.",
-            subtitle: "Ask me about your day, your sessions, or what's on your screen.",
-            onLeave: onLeave
-        ) {
-            NotchActionButton(title: "Try it", icon: "nc-sparkle-3", action: onTry)
-        }
-    }
-}
-
-/// The gated last step: Finish lights up only once a real question has come
-/// back answered. The product can be used before the flow lets go of it.
-struct NotchSetupFirstAsk: View {
-    @ObservedObject var chat: KnowledgeChatStore
-    /// How many messages the thread had when this card appeared, so an older
-    /// answer never reads as the reply to what was just typed.
-    let baseline: Int
-    let shortcut: String
-    let canAskAcrossSessions: Bool
-    let onSubmit: (String) -> Void
-    let onOpenMeeting: (UUID) -> Void
-    let onFinish: () -> Void
-    let onLeave: () -> Void
-
-    var body: some View {
-        NotchSetupCard(
-            stage: .firstAsk,
-            title: "This is how you ask me",
-            subtitle: "Press \(shortcut) anywhere, or type here. I'll answer from your calendar and your sessions.",
-            onLeave: onLeave,
-            detail: {
-                VStack(alignment: .leading, spacing: 10) {
-                    NotchAskAnswer(
-                        chat: chat,
-                        baseline: baseline,
-                        canAskAcrossSessions: canAskAcrossSessions,
-                        maxAnswerHeight: 160,
-                        onOpenMeeting: onOpenMeeting
-                    )
-                    NotchAskComposer(
-                        isSending: chat.isSending,
-                        suggestions: ["What's on my calendar today?", "What did I do this week?"],
-                        onSubmit: onSubmit
-                    )
-                }
-                .padding(.top, 14)
-            },
-            actions: {
-                HStack(spacing: 14) {
-                    NotchSetupSecondaryButton(title: "Skip", action: onLeave)
-                    NotchActionButton(title: "Finish", action: onFinish)
-                        .disabled(!hasAnswer)
-                        .opacity(hasAnswer ? 1 : 0.45)
-                }
-            }
-        )
-    }
-
-    private var hasAnswer: Bool {
-        chat.answer(after: baseline) != nil && !chat.isSending
-    }
-}
-
 // MARK: - Routing
 
 /// Which setup card the model is on, drawn with the model's own handlers.
@@ -445,19 +373,6 @@ struct NotchSetupContent: View {
                 calendar: model.calendar,
                 integrations: model.integrations,
                 onContinue: model.advanceSetup,
-                onLeave: model.finishSetup
-            )
-        case .ready:
-            NotchSetupReady(onTry: model.advanceSetup, onLeave: model.finishSetup)
-        case .firstAsk:
-            NotchSetupFirstAsk(
-                chat: model.knowledgeChat,
-                baseline: model.askBaseline,
-                shortcut: model.hotkeys.combo(for: .askNod).displayString,
-                canAskAcrossSessions: model.canAskAcrossSessions,
-                onSubmit: model.submitSetupAsk,
-                onOpenMeeting: model.openMeetingFromAsk,
-                onFinish: model.finishSetup,
                 onLeave: model.finishSetup
             )
         }

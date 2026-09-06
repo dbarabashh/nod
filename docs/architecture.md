@@ -57,11 +57,11 @@ it drops back to `.accessory` otherwise.
 constructs every service exactly once, wires them together, then
 `WindowCoordinator.reconcile()` picks the surface from `OnboardingState`:
 the onboarding window for `.welcome` and `.profile`, the notch running its
-setup cards (`NotchSetupStage`: permissions, ambient context, calendar, the
-first question) once the flow has handed off to `.notch`, and the notch alone
-once `isCompleted`. The setup skips any ask this Mac has already answered and
-ends the first time a real question comes back answered — or on the card's own
-close, which completes the flow and leaves the rest to Settings. Services are
+setup cards (`NotchSetupStage`: permissions, ambient context, calendar) once
+the flow has handed off to `.notch`, and the notch alone once `isCompleted`.
+The setup skips any ask this Mac has already answered and ends on the last
+card's button — or on any card's own close, which completes the flow and
+leaves the rest to Settings. Services are
 passed downstream via `@EnvironmentObject`.
 
 The Ask hotkey (`HotkeyAction.askNod`, ⌘⇧K by default) lands in the notch too:
