@@ -44,3 +44,23 @@ final class ConnectedToolsPromptTests: XCTestCase {
         XCTAssertEqual(search?.mutating, false)
     }
 }
+
+/// "Help me with this" is a question, not an instruction to file something.
+/// The prompt the Today card sends, and the rule the model reads, both say so.
+final class CommitmentAskTests: XCTestCase {
+    func testAskingAboutACommitmentAsksForTheGroundFirst() {
+        let item = ActionItem(
+            id: UUID(), meetingID: UUID(), userID: UUID(), text: "Fix the todo status",
+            deadline: nil, kind: .action, status: .confirmed, source: .recap,
+            revisionOf: nil, evidenceIdx: nil, evidenceQuote: nil, position: 0,
+            done: false, doneAt: nil, loopState: .open,
+            externalProvider: nil, externalKey: nil, externalURL: nil, externalCreatedAt: nil,
+            createdAt: nil, updatedAt: nil, deletedAt: nil
+        )
+        let prompt = ActionDelegation.askPrompt(for: item, source: "Demo session")
+        XCTAssertTrue(prompt.contains("what the session actually said"))
+        XCTAssertTrue(prompt.contains("don't create or change anything unless I say so"))
+        XCTAssertTrue(prompt.contains("from \"Demo session\""))
+        XCTAssertFalse(prompt.contains("move this forward"))
+    }
+}

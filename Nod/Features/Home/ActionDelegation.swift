@@ -104,11 +104,16 @@ enum ActionDelegation {
     }
 
     /// What lands in the chat composer when the person asks Nod instead.
+    ///
+    /// Asks for the ground first. "Help me move this forward" read to the
+    /// model as "do something", and the something was a ticket, filed before
+    /// anyone had said what the problem was or whether it still existed.
     static func askPrompt(for item: ActionItem, source: String?) -> String {
-        guard let source, !source.isEmpty else {
-            return "Help me move this forward: \(item.text)"
-        }
-        return "Help me move this forward: \(item.text) (from \"\(source)\")"
+        let origin = source.flatMap { $0.isEmpty ? nil : " from \"\($0)\"" } ?? ""
+        return "About this commitment\(origin): \(item.text). "
+            + "First tell me what the session actually said about it: what the problem is, who raised it and what was decided. "
+            + "Then check whether it is already tracked or resolved. "
+            + "End with what you would do next, and don't create or change anything unless I say so."
     }
 
     static func record(recipient: String, via provider: IntegrationProvider) -> String {

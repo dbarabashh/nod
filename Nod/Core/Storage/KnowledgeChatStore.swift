@@ -796,9 +796,12 @@ extension KnowledgeChatStore {
         // Text beside a tool call is a preamble, not an answer, whichever
         // round it is: with rounds left the tools run; on the last one the
         // model is asked once more without tools, which the one-shot path is.
+        // A person sees the preamble stay, because it is what explains the
+        // approval card that follows; a beat has nobody to explain to, and a
+        // preamble left first in its thread would be read back as the report.
         if !requested.isEmpty, streamError == nil, !Task.isCancelled {
             if appended {
-                messages.removeAll { $0.id == answer.id }
+                if unattended { messages.removeAll { $0.id == answer.id } }
                 isStreaming = false
             }
             if round < ChatToolGate.maxRounds {
