@@ -33,7 +33,7 @@ struct ModesSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(
-                "The active mode shapes every meeting recap and its replies: the recap layout, and a focus Nod keeps in mind. Pick one here; it stays until you pick another."
+                "A mode sets the sections a meeting recap has, plus an optional focus that Nod keeps in mind when writing the recap and answering questions about it. One mode is active at a time and stays active until you choose another. Voice notes are not affected."
             )
             .font(.system(size: 12.5))
             .foregroundStyle(Theme.Palette.muted)
