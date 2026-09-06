@@ -5,6 +5,8 @@ import SwiftUI
 /// open a pre-addressed email in whatever handles mail on this Mac, with the
 /// build and machine facts already written under the signature.
 struct SupportSection: View {
+    @EnvironmentObject private var analytics: ProductAnalytics
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel("Support")
@@ -23,6 +25,7 @@ struct SupportSection: View {
         let report = SupportReport(kind: kind, environment: .current(), triggeredFrom: "Settings")
         guard let url = report.url else { return }
         Log.ui.info("SupportSection opening \(kind.subject) id=\(report.reportID)")
+        analytics.record(.supportOpened, properties: .init(surface: .settings, detail: kind == .bug ? .bug : .feature))
         NSWorkspace.shared.open(url)
     }
 }
@@ -64,6 +67,7 @@ private struct SupportTile: View {
 
 #Preview {
     SupportSection()
+        .environmentObject(ProductAnalytics.preview)
         .padding(24)
         .frame(width: 620)
         .background(Theme.Palette.bg)

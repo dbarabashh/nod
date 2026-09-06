@@ -90,13 +90,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // user's theme rather than flashing the system's.
         services.appearance.apply()
 
-        services.hotkeys.onTrigger = { [weak windows] action in
+        services.hotkeys.onTrigger = { [weak windows, analytics = services.productAnalytics] action in
             switch action {
             case .togglePanel:
+                analytics.record(.hotkeyUsed, properties: .init(entryPoint: .hotkey, detail: .togglePanel))
                 windows?.toggleFloatingPanel()
             case .askNod:
+                analytics.record(.hotkeyUsed, properties: .init(entryPoint: .hotkey, detail: .askNod))
                 windows?.askNod()
             case .holdToAsk:
+                analytics.record(.hotkeyUsed, properties: .init(entryPoint: .hotkey, detail: .holdToAsk))
                 windows?.beginVoiceAsk()
             }
         }
@@ -415,6 +418,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         await services?.audioCapture.stop()
         services?.transcriptStore.stop()
         services?.transcriptStore.clear()
+    }
+
+    /// How long this run of the app lasted, in the coarse buckets the ledger
+    /// takes. Queued to disk here and sent on the next launch: the process is
+    /// leaving, and a request started now would not finish.
+    func applicationWillTerminate(_ notification: Notification) {
+        guard let services else { return }
+        let seconds = Date().timeIntervalSince(services.launchedAt)
+        let bucket: ProductAnalytics.Detail = switch seconds {
+        case ..<60: .under1m
+        case ..<600: .oneTo10m
+        case ..<3600: .tenTo60m
+        default: .over1h
+        }
+        services.productAnalytics.record(.appSessionEnded, properties: .init(detail: bucket))
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

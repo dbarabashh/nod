@@ -381,6 +381,7 @@ final class NotchModel: ObservableObject {
     func open() {
         guard !isOpened else { return }
         isOpened = true
+        analytics.record(.notchOpened, properties: .init(entryPoint: .notch))
         session.analyst.dismissNotice()
         session.analyst.dismissRecall()
         refresh()

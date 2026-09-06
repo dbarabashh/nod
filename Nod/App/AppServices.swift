@@ -13,6 +13,8 @@ struct AppServices {
     /// have for where a new user stops, since `OnboardingState` is local-only.
     let onboardingTelemetry: OnboardingTelemetry
     let productAnalytics: ProductAnalytics
+    /// When this run of the app began, for the length of it at the end.
+    let launchedAt = Date()
     let emailPreferences: EmailPreferenceService
     let audioCapture: AudioCaptureService
     let llmClient: LLMProxyClient
@@ -238,8 +240,17 @@ struct AppServices {
         let actionProposals = ActionProposalStore(supabase: supabase)
         let knowledgeThreads = KnowledgeThreadStore(supabase: supabase)
         let retrievalFeedback = RetrievalFeedbackStore(supabase: supabase)
+        let meetingOutbox = MeetingOutbox()
+        Task { await meetingOutbox.attach(productAnalytics) }
         let modeStore = ModeStore()
+        modeStore.analytics = productAnalytics
+        actionItemStore.analytics = productAnalytics
+        meetingStore.analytics = productAnalytics
+        labelStore.analytics = productAnalytics
+        organizations.analytics = productAnalytics
+        calendar.analytics = productAnalytics
         let beats = BeatStore(supabase: supabase, auth: auth)
+        beats.analytics = productAnalytics
         let toolApproval = ToolApprovalPreference()
         let toolApprovalLog = ToolApprovalLog(supabase: supabase, auth: auth)
         // Three chats, one recipe: the attended one on screen, and one
@@ -288,6 +299,8 @@ struct AppServices {
         // and it survives the live session itself ending (a slipped tap, a
         // dropped connection) since it lives here, not inside the session.
         let voiceChat = makeChat(unattended: false, readsRunUnasked: true, toolApproval: nil, maxTurns: 5)
+        let knowledgeChat = makeChat(unattended: false, toolApproval: toolApproval, toolLog: toolApprovalLog)
+        knowledgeChat.analytics = productAnalytics
         let agentStore = AgentStore(
             supabase: supabase,
             chat: agentChat,
@@ -310,7 +323,7 @@ struct AppServices {
             auth: auth,
             consent: consent,
             meetingStore: meetingStore,
-            meetingOutbox: MeetingOutbox(),
+            meetingOutbox: meetingOutbox,
             profileStore: profileStore,
             chatStore: ChatStore(
                 supabase: supabase,
@@ -323,7 +336,7 @@ struct AppServices {
             entityStore: entityStore,
             actionItemStore: actionItemStore,
             knowledgeStore: knowledgeStore,
-            knowledgeChat: makeChat(unattended: false, toolApproval: toolApproval, toolLog: toolApprovalLog),
+            knowledgeChat: knowledgeChat,
             voiceChat: voiceChat,
             knowledgeThreads: knowledgeThreads,
             agentStore: agentStore,

@@ -10,6 +10,7 @@ struct HomeSidebarFooter: View {
     @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var settingsFocus: SettingsFocus
     @EnvironmentObject private var feed: UpdaterChannelDelegate
+    @EnvironmentObject private var analytics: ProductAnalytics
 
     var body: some View {
         VStack(spacing: 2) {
@@ -17,8 +18,11 @@ struct HomeSidebarFooter: View {
                 .overlay(Theme.Palette.border)
                 .padding(.bottom, 6)
             if let update = feed.available {
-                UpdateSidebarRow(update: update, action: feed.install)
-                    .transition(.opacity)
+                UpdateSidebarRow(update: update) {
+                    analytics.record(.updateInstallClicked, properties: .init(surface: .home))
+                    feed.install()
+                }
+                .transition(.opacity)
             }
             // Takes the service from the environment itself. Holding it here
             // instead meant every capture tick — one every 5 seconds while
