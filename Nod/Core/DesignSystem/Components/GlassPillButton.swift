@@ -38,6 +38,7 @@ struct GlassPillButton: View {
     /// Shows a spinner before the title and refuses presses while true. The
     /// label stays, so the button keeps its name for VoiceOver and its width.
     let isLoading: Bool
+    let tint: GlassButtonTint
     let action: () -> Void
 
     init(
@@ -47,6 +48,7 @@ struct GlassPillButton: View {
         trailingIcon: String? = nil,
         shortcut: KeyboardShortcut? = nil,
         isLoading: Bool = false,
+        tint: GlassButtonTint = .ink,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -55,6 +57,7 @@ struct GlassPillButton: View {
         self.trailingIcon = trailingIcon
         self.shortcut = shortcut
         self.isLoading = isLoading
+        self.tint = tint
         self.action = action
     }
 
@@ -62,7 +65,7 @@ struct GlassPillButton: View {
         Button(action: action) {
             HStack(spacing: size.innerSpacing) {
                 if isLoading {
-                    ProgressView().controlSize(.small).tint(Theme.GlassButton.text)
+                    ProgressView().controlSize(.small).tint(tint.text)
                 } else if let leadingIcon {
                     Image(leadingIcon).icon(Theme.Control.iconMicro)
                 }
@@ -72,10 +75,10 @@ struct GlassPillButton: View {
                     Image(trailingIcon).icon(Theme.Control.iconMicro)
                 }
             }
-            .foregroundStyle(Theme.GlassButton.text)
+            .foregroundStyle(tint.text)
             .padding(.horizontal, size.horizontalPadding)
             .padding(.vertical, size.innerSpacing)
-            .glassButtonSurface(Capsule(style: .continuous))
+            .glassButtonSurface(Capsule(style: .continuous), tint: tint)
         }
         .buttonStyle(.plain)
         .keyboardShortcut(shortcut)
@@ -90,6 +93,7 @@ struct GlassPillButton: View {
         GlassPillButton("Start", size: .compact) {}
         GlassPillButton("Invite people", leadingIcon: "nc-plus") {}
         GlassPillButton("Send invite", size: .regular, shortcut: .defaultAction) {}
+        GlassPillButton("Add 1 000 · 10 US$", size: .compact, tint: .brand) {}
         GlassPillButton("Retry", size: .large) {}
         GlassPillButton("Disabled", size: .regular) {}
             .disabled(true)

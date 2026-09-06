@@ -72,9 +72,11 @@ enum Theme {
         static let success = Color.themed(light: DesignTokens.Palette.vividGreenDeep, dark: DesignTokens.Palette.vividGreen)
         static let danger = Color.themed(light: DesignTokens.Palette.crimsonRedDeep, dark: DesignTokens.Palette.crimsonRed)
 
-        /// The app-icon sky blue — used where a surface should carry the brand
-        /// tint (e.g. the live-capture ring) rather than a status colour.
-        static let brand = Color.themed(light: DesignTokens.Palette.skyBlueDeep, dark: DesignTokens.Palette.skyBlue)
+        /// Nod's blue, wherever a surface carries the brand rather than a
+        /// status colour: the live-capture ring, a "New" badge, a tinted icon.
+        /// The sign-in sky's own azure, so a tinted icon and the brand pill
+        /// beside it are one blue; lighter on dark, where the azure sinks.
+        static let brand = Color.themed(light: DesignTokens.Palette.heroAzure, dark: DesignTokens.Palette.heroSky)
 
         // Meeting controls — the pause/resume/end/mute tints shared by the
         // status row and the collapsed capsule, centralised here so the two
@@ -105,6 +107,17 @@ enum Theme {
         static let text = Palette.onAccent
         static let border = Palette.ink.opacity(0.6)
         static let borderWidth: CGFloat = 0.5
+
+        /// The one pill that asks for money wears the sign-in sky rather than
+        /// ink, so it reads as Nod's own offer and not as the next step of a
+        /// form. The same blue in both themes, so its label is plain white.
+        static let brandFill = LinearGradient(
+            colors: [DesignTokens.Palette.heroAzure, DesignTokens.Palette.heroDeep],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        static let brandText = DesignTokens.Palette.frost
+        static let brandBorder = DesignTokens.Palette.heroDeep.opacity(0.6)
         static let shadow: DesignTokens.Shadow.Drop = (DesignTokens.Shadow.ink(light: 0.14, dark: 0.22), 10, 0, 4)
     }
 

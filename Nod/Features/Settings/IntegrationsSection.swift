@@ -162,20 +162,9 @@ struct IntegrationsSection: View {
                         )
                 },
                 trailing: {
-                    Button {
+                    GlassPillButton("Send an email", size: .compact, tint: .brand) {
                         if let url = Self.requestURL { NSWorkspace.shared.open(url) }
-                    } label: {
-                        Text("Send an email")
-                            .font(.system(size: 12, weight: .semibold))
-                            // White on both themes: `brand` is a saturated blue in
-                            // each, which is the one case the design rule allows a
-                            // literal white for.
-                            .foregroundStyle(Color.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 6)
-                            .background(Capsule(style: .continuous).fill(Theme.Palette.brand))
                     }
-                    .buttonStyle(.plain)
                     .linkCursor()
                     .help("Opens your mail app to dmytro@hellonod.app")
                 }

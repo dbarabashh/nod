@@ -119,8 +119,7 @@ struct LifecycleConsentUpgradeCard: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.Palette.muted)
                 Spacer(minLength: 8)
-                Button("Turn on trial learning") { save(subscribed: true) }
-                    .buttonStyle(.borderedProminent)
+                GlassPillButton("Turn on trial learning", size: .compact, tint: .brand) { save(subscribed: true) }
             }
             .font(.system(size: 11.5, weight: .medium))
         }

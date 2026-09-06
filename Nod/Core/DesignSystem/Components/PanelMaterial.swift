@@ -91,20 +91,48 @@ extension View {
     /// from one place. Sets a default dark foreground for the label (an inner
     /// view can still override, e.g. an accent icon). Pass the button's own
     /// shape so fill, clip, and border stay in sync.
-    func glassButtonSurface(_ shape: some InsettableShape) -> some View {
-        foregroundColor(Theme.GlassButton.text)
+    func glassButtonSurface(_ shape: some InsettableShape, tint: GlassButtonTint = .ink) -> some View {
+        foregroundColor(tint.text)
             .background(
                 shape
-                    .fill(Theme.GlassButton.fill)
+                    .fill(tint.fill)
                     .clipShape(shape)
             )
-            .overlay(shape.strokeBorder(Theme.GlassButton.border, lineWidth: Theme.GlassButton.borderWidth))
+            .overlay(shape.strokeBorder(tint.border, lineWidth: Theme.GlassButton.borderWidth))
             .shadow(
                 color: Theme.GlassButton.shadow.color,
                 radius: Theme.GlassButton.shadow.radius,
                 x: Theme.GlassButton.shadow.x,
                 y: Theme.GlassButton.shadow.y
             )
+    }
+}
+
+/// Which fill a glass pill wears: ink for every action, the sign-in blue for
+/// the one that sells something.
+enum GlassButtonTint {
+    case ink
+    case brand
+
+    var fill: LinearGradient {
+        switch self {
+        case .ink: Theme.GlassButton.fill
+        case .brand: Theme.GlassButton.brandFill
+        }
+    }
+
+    var text: Color {
+        switch self {
+        case .ink: Theme.GlassButton.text
+        case .brand: Theme.GlassButton.brandText
+        }
+    }
+
+    var border: Color {
+        switch self {
+        case .ink: Theme.GlassButton.border
+        case .brand: Theme.GlassButton.brandBorder
+        }
     }
 }
 

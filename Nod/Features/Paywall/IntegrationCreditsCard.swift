@@ -58,7 +58,8 @@ struct IntegrationCreditsCard: View {
                         GlassPillButton(
                             "Add \(PaywallFormat.count(credits)) · \(amount)",
                             size: .compact,
-                            isLoading: billing.isStartingTopUp
+                            isLoading: billing.isStartingTopUp,
+                            tint: .brand
                         ) {
                             Task { _ = await billing.startTopUp(sku: sku, surface: .settings) }
                         }
