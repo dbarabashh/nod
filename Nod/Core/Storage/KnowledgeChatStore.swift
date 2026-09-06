@@ -397,7 +397,7 @@ extension KnowledgeChatStore {
     /// The work runs in a task this store owns rather than the caller's, so
     /// `cancel()` has something to stop. Awaiting it here keeps every existing
     /// call site — which reads the answer once this returns — working unchanged.
-    func ask(_ text: String, pinned: [SessionRef] = [], scope: [SessionLabel] = []) async {
+    func ask(_ text: String, pinned: [SessionRef] = [], scope: [SessionLabel] = [], products: [IntegrationProvider]? = nil) async {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         // Claimed BEFORE the task exists. `run` starts on the next suspension,
         // and a second ask arriving in that window would otherwise pass this
@@ -405,7 +405,7 @@ extension KnowledgeChatStore {
         guard !text.isEmpty, !isSending else { return }
         isSending = true
         failure = nil
-        let task = Task { await run(text, pinned: pinned, scope: scope) }
+        let task = Task { await run(text, pinned: pinned, scope: scope, products: products) }
         inFlight = task
         await task.value
         inFlight = nil
@@ -479,7 +479,7 @@ extension KnowledgeChatStore {
         unsavedMessageIDs = []
     }
 
-    private func run(_ text: String, pinned: [SessionRef], scope: [SessionLabel]) async {
+    private func run(_ text: String, pinned: [SessionRef], scope: [SessionLabel], products: [IntegrationProvider]?) async {
         // Captured before the new turn is appended — this is the context the
         // query-prep step resolves follow-ups against.
         let priorHistory = chatHistory
@@ -548,7 +548,7 @@ extension KnowledgeChatStore {
         // conversation gets the same half, for a different reason: a write
         // still has no card to be confirmed on, so offering one at all is
         // just a round trip that ends in a silent decline.
-        turnTools = await tools.filter { (unattended || readsRunUnasked) ? !$0.mutating : true }
+        turnTools = await Self.offered(tools, products: products, readsOnly: unattended || readsRunUnasked)
 
         let prepared: (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool, screenTerms: [String])
         let routing: Routing
@@ -699,6 +699,16 @@ extension KnowledgeChatStore {
         let evidence: [Excerpt]
     }
 
+    /// The catalogue a turn may call: narrowed to the products the caller
+    /// named (nil is every product, empty is none), and to reads when nobody
+    /// is there to approve a write.
+    nonisolated static func offered(_ tools: [ChatTool], products: [IntegrationProvider]?, readsOnly: Bool) -> [ChatTool] {
+        tools.filter { tool in
+            guard products.map({ $0.contains(tool.provider) }) ?? true else { return false }
+            return readsOnly ? !tool.mutating : true
+        }
+    }
+
     private func streamReply(_ context: ReplyContext, round: Int = 0) async {
         let (system, history, sources, evidence) = (context.system, context.history, context.sources, context.evidence)
         // With tools on the table the first round is a decision, not a draft.
@@ -782,8 +792,20 @@ extension KnowledgeChatStore {
         // anywhere yet: the calls go to the user first, and only an approval
         // runs them.
         Log.ui.info("chat turn ended requested=\(requested.count) streamed=\(streamed.count) round=\(round)")
-        if !requested.isEmpty, streamed.isEmpty, streamError == nil, !Task.isCancelled, round < ChatToolGate.maxRounds {
-            await runTools(requested, context: context, round: round)
+        // Some models narrate before a call ("Let me check that thread…").
+        // Text beside a tool call is a preamble, not an answer, whichever
+        // round it is: with rounds left the tools run; on the last one the
+        // model is asked once more without tools, which the one-shot path is.
+        if !requested.isEmpty, streamError == nil, !Task.isCancelled {
+            if appended {
+                messages.removeAll { $0.id == answer.id }
+                isStreaming = false
+            }
+            if round < ChatToolGate.maxRounds {
+                await runTools(requested, context: context, round: round)
+            } else {
+                await answerWithoutStreaming(context, into: thread)
+            }
             return
         }
 

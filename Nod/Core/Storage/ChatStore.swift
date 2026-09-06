@@ -260,10 +260,10 @@ final class ChatStore: ObservableObject, ChatToolGateHost {
         }
         guard openMeetingID == context.meetingID, !Task.isCancelled else { return }
 
-        // The model asked for a tool instead of answering. Nothing has gone
-        // anywhere yet: the calls go to the user first, and only an approval
-        // runs them.
-        if !requested.isEmpty, answer.isEmpty, !Task.isCancelled, round < ChatToolGate.maxRounds {
+        // The model asked for a tool. Nothing has gone anywhere yet: the calls
+        // go to the user first, and only an approval runs them. Text beside
+        // the call ("Let me check…") is a preamble, not the answer.
+        if !requested.isEmpty, !Task.isCancelled, round < ChatToolGate.maxRounds {
             await runTools(requested, context: context, round: round)
             return
         }
