@@ -67,10 +67,34 @@ final class ConsentPreference: ObservableObject {
     /// text in `DiagnosticsChoice` changes materially, like `disclaimerVersion`.
     static let diagnosticsVersion = "diagnostics-2026-09-06-v1"
 
-    /// Records which way the two diagnostics switches were set when the
-    /// question was answered. The local defaults stay the source of truth for
-    /// starting the crash reporter; this row is the evidence that it was asked.
-    func recordDiagnosticsChoice(crashReports: Bool, usageEvents: Bool) {
+    /// Where a diagnostics answer was given.
+    enum DiagnosticsSource: String, Encodable {
+        /// The onboarding step, or the one-time question after an update.
+        case prompt
+        /// A switch in Settings, flipped later.
+        case settings
+    }
+
+    /// What one diagnostics row says: both switches as they stand, and where
+    /// they were set. Both every time, so a row reads on its own — an opt-out
+    /// is a row with `false` in it, not a row that is missing.
+    struct DiagnosticsDetails: Encodable {
+        let crashReports: Bool
+        let usageEvents: Bool
+        let source: DiagnosticsSource
+
+        enum CodingKeys: String, CodingKey {
+            case crashReports = "crash_reports"
+            case usageEvents = "usage_events"
+            case source
+        }
+    }
+
+    /// Records which way the two diagnostics switches are set. The local
+    /// defaults stay the source of truth for starting the crash reporter; this
+    /// row is the evidence of what was chosen, at the question and at every
+    /// change after it.
+    func recordDiagnosticsChoice(crashReports: Bool, usageEvents: Bool, source: DiagnosticsSource) {
         let appVersion = Self.appVersion()
         guard let supabase, let auth, let userID = auth.session?.user.id else {
             Log.ui.info("consent: skipping diagnostics row (no session)")
@@ -83,7 +107,7 @@ final class ConsentPreference: ObservableObject {
                 disclaimerVersion: Self.diagnosticsVersion,
                 languageCode: "en",
                 appVersion: appVersion,
-                details: ["crash_reports": crashReports, "usage_events": usageEvents]
+                details: DiagnosticsDetails(crashReports: crashReports, usageEvents: usageEvents, source: source)
             )
         }
     }
@@ -118,14 +142,14 @@ final class ConsentPreference: ObservableObject {
         disclaimerVersion: String,
         languageCode: String,
         appVersion: String,
-        details: [String: Bool]?
+        details: DiagnosticsDetails?
     ) async {
         struct Row: Encodable {
             let userID: UUID
             let disclaimerVersion: String
             let languageCode: String
             let appVersion: String
-            let details: [String: Bool]?
+            let details: DiagnosticsDetails?
 
             enum CodingKeys: String, CodingKey {
                 case userID = "user_id"

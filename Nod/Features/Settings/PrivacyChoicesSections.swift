@@ -90,6 +90,7 @@ struct EmailPreferencesSection: View {
 /// measures nothing and still asks for a decision nobody has context for.
 struct ProductAnalyticsSection: View {
     @ObservedObject var analytics: ProductAnalytics
+    let consent: ConsentPreference?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -111,7 +112,12 @@ struct ProductAnalyticsSection: View {
                 ) {
                     Toggle("", isOn: Binding(
                         get: { !analytics.isOptedOut },
-                        set: { analytics.isOptedOut = !$0 }
+                        set: { on in
+                            analytics.isOptedOut = !on
+                            consent?.recordDiagnosticsChoice(
+                                crashReports: CrashReporting.isEnabled(), usageEvents: on, source: .settings
+                            )
+                        }
                     ))
                     .labelsHidden()
                     .nodSwitch()
@@ -126,6 +132,8 @@ struct ProductAnalyticsSection: View {
 /// without a question being asked, so the switch sits beside the analytics
 /// one and says exactly what a report holds.
 struct CrashReportsSection: View {
+    let consent: ConsentPreference?
+    let analytics: ProductAnalytics?
     @State private var isEnabled = CrashReporting.isEnabled()
 
     var body: some View {
@@ -143,7 +151,12 @@ struct CrashReportsSection: View {
                         .labelsHidden()
                         .nodSwitch()
                         .accessibilityLabel("Send crash reports")
-                        .onChange(of: isEnabled) { on in CrashReporting.record(enabled: on) }
+                        .onChange(of: isEnabled) { on in
+                            CrashReporting.record(enabled: on)
+                            consent?.recordDiagnosticsChoice(
+                                crashReports: on, usageEvents: !(analytics?.isOptedOut ?? true), source: .settings
+                            )
+                        }
                 }
             }
         }

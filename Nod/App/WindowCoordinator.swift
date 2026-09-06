@@ -442,6 +442,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 referral: services.referral,
                 emailPreferences: services.emailPreferences,
                 productAnalytics: services.productAnalytics,
+                consent: services.consent,
                 toolApproval: services.toolApproval,
                 screenExclusions: services.screenExclusions,
                 screenContext: services.screenContext,

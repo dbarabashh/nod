@@ -22,6 +22,7 @@ struct SettingsView: View {
     private let referral: ReferralService?
     private let emailPreferences: EmailPreferenceService?
     private let productAnalytics: ProductAnalytics?
+    private let consent: ConsentPreference?
     private let toolApproval: ToolApprovalPreference?
     private let screenExclusions: ScreenExclusions?
     private let screenContext: ScreenContextService?
@@ -54,6 +55,7 @@ struct SettingsView: View {
         referral: ReferralService? = nil,
         emailPreferences: EmailPreferenceService? = nil,
         productAnalytics: ProductAnalytics? = nil,
+        consent: ConsentPreference? = nil,
         toolApproval: ToolApprovalPreference? = nil,
         screenExclusions: ScreenExclusions? = nil,
         screenContext: ScreenContextService? = nil,
@@ -84,6 +86,7 @@ struct SettingsView: View {
         self.referral = referral
         self.emailPreferences = emailPreferences
         self.productAnalytics = productAnalytics
+        self.consent = consent
         self.toolApproval = toolApproval
         self.screenExclusions = screenExclusions
         self.screenContext = screenContext
@@ -516,9 +519,9 @@ struct SettingsView: View {
                     ToolApprovalSection(preference: toolApproval)
                 }
                 if let productAnalytics {
-                    ProductAnalyticsSection(analytics: productAnalytics)
+                    ProductAnalyticsSection(analytics: productAnalytics, consent: consent)
                 }
-                CrashReportsSection()
+                CrashReportsSection(consent: consent, analytics: productAnalytics)
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel("Your data")
                     AccountDataSection(auth: auth, export: accountExport)

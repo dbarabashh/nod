@@ -154,10 +154,12 @@ wrote the row. This is a durable audit trail in case a meeting participant
 later disputes consent.
 
 The same table records your answer to the diagnostics question (§ 3.17): the
-version of the wording you saw, and which way the two switches were set, so
-that "were you asked, and what did you say" has an answer without reading
-your Mac. Changing a switch later in Settings is not written here; the
-switch itself is what governs.
+version of the wording you saw, which way the two switches were set, and
+whether that was at the question or a later change in Settings, so that
+"were you asked, and what did you say" has an answer without reading your
+Mac. Every change is a new row with both switches as they then stood; an
+opt-out is a row that says so, never a row that is missing. The switch on
+your Mac is still what governs.
 
 Legal basis: legitimate interest in maintaining a legal-defence record
 (Art. 6(1)(f)), balanced by the fact that the row contains no meeting

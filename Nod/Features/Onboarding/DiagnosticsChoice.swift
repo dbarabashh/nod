@@ -69,7 +69,7 @@ struct DiagnosticsChoice: View {
     private func finish() {
         analytics.isOptedOut = !sharesUsage
         CrashReporting.record(enabled: sendsCrashReports)
-        consent.recordDiagnosticsChoice(crashReports: sendsCrashReports, usageEvents: sharesUsage)
+        consent.recordDiagnosticsChoice(crashReports: sendsCrashReports, usageEvents: sharesUsage, source: .prompt)
         onFinish()
     }
 }
