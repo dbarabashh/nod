@@ -270,7 +270,7 @@ not import a feature:
   `NSApp.appearance` from `AppDelegate.applicationDidFinishLaunching` and again
   on every change; every window Nod opens inherits it. `WindowCoordinator`
   deliberately does not set a per-window appearance.
-- **Transparent background** — on by default. Every translucent surface goes
+- **Transparent background** — off by default. Every translucent surface goes
   through `BackdropSurface`, which owns the one gate: the key read through
   `@AppStorage` (an injected object cannot reach four separate hosting roots)
   plus macOS's own Reduce transparency

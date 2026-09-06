@@ -10,5 +10,5 @@ import Foundation
 enum AppearanceDefaults {
     static let modeKey = "appearance.mode"
     static let transparencyKey = "appearance.transparency"
-    static let isTransparentByDefault = true
+    static let isTransparentByDefault = false
 }

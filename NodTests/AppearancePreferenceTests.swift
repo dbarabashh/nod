@@ -14,6 +14,12 @@ final class AppearancePreferenceTests: XCTestCase {
         XCTAssertEqual(try AppearancePreference(defaults: defaults()).mode, .system)
     }
 
+    /// A fresh install paints solid windows. The blur is an opt-in, not the
+    /// thing a person has to find the switch to turn off.
+    func testTransparencyIsOffUntilChosen() {
+        XCTAssertFalse(AppearanceDefaults.isTransparentByDefault)
+    }
+
     func testTheChoiceSurvivesARelaunch() throws {
         let store = try defaults()
         AppearancePreference(defaults: store).mode = .light
