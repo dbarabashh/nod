@@ -63,6 +63,31 @@ final class ConsentPreference: ObservableObject {
         }
     #endif
 
+    /// The version of the diagnostics question's wording. Bumped when the
+    /// text in `DiagnosticsChoice` changes materially, like `disclaimerVersion`.
+    static let diagnosticsVersion = "diagnostics-2026-09-06-v1"
+
+    /// Records which way the two diagnostics switches were set when the
+    /// question was answered. The local defaults stay the source of truth for
+    /// starting the crash reporter; this row is the evidence that it was asked.
+    func recordDiagnosticsChoice(crashReports: Bool, usageEvents: Bool) {
+        let appVersion = Self.appVersion()
+        guard let supabase, let auth, let userID = auth.session?.user.id else {
+            Log.ui.info("consent: skipping diagnostics row (no session)")
+            return
+        }
+        Task.detached(priority: .background) {
+            await Self.logAuditRow(
+                supabase: supabase,
+                userID: userID,
+                disclaimerVersion: Self.diagnosticsVersion,
+                languageCode: "en",
+                appVersion: appVersion,
+                details: ["crash_reports": crashReports, "usage_events": usageEvents]
+            )
+        }
+    }
+
     private func writeAuditRow() {
         // Snapshot values that need MainActor isolation before crossing
         // into a detached Task. The disclaimer body is English-only, so
@@ -79,8 +104,10 @@ final class ConsentPreference: ObservableObject {
             await Self.logAuditRow(
                 supabase: supabase,
                 userID: userID,
+                disclaimerVersion: Self.disclaimerVersion,
                 languageCode: languageCode,
-                appVersion: appVersion
+                appVersion: appVersion,
+                details: nil
             )
         }
     }
@@ -88,20 +115,24 @@ final class ConsentPreference: ObservableObject {
     private static func logAuditRow(
         supabase: SupabaseClient,
         userID: UUID,
+        disclaimerVersion: String,
         languageCode: String,
-        appVersion: String
+        appVersion: String,
+        details: [String: Bool]?
     ) async {
         struct Row: Encodable {
             let userID: UUID
             let disclaimerVersion: String
             let languageCode: String
             let appVersion: String
+            let details: [String: Bool]?
 
             enum CodingKeys: String, CodingKey {
                 case userID = "user_id"
                 case disclaimerVersion = "disclaimer_version"
                 case languageCode = "language_code"
                 case appVersion = "app_version"
+                case details
             }
         }
 
@@ -109,7 +140,8 @@ final class ConsentPreference: ObservableObject {
             userID: userID,
             disclaimerVersion: disclaimerVersion,
             languageCode: languageCode,
-            appVersion: appVersion
+            appVersion: appVersion,
+            details: details
         )
 
         do {
