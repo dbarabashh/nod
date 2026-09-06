@@ -294,6 +294,9 @@ struct KnowledgeChatView: View {
                 // above it: the answer is what was asked for, the record of how
                 // it was reached is there to be checked, not read.
                 ChatTurnTrace(steps: message.steps)
+                if message.steps.ranOutOfCredits {
+                    ChatCreditsNotice()
+                }
                 // Sessions and apps are both just "where this came from", so
                 // they read as one row of chips rather than two lists in two
                 // shapes. A session opens; an app is a label — the chip says

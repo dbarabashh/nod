@@ -263,7 +263,7 @@ final class BillingService: ObservableObject {
 
     /// Where a pack was bought from, for the funnel only.
     enum TopUpSurface: String {
-        case capture, settings
+        case capture, settings, chat
     }
 
     /// Buys a pack — hours or credits — for the CURRENT period. Never

@@ -134,6 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Posted by upsell buttons and the post-checkout deep link.
         observeSettingsPane(.nodOpenSubscription, .subscription)
         observeSettingsPane(.nodOpenOrganization, .organization)
+        observeSettingsPane(.nodOpenOrganizationBilling, .organizationBilling)
 
         NotificationCenter.default.addObserver(forName: .nodOpenLibrary, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in
@@ -207,7 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await services.updateGate.check() }
         // Sparkle reads the cached channel synchronously inside its check, so
         // a channel that only just changed needs the cycle reset to be seen
-        // before the next 24h tick.
+        // before the next four-hour tick.
         Task { @MainActor in
             if await services.releaseChannel.refresh() {
                 updaterController.updater.resetUpdateCycle()
@@ -445,6 +446,9 @@ extension Notification.Name {
     /// Posted by the `nod://invite` deep link so Settings lands where the invite
     /// is redeemed rather than wherever it was last left.
     static let nodOpenOrganization = Notification.Name("nod.app.openOrganization")
+    /// Posted by the chat's credits notice for a member who cannot buy the
+    /// pack themselves: the page an owner or admin would use is the answer.
+    static let nodOpenOrganizationBilling = Notification.Name("nod.app.openOrganizationBilling")
     static let nodOpenLibrary = Notification.Name("nod.app.openLibrary")
     /// Switch the Meetings window to the saved cross-session chats — posted
     /// when the launcher hands its thread over.

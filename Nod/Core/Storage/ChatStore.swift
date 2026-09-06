@@ -32,6 +32,10 @@ final class ChatStore: ObservableObject, ChatToolGateHost {
     /// tool calls that ran before it, which is the difference between "nothing
     /// happened" and "the ticket exists, the answer doesn't".
     private(set) var turnSteps: [ChatTurnStep] = []
+    /// A read was refused this turn because the integration credits are spent.
+    /// Published on its own because the steps are not: the answer still
+    /// arrives, and the thread has to say under it why it came from memory.
+    @Published private(set) var turnRanOutOfCredits = false
 
     /// Asking before anything leaves Nod. The same gate the cross-session chat
     /// uses — a session chat reaches the same products, and consent that means
@@ -84,6 +88,7 @@ final class ChatStore: ObservableObject, ChatToolGateHost {
         openMeetingID = meetingID
         messages = []
         sendState = .idle
+        turnRanOutOfCredits = false
         unsavedMessageIDs = []
         loadState = .loading
         #if DEBUG
@@ -179,6 +184,7 @@ final class ChatStore: ObservableObject, ChatToolGateHost {
         guard sendState == .sending else { return }
         toolGate.beginQuestion()
         turnSteps = []
+        turnRanOutOfCredits = false
         let context = ReplyContext(
             systemPrompt: systemPrompt,
             meetingID: meetingID,
@@ -300,6 +306,7 @@ final class ChatStore: ObservableObject, ChatToolGateHost {
         // going back to the model with that spends a round on an answer nobody
         // is waiting for any more.
         guard openMeetingID == context.meetingID, !Task.isCancelled else { return }
+        if outcome.steps.ranOutOfCredits { turnRanOutOfCredits = true }
         // The history now carries the call and its result, so it no longer
         // matches the prefix the provider has on file.
         await requestReply(
@@ -318,6 +325,7 @@ final class ChatStore: ObservableObject, ChatToolGateHost {
         messages = []
         loadState = .idle
         sendState = .idle
+        turnRanOutOfCredits = false
         unsavedMessageIDs = []
         openMeetingID = nil
     }
@@ -330,6 +338,7 @@ final class ChatStore: ObservableObject, ChatToolGateHost {
                 if openMeetingID == meetingID {
                     messages = []
                     sendState = .idle
+                    turnRanOutOfCredits = false
                 }
                 return
             }
@@ -343,6 +352,7 @@ final class ChatStore: ObservableObject, ChatToolGateHost {
             guard openMeetingID == meetingID else { return }
             messages = []
             sendState = .idle
+            turnRanOutOfCredits = false
             unsavedMessageIDs = []
         } catch {
             Log.ui.error("ChatStore.clearHistory failed: \(error.localizedDescription)")

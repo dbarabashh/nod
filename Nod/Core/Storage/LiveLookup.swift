@@ -82,11 +82,16 @@ enum LiveLookup {
         /// The products answered and Nod could not turn it into a sentence.
         /// Naming a provider here would point at an integration that works.
         case nod(String)
+        /// Refused at the pool, not by the product. The server's words are for
+        /// the model; the person needs to know it is a bill, not an outage.
+        case outOfCredits
 
         var label: String {
             switch self {
             case let .nod(said):
                 said
+            case .outOfCredits:
+                "Out of integration credits for this period — see Settings → Subscription"
             case let .provider(provider, said):
                 if let said, !said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     "\(provider.displayName): \(said)"

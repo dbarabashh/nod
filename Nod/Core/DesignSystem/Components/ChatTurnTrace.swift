@@ -51,9 +51,11 @@ struct ChatTurnTrace: View {
     private var summary: String {
         let failed = steps.filter { if case .failed = $0.outcome { true } else { false } }.count
         let declined = steps.filter { $0.outcome == .declined }.count
+        let unpaid = steps.filter { $0.outcome == .outOfCredits }.count
         let notes = [
             failed > 0 ? "\(failed) failed" : nil,
-            declined > 0 ? "\(declined) declined" : nil
+            declined > 0 ? "\(declined) declined" : nil,
+            unpaid > 0 ? "\(unpaid) out of credits" : nil
         ].compactMap { $0 }
         return ([ChatThinking.counted(steps.count, "step")] + notes).joined(separator: ", ")
     }
@@ -128,6 +130,10 @@ struct ChatTurnTrace: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Theme.Palette.warning)
                 .lineLimit(1)
+        case .outOfCredits:
+            Text("out of credits")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Theme.Palette.warning)
         }
     }
 }

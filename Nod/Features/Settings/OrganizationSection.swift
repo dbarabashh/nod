@@ -18,7 +18,9 @@ struct OrganizationSection: View {
     /// through it; without it the page still reads, it just cannot hand over.
     var billing: BillingService?
 
-    @State private var page = Page.overview
+    /// Owned by Settings so a deep link can land on Billing before this
+    /// section has mounted.
+    @Binding var page: Page
     @State private var newName = ""
     /// The upload in flight, so the tile can say so and refuse a second pick.
     @State private var uploadingLogo = false
@@ -212,7 +214,7 @@ struct OrganizationSection: View {
     private let previewOrg = Organization(id: UUID(), name: "Acme", slug: "acme")
 
     #Preview("Personal only") {
-        OrganizationSection(service: .preview(memberships: []))
+        OrganizationSection(service: .preview(memberships: []), page: .constant(.overview))
             .padding()
             .frame(width: 560)
             .background(WindowBackdrop())
@@ -223,9 +225,9 @@ struct OrganizationSection: View {
             memberships: [OrgMembership(organization: previewOrg, role: .admin)],
             activeOrgID: previewOrg.id,
             teams: [Team(id: UUID(), orgID: previewOrg.id, name: "Platform")]
-        ))
-        .padding()
-        .frame(width: 560)
-        .background(WindowBackdrop())
+        ), page: .constant(.overview))
+            .padding()
+            .frame(width: 560)
+            .background(WindowBackdrop())
     }
 #endif

@@ -822,11 +822,24 @@ final class IntegrationService: ObservableObject {
     /// back as a readable result, so this is how the trace tells "did nothing"
     /// from "did something".
     static func failure(in result: String) -> String? {
-        guard let data = result.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let error = object["error"] as? [String: Any]
-        else { return nil }
+        guard let error = failureObject(in: result) else { return nil }
         return error["message"] as? String ?? "The action failed."
+    }
+
+    static let creditsExhaustedCode = "integration_credits_exhausted"
+
+    /// The error's code, when the action returned one — the server's own
+    /// vocabulary for what went wrong, which is how "credits are used up" is
+    /// told apart from every other failure without matching on prose.
+    static func failureCode(in result: String) -> String? {
+        failureObject(in: result)?["code"] as? String
+    }
+
+    private static func failureObject(in result: String) -> [String: Any]? {
+        guard let data = result.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return object["error"] as? [String: Any]
     }
 
     /// The result for a call the user refused. The model still needs *an* answer

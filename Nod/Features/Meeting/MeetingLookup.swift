@@ -173,6 +173,9 @@ struct MeetingLookup {
         // read as if the thing had been done, or as if the room had been asked.
         if case .declined = first { return .refused(.declined) }
         if case .refusedByRoom = first { return .refused(.outsidersPresent) }
+        // A pool at zero is told, not blended into a memory answer where the
+        // model decides whether to mention the bill.
+        if case .failed(_, .outOfCredits) = first { return .failed(.outOfCredits) }
         if case let .failed(_, failure) = first, memory.isEmpty { return .failed(failure) }
 
         var runs = [first]
@@ -250,6 +253,7 @@ struct MeetingLookup {
     private func report(_ run: ToolRun, provider: IntegrationProvider) {
         let outcome: ProductAnalytics.Outcome = switch run {
         case .succeeded: .success
+        case .failed(_, .outOfCredits): .refused
         case .failed: .failure
         case .declined: .declined
         case .refusedByRoom: .refused
@@ -356,6 +360,9 @@ struct MeetingLookup {
     }
 
     private static func settle(_ tool: ChatTool, _ result: String) -> ToolRun {
+        if IntegrationService.failureCode(in: result) == IntegrationService.creditsExhaustedCode {
+            return .failed(tool, .outOfCredits)
+        }
         if let message = IntegrationService.failure(in: result) {
             return .failed(tool, .provider(tool.provider, message))
         }

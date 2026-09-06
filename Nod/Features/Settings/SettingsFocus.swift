@@ -17,6 +17,7 @@ final class SettingsFocus: ObservableObject {
         case rewards
         case privacy
         case organization
+        case organizationBilling
         case integrations
     }
 

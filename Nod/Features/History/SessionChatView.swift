@@ -128,6 +128,10 @@ struct SessionChatView: View {
                     if isSending, chatStore.pendingApproval == nil {
                         typingIndicator.id(ChatTranscriptSupport.Anchor.typing)
                     }
+                    if chatStore.turnRanOutOfCredits, chatStore.sendState == .idle {
+                        ChatCreditsNotice()
+                            .id(ChatTranscriptSupport.Anchor.credits)
+                    }
                     switch chatStore.sendState {
                     case let .failed(failure):
                         ChatErrorRow(failure: failure) { send(retryLast: true) }
@@ -542,6 +546,7 @@ struct SessionChatView: View {
         // A failure or a stop arrives without a message to announce it, and one
         // the user cannot see is one they cannot act on.
         case .failed, .stopped: return AnyHashable(ChatTranscriptSupport.Anchor.failure)
+        case .idle where chatStore.turnRanOutOfCredits: return AnyHashable(ChatTranscriptSupport.Anchor.credits)
         case .idle, .sending: return chatStore.messages.last.map { AnyHashable($0.id) }
         }
     }

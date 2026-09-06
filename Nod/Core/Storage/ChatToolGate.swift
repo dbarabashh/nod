@@ -175,14 +175,19 @@ final class ChatToolGate: ObservableObject {
                 provider: tool.provider,
                 action: tool.action,
                 detail: call.recognisableArgument(for: tool),
-                outcome: allowed
-                    ? IntegrationService.failure(in: result).map(ChatTurnStep.Outcome.failed) ?? .ran
-                    : .declined
+                outcome: allowed ? Self.outcome(of: result) : .declined
             ))
         }
         callingProvider = nil
         turns += outcome.turns
         return outcome
+    }
+
+    static func outcome(of result: String) -> ChatTurnStep.Outcome {
+        if IntegrationService.failureCode(in: result) == IntegrationService.creditsExhaustedCode {
+            return .outOfCredits
+        }
+        return IntegrationService.failure(in: result).map(ChatTurnStep.Outcome.failed) ?? .ran
     }
 
     func approve() {

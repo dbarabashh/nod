@@ -12,6 +12,7 @@ enum ChatTranscriptSupport {
         case typing
         case approval
         case failure
+        case credits
     }
 
     /// Offered on the newest answer only — regenerating an older one would

@@ -141,6 +141,7 @@ struct SettingsView: View {
     }
 
     @State private var tab: Tab
+    @State private var organizationPage = OrganizationSection.Page.overview
     @EnvironmentObject private var focus: SettingsFocus
 
     var body: some View {
@@ -167,6 +168,9 @@ struct SettingsView: View {
         case .privacy: tab = .privacy
         case .profile: tab = .profile
         case .organization: tab = .organization
+        case .organizationBilling:
+            tab = .organization
+            organizationPage = .billing
         case .integrations: tab = .integrations
         case nil: break
         }
@@ -470,7 +474,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var organizationPane: some View {
         if let organizations {
-            OrganizationSection(service: organizations, integrations: integrations, billing: billing)
+            OrganizationSection(service: organizations, integrations: integrations, billing: billing, page: $organizationPage)
         } else {
             Text("Sign in to work with an organization.")
                 .font(.system(size: 12.5))

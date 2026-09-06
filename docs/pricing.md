@@ -235,7 +235,7 @@ untouched. Source: `supabase/migrations/20260905203754` … `20260906130516`.
 |---|---|---|---|---|
 | Price, billed yearly | $0 for 14 days | $12 / mo | **$24 / mo** ($288 / yr) | **$32 / mo** per seat |
 | Price, billed monthly | — | $15 / mo | **$29 / mo** | **$39 / mo** per seat |
-| Meeting hours / month | 5 | 8 | **20**, metered | 20 × seats, pooled |
+| Meeting hours / month | 5 | 8 | **20**, metered | 25 × seats, pooled |
 | Integration credits / month | 100 | 100 | **500** | 500 × seats, pooled |
 | Integrations | core | core (Google Calendar, Notion, Google Drive) | all | all |
 | Hour pack | — | 5 h · $12 | 10 h · $29 | — |
@@ -267,10 +267,16 @@ untouched. Source: `supabase/migrations/20260905203754` … `20260906130516`.
   A refund gives back only what was unused, in the unit the pack granted.
 - **Surfaces**: the credit pool sits first on Settings → Integrations, under
   "This period" on Subscription, and on Organization → Billing, each with the
-  pack beside the count and a plain sentence about what happens at zero.
+  pack beside the count and a plain sentence about what happens at zero. When
+  a read is refused mid-conversation, the chat shows `ChatCreditsNotice` under
+  the answer — the refill date and the pack for whoever may buy it, or "ask an
+  owner or admin" — and the notch's live lookup says "credits are used up"
+  instead of blaming the product.
 - Paddle **sandbox** prices exist for every row above; live prices do not.
-  `terms.md` § 7 ("we do not meter") and `hellonod.app/pricing` still describe
-  prod and must move with the cutover, not before.
+  The policies (`terms.md` § 7, `refund.md` § 6, `privacy.md` § 3.4/7,
+  `security.md`, `subprocessors.md`) carry this catalogue as **advance notice**
+  since 2026-09-06, and the landing's pricing page describes it on the
+  `integrations` branch; neither is live until the cutover.
 
 ## Not shipped yet
 

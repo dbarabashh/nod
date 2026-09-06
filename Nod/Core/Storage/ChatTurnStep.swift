@@ -12,6 +12,11 @@ struct ChatTurnStep: Identifiable, Equatable {
         case ran
         case declined
         case failed(String)
+        /// The pool of integration credits is empty. Set apart from `failed`
+        /// because the person can do something about it — buy a pack, or ask
+        /// whoever administers the workspace to — and the row that says so
+        /// must not be a truncated line inside a collapsed trace.
+        case outOfCredits
     }
 
     let id = UUID()
@@ -27,5 +32,11 @@ struct ChatTurnStep: Identifiable, Equatable {
     /// the same place the approval card takes it from.
     var title: String {
         "\(ChatTool.verb(for: action)) \(provider.displayName)"
+    }
+}
+
+extension [ChatTurnStep] {
+    var ranOutOfCredits: Bool {
+        contains { $0.outcome == .outOfCredits }
     }
 }

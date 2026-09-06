@@ -521,6 +521,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                     .environmentObject(services.meetingGrants)
                     .environmentObject(services.organizations)
                     .environmentObject(services.entitlements)
+                    .environmentObject(services.billing)
+                    .environmentObject(feed)
                     .environmentObject(services.hotkeys)
                     .environmentObject(services.settingsFocus)
                     .environmentObject(services.screenContext)

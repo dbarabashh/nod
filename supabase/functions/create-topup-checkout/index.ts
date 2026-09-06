@@ -147,13 +147,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "topup_checkout_unavailable" }, 502);
     }
 
-    const fromSettings = body.surface === "settings";
+    const surface = topUpSurface(body.surface);
     const { error: telemetryError } = await admin.rpc("record_server_product_event", {
         p_user_id: user.id,
         p_event: "topup_checkout_started",
         p_properties: {
-            surface: fromSettings ? "settings" : "capture",
-            entry_point: fromSettings ? "settings" : "notch",
+            surface: surface.surface,
+            entry_point: surface.entryPoint,
             plan: eventPlan(intent.plan),
             billing: "one_time",
             outcome: "success",
@@ -183,4 +183,18 @@ async function findOrCreateCustomer(email: string): Promise<string | undefined> 
         return typeof id === "string" ? id : undefined;
     }
     return undefined;
+}
+
+// Where the pack was bought from, in the analytics vocabulary. A chat notice is
+// the "ask" surface; anything unnamed is the capture gate, which predates the
+// field.
+function topUpSurface(raw: unknown): { surface: string; entryPoint: string } {
+    switch (raw) {
+        case "settings":
+            return { surface: "settings", entryPoint: "settings" };
+        case "chat":
+            return { surface: "ask", entryPoint: "ask" };
+        default:
+            return { surface: "capture", entryPoint: "notch" };
+    }
 }
