@@ -113,7 +113,11 @@ enum TodayBrief {
         run.scheduledFor.timeIntervalSince1970 > UserDefaults.standard.double(forKey: seenKey(beat))
     }
 
+    /// Never moves the mark back: opening an older run from the Beats rail is
+    /// not unreading the newer one.
     static func markSeen(_ run: BeatRun, of beat: Beat) {
-        UserDefaults.standard.set(run.scheduledFor.timeIntervalSince1970, forKey: seenKey(beat))
+        let defaults = UserDefaults.standard
+        let seen = max(defaults.double(forKey: seenKey(beat)), run.scheduledFor.timeIntervalSince1970)
+        defaults.set(seen, forKey: seenKey(beat))
     }
 }

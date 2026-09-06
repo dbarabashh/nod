@@ -44,6 +44,9 @@ struct BeatDetailView: View {
         }
         .task(id: shown?.id) {
             guard let run = shown else { return }
+            // Read here counts as read: Today's "New" badge and its attention
+            // count were only ever cleared by opening the report from Today.
+            if run.status == .done { TodayBrief.markSeen(run, of: beat) }
             await beats.loadReport(for: run)
         }
     }

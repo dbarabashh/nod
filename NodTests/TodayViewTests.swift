@@ -254,6 +254,11 @@ final class TodayViewTests: XCTestCase {
             scheduledFor: now.addingTimeInterval(86_400), statusRaw: "done", threadID: nil, error: nil
         )
         XCTAssertTrue(TodayBrief.isUnseen(tomorrow, of: beat))
+
+        // Reading an older run afterwards does not make the newer one new again.
+        TodayBrief.markSeen(tomorrow, of: beat)
+        TodayBrief.markSeen(run, of: beat)
+        XCTAssertFalse(TodayBrief.isUnseen(tomorrow, of: beat))
     }
 }
 
