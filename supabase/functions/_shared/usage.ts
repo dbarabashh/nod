@@ -29,6 +29,12 @@ export interface UsageRow {
     // echo one back).
     requested_model?: string | null;
     resolved_model?: string | null;
+    // Which organization was paying when this call was made, from the resolved
+    // entitlement; null on a personal plan. The pooled allowance sums by this
+    // rather than by who holds a seat at read time. Only the transcribe writer
+    // sets it — it is the only row the pool reads, and the only writer that
+    // has the entitlement in hand.
+    org_id?: string | null;
 }
 
 export async function recordUsage(row: UsageRow): Promise<void> {

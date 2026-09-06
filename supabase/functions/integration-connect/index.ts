@@ -10,8 +10,8 @@
 // Request  (POST /functions/v1/integration-connect): { "provider": "linear" }
 // Response: { "connectLink": "https://…", "expiresAt": "2026-…" }
 import { json } from "../_shared/http.ts";
-import { authenticate } from "../_shared/supabase.ts";
-import { appSlug, isConnectableProvider } from "../_shared/integrations/registry.ts";
+import { adminClient, authenticate } from "../_shared/supabase.ts";
+import { appSlug, connectFeature, isConnectableProvider } from "../_shared/integrations/registry.ts";
 import { connectHeaders, connectURL, customOAuthAppID, isConfigured } from "../_shared/integrations/pipedream.ts";
 
 const WEBHOOK_URL = Deno.env.get("INTEGRATION_WEBHOOK_URL") ?? "";
@@ -34,6 +34,23 @@ Deno.serve(async (req) => {
   if (typeof provider !== "string" || !isConnectableProvider(provider)) {
     return json({ error: "Unsupported provider" }, 400);
   }
+  // Which connections a plan reaches is decided here, not in the app: the client
+  // hides what it cannot use, and this is what makes that true rather than
+  // decorative.
+  const required = connectFeature(provider);
+  const { data: entitlement, error: entitlementError } = await adminClient()
+    .rpc("resolve_entitlement", { p_user_id: user.id });
+  if (entitlementError) {
+    console.error(`entitlement lookup failed user=${user.id}: ${entitlementError.message}`);
+    return json({ error: "Integrations unavailable" }, 503);
+  }
+  const features = isObject(entitlement) && Array.isArray(entitlement.features)
+    ? entitlement.features
+    : [];
+  if (!features.includes(required)) {
+    return json({ error: "feature_required", feature: required, provider }, 403);
+  }
+
   const slug = appSlug(provider) ?? provider;
 
   const response = await fetch(connectURL("tokens"), {
@@ -70,3 +87,7 @@ Deno.serve(async (req) => {
   console.info(`connect token created: ${provider}${oauthAppID ? " (custom oauth client)" : ""}`);
   return json({ connectLink, expiresAt: session?.expires_at ?? null }, 200);
 });
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

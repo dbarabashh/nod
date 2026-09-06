@@ -23,6 +23,11 @@ struct IntegrationsSection: View {
     /// Optional: teams only exist for someone in an organization, and the picker
     /// stays out of the way entirely for everyone else.
     var organizations: OrganizationService?
+    /// Absent in previews. Without it nothing is hidden — the server refuses a
+    /// connection the plan doesn't carry either way, and a page that greys out
+    /// rows because it failed to load an entitlement is worse than one that lets
+    /// somebody press a button and read why.
+    var entitlements: EntitlementService?
 
     /// Which provider the user has asked to disconnect, while they confirm it.
     @State private var disconnecting: IntegrationProvider?
@@ -37,6 +42,13 @@ struct IntegrationsSection: View {
                 || provider.summary.localizedCaseInsensitiveContains(search)
                 || provider.capabilities.contains { $0.displayName.localizedCaseInsensitiveContains(search) }
         }
+    }
+
+    /// A connection this plan cannot reach. Only ever true once an entitlement
+    /// has actually loaded and says so — never while it is unknown.
+    private func isBeyondPlan(_ provider: IntegrationProvider) -> Bool {
+        guard let entitlement = entitlements?.entitlement else { return false }
+        return !entitlement.can(provider.requiredFeature)
     }
 
     private var authorized: [CatalogueApp] {
@@ -108,50 +120,78 @@ struct IntegrationsSection: View {
 
     /// The tools Nod does not support, which is all of them but these.
     ///
-    /// A call rather than a form. A typed tool name says which product somebody
-    /// wants and nothing about the work they are trying to do with it — and the
-    /// second half is what decides which adapter is worth writing. Twenty
-    /// minutes with the person who would build it beats a hundred rows of
-    /// product names.
+    /// A written ask rather than a form. A typed tool name says which product
+    /// somebody wants and nothing about the work they are trying to do with it —
+    /// and the second half is what decides which adapter is worth writing. The
+    /// subject line is filled in so the reply lands in one thread; the body is
+    /// left empty, because a prompt somebody has to delete before they can type
+    /// is worse than a blank message.
     private var requestSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("Need an integration?")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink.opacity(0.75))
-                Text("Book a call with Vlad. He builds them.")
+                Text("Write to us. We build them.")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.Palette.muted)
             }
             .padding(.horizontal, 2)
 
-            SettingsCard {
-                SettingsRow(
-                    icon: "nc-calendar",
-                    title: "Book a call with Vlad",
-                    subtitle: "Twenty minutes. Tell him which tool your team works in and what you'd want Nod to do in it."
-                ) {
+            // Brand-tinted rather than a standard card: this is the one row on
+            // the page that is an invitation and not a setting, and the featured
+            // chip in chat and the live capture ring already say "brand" this
+            // way — a wash of `brand` behind, `brand` on the glyph.
+            SettingsRow(
+                title: "Ask for an integration",
+                subtitle: "Tell us which tool your team works in and what you'd want Nod to do in it.",
+                subtitleTone: .secondary,
+                leading: {
+                    Image("nc-paper-plane-2")
+                        .icon(14)
+                        .foregroundStyle(Theme.Palette.brand)
+                        .frame(width: 32, height: 32)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                                .fill(Theme.Palette.brand.opacity(0.16))
+                        )
+                },
+                trailing: {
                     Button {
-                        NSWorkspace.shared.open(Self.bookingURL)
+                        if let url = Self.requestURL { NSWorkspace.shared.open(url) }
                     } label: {
-                        Text("Book a time")
+                        Text("Send an email")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Theme.GlassButton.text)
+                            // White on both themes: `brand` is a saturated blue in
+                            // each, which is the one case the design rule allows a
+                            // literal white for.
+                            .foregroundStyle(Color.white)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
-                            .glassButtonSurface(Capsule(style: .continuous))
+                            .background(Capsule(style: .continuous).fill(Theme.Palette.brand))
                     }
                     .buttonStyle(.plain)
                     .linkCursor()
+                    .help("Opens your mail app to dmytro@hellonod.app")
                 }
-            }
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
+                    .fill(Theme.Palette.brand.opacity(0.10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
+                            .stroke(Theme.Palette.brand.opacity(0.35), lineWidth: 0.5)
+                    )
+            )
         }
     }
 
-    /// The same booking link the site offers. Duplicated across repos rather
-    /// than fetched: a settings row that needs a round trip before it can draw
-    /// its own button is worse than a string two places have to agree on.
-    private static let bookingURL = URL(string: "https://calendly.com/meet-vlad-from-nod/30min")!
+    /// Optional rather than force-unwrapped: the button simply does nothing if a
+    /// future edit breaks the string, which is better than a crash in Settings.
+    private static let requestURL = URL(
+        string: "mailto:dmytro@hellonod.app?subject=Nod%20integration%20request"
+    )
 
     /// What actually happens, in the terms of the provider being dropped.
     private static func consequence(_ provider: IntegrationProvider) -> String {
@@ -215,7 +255,13 @@ struct IntegrationsSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
-            connectControl(provider, isLinked: isLinked, isPending: isPending, isBlocked: isBlocked)
+            connectControl(
+                provider,
+                isLinked: isLinked,
+                isPending: isPending,
+                isBlocked: isBlocked,
+                isBeyondPlan: isBeyondPlan(provider)
+            )
             Image(isOpen ? "nc-chevron-down" : "nc-chevron-right")
                 .icon(9)
                 .foregroundStyle(Theme.Palette.muted)
@@ -251,13 +297,24 @@ struct IntegrationsSection: View {
     /// forbidden tool would promise something the chat refuses, and a Connect
     /// button on one leads through an authorization that changes nothing.
     @ViewBuilder
-    private func connectControl(_ provider: IntegrationProvider, isLinked: Bool, isPending: Bool, isBlocked: Bool) -> some View {
+    private func connectControl(
+        _ provider: IntegrationProvider,
+        isLinked: Bool,
+        isPending: Bool,
+        isBlocked: Bool,
+        isBeyondPlan: Bool
+    ) -> some View {
         if isBlocked {
             StatusLabel(icon: "nc-lock", title: "Turned off", tint: Theme.Palette.warning)
                 .accessibilityLabel("\(provider.displayName) turned off for your organization")
         } else if isLinked {
             StatusLabel(icon: "nc-check", title: "Connected", tint: Theme.Palette.success)
                 .accessibilityLabel("\(provider.displayName) connected")
+        } else if isBeyondPlan {
+            // Named rather than greyed out: somebody looking at Jira on Starter
+            // is being told what to buy, not that the row is broken.
+            StatusLabel(icon: "nc-lock", title: "On Pro", tint: Theme.Palette.muted)
+                .accessibilityLabel("\(provider.displayName) is available on Pro")
         } else if isPending {
             Button("Cancel") { service.cancelPending() }
                 .font(.system(size: 12.5, weight: .semibold))

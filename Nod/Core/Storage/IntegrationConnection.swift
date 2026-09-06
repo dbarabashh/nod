@@ -310,6 +310,17 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
     /// Three hand-written names had already drifted into two conventions, and
     /// Slack's pointed at an imageset nobody ever added: it drew the Nucleo
     /// stand-in, silently, which is how it survived to ship.
+    /// How far into the catalogue a plan has to reach to connect this one. The
+    /// gate that matters is in `integration-connect`; this decides only what the
+    /// app offers, and the two have to name the same providers — the server's
+    /// copy is in `supabase/functions/_shared/integrations/registry.ts`.
+    var requiredFeature: Feature {
+        switch self {
+        case .googleCalendar, .notion, .googleDrive: .integrationsCore
+        default: .integrationsAll
+        }
+    }
+
     var brandAssetName: String {
         "Brand" + rawValue.replacingOccurrences(of: "-", with: "")
     }

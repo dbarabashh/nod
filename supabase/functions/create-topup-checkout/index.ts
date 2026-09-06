@@ -1,5 +1,7 @@
-// Starter top-up checkout — an explicit, non-recurring purchase of +5 meeting
-// hours for the CURRENT billing period.
+// Top-up checkout — an explicit, non-recurring purchase of extra meeting hours
+// for the CURRENT billing period. Which pack, and how many hours it grants, is
+// the catalogue's business: this function only decides that the sku is one we
+// sell.
 //
 // The order matters and is the whole point of this function:
 //   1. Supabase mints an intent that pins the period, the included allowance and
@@ -20,8 +22,6 @@ const PADDLE_API_KEY = Deno.env.get("PADDLE_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-const TOPUP_SKU = "starter_5h_usd_12";
 
 interface TopupCheckoutRequest {
     sku: string;
@@ -44,7 +44,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     } catch {
         return json({ error: "Invalid JSON body" }, 400);
     }
-    if (body.sku !== TOPUP_SKU) {
+    // Which packs exist is the catalogue's answer, not a list kept here:
+    // `create_topup_checkout_intent` resolves the sku against `plan_prices` and
+    // refuses anything that is not an active, purchasable top-up.
+    if (typeof body.sku !== "string" || body.sku.length === 0 || body.sku.length > 64) {
         return json({ error: "invalid_topup_sku" }, 422);
     }
 

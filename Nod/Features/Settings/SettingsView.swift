@@ -470,7 +470,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var organizationPane: some View {
         if let organizations {
-            OrganizationSection(service: organizations, integrations: integrations)
+            OrganizationSection(service: organizations, integrations: integrations, billing: billing)
         } else {
             Text("Sign in to work with an organization.")
                 .font(.system(size: 12.5))
@@ -484,7 +484,8 @@ struct SettingsView: View {
             IntegrationsSection(
                 service: integrations,
                 catalogue: integrationCatalogue,
-                organizations: organizations
+                organizations: organizations,
+                entitlements: entitlements
             )
         } else {
             Text("Sign in to connect Nod to your tools.")

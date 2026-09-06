@@ -234,23 +234,40 @@ struct NotchStateContent: View {
                 onDismiss: model.session.dismissSaveError
             )
         case .allowance:
-            StarterAllowanceGate(
+            AllowanceGate(
                 billing: model.billing,
-                recommendPro: model.shouldRecommendProUpgrade,
+                plan: model.allowancePlan,
+                canUpgrade: model.canUpgradeFromAllowanceGate,
+                recommendUpgrade: model.shouldRecommendProUpgrade,
+                isWorkspace: model.isWorkspaceAllowance,
                 onDismiss: model.dismissAllowanceGate,
                 onUpgrade: model.openSubscriptionFromAllowanceGate,
-                onTopUp: model.buyStarterTopUp
+                onTopUp: model.buyTopUp
             )
         }
     }
 }
 
-/// Shown when a healthy Starter plan has spent this period's hours. It sells the
-/// two honest ways forward and says out loud that a meeting in progress is never
-/// interrupted — because that is the promise the enforcement is built around.
-private struct StarterAllowanceGate: View {
+/// Shown when a healthy paid plan has spent this period's hours. It sells the
+/// honest ways forward — buy the pack, move up a plan — and says out loud that a
+/// meeting in progress is never interrupted, because that is the promise the
+/// enforcement is built around.
+///
+/// Both doors are conditional. The pack exists only where the catalogue sells
+/// one, and there is nothing above the top plan, so a Pro subscriber who has run
+/// out is offered the pack alone rather than an upgrade to what they already pay
+/// for.
+private struct AllowanceGate: View {
     @ObservedObject var billing: BillingService
-    let recommendPro: Bool
+    /// The plan, not a resolved offer: the catalogue can arrive after the gate is
+    /// on screen, and only a value read from the observed `billing` re-renders
+    /// when it does.
+    let plan: String?
+    let canUpgrade: Bool
+    let recommendUpgrade: Bool
+    /// A pool somebody's employer bought, not their own hours — which changes
+    /// both whose it is and who can make it bigger.
+    let isWorkspace: Bool
     let onDismiss: () -> Void
     let onUpgrade: () -> Void
     let onTopUp: () -> Void
@@ -287,25 +304,64 @@ private struct StarterAllowanceGate: View {
 
                 Spacer(minLength: 0)
 
-                Button("Upgrade to Pro", action: onUpgrade)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                    .linkCursor()
+                if canUpgrade {
+                    Button("Upgrade to Pro", action: onUpgrade)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.ink)
+                        .linkCursor()
+                }
 
-                NotchActionButton(
-                    title: "Buy 5 hours · $12",
-                    isLoading: billing.isStartingTopUp,
-                    action: onTopUp
-                )
+                if let packLabel {
+                    NotchActionButton(
+                        title: packLabel,
+                        isLoading: billing.isStartingTopUp,
+                        action: onTopUp
+                    )
+                }
             }
         }
     }
 
+    private var offer: PlanPrice? {
+        plan.flatMap { billing.topUpOffer(plan: $0) }
+    }
+
+    private var pack: (hours: String, amount: String)? {
+        guard let offer, let hours = offer.topUpHours, let amount = PaywallFormat.currency(offer) else {
+            return nil
+        }
+        return (PaywallView.hoursText(hours), amount)
+    }
+
+    private var packLabel: String? {
+        pack.map { "Buy \($0.hours) hours · \($0.amount)" }
+    }
+
+    /// Whether Pro is still worth naming as "more room" is the catalogue's
+    /// answer, not a sentence baked into the app: the same build ships against a
+    /// branch where Pro is metered and one where it is not.
+    private var proRoom: String {
+        billing.hoursAreUnlimited(plan: "pro") ? "Pro's unlimited hours" : "the room Pro gives you"
+    }
+
     private var detail: String {
-        recommendPro
-            ? "You've already topped up this period, so Pro's unlimited hours are probably the cheaper answer. A session already in progress is never stopped."
-            : "Add 5 capture hours for $12, or move to Pro for unlimited hours. A session already in progress is never stopped."
+        let close = "A session already in progress is never stopped."
+        if recommendUpgrade, canUpgrade {
+            return "You've already topped up this period, so \(proRoom) is probably the cheaper answer. \(close)"
+        }
+        switch (pack, canUpgrade) {
+        case let (pack?, true):
+            return "Add \(pack.hours) capture hours for \(pack.amount), or move to Pro for \(proRoom). \(close)"
+        case let (pack?, false):
+            return "Add \(pack.hours) capture hours for \(pack.amount) to finish this period. \(close)"
+        case (nil, true):
+            return "Move to Pro for \(proRoom). \(close)"
+        case (nil, false):
+            return isWorkspace
+                ? "The workspace pool is spent. It refills when the workspace's next period starts, and an owner can add seats. \(close)"
+                : "Your capture hours reset when the next period starts. \(close)"
+        }
     }
 }
 

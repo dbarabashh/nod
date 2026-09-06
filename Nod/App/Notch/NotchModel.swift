@@ -604,6 +604,10 @@ final class NotchModel: ObservableObject {
                 // Refresh first: the gate's copy quotes the allowance, and the
                 // server just told us it changed.
                 await entitlements.refresh()
+                // The gate names the pack and its price, and the catalogue is
+                // otherwise only loaded by opening Settings — so somebody who
+                // has never been there would be offered nothing to buy.
+                await billing.loadPrices()
                 billing.lastError = nil
                 gate = .allowance
                 isOpened = true
@@ -641,13 +645,44 @@ final class NotchModel: ObservableObject {
         NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
     }
 
-    func buyStarterTopUp() {
+    /// The plan whose allowance was just refused, which is what decides which
+    /// pack — if any — the gate can offer.
+    var allowancePlan: String? {
+        entitlements.entitlement?.plan
+    }
+
+    var isWorkspaceAllowance: Bool {
+        entitlements.entitlement?.payer == .organization
+    }
+
+    /// There is nothing above Pro to sell, so the gate stops offering it. Asked
+    /// of the plan rather than of a list of plan names: a subscription that is
+    /// already resolved as unmetered has no upgrade either.
+    ///
+    /// Somebody the workspace pays for cannot buy their way out of a pool their
+    /// employer bought, so they are not offered one — the pool is an owner's to
+    /// enlarge.
+    var canUpgradeFromAllowanceGate: Bool {
+        guard let ent = entitlements.entitlement else { return false }
+        guard ent.payer != .organization else { return false }
+        return ent.plan != "pro" && !billing.hoursAreUnlimited(for: ent)
+    }
+
+    /// The pack this plan sells, or nil when it sells none — the gate offers the
+    /// button only when there is something behind it.
+    var allowanceTopUp: PlanPrice? {
+        guard let plan = entitlements.entitlement?.plan else { return nil }
+        return billing.topUpOffer(plan: plan)
+    }
+
+    func buyTopUp() {
+        guard let offer = allowanceTopUp, let sku = offer.sku else { return }
         Task { @MainActor in
-            let outcome = await billing.startStarterTopUp()
+            let outcome = await billing.startTopUp(sku: sku)
             session.recordAllowanceGate(
                 .allowanceGateAction,
                 outcome: outcome == .opened ? .success : .failure,
-                plan: "starter",
+                plan: offer.plan,
                 billing: "one_time"
             )
             if outcome == .opened {

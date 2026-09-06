@@ -47,6 +47,11 @@ interface Provider {
     /// The provider's own API root. Every adapter path is relative to it.
     base: string;
     actions: ActionHandlers | null;
+    /// How far into the catalogue a plan has to reach to connect this one.
+    /// `core` is the calendar and the two places notes are exported to, which
+    /// every paid plan includes; `all` is the rest — the tools a ticket is
+    /// worked in — and is what separates Starter from Pro.
+    tier: "core" | "all";
 }
 
 const PROVIDERS: Record<string, Provider> = {
@@ -54,36 +59,43 @@ const PROVIDERS: Record<string, Provider> = {
         slug: "linear",
         base: "https://api.linear.app/",
         actions: LINEAR_ACTIONS,
+        tier: "all",
     },
     "google-calendar": {
         slug: "google_calendar",
         base: "https://www.googleapis.com/",
         actions: GOOGLE_CALENDAR_ACTIONS,
+        tier: "core",
     },
     "github": {
         slug: "github",
         base: "https://api.github.com/",
         actions: GITHUB_ACTIONS,
+        tier: "all",
     },
     "asana": {
         slug: "asana",
         base: "https://app.asana.com/",
         actions: ASANA_ACTIONS,
+        tier: "all",
     },
     "gmail": {
         slug: "gmail",
         base: "https://gmail.googleapis.com/",
         actions: GMAIL_ACTIONS,
+        tier: "all",
     },
     "google-drive": {
         slug: "google_drive",
         base: "https://www.googleapis.com/",
         actions: GOOGLE_DRIVE_ACTIONS,
+        tier: "core",
     },
     "hubspot": {
         slug: "hubspot",
         base: "https://api.hubapi.com/",
         actions: HUBSPOT_ACTIONS,
+        tier: "all",
     },
     "jira": {
         slug: "jira",
@@ -91,11 +103,13 @@ const PROVIDERS: Record<string, Provider> = {
         // rewrites every path onto `api.atlassian.com/ex/jira/{cloudId}`.
         base: "https://api.atlassian.com/",
         actions: JIRA_ACTIONS,
+        tier: "all",
     },
     "notion": {
         slug: "notion",
         base: "https://api.notion.com/",
         actions: NOTION_ACTIONS,
+        tier: "core",
     },
     "google-ads": {
         slug: "google_ads",
@@ -105,16 +119,19 @@ const PROVIDERS: Record<string, Provider> = {
         // the body. See `googleAds.ts`.
         base: "https://googleads.m.pipedream.net/",
         actions: GOOGLE_ADS_ACTIONS,
+        tier: "all",
     },
     "google-tasks": {
         slug: "google_tasks",
         base: "https://tasks.googleapis.com/",
         actions: GOOGLE_TASKS_ACTIONS,
+        tier: "all",
     },
     "slack": {
         slug: "slack_v2",
         base: "https://slack.com/api/",
         actions: SLACK_ACTIONS,
+        tier: "all",
     },
 };
 
@@ -124,6 +141,13 @@ export function handlerFor(provider: string, action: string): ActionHandler | un
 
 export function isConnectableProvider(provider: string): boolean {
     return Object.hasOwn(PROVIDERS, provider);
+}
+
+/// The entitlement feature a plan must carry to connect this provider. Unknown
+/// providers ask for the wider tier: a name we do not recognise is not something
+/// to hand to the cheapest plan by default.
+export function connectFeature(provider: string): string {
+    return PROVIDERS[provider]?.tier === "core" ? "integrations_core" : "integrations_all";
 }
 
 /// `integration-action` asks this rather than `isConnectableProvider`, so a

@@ -51,6 +51,9 @@ final class OrganizationService: ObservableObject {
     /// connected. This is what an assignment picks from; `directory` is the
     /// narrower "who can I invite to a meeting" list.
     @Published private(set) var people: [Person] = []
+    /// What the active organization is paying for. Nil until the Billing page
+    /// asks, and nil again for an organization that has bought nothing.
+    @Published private(set) var billing: OrgBilling?
     @Published private(set) var pendingInvites: [OrgInvite] = []
     @Published private(set) var isLoading = false
     @Published var lastError: String?
@@ -423,6 +426,25 @@ final class OrganizationService: ObservableObject {
     /// server refuses it, so the picker should not offer it either.
     func grantableRoles(as role: OrgRole) -> [OrgRole] {
         role == .owner ? OrgRole.allCases : [.member, .admin]
+    }
+
+    /// The Billing page's one read. Everything on it — the seat holders and the
+    /// pooled hours — is derived server-side, because a client may not read
+    /// `usage_events` across other people or ask who holds a seat.
+    func loadBilling(in orgID: UUID) async {
+        guard let supabase else { return }
+        do {
+            struct Params: Encodable { let p_org_id: UUID }
+            let overview: OrgBilling = try await supabase
+                .rpc("org_billing_overview", params: Params(p_org_id: orgID))
+                .execute()
+                .value
+            billing = overview
+            lastError = nil
+        } catch {
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't read the workspace's billing."
+            Log.ui.error("OrganizationService.loadBilling failed: \(error.localizedDescription)")
+        }
     }
 
     func setRole(_ role: OrgRole, for member: OrgMember, in orgID: UUID) async {

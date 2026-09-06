@@ -14,6 +14,9 @@ struct OrganizationSection: View {
     /// Absent in previews and for a signed-out account. Only the tools table
     /// needs it, and that table is an administrator's surface anyway.
     var integrations: IntegrationService?
+    /// Absent in previews. The Billing page opens the workspace's Paddle portal
+    /// through it; without it the page still reads, it just cannot hand over.
+    var billing: BillingService?
 
     @State private var page = Page.overview
     @State private var newName = ""
@@ -24,6 +27,7 @@ struct OrganizationSection: View {
         case overview = "Organization"
         case people = "People"
         case teams = "Teams"
+        case billing = "Billing"
         var id: String {
             rawValue
         }
@@ -72,6 +76,14 @@ struct OrganizationSection: View {
             OrganizationPeople(service: service, membership: membership)
         case .teams:
             OrganizationTeams(service: service, membership: membership)
+        case .billing:
+            if let billing {
+                OrganizationBilling(service: service, billing: billing, membership: membership)
+            } else {
+                Text("Sign in to see what this workspace is on.")
+                    .textStyle(Theme.Typography.secondary)
+                    .foregroundStyle(Theme.Palette.muted)
+            }
         }
     }
 

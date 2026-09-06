@@ -162,6 +162,11 @@ interface Entitlement {
     features: string[];
     hours_used: number;
     hours_limit: number;
+    /// Who is paying — "personal", "organization" or "none" — and, when it is a
+    /// workspace, which one. Stamped onto transcription usage so the pool is
+    /// charged to whoever was covering the call, not whoever holds a seat later.
+    payer: string;
+    org_id: string | null;
 }
 
 const ENTITLEMENT_TTL_MS = 60_000;
@@ -200,6 +205,8 @@ async function entitlementFor(admin: ReturnType<typeof adminClient>, userId: str
         features: Array.isArray(data.features) ? data.features.filter((f): f is string => typeof f === "string") : [],
         hours_used: typeof data.hours_used === "number" ? data.hours_used : 0,
         hours_limit: typeof data.hours_limit === "number" ? data.hours_limit : 0,
+        payer: typeof data.payer === "string" ? data.payer : "personal",
+        org_id: typeof data.org_id === "string" ? data.org_id : null,
     };
     entitlementCache.set(userId, { ent, at: now });
     return ent;
@@ -380,6 +387,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
         case "chat":
             return forwardChat(body.payload, user.id);
         case "meeting_start":
+            // The payer is decided when a meeting starts. The cached entitlement
+            // may be up to a minute old and from a different workspace context,
+            // so it is dropped here: the first transcribe chunk re-resolves and
+            // every chunk of this meeting is stamped to whoever covers it now.
+            entitlementCache.delete(user.id);
             return startMeeting(admin, user.id, body.payload);
         case "meeting_end":
             return endMeeting(admin, user.id, body.payload);
@@ -629,6 +641,10 @@ async function forwardTranscribe(payload: unknown, userId: string, entitlement: 
             routing_version: ROUTING_VERSION,
             requested_model: model,
             resolved_model: `${provider}:${model}`,
+            // The entitlement is cached per user for up to a minute, so a member
+            // who switches workspace mid-meeting is stamped with the previous
+            // payer for at most that long.
+            org_id: entitlement?.payer === "organization" ? entitlement.org_id : null,
         });
     } catch (err) {
         console.warn(`transcribe usage record skipped: ${err}`);
