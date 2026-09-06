@@ -199,12 +199,26 @@ outcomes, summary/transcript/action-item views, Ask completion, copy/export,
 paywall views, successful checkout creation, connecting or disconnecting a
 third-party product, whether a question put to one of those products was
 answered, your decision on an approval card before Nod writes anything to them,
-and the ambient-context switch being turned on, off, or paused. Each row
-contains a random event ID, timestamp, app-session or capture ID where relevant,
-platform, app version, event name, and bounded categories such as session kind,
-entry point, stage, permission type (microphone or screen recording), failure
-reason, surface, content type, AI feature, outcome, which product (from a fixed
-list of the integrations Nod supports), plan, and billing cycle.
+the ambient-context switch being turned on, off, or paused, a commitment being
+ticked, reopened, delegated, asked about or filed, a beat being created,
+switched or removed and its report being opened, a change of recap mode, how a
+question was aimed (a pinned session, a project, a follow-up, or everything)
+and whether an answer had a session behind it, a source being opened from an
+answer, a session or project being shared and a share ending, an invitation
+sent or accepted, the Mac's calendar being allowed or refused, an answer to
+"record this one?" on Today, a failure you were shown (a recap that did not
+come, a save that did not sync, a product that did not answer, credits running
+out, a search that failed), the notch being opened, a hotkey being used, how
+long the app stayed open (in four coarse buckets), an update being installed
+from the sidebar, and a support tile being opened. Each row contains a random
+event ID, timestamp, app-session or capture ID where relevant, platform, app
+version, event name, and bounded categories such as session kind, entry point,
+stage, permission type (microphone or screen recording), failure reason,
+surface, content type, AI feature, outcome, which product (from a fixed list of
+the integrations Nod supports), plan, billing cycle, and one further word from
+a fixed list (a beat's cadence, a preset mode's name, how a question was aimed,
+who a share went to, which hotkey, the length bucket, which support tile). A
+mode you named yourself is recorded only as "custom".
 
 The event log never contains meeting titles, transcript or summary text,
 questions, answers, arbitrary error messages, email, clipboard contents, share
