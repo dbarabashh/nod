@@ -71,4 +71,41 @@ begin
 end;
 $$;
 
+-- The hook reads `private.connector_oauth_config` as `supabase_auth_admin`,
+-- which does not bypass row security. The table is under RLS, so the only
+-- thing between a connector sign-in and "query returned no rows" is that
+-- role's select policy. `postgres` cannot assume `supabase_auth_admin` here
+-- (its memberships are reserved), so the mechanism is checked in two halves:
+-- a role with the same grants and no policy sees nothing, and the policy the
+-- auth admin depends on is present with an unconditional predicate.
+create role hook_probe nologin;
+grant hook_probe to postgres;
+grant usage on schema private to hook_probe;
+grant select on private.connector_oauth_config to hook_probe;
+
+set local role hook_probe;
+do $$
+begin
+    if (select count(*) from private.connector_oauth_config) <> 0 then
+        raise exception 'connector config is readable without a row policy';
+    end if;
+end;
+$$;
+reset role;
+
+do $$
+begin
+    if not (select relrowsecurity from pg_class where oid = 'private.connector_oauth_config'::regclass) then
+        raise exception 'connector config lost row security';
+    end if;
+    if not exists (
+        select 1 from pg_policies
+        where schemaname = 'private' and tablename = 'connector_oauth_config'
+          and cmd = 'SELECT' and 'supabase_auth_admin' = any(roles) and qual = 'true'
+    ) then
+        raise exception 'the auth admin lost its read of the connector config, every connector sign-in fails';
+    end if;
+end;
+$$;
+
 rollback;

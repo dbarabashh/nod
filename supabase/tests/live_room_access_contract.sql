@@ -360,7 +360,11 @@ begin
 end;
 $$;
 
+reset role;
+
 -- A membership somebody else wrote is an ordinary one and carries the content.
+-- Asked as postgres: the helper answers only its definer callers now, and a
+-- signed-in role may not call it directly.
 do $$
 begin
     if not public._team_membership_grants_content('73000000-0000-4000-8000-000000000001',
@@ -370,9 +374,21 @@ begin
 end;
 $$;
 
--- ── Two administrators writing each other in is the self-add, once removed ──
-
+set local role authenticated;
+do $$
+begin
+    begin
+        perform public._team_membership_grants_content('73000000-0000-4000-8000-000000000001',
+                                                       '70000000-0000-4000-8000-000000000002');
+        raise exception 'a signed-in role called the membership helper directly';
+    exception
+        when insufficient_privilege then null;
+    end;
+end;
+$$;
 reset role;
+
+-- ── Two administrators writing each other in is the self-add, once removed ──
 
 update public.org_members set role = 'admin'
  where org_id = '71000000-0000-4000-8000-000000000001'
