@@ -103,17 +103,31 @@ enum ActionDelegation {
         return lines.joined(separator: " ")
     }
 
+    /// A question handed to Ask Nod with the session it is about already
+    /// pinned, so the answer is grounded in that session rather than in
+    /// whatever a search happens to find.
+    struct AskRequest: Equatable {
+        let text: String
+        let session: KnowledgeChatStore.SessionRef?
+    }
+
     /// What lands in the chat composer when the person asks Nod instead.
     ///
     /// Asks for the ground first. "Help me move this forward" read to the
     /// model as "do something", and the something was a ticket, filed before
-    /// anyone had said what the problem was or whether it still existed.
-    static func askPrompt(for item: ActionItem, source: String?) -> String {
-        let origin = source.flatMap { $0.isEmpty ? nil : " from \"\($0)\"" } ?? ""
-        return "About this commitment\(origin): \(item.text). "
+    /// anyone had said what the problem was or whether it still existed. The
+    /// session is named as an `@` mention, which is what pins it.
+    static func askPrompt(for item: ActionItem, source: KnowledgeChatStore.SessionRef?) -> AskRequest {
+        let origin = source.map { " from \($0.mentionToken)" } ?? ""
+        var commitment = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        while let last = commitment.last, ".!?".contains(last) {
+            commitment.removeLast()
+        }
+        let text = "About this commitment\(origin): \(commitment). "
             + "First tell me what the session actually said about it: what the problem is, who raised it and what was decided. "
             + "Then check whether it is already tracked or resolved. "
             + "End with what you would do next, and don't create or change anything unless I say so."
+        return AskRequest(text: text, session: source)
     }
 
     static func record(recipient: String, via provider: IntegrationProvider) -> String {

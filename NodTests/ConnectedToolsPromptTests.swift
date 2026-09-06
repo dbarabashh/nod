@@ -57,10 +57,29 @@ final class CommitmentAskTests: XCTestCase {
             externalProvider: nil, externalKey: nil, externalURL: nil, externalCreatedAt: nil,
             createdAt: nil, updatedAt: nil, deletedAt: nil
         )
-        let prompt = ActionDelegation.askPrompt(for: item, source: "Demo session")
+        let source = KnowledgeChatStore.SessionRef(id: item.meetingID, title: "Demo session")
+        let request = ActionDelegation.askPrompt(for: item, source: source)
+        let prompt = request.text
         XCTAssertTrue(prompt.contains("what the session actually said"))
         XCTAssertTrue(prompt.contains("don't create or change anything unless I say so"))
-        XCTAssertTrue(prompt.contains("from \"Demo session\""))
+        XCTAssertTrue(prompt.contains("from @Demo session: Fix the todo status. First"))
+        XCTAssertFalse(prompt.contains(".."))
         XCTAssertFalse(prompt.contains("move this forward"))
+        XCTAssertEqual(request.session, source)
+    }
+
+    func testACommitmentEndingInAPeriodIsNotDoubled() {
+        let item = ActionItem(
+            id: UUID(), meetingID: UUID(), userID: UUID(), text: "Close and reopen the app.",
+            deadline: nil, kind: .action, status: .confirmed, source: .recap,
+            revisionOf: nil, evidenceIdx: nil, evidenceQuote: nil, position: 0,
+            done: false, doneAt: nil, loopState: .open,
+            externalProvider: nil, externalKey: nil, externalURL: nil, externalCreatedAt: nil,
+            createdAt: nil, updatedAt: nil, deletedAt: nil
+        )
+        let request = ActionDelegation.askPrompt(for: item, source: nil)
+        XCTAssertTrue(request.text.contains("About this commitment: Close and reopen the app. First"))
+        XCTAssertFalse(request.text.contains(".."))
+        XCTAssertNil(request.session)
     }
 }

@@ -13,7 +13,7 @@ struct TodayCommitmentsCard: View {
     let openItems: [ActionItem]
     let ambientHints: [UUID: [ScreenObservation]]
     @Binding var expandedItemID: UUID?
-    let onAsk: (String) -> Void
+    let onAsk: (ActionDelegation.AskRequest) -> Void
     let onOpenMeeting: (Meeting) -> Void
 
     @EnvironmentObject private var meetingStore: MeetingStore
@@ -23,6 +23,10 @@ struct TodayCommitmentsCard: View {
 
     @State private var showAll = false
     @State private var hoveredItemID: UUID?
+    /// Rows ticked but not yet gone. The store drops a done item from
+    /// `openItems` at once, which read as the row vanishing under the click;
+    /// the tick shows for a beat first, and a second click in that beat undoes it.
+    @State private var settling: [UUID: Task<Void, Never>] = [:]
     @State private var collapsedGroupIDs: Set<UUID> = []
     /// The outcome a context menu named, so picking "Schedule a follow-up" from
     /// the right-click opens that form rather than the menu it sits in.
@@ -218,13 +222,13 @@ struct TodayCommitmentsCard: View {
         HStack(spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Button {
-                    Task { await actionItemStore.setDone(!item.done, itemID: item.id) }
+                    toggleDone(item)
                 } label: {
-                    ActionCheckbox(done: item.done)
+                    ActionCheckbox(done: item.done || settling[item.id] != nil)
                 }
                 .buttonStyle(.plain)
                 .linkCursor()
-                .help(item.done ? "Reopen" : "Mark done")
+                .help(item.done || settling[item.id] != nil ? "Reopen" : "Mark done")
 
                 // The click opens the actions, in place. The session is
                 // evidence — reachable as the header's arrow, or the drawer's
@@ -267,6 +271,8 @@ struct TodayCommitmentsCard: View {
             Text(item.text)
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.Palette.ink)
+                .strikethrough(settling[item.id] != nil, color: Theme.Palette.muted)
+                .opacity(settling[item.id] != nil ? 0.55 : 1)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
             meta(for: item, showsSource: showsSource)
@@ -283,6 +289,23 @@ struct TodayCommitmentsCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    private func toggleDone(_ item: ActionItem) {
+        if let pending = settling.removeValue(forKey: item.id) {
+            pending.cancel()
+            return
+        }
+        guard !item.done else {
+            Task { await actionItemStore.setDone(false, itemID: item.id) }
+            return
+        }
+        settling[item.id] = Task {
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 400 : 900))
+            guard !Task.isCancelled else { return }
+            await actionItemStore.setDone(true, itemID: item.id)
+            settling[item.id] = nil
+        }
     }
 
     private func trailingControls(_ item: ActionItem) -> some View {
@@ -342,8 +365,8 @@ struct TodayCommitmentsCard: View {
 
     @ViewBuilder
     private func menu(for item: ActionItem) -> some View {
-        Button(item.done ? "Reopen" : "Mark done") {
-            Task { await actionItemStore.setDone(!item.done, itemID: item.id) }
+        Button(item.done || settling[item.id] != nil ? "Reopen" : "Mark done") {
+            toggleDone(item)
         }
         if !intents.isEmpty {
             Divider()
@@ -359,7 +382,7 @@ struct TodayCommitmentsCard: View {
         }
         Divider()
         Button("Ask Nod about this") {
-            onAsk(ActionDelegation.askPrompt(for: item, source: sourceTitle(of: item)))
+            onAsk(ActionDelegation.askPrompt(for: item, source: source(of: item)))
         }
         if let meeting = meetingStore.byID[item.meetingID] {
             Button("Open the source session") { onOpenMeeting(meeting) }
@@ -367,7 +390,12 @@ struct TodayCommitmentsCard: View {
     }
 
     private func sourceTitle(of item: ActionItem) -> String? {
-        meetingStore.byID[item.meetingID]?.displayTitle(dateFormatter: Meeting.shortDateFormatter)
+        source(of: item)?.title
+    }
+
+    private func source(of item: ActionItem) -> KnowledgeChatStore.SessionRef? {
+        guard let meeting = meetingStore.byID[item.meetingID] else { return nil }
+        return KnowledgeChatStore.SessionRef(id: meeting.id, title: meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter))
     }
 
     private func toggle(_ item: ActionItem) {

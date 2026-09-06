@@ -15,7 +15,7 @@ struct TodayView: View {
     let onCapture: () -> Void
     let onOpenMeeting: (Meeting) -> Void
     let onOpenReport: (BeatReportRow) -> Void
-    let onAsk: (String) -> Void
+    let onAsk: (ActionDelegation.AskRequest) -> Void
 
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var actionItemStore: ActionItemStore
@@ -151,8 +151,11 @@ struct TodayView: View {
             partition = Partition()
             return
         }
+        // A teammate's commitment, in from a shared folder, is not waiting on
+        // you and cannot be ticked by you: it stays with its session.
         let open = actionItemStore.items
             .filter(\.isOpen)
+            .filter { actionItemStore.isMine($0) }
             .sorted { $0.createdAt ?? .distantPast > $1.createdAt ?? .distantPast }
         partition = Partition(
             waitingOnYou: open.filter { ActionDelegation.recorded(for: $0.id) == nil },
@@ -375,7 +378,7 @@ struct TodayView: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
-        onAsk(text)
+        onAsk(ActionDelegation.AskRequest(text: text, session: nil))
     }
 
     /// Every write below is fenced on cancellation: `reloadKey` flips twice

@@ -444,7 +444,9 @@ struct KnowledgeChatView: View {
     private func adoptPendingDraft() {
         guard let pending = chat.pendingDraft else { return }
         draft = pending
+        mentions = chat.pendingMentions
         chat.pendingDraft = nil
+        chat.pendingMentions = []
         inputFocused = true
     }
 

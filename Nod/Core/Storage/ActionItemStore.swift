@@ -61,6 +61,17 @@ final class ActionItemStore: ObservableObject {
         loading = nil
     }
 
+    /// Whether the signed-in person owns the item. Sharing a folder puts a
+    /// teammate's items in `items` beside one's own, readable and nothing more:
+    /// the update policy is owner-only, and a patch on somebody else's row
+    /// touches nothing and says nothing.
+    func isMine(_ item: ActionItem) -> Bool {
+        #if DEBUG
+            if DemoMode.isEnabled { return true }
+        #endif
+        return item.userID == supabase.auth.currentUser?.id
+    }
+
     func items(forMeeting meetingID: UUID) -> [ActionItem] {
         items
             .filter { $0.meetingID == meetingID }
@@ -483,6 +494,10 @@ final class ActionItemStore: ObservableObject {
         mirroring: Bool = false
     ) async {
         guard loop.loopState != state else { return }
+        guard isMine(loop) else {
+            Log.ui.info("loop: \(loop.id) is somebody else's, not moved")
+            return
+        }
         guard actor == .user || LoopClosure.mayInfer(state) else {
             Log.ui.info("loop: refused inferred \(state.rawValue) for \(loop.id)")
             return

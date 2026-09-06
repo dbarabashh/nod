@@ -353,11 +353,12 @@ struct MainWindowView: View {
 
     /// A question typed on Today lands in the chat mid-flight: the composer
     /// there is the real one, this only saves retyping the thought.
-    private func askFromToday(_ text: String) {
+    private func askFromToday(_ request: ActionDelegation.AskRequest) {
         // A fresh thread: a question raised from Today is its own subject,
         // not a continuation of whatever chat happened to be open last.
         knowledgeChat.startNewThread()
-        knowledgeChat.pendingDraft = text
+        knowledgeChat.pendingMentions = request.session.map { [$0] } ?? []
+        knowledgeChat.pendingDraft = request.text
         show(.chat)
     }
 

@@ -23,6 +23,11 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
         /// written before this existed decode with nil.
         var bundleID: String?
 
+        /// How the composer names this session in a question.
+        var mentionToken: String {
+            MentionMark(session: self).token
+        }
+
         var isApp: Bool {
             bundleID != nil
         }
@@ -73,6 +78,8 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
     /// A question seeded from elsewhere — "Ask about this project" hands the
     /// composer its opening token rather than a hidden filter.
     @Published var pendingDraft: String?
+    /// Sessions the pending draft already names, pinned when it is adopted.
+    @Published var pendingMentions: [SessionRef] = []
     @Published private(set) var messages: [Message] = []
     @Published private(set) var isSending = false
     /// True from the first token until the answer completes — the UI shows the
@@ -265,9 +272,13 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
         gateChanges = toolGate.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
+        purges = threads.$purges.dropFirst().sink { [weak self] _ in
+            self?.startNewThread()
+        }
     }
 
     private var gateChanges: AnyCancellable?
+    private var purges: AnyCancellable?
 
     /// The user opened a session from an answer's sources. Attributed to the
     /// question that produced them, which is the last thing they asked.
@@ -312,6 +323,7 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
         thinkingScript = []
         scopeLabelIDs = []
         pendingDraft = nil
+        pendingMentions = []
         failure = nil
         clearTurnMarkers()
     }
@@ -796,12 +808,12 @@ extension KnowledgeChatStore {
         // Text beside a tool call is a preamble, not an answer, whichever
         // round it is: with rounds left the tools run; on the last one the
         // model is asked once more without tools, which the one-shot path is.
-        // A person sees the preamble stay, because it is what explains the
-        // approval card that follows; a beat has nobody to explain to, and a
-        // preamble left first in its thread would be read back as the report.
+        // It is cut mid-sentence where the call began, so it is removed for
+        // everyone: a person would read a half-sentence bubble as the answer,
+        // and a beat would read it back as the report.
         if !requested.isEmpty, streamError == nil, !Task.isCancelled {
             if appended {
-                if unattended { messages.removeAll { $0.id == answer.id } }
+                messages.removeAll { $0.id == answer.id }
                 isStreaming = false
             }
             if round < ChatToolGate.maxRounds {

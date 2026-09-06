@@ -9,13 +9,18 @@ import SwiftUI
 struct ActionItemDrawer: View {
     let item: ActionItem
     let sourceTitle: String?
+
+    private var source: KnowledgeChatStore.SessionRef? {
+        sourceTitle.map { KnowledgeChatStore.SessionRef(id: item.meetingID, title: $0) }
+    }
+
     /// Related on-screen work, already fetched under the person's own opt-in.
     /// Empty when the scope is off — the drawer then simply has no such rows.
     let ambientHints: [ScreenObservation]
     /// An outcome the caller already named — a right-click that picked
     /// "Schedule a follow-up" opens that form, not the menu holding it.
     let preselectedIntent: ActionIntent?
-    let onAsk: (String) -> Void
+    let onAsk: (ActionDelegation.AskRequest) -> Void
     let onOpenSource: () -> Void
     /// Collapse the whole row. The menu is the drawer's resting state, so
     /// dismissing it has nowhere left to go inside the drawer.
@@ -36,7 +41,7 @@ struct ActionItemDrawer: View {
         sourceTitle: String?,
         ambientHints: [ScreenObservation],
         preselectedIntent: ActionIntent? = nil,
-        onAsk: @escaping (String) -> Void,
+        onAsk: @escaping (ActionDelegation.AskRequest) -> Void,
         onOpenSource: @escaping () -> Void,
         onClose: @escaping () -> Void
     ) {
@@ -192,7 +197,7 @@ struct ActionItemDrawer: View {
     /// someone with nothing connected yet.
     private var askRow: some View {
         Button {
-            onAsk(ActionDelegation.askPrompt(for: item, source: sourceTitle))
+            onAsk(ActionDelegation.askPrompt(for: item, source: source))
         } label: {
             HStack(spacing: 8) {
                 Image("nc-msgs")
@@ -287,8 +292,10 @@ struct ActionItemDrawer: View {
         let typed = plan.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty else { return }
         plan = ""
-        onAsk("\(typed)\n\nThis is about my open action: \(item.text)" +
-            (sourceTitle.map { " (from \"\($0)\")" } ?? ""))
+        onAsk(ActionDelegation.AskRequest(
+            text: "\(typed)\n\nThis is about my open action: \(item.text)" + (source.map { " (from \($0.mentionToken))" } ?? ""),
+            session: source
+        ))
     }
 
     /// The "create a task" outcome, inline — the popover the shared filing
