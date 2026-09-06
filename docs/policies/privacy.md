@@ -1,16 +1,18 @@
 # Privacy Policy
 
-_Last updated: 2026-09-03_
+_Last updated: 2026-09-06_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
 not sending anything today and will not begin earlier than 30 days after this
 policy is published. Until then the previously published practices govern._
 
-_The calendar provisions in § 3.11 are **advance notice** too: reading your
-calendar is not in the released app. When it arrives it stays off until you
-switch it on, and it takes effect for you only from the version that introduces
-it. Where this policy describes Nod as sitting in the notch, the released version
+_The calendar provisions in § 3.11 and the **colleague** live-listening
+provisions in §§ 3.2, 3.15, and 7 are **advance notice** too: neither calendar
+access nor colleague live listening is in the released app. Nod's current
+single-user, in-meeting transcript analysis remains described in § 3.2. When calendar access arrives it stays off
+until you switch it on, and it takes effect for you only from the version that
+introduces it. Where this policy describes Nod as sitting in the notch, the released version
 still runs as a floating panel on the left of your screen; nothing about what is
 collected turns on that difference._
 
@@ -91,12 +93,12 @@ what it finds is held in memory for the length of the meeting and saved with the
 session's action items at the end. No new recipient sees your transcript because
 of this — it is the same summarising model, asked earlier and more often.
 
-There is one exception, and it happens only when a colleague from your
-organization has joined your recording to follow along (see § 3.9). For as long
-as someone is listening, what the live pass finds is shared with them, so their
-notes show the same thing yours do. It is stored for that purpose alone
-(`meeting_live_findings`), it is deleted when the recording stops, and if nobody
-has joined, nothing is written at all.
+**Advance notice — not current:** a future live-listening feature may let a
+colleague from your organization join a recording to follow along (see § 3.15).
+If that feature is released, what the live pass finds would be shared with the
+listener while they are following the meeting. The proposed transient store
+(`meeting_live_findings`) would exist for that purpose alone, be deleted when
+the recording stops, and remain empty whenever nobody has joined.
 
 The embeddings, chat messages, and entities are derived from transcript
 content you already chose to record; they are stored in the same
@@ -104,10 +106,12 @@ Supabase database, in the same `eu-west-1` region, under the same per-user
 Row-Level Security. Cross-session "Ask Nod" conversations are saved as threads
 you can reopen — and delete, which removes their messages with them.
 
-We do **not** store raw audio. Audio exists only as transient memory inside
-the app and inside the Whisper request, for the duration of a single
-~5-second chunk. The bytes are released as soon as the transcript returns.
-There is no audio file, no waveform export, no cloud-stored recording.
+Nod does **not** create or retain a raw-audio recording. Audio exists only as
+transient memory inside the app and inside the Whisper request, for the duration
+of a single ~5-second chunk. Nod releases the bytes as soon as the transcript
+returns. There is no audio file or waveform export in Nod. Groq may retain
+transient error or abuse logs for up to 30 days unless Zero Data Retention is
+enabled; see the [Subprocessors list](./subprocessors.md).
 
 **A question you speak.** Holding the ask key opens your microphone for as
 long as you hold it; letting go sends that one clip — and only that clip — to
@@ -166,6 +170,12 @@ our integration provider, we add one to a daily count per product and purpose �
 an action you asked for, or a calendar read and the reason for it. The count is
 all that is kept: not the request, and nothing it returned. It is kept for
 thirteen months.
+
+When a read of a connected product is one you asked for in chat, we also write
+one row to `usage_events`: which product and action, the cost to us, and — if a
+workspace's plan covers you — which organization was paying. That row is what
+an integration credit is counted from (Terms § 7). It holds neither your
+question, nor the request, nor what came back.
 
 We use this to enforce per-account quotas, choose pricing, and detect
 abuse.
@@ -248,7 +258,8 @@ customer portal for you.
 | Plan, status, billing-period dates, trial end date (`subscriptions`) | To grant the features and limits you paid for and know when access lapses | Contract (Art. 6(1)(b)) |
 | Paddle customer ID and subscription ID (`subscriptions`) | To match Paddle's billing events to your account and open your billing portal | Contract (Art. 6(1)(b)) |
 | Paddle event and transaction identifiers, first-payment history per Paddle customer, and refund/chargeback adjustments (`subscriptions`, `billing_payer_history`, `billing_adjustments`) | To apply each billing event exactly once, reject out-of-order updates, tell a first-ever payer from a returning one, and reconcile refunds | Contract (Art. 6(1)(b)); legitimate interest in accurate accounts and fraud prevention (Art. 6(1)(f)) |
-| Top-up purchase intent and purchased hours (`topup_checkout_intents`, `usage_topups`) | To credit an explicitly bought pack of hours to the billing period it was bought for, and to reverse an unused one on refund | Contract (Art. 6(1)(b)) |
+| Pack purchase intent and purchased packs — hours or integration credits — and the organization when a workspace bought it (`topup_checkout_intents`, `usage_topups`) | To credit an explicitly bought pack to the billing period and the person or workspace it was bought for, and to reverse an unused one on refund | Contract (Art. 6(1)(b)) |
+| Workspace plan: plan, status, seat count, billing-period dates, Paddle customer and subscription IDs, and who checked out (`org_subscriptions`) | To cover an organization's members with the plan it bought, pool their hours and credits, and let its owners and administrators open the billing portal | Contract (Art. 6(1)(b)) |
 | Referral code, referrer/referee link, qualifying transaction and subscription IDs, reward credits, payout state, and fraud blocks (`referral_codes`, `referrals`, `reward_credits`, `reward_payouts`, `advocacy_reward_claims`, `referral_fraud_blocks`) | To run the referral offer, verify the first renewal and its seven-day hold, apply the reward once, and prevent self-referral or duplicate redemption | Contract (Art. 6(1)(b)); legitimate interest in promotion integrity (Art. 6(1)(f)) |
 | Meeting-start lease: a recording ID, its expiry, and when it was last used (`meeting_start_leases`) | To check the monthly hour allowance once, before a recording starts, without ever interrupting one in progress | Contract (Art. 6(1)(b)) |
 
@@ -264,6 +275,9 @@ in the same `eu-west-1` region.
   is first-party operational and funnel data stored in our own database. The
   marketing website analytics described in § 3.13 is optional and stays off
   until you consent.
+- We do **not** collect crash reports or diagnostics automatically. The only
+  way a description of your Mac reaches us is an email you write and send
+  yourself (§ 3.17).
 - We do **not** collect arbitrary screen names, dwell time, typed questions,
   answers, errors, titles, clipboard contents, or meeting content in product
   telemetry. Only the bounded events and categories in § 3.5 are accepted.
@@ -521,7 +535,9 @@ disconnecting or switching off, which stops the reading immediately.
 
 ### 3.12 Official ChatGPT and Claude connectors
 
-You can authorize a supported AI client to read your Nod meetings. The consent
+The read-only connectors are built, but public installation is awaiting
+directory approval. After a public listing opens, you can authorize a supported
+AI client to read your Nod meetings. The consent
 screen identifies the client, redirect address, and single read-only permission
 before anything is shared. The connector can return meeting titles, dates,
 summaries, and transcript text for your account; it cannot create, edit, or
@@ -637,25 +653,33 @@ suppress a complaint or a bouncing address.
 
 ---
 
-### 3.15 Working in an organization
+### 3.15 Working in an organization (team context early access)
 
-Nod can be used alone or inside an organization your employer creates. Joining
-one changes who can see your recordings, so it is described here rather than left
-to the product.
+Nod can be used alone or, for approved early-access teams, inside an organization.
+This is not a generally available self-service workspace. The current sharing
+contract is described here rather than left to product copy.
 
 **Nothing becomes visible because you joined.** Membership by itself shares
 nothing. Your meetings stay yours, exactly as they are for an account in no
-organization. What changes is that three deliberate acts become possible, each
-of them yours to take.
+organization. Two deliberate team-sharing acts are available, and each is yours
+to take and reverse.
 
 | **Sharing a project** | You can hand a folder of meetings to a team, or to the whole organization. Everyone in that audience can then read the meetings filed there — summary, transcript, and action items. Filing a meeting into a shared folder is what shares it; removing the share ends the access immediately. |
 | **Sharing one meeting** | You can hand a single finished meeting to a team or to the organization, without filing it anywhere. Same contents, same immediate revocation. This is the one offered right after a recording ends. |
-| **Listening to a live room** | When a colleague in your organization is recording a meeting you are also in — proven by your own calendar holding the same invitation, not by anyone typing an id — you can join as a listener and follow along: a short summary of what you missed, the notes their live pass is producing, and your own questions about it. You are not recording, and nothing is stored for you. **Your access to what they are saying ends the moment their recording stops** — the permission is written against the live recording itself, so when it ends there is nothing left to read. One thing outlives it by design: for a short window afterwards you can still see that meeting's summary, so pressing End on their Mac finishes as a recap on yours rather than as a blank card. That window is fifteen minutes and covers the summary only — never the transcript. The host is told by name the moment you join, and again if you leave. |
+
+A public share link is separate from team context. You can create a revocable
+link for one meeting's summary; it never exposes the transcript or another
+meeting.
+
+**Live listening is advance notice, not current.** A future version may let a
+colleague follow a live meeting they are also invited to, but that depends on
+the unreleased calendar access described in § 3.11. It is not part of the
+current early-access team workflow.
 
 **Your colleagues' names and addresses.** Inside an organization, Nod can see
 who else is in it — each active member's display name and the address they signed
-up with — so that asking it to "set up a call with Dima" invites the right Dima
-instead of making you look the address up yourself. It is your organization only,
+up with — so that a team-sharing or membership picker shows the right Dima
+without making you look the address up yourself. It is your organization only,
 active members only, and the two fields an invitation needs: no roles, no join
 dates, nothing about their meetings. An account that belongs to no organization
 has no such list. This is the one place membership makes something visible that
@@ -664,8 +688,14 @@ would tell you anyway.
 
 **What an organization's administrators can and cannot do.** They cannot open a
 session you kept to yourself. There is no administrative view of another
-member's recordings, no export of them, and the setting that would allow one
-defaults to off and cannot be switched on from any Nod client.
+member's recordings and no export of them. Current early access also has no
+setting that forces recordings to belong to the organization and no switch that
+lets an administrator read private meeting content.
+
+Those two organization controls — enforced organization ownership and
+administrator read access to organization-owned recordings — are future,
+unreleased design. If either ships, this policy and the in-product notice must
+change before it can alter the current private-by-default contract.
 
 What they do control is who is in a team, and that matters for anything you
 shared with a team: the audience of a team share is whoever is in that team at
@@ -723,6 +753,33 @@ automatically, and we have not built one.
 **Legal basis.** Legitimate interests (Art. 6(1)(f)) — carrying out, on request,
 the follow-up work a meeting decided on. The offer itself is prepared for you;
 the act that reaches another system is always yours.
+
+### 3.17 App updates and support requests
+
+**Checking for updates.** The app asks `hellonod.app` for its update feed every
+four hours while it is running, when you choose *Check for Updates…* in the
+menu-bar item, and when the version line at the bottom of Settings is on
+screen. That request carries what any web request carries — your IP address
+and a user-agent naming the app version and the update library (Sparkle) — and
+nothing else: no account identifier, no sign-in, and no description of your
+Mac. Which release channel you may see is decided on your Mac, not sent. When a
+newer build is offered, the app remembers its version number locally
+(`update.available`) so the *Update Nod* row in the sidebar can show it; that
+note is deleted once the build is installed, withdrawn, or skipped. Updates
+install when you quit the app. `hellonod.app` is hosted by Vercel (§ 5).
+
+**Request a feature / Report a bug.** Both buttons in Settings → General open
+a **draft** in whatever handles mail on your Mac, addressed to
+**dmytro@hellonod.app**. Below a space for your message, the draft is
+pre-filled with: the app version and build channel, your macOS version, your
+Mac's model and chip, how many screens it has, whether the app was in light or
+dark appearance, where in the app you pressed the button, and a random report
+ID that is not linked to your account. You see every line before anything
+leaves your Mac, you can delete any of it, and nothing is sent unless you send
+it. What you send is handled as correspondence with us (§ 7).
+
+**Legal basis.** Legitimate interests (Art. 6(1)(f)) — keeping the app you
+installed current and secure, and answering the question you sent.
 
 ## 4. Model training
 
@@ -823,13 +880,14 @@ We can provide our SCCs and transfer impact assessments on request to
 | Screen observations (`screen_observations`) | The expiry set when captured — **14 days by default**, changeable in Settings. A scheduled job deletes expired rows. Empty unless you switched ambient context on; deletable at any time; removed on account deletion (cascade). |
 | Top-up, referral, reward, and payout rows | Until you delete your account. |
 | Meeting-start leases | Minutes: a lease is short-lived and renewed only while a recording is running. Expired rows are removed. |
-| Live findings shared with a listener (`meeting_live_findings`) | The length of the recording. They are written only while a colleague is listening in, and deleted the moment the recording ends; a nightly job clears anything left behind by a host whose Mac quit mid-meeting. Nothing is written for a recording nobody joined. |
+| Future live findings shared with a listener (`meeting_live_findings`) — **advance notice; not current** | If live listening is released, the proposed retention is the length of the recording: written only while a colleague is listening and deleted when recording ends, with cleanup for interrupted meetings. The released product does not write these rows. |
 | Optional email choices and suppression state | Until you change the choice or delete your account. A minimal suppression marker may outlive the account, because honouring an unsubscribe, complaint, or bounce requires remembering the address. |
 | Email send records and provider delivery events | 90 days once § 3.14 is active. The record that a specific message was already sent is kept beyond that, since it is what prevents sending it twice. |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |
 | Usage metadata                       | 24 months, then aggregated and anonymised.                           |
 | Encrypted database backups           | 7 days rolling.                                                      |
 | Server logs (OpenRouter calls, etc.) | 30 days.                                                             |
+| Support correspondence (§ 3.17)      | Kept in our mailbox while the request is open and for as long as a later request may need to refer to it; ask and we delete it. |
 
 When you delete your account from **Settings → Privacy**, we erase your
 auth profile, meetings (active and trashed), transcripts, summaries, chats,
@@ -885,9 +943,9 @@ rejected), encryption at rest (AES-256), Row-Level Security on every
 table, secrets isolated server-side. Detail in our [Security page](./security.md).
 
 If you discover a vulnerability, please email **dmytro@hellonod.app**.
-Nod is built by one person right now, so there is no 24/7 on-call rotation
-— but every report goes straight to the founder and is acted on as quickly
-as possible. We're happy to publicly credit researchers.
+Nod is built and operated by its two co-founders, with no 24/7 on-call
+rotation — but every report goes straight to the founding team and is acted
+on as quickly as possible. We're happy to publicly credit researchers.
 
 In case of a personal data breach that's likely to result in a risk to
 your rights and freedoms, we will notify the relevant supervisory

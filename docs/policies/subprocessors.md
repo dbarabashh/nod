@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-09-03_
+_Last updated: 2026-09-06_
 
 _Resend and Pipedream are listed under advance notice. The optional product-update, lifecycle,
 and founder-research workflow is not sending today and will not begin earlier
@@ -29,12 +29,13 @@ subscribe to change notifications, email **dmytro@hellonod.app**.
 | **Google LLC** (OAuth)      | Authentication (sign-in with Google)     | Your Google email, OpenID profile claims                          | Global             | No                    | Google OAuth ToS     |
 | **Apple, Inc.**             | macOS app distribution & code signing    | Crash logs (if you opt-in via System Settings), receipt validation | Global             | No                    | Apple Developer Agreement |
 | **Paddle.com Market Limited** | Merchant of Record — subscription billing, payment processing, VAT/sales-tax remittance, invoicing, refunds | Name, email, billing address and country, and payment-method details you enter at checkout; subscription and transaction records | UK; global payment processing | No | Paddle DPA; Paddle acts as Merchant of Record |
-| **Vercel Inc.**             | Hosting for the marketing website (`hellonod.app`) + cookieless Web Analytics | Visitor IP (transient — used to derive aggregate page-view/event counts, never stored or exposed), user-agent, page path. No account or meeting data. | USA (global edge) | No | Vercel DPA; Web Analytics is cookieless and does not track across sites |
+| **Vercel Inc.**             | Hosting for the marketing website (`hellonod.app`), the app's update feed and installers, + cookieless Web Analytics | Visitor IP (transient — used to derive aggregate page-view/event counts, never stored or exposed), user-agent (for an update check: the app version and Sparkle version), page path. No account or meeting data. | USA (global edge) | No | Vercel DPA; Web Analytics is cookieless and does not track across sites |
 | **Google LLC** (Analytics and Ads) | Consent-gated website analytics, campaign attribution, and conversion measurement | IP address, browser/device data, sanitised page and event details, Google Analytics client ID, and Google click/campaign identifiers. No meeting content or Nod account identity. | Global | No | Google Ads Data Protection Terms; Google Controller-Controller Data Protection Terms where applicable |
 
-Audio is never stored by any subprocessor — it exists only for the duration
-of a single Whisper request and is discarded by the upstream provider as
-soon as the transcription completes.
+Nod does not create or retain an audio recording. Audio normally exists at a
+subprocessor only for the duration of one Whisper request. Groq's documented
+exception is transient error or abuse logging for up to 30 days unless Zero
+Data Retention is enabled; it does not use inputs or outputs for training.
 
 Nod never receives or stores your full card details — those are handled
 entirely by Paddle as Merchant of Record.
@@ -46,7 +47,7 @@ entirely by Paddle as Merchant of Record.
 | Subprocessor | Planned purpose | Data shared | Location | Training on your data | DPA / basis |
 |---|---|---|---|---|---|
 | **Resend, Inc.** | Delivery of the three optional email topics you can switch on, plus narrow operational referral-status notices | Email address, language, selected topic and consent state, template identifier, and delivery / bounce / complaint / suppression / unsubscribe status. No meeting content. | EU sending region; global delivery | No | Resend DPA and Standard Contractual Clauses |
-| **Pipedream, Inc.** | Holding the authorization for tools you connect yourself, and passing our requests to them. Nothing is connected until you connect it, and each connection covers one product. | The access and refresh tokens for the account you authorized — we never receive or store them — plus the content of each request we make on your behalf. For a task filed in a tracker that is the title and description we generated from an action item, and the identifier of the colleague it is assigned to; for a team chat it is the channel name and the members being added; for a calendar it is the events we read back — titles, times, conferencing links and attendee email addresses — and the events you ask us to create, change or cancel; for mail it is the draft you ask us to save — never sent by us — and the messages we read back to answer a question you asked; for files it is the text of the document you asked about; for a wiki, a CRM or an issue tracker it is the note, page, issue or comment you ask us to file. When an administrator connects a tool we also read its member list once — names, addresses and that tool's own identifiers — so that work can be assigned to the right colleague without everyone first having to be invited to Nod. | `api.pipedream.com` | No | Pipedream DPA |
+| **Pipedream, Inc.** | Holding the authorization for tools you connect yourself, and passing our requests to them. Nothing is connected until you connect it, and each connection covers one product. | The access and refresh tokens for the account you authorized — we never receive or store them — plus the content of each request we make on your behalf. For a task filed in a tracker that is the title and description we generated from an action item, and the identifier of the colleague it is assigned to; for a team chat it is the channel name and the members being added; for a calendar it is the events we read back — titles, times, conferencing links and attendee email addresses — and the events you ask us to create, change or cancel; for mail it is the draft you ask us to save — never sent by us — and the messages we read back to answer a question you asked; for files it is the text of the document you asked about; for a wiki, a CRM or an issue tracker it is the note, page, issue or comment you ask us to file. When an administrator connects a tool we also read its member list once — names, addresses and that tool's own identifiers — so that work can be assigned to the right colleague without everyone first having to be invited to Nod. Every request is counted (Privacy Policy § 3.4) — a number, never the content — and a read you ask for in chat draws one integration credit from your plan (Terms § 7). | `api.pipedream.com` | No | Pipedream DPA |
 
 Connecting a tool is the only thing that puts Pipedream between us and it. An account
 that connects nothing never reaches them, and disconnecting in the provider's own
@@ -133,6 +134,8 @@ forwarded once and never written to durable storage anywhere in this chain.
 | 2026-09-01 | Widened what a connected tool can be asked to do, under the same subprocessor and the same confirmation rule: calendar events can now be changed or cancelled as well as created; an issue can be filed, commented on, closed or reopened; and a mail draft, a CRM note, or a wiki page can be filed on your instruction. Reading widened too: a Drive document's text and a mail message's text can be read back to answer a question you asked. Every change is shown to you and confirmed before it runs; drafts are never sent by Nod. |
 | 2026-09-03 | Answers to a question asked by voice are now spoken aloud: the words come from a model reached through OpenRouter, as every other model call is; reading them aloud is one direct call to OpenAI's text-to-speech API, which receives only that short line — never a recording or a transcript — and is not routed through OpenRouter. Audio is played once and not kept. |
 | 2026-09-03 | Tapping the ask key instead of holding it now opens a live, continuous conversation (OpenAI's Realtime API, `gpt-realtime-2`) instead of one clip — your microphone audio and the model's replies stream directly between your Mac and OpenAI over a credential Nod's server mints for that one session and never sees the conversation through. When it needs your account's own data it asks, the same no-recording, no-transcript way a typed question does. |
+| 2026-09-06 | Named the app's update feed and installers as served from `hellonod.app` (Vercel) — they always were; the app now checks every four hours instead of daily, so the request is described. No new subprocessor. |
+| 2026-09-06 | Gave advance notice that a read of a connected tool asked for in chat draws an integration credit from the plan's monthly pool, and that each such read is recorded as one usage row (product, action, cost, paying organization) beside the existing per-day count. Same subprocessor, same content shared; what changes is that the reads are counted against a plan and pause at zero rather than being unbounded. |
 
 ---
 
