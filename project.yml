@@ -81,7 +81,7 @@ targets:
         SUFeedURL: "$(NOD_FEED_URL)"
         SUPublicEDKey: "/uu8USNElUMN+Bbw/SPdJywlJq2XfEVI/Rf+W7XzFBw="
         SUEnableAutomaticChecks: true
-        SUScheduledCheckInterval: 86400
+        SUScheduledCheckInterval: 14400
         SUAutomaticallyUpdate: true
     settings:
       base:

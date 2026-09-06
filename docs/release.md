@@ -333,8 +333,11 @@ git push
 ```
 
 Within ~30s Vercel will redeploy with the new appcast. Installed clients
-hit `SUFeedURL` on their next scheduled check (≤ 24h) and are prompted to
-update.
+hit `SUFeedURL` on their next scheduled check (≤ 4h) and are prompted to
+update. Once Sparkle has found an installable build, the main window's
+sidebar shows an "Update Nod" row above Ambient Context until the build is
+installed, the feed no longer offers it, or the person skips it in Sparkle's
+own prompt; the offer is remembered across launches (`update.available`).
 
 ## Website download button (in nod-landing)
 

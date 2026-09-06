@@ -15,6 +15,13 @@ enum ReleaseChannel {
     static var cached: String? {
         UserDefaults.standard.string(forKey: defaultsKey)
     }
+
+    /// Sparkle's shape of the cache. An empty set is Sparkle's default and means
+    /// "untagged items only" — what every account that was never enrolled gets.
+    static func allowed(in defaults: UserDefaults) -> Set<String> {
+        guard let channel = defaults.string(forKey: defaultsKey), !channel.isEmpty else { return [] }
+        return [channel]
+    }
 }
 
 /// One build offered by the feed this app is pointed at.
@@ -31,9 +38,6 @@ struct FeedBuild: Equatable {
 
 /// Sparkle's view of that cache, and what the newest offered build is.
 ///
-/// An empty set is Sparkle's default and means "untagged items only" — what
-/// every account that was never enrolled gets.
-///
 /// The feed is never named here. `SUFeedURL` comes from `NOD_FEED_URL`, which
 /// the build configuration sets: production points at `appcast.xml`, Sandbox at
 /// `appcast-sandbox.xml`, and project.yml is explicit that the two must never
@@ -44,14 +48,78 @@ struct FeedBuild: Equatable {
 final class UpdaterChannelDelegate: NSObject, ObservableObject, SPUUpdaterDelegate {
     /// The newest build the feed offers, once one check has completed.
     @Published private(set) var latest: FeedBuild?
+    /// A newer build Sparkle has judged installable on this Mac, remembered
+    /// across launches so the sidebar can say so before the next check runs.
+    /// `latest` is what the feed lists; this is what Sparkle would install.
+    @Published private(set) var available: FeedBuild?
 
     /// Runs a silent check — no UI, no prompt. Set by the composition root,
     /// which owns the updater this delegate belongs to.
     var refresh: () -> Void = {}
 
+    private let defaults: UserDefaults
+    private let runningBuild: Int
+    private static let availableKey = "update.available"
+
+    init(defaults: UserDefaults = .standard, runningBuild: Int = AppVersion.build) {
+        self.defaults = defaults
+        self.runningBuild = runningBuild
+        super.init()
+        available = Self.remembered(in: defaults, newerThan: runningBuild)
+    }
+
     nonisolated func allowedChannels(for updater: SPUUpdater) -> Set<String> {
-        guard let channel = ReleaseChannel.cached, !channel.isEmpty else { return [] }
-        return [channel]
+        ReleaseChannel.allowed(in: defaults)
+    }
+
+    nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        guard let build = Int(item.versionString) else {
+            Log.ui.error("Sparkle offered a non-numeric build \(item.versionString)")
+            return
+        }
+        let found = FeedBuild(version: item.displayVersionString, build: build, channel: item.channel)
+        Task { @MainActor [weak self] in self?.noteAvailable(found) }
+    }
+
+    nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        Task { @MainActor [weak self] in self?.noteAvailable(nil) }
+    }
+
+    nonisolated func updater(
+        _ updater: SPUUpdater,
+        userDidMake choice: SPUUserUpdateChoice,
+        forUpdate updateItem: SUAppcastItem,
+        state: SPUUserUpdateState
+    ) {
+        guard choice == .skip else { return }
+        Task { @MainActor [weak self] in self?.noteAvailable(nil) }
+    }
+
+    /// Hands the offer to Sparkle's own flow, which is the one that downloads,
+    /// verifies the signature and installs.
+    func install() {
+        NotificationCenter.default.post(name: .nodCheckForUpdates, object: nil)
+    }
+
+    func noteAvailable(_ build: FeedBuild?) {
+        guard let build, build.build > runningBuild else {
+            available = nil
+            defaults.removeObject(forKey: Self.availableKey)
+            return
+        }
+        available = build
+        defaults.set(["version": build.version, "build": String(build.build)], forKey: Self.availableKey)
+    }
+
+    private static func remembered(in defaults: UserDefaults, newerThan running: Int) -> FeedBuild? {
+        guard let stored = defaults.dictionary(forKey: availableKey) as? [String: String],
+              let version = stored["version"], let build = stored["build"].flatMap(Int.init),
+              build > running
+        else {
+            defaults.removeObject(forKey: availableKey)
+            return nil
+        }
+        return FeedBuild(version: version, build: build)
     }
 
     nonisolated func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
@@ -96,7 +164,7 @@ final class ReleaseChannelStore: ObservableObject {
 
     /// Returns true when the channel actually moved — the caller resets
     /// Sparkle's update cycle so a newly joined tester doesn't wait out the
-    /// current 24h interval before the channel is consulted.
+    /// current four-hour interval before the channel is consulted.
     @discardableResult
     func refresh() async -> Bool {
         // Without a session the query returns nothing under RLS, which is

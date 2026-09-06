@@ -9,12 +9,17 @@ struct HomeSidebarFooter: View {
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var settingsFocus: SettingsFocus
+    @EnvironmentObject private var feed: UpdaterChannelDelegate
 
     var body: some View {
         VStack(spacing: 2) {
             Divider()
                 .overlay(Theme.Palette.border)
                 .padding(.bottom, 6)
+            if let update = feed.available {
+                UpdateSidebarRow(update: update, action: feed.install)
+                    .transition(.opacity)
+            }
             // Takes the service from the environment itself. Holding it here
             // instead meant every capture tick — one every 5 seconds while
             // ambient context runs — invalidated the whole sidebar body to
@@ -65,4 +70,54 @@ struct HomeSidebarFooter: View {
         let plan = entitlement.plan.capitalized
         return entitlement.status == .trialing ? "\(plan) · trial" : plan
     }
+}
+
+/// "Update Nod · 13.2.0" — the one sidebar row that is an offer, not a place.
+/// Tinted with the brand rather than selected, because it is never where you
+/// are; it is something waiting for you.
+struct UpdateSidebarRow: View {
+    let update: FeedBuild
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: SidebarRowMetrics.inset) {
+                Image("nc-refresh-2")
+                    .icon(12.5)
+                    .frame(width: 16)
+                Text("Update Nod")
+                    .textStyle(Theme.Typography.uiEmphasis)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Spacer(minLength: 4)
+                Text(update.version)
+                    .textStyle(Theme.Typography.meta)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .foregroundStyle(Theme.Palette.brand)
+            .padding(.horizontal, SidebarRowMetrics.inset)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                    .fill(Theme.Palette.brand.opacity(0.14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
+                            .stroke(Theme.Palette.brand.opacity(0.28), lineWidth: 0.5)
+                    )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .linkCursor()
+        .help("Update Nod to \(update.label)")
+        .accessibilityLabel("Update Nod to version \(update.version)")
+    }
+}
+
+#Preview("Update offered") {
+    UpdateSidebarRow(update: FeedBuild(version: "13.2.0", build: 71), action: {})
+        .frame(width: HomeSidebar.width - 20)
+        .padding(10)
+        .background(Theme.Palette.bg)
 }
