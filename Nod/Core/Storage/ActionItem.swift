@@ -99,6 +99,15 @@ struct ActionItem: Codable, Identifiable, Equatable {
         return copy
     }
 
+    func unfiled() -> ActionItem {
+        var copy = self
+        copy.externalProvider = nil
+        copy.externalKey = nil
+        copy.externalURL = nil
+        copy.externalCreatedAt = nil
+        return copy
+    }
+
     /// Still outstanding: a real task, not ticked off, not in the trash.
     ///
     /// `proposed` is excluded on purpose. The live pass is allowed to be wrong,

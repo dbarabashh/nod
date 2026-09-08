@@ -6,6 +6,8 @@ enum AppDeepLink: Equatable {
     case referral(code: String)
     /// `nod://invite?token=…` from the landing page's `/invite/<token>`.
     case invite(token: UUID)
+    /// `nod://meeting?id=…` from the footer of a task filed out of a session.
+    case meeting(id: UUID)
     case record
     case history
     case ask
@@ -31,6 +33,10 @@ enum AppDeepLink: Equatable {
             guard let raw = query?.first(where: { $0.name == "token" })?.value,
                   let token = UUID(uuidString: raw) else { return nil }
             self = .invite(token: token)
+        case "meeting":
+            guard let raw = query?.first(where: { $0.name == "id" })?.value,
+                  let id = UUID(uuidString: raw) else { return nil }
+            self = .meeting(id: id)
         case "record":
             self = .record
         case "history":

@@ -41,3 +41,10 @@ export function isMetered(action: string, origin: unknown): boolean {
   if (FREE_VERBS.some((verb) => action.startsWith(verb))) return false;
   return !(origin === "app" && APP_READS.has(action));
 }
+
+/// Whether a proposal may name this action at all. A proposal is a write
+/// somebody approved; a read raised as a proposal would run outside the
+/// credit pool `integration-action` meters, so only the free verbs qualify.
+export function isProposable(action: string): boolean {
+  return FREE_VERBS.some((verb) => action.startsWith(verb));
+}

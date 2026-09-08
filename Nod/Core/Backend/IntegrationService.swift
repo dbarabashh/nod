@@ -64,12 +64,84 @@ final class IntegrationService: ObservableObject {
         case noClient
     }
 
-    init(supabase: SupabaseClient?) {
+    /// Which product carries each verb when more than one connected product
+    /// could. The person's own pick, on this Mac: it decides where work is
+    /// filed, not what Nod may reach, so it lives beside the other view
+    /// preferences rather than on the server. Two hundred integrations are
+    /// still at most one pick per capability.
+    @Published private(set) var defaultProducts: [IntegrationCapability: IntegrationProvider] = [:]
+    static let defaultProductsKey = "integrations.defaultProducts"
+    private let defaults: UserDefaults
+
+    init(supabase: SupabaseClient?, defaults: UserDefaults = .standard) {
         self.supabase = supabase
+        self.defaults = defaults
+        defaultProducts = Self.storedDefaults(in: defaults)
     }
 
     deinit {
         watch?.cancel()
+    }
+
+    private static func storedDefaults(in defaults: UserDefaults) -> [IntegrationCapability: IntegrationProvider] {
+        let raw = defaults.dictionary(forKey: defaultProductsKey) as? [String: String] ?? [:]
+        return raw.reduce(into: [:]) { table, pair in
+            guard let capability = IntegrationCapability(rawValue: pair.key),
+                  let provider = IntegrationProvider(rawValue: pair.value) else { return }
+            table[capability] = provider
+        }
+    }
+
+    func setDefault(_ provider: IntegrationProvider?, for capability: IntegrationCapability) {
+        defaultProducts[capability] = provider
+        let raw = defaultProducts.reduce(into: [String: String]()) { $0[$1.key.rawValue] = $1.value.rawValue }
+        defaults.set(raw, forKey: Self.defaultProductsKey)
+    }
+
+    func setDefaultTaskTarget(_ provider: IntegrationProvider?) {
+        setDefault(provider, for: .tasks)
+    }
+
+    /// Usable products that carry a verb, in declaration order.
+    func carriers(of verb: ActionVerb) -> [IntegrationProvider] {
+        verb.carriers(among: usable)
+    }
+
+    /// The one product a verb lands in on its own: the only carrier, or the
+    /// one the person picked. Two carriers and no pick is nil on purpose —
+    /// filing into the wrong one is worse than asking.
+    func preferred(for verb: ActionVerb) -> IntegrationProvider? {
+        Self.preferred(among: carriers(of: verb), chosen: defaultProducts[verb.capability])
+    }
+
+    var preferredTaskTarget: IntegrationProvider? {
+        preferred(for: .task)
+    }
+
+    nonisolated static func preferred(
+        among carriers: [IntegrationProvider],
+        chosen: IntegrationProvider?
+    ) -> IntegrationProvider? {
+        if let chosen, carriers.contains(chosen) { return chosen }
+        return carriers.count == 1 ? carriers.first : nil
+    }
+
+    /// Verbs more than one product could carry — the ones Settings shows a
+    /// default for, picked or not.
+    var contestedVerbs: [ActionVerb] {
+        ActionVerb.allCases.filter { carriers(of: $0).count > 1 }
+    }
+
+    /// What the rules read to pick a default verb for an item.
+    func verbContext(isTheirs: Bool, remembered: ActionVerb?) -> ActionVerb.Context {
+        ActionVerb.Context(
+            hasTracker: preferred(for: .task) != nil,
+            hasMessenger: preferred(for: .message) != nil,
+            hasCalendar: preferred(for: .event) != nil,
+            hasCRM: preferred(for: .note) != nil,
+            isTheirs: isTheirs,
+            remembered: remembered
+        )
     }
 
     /// Loads the links, and reloads them once the last answer has gone stale.
@@ -494,8 +566,9 @@ final class IntegrationService: ObservableObject {
     /// rather than two that drift: closing it in either place closes it in the
     /// other, which is what lets the status read run unconditionally instead of
     /// tiptoeing around ticks it might undo.
-    func setTaskClosed(_ closed: Bool, reference: ProviderLinkItem) async {
-        guard let action = reference.provider.taskActions?.update else { return }
+    @discardableResult
+    func setTaskClosed(_ closed: Bool, reference: ProviderLinkItem) async -> Bool {
+        guard let action = reference.provider.taskActions?.update else { return false }
         do {
             let data = try await invokeAction(
                 provider: reference.provider,
@@ -505,11 +578,37 @@ final class IntegrationService: ObservableObject {
             )
             if let message = Self.failure(in: String(bytes: data, encoding: .utf8) ?? "") {
                 Log.ui.error("IntegrationService.setTaskClosed refused: \(message)")
-                return
+                return false
             }
             Log.ui.info("IntegrationService.setTaskClosed \(reference.title) closed=\(closed)")
+            return true
         } catch {
             Log.ui.error("IntegrationService.setTaskClosed failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Closes a ticket Nod filed and says why, in one write. One call rather
+    /// than `update` then `setTaskClosed`: Jira's update ignores a note sent
+    /// alone, and two writes are two ways to half-succeed.
+    func closeTask(_ reference: ProviderLinkItem, note: String) async -> Bool {
+        guard let action = reference.provider.taskActions?.update else { return false }
+        do {
+            let data = try await invokeAction(
+                provider: reference.provider,
+                action: action,
+                params: ["key": reference.title, "note": note, "closed": "true"],
+                origin: .app
+            )
+            if let message = Self.failure(in: String(bytes: data, encoding: .utf8) ?? "") {
+                Log.ui.error("IntegrationService.closeTask refused: \(message)")
+                return false
+            }
+            Log.ui.info("IntegrationService.closeTask closed \(reference.title)")
+            return true
+        } catch {
+            Log.ui.error("IntegrationService.closeTask failed: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -578,7 +677,7 @@ final class IntegrationService: ObservableObject {
         // An open ticket is the one worth linking to. A closed match is still
         // offered — the work may simply be done — but it loses to a live one.
         guard let match = candidates.first(where: { !$0.closed }) ?? candidates.first,
-              let url = URL(string: match.url)
+              let url = match.url.flatMap(URL.init(string:))
         else { return nil }
         return TaskMatch(
             reference: ProviderLinkItem(provider: provider, title: match.key, url: url),
@@ -616,7 +715,9 @@ final class IntegrationService: ObservableObject {
     private struct FoundTask: Decodable {
         let key: String
         let title: String
-        let url: String
+        /// Absent when the tracker did not say where the task lives; the row
+        /// still counts as a match, it just cannot be opened from here.
+        let url: String?
         let closed: Bool
     }
 

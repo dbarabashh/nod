@@ -22,6 +22,7 @@ struct ActionItemFilingButton: View {
     @EnvironmentObject private var integrations: IntegrationService
     @EnvironmentObject private var actionItemStore: ActionItemStore
     @EnvironmentObject private var composer: TaskDraftComposer
+    @EnvironmentObject private var proposals: ActionProposalStore
 
     @State private var composing: IntegrationProvider?
     @State private var draft: TaskDraft?
@@ -39,9 +40,22 @@ struct ActionItemFilingButton: View {
             }
     }
 
+    /// The recap card is filing this row right now. Two doors to the same
+    /// ticket, and this one closes while the other is in use.
+    private var isBeingFiledByProposal: Bool {
+        proposals.proposals.contains {
+            $0.actionItemID == item.id
+                && ($0.status == .approved || $0.status == .executing || ($0.status == .completed && $0.externalKey != nil))
+        }
+    }
+
     @ViewBuilder private var content: some View {
         if let filed = item.filed {
             reference(filed)
+        } else if !actionItemStore.isMine(item) || isBeingFiledByProposal {
+            // A session shared with the user is theirs to read, not to
+            // republish into their own tracker.
+            EmptyView()
         } else if integrations.taskTargets.count == 1, let only = integrations.taskTargets.first {
             // One tracker: the slot is that tracker. Asking "which one?" of a
             // list of one is a click that answers itself.
@@ -273,9 +287,12 @@ struct ActionItemFilingButton: View {
     private func update(_ draft: TaskDraft, to match: TaskMatch) {
         isFiling = true
         Task {
-            let note = [draft.title, draft.description]
+            var note = [draft.title, draft.description]
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n\n")
+            if let footer = composer.footer(for: item) {
+                note = FiledTaskFooter.appended(to: note, footer: footer)
+            }
             if await integrations.update(match.reference, note: note) {
                 await actionItemStore.recordFiling(itemID: item.id, reference: match.reference)
                 dismiss()
@@ -290,7 +307,11 @@ struct ActionItemFilingButton: View {
     private func create(_ draft: TaskDraft, in provider: IntegrationProvider) {
         isFiling = true
         Task {
-            if let filed = await integrations.file(draft, in: provider) {
+            var sent = draft
+            if let footer = composer.footer(for: item) {
+                sent.description = FiledTaskFooter.appended(to: draft.description, footer: footer)
+            }
+            if let filed = await integrations.file(sent, in: provider) {
                 await actionItemStore.recordFiling(itemID: item.id, reference: filed)
                 dismiss()
             } else {

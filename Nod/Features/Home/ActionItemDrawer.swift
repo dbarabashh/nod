@@ -58,7 +58,7 @@ struct ActionItemDrawer: View {
     /// The first connected product that can carry a message. Slack today; the
     /// array is what keeps tomorrow's chat product a one-line change.
     private var messenger: IntegrationProvider? {
-        [IntegrationProvider.slack].first { integrations.isUsable($0) }
+        integrations.preferred(for: .message)
     }
 
     var body: some View {

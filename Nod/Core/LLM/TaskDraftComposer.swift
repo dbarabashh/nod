@@ -71,6 +71,19 @@ final class TaskDraftComposer: ObservableObject {
         }
     }
 
+    /// The provenance footer for a task filed from `item`, or nil when the
+    /// session it came from is not loaded — a ticket without a footer beats no
+    /// ticket.
+    func footer(for item: ActionItem) -> String? {
+        guard let meeting = meetings.meetings.first(where: { $0.id == item.meetingID }) else { return nil }
+        return FiledTaskFooter.text(
+            meetingTitle: meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter),
+            meetingDate: FiledTaskFooter.dateFormatter.string(from: meeting.startedAt),
+            quote: item.evidenceQuote,
+            link: FiledTaskFooter.deepLink(meetingID: meeting.id, scheme: AuthService.callbackURL.scheme ?? "nod")
+        )
+    }
+
     /// What was being said around the line that produced this item.
     ///
     /// `evidenceIdx` is the whole reason this is cheap and specific — without it

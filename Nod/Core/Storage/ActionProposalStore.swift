@@ -30,18 +30,41 @@ final class ActionProposalStore: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         do {
-            proposals = try await supabase
+            let fetched: [ActionProposal] = try await supabase
                 .from(Self.tableName)
                 .select()
                 .in("status", values: ActionProposal.Status.unsettled.map(\.rawValue))
                 .order("created_at", ascending: false)
                 .execute()
                 .value
+            proposals = Self.merged(fetched, keeping: proposals)
             lastError = nil
         } catch {
             lastError = "Couldn't load what's waiting for you."
             Log.ui.error("ActionProposalStore.refresh failed: \(error.localizedDescription)")
         }
+    }
+
+    /// The server answers with what is unsettled; what this run already
+    /// filed stays, or "Everything is ready" and its Undo would vanish the
+    /// moment another window loaded the list.
+    nonisolated static func merged(_ fetched: [ActionProposal], keeping current: [ActionProposal]) -> [ActionProposal] {
+        let incoming = Dictionary(fetched.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<UUID>()
+        var result: [ActionProposal] = []
+        for proposal in current {
+            if let fresh = incoming[proposal.id] {
+                // A row this run is executing is ahead of what the server
+                // last said; the claim lands a moment after the read.
+                result.append(proposal.status == .executing && fresh.status == .approved ? proposal : fresh)
+                seen.insert(proposal.id)
+            } else if proposal.status == .completed {
+                result.append(proposal)
+                seen.insert(proposal.id)
+            }
+        }
+        result += fetched.filter { !seen.contains($0.id) }
+        return result
     }
 
     /// Raises what a finished meeting is offering to do.
@@ -50,8 +73,9 @@ final class ActionProposalStore: ObservableObject {
     /// finalized twice — a retry, a relaunch replay — proposes the same work
     /// once. That is the whole reason the constraint is in the database rather
     /// than in a check here.
-    func raise(_ drafts: [ProposalDraft], meetingID: UUID, userID: UUID, agentID: UUID? = nil) async {
-        guard let supabase, !drafts.isEmpty else { return }
+    @discardableResult
+    func raise(_ drafts: [ProposalDraft], meetingID: UUID, userID: UUID, agentID: UUID? = nil) async -> Bool {
+        guard let supabase, !drafts.isEmpty else { return false }
         struct Row: Encodable {
             let userID: UUID
             let meetingID: UUID
@@ -63,6 +87,7 @@ final class ActionProposalStore: ObservableObject {
             let confidenceParts: [String: Double]
             let evidenceIdx: Int?
             let raisedByAgent: UUID?
+            let capability: String?
 
             enum CodingKeys: String, CodingKey {
                 case userID = "user_id"
@@ -75,6 +100,7 @@ final class ActionProposalStore: ObservableObject {
                 case confidenceParts = "confidence_parts"
                 case evidenceIdx = "evidence_idx"
                 case raisedByAgent = "raised_by_agent"
+                case capability
             }
         }
 
@@ -89,7 +115,8 @@ final class ActionProposalStore: ObservableObject {
                 confidence: $0.confidence.overall,
                 confidenceParts: $0.confidence.stored,
                 evidenceIdx: $0.evidenceIdx,
-                raisedByAgent: agentID
+                raisedByAgent: agentID,
+                capability: ActionVerb.of(type: $0.type)?.capability.rawValue
             )
         }
         do {
@@ -99,10 +126,13 @@ final class ActionProposalStore: ObservableObject {
                 .execute()
             Log.ui.info("proposals raised count=\(rows.count) meeting=\(meetingID.uuidString)")
             await refresh()
+            return true
         } catch {
             // Nothing the user asked for has failed — the meeting, its recap and
             // its to-dos are all saved. Only the offer to act on them is missing.
+            lastError = "Couldn't offer that."
             Log.ui.error("ActionProposalStore.raise failed: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -133,6 +163,75 @@ final class ActionProposalStore: ObservableObject {
                 .rpc("reject_proposal", params: Params(p_proposal: proposal.id))
                 .execute()
         }
+    }
+
+    /// Withdraws every unanswered offer made for one action item — the row
+    /// was deleted or ticked, and an offer to file it is now an offer to file
+    /// something that no longer needs filing.
+    func rejectAll(forActionItem itemID: UUID) async {
+        let stale = proposals.filter {
+            $0.actionItemID == itemID && $0.status != .completed && $0.status != .rejected && $0.status != .executing
+        }
+        for proposal in stale {
+            _ = await reject(proposal)
+        }
+    }
+
+    /// Swaps what an offer would do — the person picked another verb on the
+    /// card. Withdraw and re-raise rather than edit: the server's edit path
+    /// changes parameters, never the type, and a proposal that changed what
+    /// it does is a different proposal with its own audit trail.
+    func retype(_ proposal: ActionProposal, to draft: ProposalDraft) async -> Bool {
+        guard let meetingID = proposal.meetingID else { return false }
+        guard await withdraw(proposal) else { return false }
+        return await raise([draft], meetingID: meetingID, userID: proposal.userID, agentID: proposal.raisedByAgent)
+    }
+
+    /// Neither a yes nor a no: the offer is being re-made under another verb.
+    func withdraw(_ proposal: ActionProposal) async -> Bool {
+        struct Params: Encodable {
+            let p_proposal: UUID
+        }
+        return await decide(proposal, becoming: .withdrawn) { supabase in
+            _ = try await supabase
+                .rpc("withdraw_proposal", params: Params(p_proposal: proposal.id))
+                .execute()
+        }
+    }
+
+    /// The person did the write themselves, in the form the row opened; the
+    /// offer is answered with what they got back, not declined.
+    func settle(_ proposal: ActionProposal, reference: ProviderLinkItem?, record: String) async -> Bool {
+        guard let provider = proposal.provider else { return false }
+        struct Params: Encodable {
+            let p_proposal: UUID
+            let p_provider: String
+            let p_key: String
+            let p_url: String?
+        }
+        let done = await decide(proposal, becoming: .completed) { supabase in
+            _ = try await supabase
+                .rpc("settle_proposal", params: Params(
+                    p_proposal: proposal.id,
+                    p_provider: provider.rawValue,
+                    p_key: reference?.title ?? record,
+                    p_url: reference?.url.absoluteString
+                ))
+                .execute()
+        }
+        if done, let idx = proposals.firstIndex(where: { $0.id == proposal.id }) {
+            proposals[idx].externalProvider = provider.rawValue
+            proposals[idx].externalKey = reference?.title ?? record
+            proposals[idx].externalURL = reference?.url.absoluteString
+        }
+        return done
+    }
+
+    /// Forgets a completed proposal after the ticket it made was closed again.
+    /// The row keeps its `completed` status and reference on the server as the
+    /// audit trail; only the card stops showing it as done.
+    func forget(_ proposal: ActionProposal) {
+        proposals.removeAll { $0.id == proposal.id }
     }
 
     /// What the server said when asked to approve with nobody watching.
@@ -193,6 +292,9 @@ final class ActionProposalStore: ObservableObject {
                 let key: String?
                 let title: String?
                 let url: String?
+                /// Set when the server settled this onto a ticket the row
+                /// already had, which may live in another tracker.
+                let provider: String?
             }
 
             struct Failure: Decodable {
@@ -211,14 +313,24 @@ final class ActionProposalStore: ObservableObject {
                 options: FunctionInvokeOptions(body: Request(proposal_id: proposal.id))
             )
             if let failure = response.error {
-                apply(.failed, to: proposal.id, failure: failure.message)
+                // The server's own verdicts are not retries: a deleted row is
+                // rejected for good, and "not approved" means another Mac got
+                // there first and the list is what needs reading again.
+                switch failure.code {
+                case "row_deleted":
+                    apply(.rejected, to: proposal.id)
+                case "not_approved", "already_running":
+                    await refresh()
+                default:
+                    apply(.failed, to: proposal.id, failure: failure.message)
+                }
                 lastError = failure.message
                 Log.ui.error("proposal execution refused: \(failure.code)")
                 return false
             }
             if let idx = proposals.firstIndex(where: { $0.id == proposal.id }) {
                 proposals[idx].status = .completed
-                proposals[idx].externalProvider = proposal.provider?.rawValue
+                proposals[idx].externalProvider = response.result?.provider ?? proposal.provider?.rawValue
                 proposals[idx].externalKey = response.result?.key
                 proposals[idx].externalURL = response.result?.url
             }

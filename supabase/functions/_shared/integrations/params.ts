@@ -28,6 +28,20 @@ export function requireBoolean(params: Record<string, unknown>, key: string): bo
     throw new ActionError("invalid_params", `\`${key}\` must be true or false.`);
 }
 
+/// The same, for a flag the caller may leave out: undefined when absent, never
+/// a guessed default.
+export function booleanOf(params: Record<string, unknown>, key: string): boolean | undefined {
+    if (params[key] === undefined || params[key] === null) return undefined;
+    return requireBoolean(params, key);
+}
+
+/// The first of several names an argument may travel under that was actually
+/// sent, or the first name when none was — so the refusal names the one the
+/// contract prefers.
+export function nameOf(params: Record<string, unknown>, ...names: string[]): string {
+    return names.find((name) => params[name] !== undefined && params[name] !== null) ?? names[0];
+}
+
 /// The refusals a caller may word in its own terms — "people per invitation",
 /// "addresses at a time" — so a shared helper does not flatten every adapter's
 /// message into one.

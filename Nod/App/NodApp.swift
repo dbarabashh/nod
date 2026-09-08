@@ -399,6 +399,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.ui.info("received referral deep link")
                 ReferralService.storePendingCode(code)
                 NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+            case let .meeting(id):
+                NotificationCenter.default.post(
+                    name: .nodOpenMeetingDetail,
+                    object: nil,
+                    userInfo: [Notification.nodMeetingIDKey: id]
+                )
             case .record:
                 NotificationCenter.default.post(name: .nodShowPanel, object: nil)
             case .history:

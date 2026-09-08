@@ -429,7 +429,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 organizations: services.organizations,
                 meetings: services.meetingStore,
                 knowledge: services.knowledgeStore,
-                agents: services.agentStore
+                agents: services.agentStore,
+                proposals: services.actionProposals
             ),
             sharing: services.panelSharing.sharingType
         )

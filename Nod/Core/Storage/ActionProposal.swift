@@ -64,6 +64,8 @@ struct ActionProposal: Codable, Identifiable, Equatable {
         case completed
         case failed
         case rejected
+        /// Re-raised under another verb; neither a yes nor a no.
+        case withdrawn
     }
 
     enum CodingKeys: String, CodingKey {

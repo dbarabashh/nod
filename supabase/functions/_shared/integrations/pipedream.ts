@@ -164,7 +164,7 @@ export function appsURL(path = ""): string {
 export interface ProxyOptions {
     /// Defaults to POST, which is what a GraphQL provider wants. A REST one that
     /// reads — a calendar — is a GET with no body at all.
-    method?: "GET" | "POST" | "PATCH" | "DELETE";
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     /// How to read the provider's answer. Almost everything speaks JSON; the
     /// exception is an export endpoint — a Google Doc's text — whose answer is
     /// the document itself.

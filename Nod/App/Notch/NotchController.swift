@@ -25,6 +25,8 @@ struct NotchCardEnvironment {
     let knowledge: KnowledgeStore
     /// The recap card's pattern offer, and the agents it creates.
     let agents: AgentStore
+    /// What the recap offers to file, and where it landed.
+    let proposals: ActionProposalStore
 }
 
 @MainActor
@@ -62,6 +64,7 @@ final class NotchController {
             .environmentObject(cards.meetings)
             .environmentObject(cards.knowledge)
             .environmentObject(cards.agents)
+            .environmentObject(cards.proposals)
         let panel = NotchPanel(content: content, sharing: sharing)
         self.panel = panel
         anchor()

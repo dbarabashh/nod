@@ -8,7 +8,7 @@ import Foundation
 /// entirely by values — the items, the roster, and who the user confirmed.
 struct ProposalDraft: Equatable {
     let type: String
-    let parameters: [String: String]
+    var parameters: [String: String]
     let confidence: ProposalConfidence
     let actionItemID: UUID?
     let evidenceIdx: Int?
@@ -48,26 +48,76 @@ enum ProposalDrafting {
     ///     `position`. Passed in rather than read off the item because
     ///     `action_items` deliberately has no owner column — the name lives in
     ///     the recap, and this is the one place it is used to address anybody.
+    /// Where a filed task says it came from — `nil` only in tests that are
+    /// about something else.
+    struct Source {
+        let meetingTitle: String
+        let meetingDate: String
+        let link: URL
+    }
+
     static func drafts(
         for items: [ActionItem],
         owners: [Int: String],
         provider: IntegrationProvider,
+        verb: ActionVerb = .task,
         directory: [Person],
-        confirmedSpeakers: [MeetingSpeaker] = []
+        confirmedSpeakers: [MeetingSpeaker] = [],
+        source: Source? = nil
     ) -> [ProposalDraft] {
-        guard let actions = provider.taskActions else { return [] }
+        guard let action = verb.action(in: provider) else { return [] }
+        let type = "\(provider.rawValue).\(action)"
         return items
             .filter(isWorthProposing)
             .sorted { $0.order < $1.order }
             .map { item in
-                draft(
-                    for: item,
-                    owner: item.position.flatMap { owners[$0] },
-                    type: "\(provider.rawValue).\(actions.create)",
-                    directory: directory,
-                    confirmedSpeakers: confirmedSpeakers
-                )
+                switch verb {
+                case .task:
+                    draft(
+                        for: item,
+                        owner: item.position.flatMap { owners[$0] },
+                        type: type,
+                        directory: directory,
+                        confirmedSpeakers: confirmedSpeakers,
+                        source: source
+                    )
+                case .message, .event, .note:
+                    // Carries the words and who the room named, nothing more.
+                    // Who it goes to, when, or which record — the person
+                    // supplies on the card, which is why it lands as
+                    // `needs_review` and never as ready: a message with no
+                    // recipient is not a task waiting for a yes.
+                    ProposalDraft(
+                        type: type,
+                        parameters: manualParameters(for: item, owner: item.position.flatMap { owners[$0] }),
+                        confidence: ProposalConfidence(semantic: 0),
+                        actionItemID: item.id,
+                        evidenceIdx: item.evidenceIdx
+                    )
+                }
             }
+    }
+
+    static func manualParameters(for item: ActionItem, owner: String?) -> [String: String] {
+        var parameters = ["title": String(item.text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(titleLimit))]
+        if let owner = owner?.trimmingCharacters(in: .whitespacesAndNewlines), !owner.isEmpty {
+            parameters["assignee_hint"] = owner
+        }
+        return parameters
+    }
+
+    /// One draft for a verb the person picked by hand on the card, replacing
+    /// the one the meeting offered.
+    static func redraft(
+        _ item: ActionItem,
+        verb: ActionVerb,
+        provider: IntegrationProvider,
+        owner: String?,
+        directory: [Person],
+        source: Source?
+    ) -> ProposalDraft? {
+        let owners = owner.flatMap { name in item.position.map { [$0: name] } } ?? [:]
+        return drafts(for: [item], owners: owners, provider: provider, verb: verb, directory: directory, source: source).first
     }
 
     /// A real, outstanding task that is not already somewhere else.
@@ -89,17 +139,29 @@ enum ProposalDrafting {
         owner: String?,
         type: String,
         directory: [Person],
-        confirmedSpeakers: [MeetingSpeaker]
+        confirmedSpeakers: [MeetingSpeaker],
+        source: Source?
     ) -> ProposalDraft {
         var parameters = [
             "title": String(item.text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(titleLimit))
         ]
+        var description = ""
         if let deadline = item.deadline?.trimmingCharacters(in: .whitespacesAndNewlines), !deadline.isEmpty {
             // Verbatim, in the words it was said in. Turning "by Friday" into a
             // date needs a week-start and a timezone this has neither of, and a
             // wrong due date is worse than a quoted one.
-            parameters["description"] = "Due: \(deadline)"
+            description = "Due: \(deadline)"
         }
+        if let source {
+            let footer = FiledTaskFooter.text(
+                meetingTitle: source.meetingTitle,
+                meetingDate: source.meetingDate,
+                quote: item.evidenceQuote,
+                link: source.link
+            )
+            description = FiledTaskFooter.appended(to: description, footer: footer)
+        }
+        if !description.isEmpty { parameters["description"] = description }
 
         var confidence = ProposalConfidence(semantic: semanticConfidence(for: item.source))
         let named = owner?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

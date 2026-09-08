@@ -1,5 +1,5 @@
-import { assert, assertFalse } from "jsr:@std/assert@1.0.14";
-import { isMetered } from "./metering.ts";
+import { assert, assertEquals, assertFalse } from "jsr:@std/assert@1.0.14";
+import { isMetered, isProposable } from "./metering.ts";
 
 Deno.test("a write is never metered, whoever made it", () => {
   for (
@@ -55,4 +55,13 @@ Deno.test("only the app's own reads are exempt, and only when it says so", () =>
   }
   assert(isMetered("search_messages", "app"));
   assert(isMetered("read_page", "app"));
+});
+
+Deno.test("only a write can be proposed", () => {
+  for (const action of ["create_issue", "post_message", "create_note", "create_event", "update_issue"]) {
+    assertEquals(isProposable(action), true, action);
+  }
+  for (const action of ["search_issues", "read_thread", "list_users", "find_contact", "read_document"]) {
+    assertEquals(isProposable(action), false, action);
+  }
 });

@@ -122,6 +122,7 @@ struct MeetingDetailView: View {
                 content
                 if selectedTab == .summary, !isFinalizing {
                     ActionItemsView(meeting: meeting)
+                    TrackerConnectRow(meetingID: meeting.id)
                     RelatedSessionsView(meeting: meeting)
                 }
             }
@@ -241,7 +242,8 @@ struct MeetingDetailView: View {
             )
             // Under the recap, not over it: what the meeting was is the thing
             // the user came to read, and what to do about it follows from it.
-            ProposalReviewList(meetingID: meeting.id)
+            ReadyToFileCard(meetingID: meeting.id)
+                .padding(.top, 18)
         case .transcript:
             MeetingTranscriptTab(
                 state: transcriptLoad,

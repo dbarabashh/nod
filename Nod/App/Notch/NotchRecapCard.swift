@@ -120,6 +120,10 @@ struct NotchRecapCard: View {
                         }
                     }
 
+                    // Under the action items, where the demo puts it: the
+                    // moment a commitment is worth filing is the moment it was
+                    // made, and this is the card that is on screen then.
+                    ReadyToFileCard(meetingID: meeting.id, isCompact: true) { onExpand(meeting.id) }
                     knowledgeLine(for: meeting.id)
                     patternOffer
                     grantOffer

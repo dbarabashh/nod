@@ -1,5 +1,10 @@
 import { assertEquals } from "jsr:@std/assert@1.0.14";
-import { plainText } from "./jira.ts";
+import { browseURL, plainText, summarise } from "./jira.ts";
+
+Deno.test("an issue link is the site's browse page, or nothing", () => {
+    assertEquals(browseURL("https://acme.atlassian.net", "NOD-3"), "https://acme.atlassian.net/browse/NOD-3");
+    assertEquals(browseURL("", "NOD-3"), undefined);
+});
 
 Deno.test("a document becomes the words in it, with block breaks", () => {
     const doc = {
@@ -34,4 +39,35 @@ Deno.test("nothing in, nothing out", () => {
     assertEquals(plainText(null), "");
     assertEquals(plainText(undefined), "");
     assertEquals(plainText("legacy wiki text"), "");
+});
+
+// `closed` from the status category, never the status name: "Done", "Closed"
+// and "Complete" are one thing to Nod.
+Deno.test("a summary answers the task contract from the status category", () => {
+    const issue = {
+        key: "NOD-3",
+        fields: {
+            summary: "Ship it",
+            updated: "2026-09-08T10:00:00.000+0000",
+            status: { name: "Complete", statusCategory: { key: "done" } },
+            assignee: { displayName: "Dima" },
+        },
+    };
+    assertEquals(summarise(issue, "https://acme.atlassian.net"), {
+        key: "NOD-3",
+        title: "Ship it",
+        url: "https://acme.atlassian.net/browse/NOD-3",
+        closed: true,
+        state: "Complete",
+        assignee: "Dima",
+        updated: "2026-09-08T10:00:00.000+0000",
+    });
+    assertEquals(summarise({ key: "NOD-4" }, ""), {
+        key: "NOD-4",
+        title: "",
+        closed: false,
+        state: undefined,
+        assignee: null,
+        updated: undefined,
+    });
 });

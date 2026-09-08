@@ -21,6 +21,8 @@ import { ActionError, resolveConnection } from "../_shared/integrations/pipedrea
 import { assertProviderPermitted } from "../_shared/integrations/policy.ts";
 import { apiBase, handlerFor } from "../_shared/integrations/registry.ts";
 import { type Proposal, resolveAssignee } from "./assignee.ts";
+import { type FiledRow, filedReference } from "./filed.ts";
+import { isProposable } from "../_shared/integrations/metering.ts";
 
 /// Parameters that describe *who* rather than *what*, stripped before the call.
 /// A provider has no use for a `people.id`, and `assignee_name` is the copy the
@@ -72,6 +74,59 @@ Deno.serve(async (req) => {
     const handler = providerName && action ? handlerFor(providerName, action) : undefined;
     if (!handler) {
         return json({ error: { code: "unknown_action", message: `Nothing can perform ${proposal.type}.` } }, 400);
+    }
+    if (!isProposable(action)) {
+        // A read through this door would skip the credit pool.
+        return json({ error: { code: "not_a_write", message: `${proposal.type} is not something a proposal can do.` } }, 400);
+    }
+
+    // The row this offer was made for may have been filed by hand while the
+    // offer stood. Then the work is done: the proposal is settled onto that
+    // ticket and answers with it, and nothing reaches the provider.
+    if (proposal.action_item_id) {
+        const { data: row } = await admin
+            .from("action_items")
+            .select("external_provider, external_key, external_url, deleted_at")
+            .eq("id", proposal.action_item_id)
+            .eq("user_id", user.id)
+            .maybeSingle<FiledRow>();
+        if (!row || row.deleted_at) {
+            // The row is gone; so is the reason to file it. Rejected rather
+            // than failed, so nothing offers to try again.
+            await admin
+                .from("action_proposals")
+                .update({ status: "rejected", decided_at: new Date().toISOString(), decided_by: user.id })
+                .eq("id", proposal.id)
+                .eq("status", "approved");
+            return json({ error: { code: "row_deleted", message: "That task was deleted." } }, 200);
+        }
+        const filed = filedReference(row);
+        if (filed) {
+            await admin
+                .from("action_proposals")
+                .update({
+                    status: "completed",
+                    executed_at: new Date().toISOString(),
+                    resolved_parameters: proposal.parameters,
+                    external_provider: filed.provider,
+                    external_key: filed.key,
+                    external_url: filed.url,
+                })
+                .eq("id", proposal.id)
+                .eq("status", "approved");
+            if (proposal.org_id) {
+                await admin.from("audit_log").insert({
+                    org_id: proposal.org_id,
+                    actor_user_id: user.id,
+                    action: "proposal.executed",
+                    target_type: "action_proposal",
+                    target_id: proposal.id,
+                    metadata: { type: proposal.type, external_key: filed.key, settled_onto_existing: true },
+                });
+            }
+            console.info(`proposal ${proposal.type} settled onto ${filed.key}, already filed`);
+            return json({ result: { key: filed.key, title: null, url: filed.url, provider: filed.provider } }, 200);
+        }
     }
 
     // `resolveConnection` below would refuse this anyway. Asking here as well
@@ -146,6 +201,7 @@ Deno.serve(async (req) => {
                     external_created_at: new Date().toISOString(),
                 })
                 .eq("id", proposal.action_item_id)
+                .eq("user_id", user.id)
                 .is("external_provider", null);
         }
 

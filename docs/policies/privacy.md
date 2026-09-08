@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-09-07_
+_Last updated: 2026-09-08_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -752,10 +752,13 @@ Gmail), a finished meeting — or a question you type — can offer to do someth
 in it: file a task or an issue, comment on one, close one, open a channel, put
 a page of notes in the wiki, log a note on a CRM record, save a draft reply.
 Every one of those offers is **prepared and shown to you, and nothing leaves
-Nod until you approve it individually**. There is no setting that performs them
+Nod until you approve it** — one by one, or a meeting's batch of tasks with one
+press after reading each of them. There is no setting that performs them
 automatically, and we have not built one.
 
 | **A calendar entry that is really a task** | On the Today screen you can turn an entry on your calendar into a task in **Google Tasks** — an errand that was put on the calendar but is not a meeting. Pressing it shows you the task that would be created — its title, its due day, and the note it carries (the entry's time and who was invited) — and creates it only when you confirm. The calendar entry itself is **not** changed, deleted or declined; Nod only stops treating it as a meeting on your Mac. A Google Tasks connection is used for this and for filing action items; when Nod looks a task up or searches for one, it reads your **default** task list only — the task's title, notes, due day and whether it is done. Nothing from a search is kept except the link to the task you chose to file into, and a filed item's done state follows what Google says about that task. |
+| **What a filed task carries** | A task filed from a meeting — whether from the "Ready to file" card the recap shows, or from the filing mark on one action item — carries, under its title and description, a short footer: the meeting's title and date, the **one sentence of the transcript** that produced the task (at most 200 characters), and a link that opens that meeting in Nod for someone who already has access to it. If the meeting named a colleague Nod could not match to anyone in your tools, that name as it was said is written in the description rather than guessed at. The card shows that sentence before you approve, so what you approve is what the tool receives. Everyone who can read that task in the tool can read the sentence; it is not shared through a public link. Only meetings that are yours can be filed — a meeting a colleague shared with you cannot be filed into your tools. |
+| **Taking it back** | "Undo" on a batch you just filed closes each ticket in the tool with a note saying it was undone from Nod, after asking you once more. Nothing in the tool is deleted. |
 | **What is stored** | For each offer: what it would do, in which tool, the parameters it would use, and the position in the transcript that caused it. If the meeting named a colleague as the person taking something on, the offer carries **who** — as a reference to their record in your organization, plus their name as it will appear in the tool. |
 | **Reading who is in your workspace** | When an **administrator** of your organization connects a tool, Nod reads that tool's member list once and records, for each member with an address, their name, that address, and the identifier the tool uses for them. This is what lets a meeting assign work to a colleague on the day you set Nod up, instead of after everyone has been invited to Nod and accepted. It happens for administrators only — a member connecting their own account does not import anything, because their workspace is not the company's. |
 | **Colleagues who do not use Nod** | Someone in that member list who has no Nod account still gets a record, marked as having come from a connected workspace. They can be named as the owner of a task, and nothing else: they cannot sign in, they are sent nothing, and they have no access to anything. If they later create a Nod account with the same address, the record becomes theirs rather than a second one being made. |

@@ -11,12 +11,14 @@
 // shut down in 2025; JQL now lives at `/search/jql`.
 import { ActionError, type Connection, proxy } from "./pipedream.ts";
 import type { ActionHandlers } from "./registry.ts";
-import { requireBoolean, requireList, requireString } from "./params.ts";
+import { booleanOf, requireList, requireString } from "./params.ts";
+import { taskReference } from "./taskContract.ts";
 
 const SEARCH_LIMIT = 10;
 const STATUS_LIMIT = 50;
 const COMMENT_LIMIT = 8;
 const FIELDS = "summary,status,assignee,updated";
+const STATUS_FIELDS = "summary,status";
 const DETAIL_FIELDS = "summary,description,status,assignee,reporter,priority,labels,duedate,updated,comment";
 
 /// `NOD-31` — a project key and a number.
@@ -26,15 +28,15 @@ const KEY = /^[A-Z][A-Z0-9]*-\d+$/i;
 ///
 /// One extra round trip the first time and none afterwards. Module scope, so it
 /// dies with the instance rather than outliving a revoked grant.
-const sites = new Map<string, string>();
+const sites = new Map<string, { id: string; url: string }>();
 
-async function cloudID(connection: Connection): Promise<string> {
+async function site(connection: Connection): Promise<{ id: string; url: string }> {
     const cached = sites.get(connection.id);
     if (cached) return cached;
 
     const payload = await proxy(connection, "https://api.atlassian.com/oauth/token/accessible-resources", null, {
         method: "GET",
-    }) as { id?: string }[] | null;
+    }) as { id?: string; url?: string }[] | null;
 
     const id = payload?.[0]?.id;
     if (!id) {
@@ -44,8 +46,39 @@ async function cloudID(connection: Connection): Promise<string> {
             409,
         );
     }
-    sites.set(connection.id, id);
-    return id;
+    const resolved = { id, url: (payload?.[0]?.url ?? "").replace(/\/$/, "") };
+    sites.set(connection.id, resolved);
+    return resolved;
+}
+
+async function cloudID(connection: Connection): Promise<string> {
+    return (await site(connection)).id;
+}
+
+/// Where a person opens an issue. Empty when the site did not say — a missing
+/// link is better than one made up from a guessed host.
+export function browseURL(siteURL: string, key: string): string | undefined {
+    return siteURL ? `${siteURL}/browse/${key}` : undefined;
+}
+
+/// The project a task is filed in when the caller named none. One project is
+/// its own answer; more than one is a question the caller has to answer, and
+/// the keys are listed so it can.
+async function resolveProject(connection: Connection, named: unknown): Promise<string> {
+    if (typeof named === "string" && named.trim()) return named.trim().toUpperCase();
+    const payload = await api(connection, "project/search", null, {
+        method: "GET",
+        query: { maxResults: "20" },
+    }) as { values?: { key?: string }[] } | null;
+    const keys = (payload?.values ?? []).map((p) => p.key).filter((k): k is string => !!k);
+    if (keys.length === 1) return keys[0];
+    throw new ActionError(
+        "project_required",
+        keys.length === 0
+            ? "No Jira project this account can file into."
+            : `Say which Jira project: ${keys.join(", ")}.`,
+        400,
+    );
 }
 
 /// One Jira request. `path` is relative to the site's REST root.
@@ -86,14 +119,26 @@ interface Issue {
     };
 }
 
-function summarise(issue: Issue) {
-    return {
+function isDone(issue: Issue): boolean {
+    return issue.fields?.status?.statusCategory?.key === "done";
+}
+
+/// The task-contract core plus the words a model wants: `state` is the
+/// workflow's own name for the column, which Nod renders and never acts on.
+export function summarise(issue: Issue & { key: string }, siteURL: string) {
+    return taskReference({
         key: issue.key,
         title: issue.fields?.summary,
-        status: issue.fields?.status?.name,
+        url: browseURL(siteURL, issue.key),
+        closed: isDone(issue),
+        state: issue.fields?.status?.name,
         assignee: issue.fields?.assignee?.displayName ?? null,
         updated: issue.fields?.updated,
-    };
+    });
+}
+
+function keyed(issues: Issue[] | undefined): (Issue & { key: string })[] {
+    return (issues ?? []).filter((issue): issue is Issue & { key: string } => typeof issue.key === "string");
 }
 
 /// Jira renders descriptions as Atlassian Document Format, not text or
@@ -152,7 +197,8 @@ export const JIRA_ACTIONS: ActionHandlers = {
             },
         }) as { issues?: Issue[] } | null;
 
-        return { results: (payload?.issues ?? []).map(summarise) };
+        const siteURL = (await site(connection)).url;
+        return { tasks: keyed(payload?.issues).map((issue) => summarise(issue, siteURL)) };
     },
 
     /// One issue in full, with the tail of its discussion — the second step
@@ -180,8 +226,7 @@ export const JIRA_ACTIONS: ActionHandlers = {
         }
         const comments = issue.fields?.comment?.comments ?? [];
         return {
-            ...summarise(issue),
-            closed: issue.fields?.status?.statusCategory?.key === "done",
+            ...summarise({ ...issue, key: issue.key }, (await site(connection)).url),
             author: issue.fields?.reporter?.displayName ?? null,
             priority: issue.fields?.priority?.name ?? null,
             labels: issue.fields?.labels ?? [],
@@ -216,15 +261,12 @@ export const JIRA_ACTIONS: ActionHandlers = {
         }) as { issues?: Issue[] } | null;
 
         return {
-            tasks: (payload?.issues ?? []).map((issue) => ({
-                key: issue.key,
-                closed: issue.fields?.status?.statusCategory?.key === "done",
-            })),
+            tasks: keyed(payload?.issues).map((issue) => ({ key: issue.key, closed: isDone(issue) })),
         };
     },
 
     create_issue: async (connection, params) => {
-        const project = requireString(params, "project").toUpperCase();
+        const project = await resolveProject(connection, params.project);
         const title = requireString(params, "title");
         const description = typeof params.description === "string" ? params.description.trim() : "";
 
@@ -242,39 +284,74 @@ export const JIRA_ACTIONS: ActionHandlers = {
         if (!created?.key) {
             throw new ActionError("provider_error", "Jira did not return the new issue.", 502);
         }
-        return { key: created.key };
+        return { key: created.key, title, url: browseURL((await site(connection)).url, created.key) };
     },
 
-    /// Moves an issue between finished and not, so ticking a filed action item
-    /// in Nod closes the ticket rather than only hiding it here.
+    /// Adds a note, moves an issue between finished and not, or both, so a
+    /// meeting can say what happened to a ticket and ticking a filed action
+    /// item in Nod closes it rather than only hiding it here.
     ///
-    /// Through transitions, because Jira has no settable "closed": the workflow
-    /// decides which moves exist, and the same word is spelled "Done", "Closed"
-    /// or "Complete" depending on the project. This picks by `statusCategory`,
-    /// which is Jira's own vocabulary rather than the team's.
+    /// The note is a comment, not an edit to the description: a Jira
+    /// description is somebody's writing, and a comment is the place Jira
+    /// itself puts what happened afterwards.
+    ///
+    /// Closing goes through transitions, because Jira has no settable
+    /// "closed": the workflow decides which moves exist, and the same word is
+    /// spelled "Done", "Closed" or "Complete" depending on the project. This
+    /// picks by `statusCategory`, which is Jira's own vocabulary rather than
+    /// the team's, and skips the move when the issue is already there — a
+    /// workflow rarely offers "done" from "done", and refusing a tick that
+    /// changes nothing would fail the note sent with it.
     update_issue: async (connection, params) => {
         const key = requireKey(params, "key");
-        const closed = requireBoolean(params, "closed");
-
-        const payload = await api(connection, `issue/${key}/transitions`, null) as {
-            transitions?: { id?: string; to?: { statusCategory?: { key?: string } } }[];
-        } | null;
-
-        const wanted = closed ? "done" : "new";
-        const transition = (payload?.transitions ?? [])
-            .find((move) => move.to?.statusCategory?.key === wanted)
-            ?? (closed ? undefined : (payload?.transitions ?? [])
-                .find((move) => move.to?.statusCategory?.key === "indeterminate"));
-
-        if (!transition?.id) {
-            throw new ActionError(
-                "provider_error",
-                `${key}'s workflow has no move to ${closed ? "done" : "open"} from where it is.`,
-                409,
-            );
+        const note = typeof params.note === "string" ? params.note.trim() : "";
+        const closed = booleanOf(params, "closed");
+        if (!note && closed === undefined) {
+            throw new ActionError("invalid_params", "Nothing to update — pass `note`, `closed`, or both.");
         }
 
-        await api(connection, `issue/${key}/transitions`, { transition: { id: transition.id } }, { method: "POST" });
-        return { key, closed };
+        const issue = await api(connection, `issue/${key}`, null, {
+            query: { fields: STATUS_FIELDS },
+        }).catch((error) => {
+            if (error instanceof ActionError && error.providerStatus === 404) return null;
+            throw error;
+        }) as Issue | null;
+        if (!issue?.key) {
+            throw new ActionError("not_found", `${key} is not visible to this account.`, 404);
+        }
+
+        if (note) {
+            await api(connection, `issue/${key}/comment`, { body: document(note) }, { method: "POST" });
+        }
+        if (closed !== undefined && isDone(issue) !== closed) {
+            await transition(connection, key, closed);
+        }
+
+        return {
+            key: issue.key,
+            title: issue.fields?.summary,
+            url: browseURL((await site(connection)).url, issue.key),
+            closed: closed ?? isDone(issue),
+        };
     },
 };
+
+async function transition(connection: Connection, key: string, closed: boolean): Promise<void> {
+    const payload = await api(connection, `issue/${key}/transitions`, null) as {
+        transitions?: { id?: string; to?: { statusCategory?: { key?: string } } }[];
+    } | null;
+
+    const wanted = closed ? "done" : "new";
+    const moves = payload?.transitions ?? [];
+    const move = moves.find((candidate) => candidate.to?.statusCategory?.key === wanted)
+        ?? (closed ? undefined : moves.find((candidate) => candidate.to?.statusCategory?.key === "indeterminate"));
+
+    if (!move?.id) {
+        throw new ActionError(
+            "provider_error",
+            `${key}'s workflow has no move to ${closed ? "done" : "open"} from where it is.`,
+            409,
+        );
+    }
+    await api(connection, `issue/${key}/transitions`, { transition: { id: move.id } }, { method: "POST" });
+}

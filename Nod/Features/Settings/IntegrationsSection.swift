@@ -72,6 +72,15 @@ struct IntegrationsSection: View {
                 }
             }
 
+            if !service.contestedVerbs.isEmpty {
+                SettingsCard {
+                    ForEach(Array(service.contestedVerbs.enumerated()), id: \.element) { index, verb in
+                        if index > 0 { SettingsRowDivider() }
+                        defaultRow(for: verb)
+                    }
+                }
+            }
+
             SearchField(prompt: "Search tools", text: $search)
 
             SettingsCard {
@@ -414,6 +423,43 @@ struct IntegrationsSection: View {
             .linkCursor()
             .disabled(service.isSyncingDirectory != nil)
             .help("Import who is in this workspace, so meetings can assign work to them")
+        }
+    }
+
+    /// One row per verb with more than one carrier. With one carrier the
+    /// answer is that product, and a row saying so would be a setting nobody
+    /// can change.
+    private func defaultRow(for verb: ActionVerb) -> some View {
+        let carriers = service.carriers(of: verb)
+        return SettingsRow(
+            icon: verb.icon,
+            title: "\(verb.title)s go to",
+            subtitle: Self.defaultSubtitle(for: verb)
+        ) {
+            Menu {
+                ForEach(carriers) { provider in
+                    Button {
+                        service.setDefault(provider, for: verb.capability)
+                    } label: {
+                        IconLabel(title: provider.displayName, icon: provider.iconName)
+                    }
+                }
+                Divider()
+                Button("Don't draft automatically") { service.setDefault(nil, for: verb.capability) }
+            } label: {
+                MenuTrigger(title: service.preferred(for: verb)?.displayName ?? "Not drafted automatically")
+            }
+            .plainMenuChrome()
+            .accessibilityLabel("Default product for \(verb.title.lowercased())s")
+        }
+    }
+
+    static func defaultSubtitle(for verb: ActionVerb) -> String {
+        switch verb {
+        case .task: "Where a session's action items are drafted as tasks when it ends. The row's own menu can still send one elsewhere."
+        case .message: "Where a handoff about an action item is posted."
+        case .event: "Which calendar a follow-up is put on."
+        case .note: "Which CRM a note about a conversation is logged in."
         }
     }
 

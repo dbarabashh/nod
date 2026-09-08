@@ -664,12 +664,58 @@ final class ActionItemStore: ObservableObject {
     /// gone or permanent within a couple of seconds.
     private static let filingRetryDelays: [UInt64] = [500_000_000, 1_500_000_000, 0]
 
+    /// Hand-encoded: a synthesized encoder drops nil keys, and a PATCH that
+    /// omits `external_key` leaves the filing exactly where it was.
+    struct UnfilingBody: Encodable {
+        let updatedAt: Date
+
+        private enum CodingKeys: String, CodingKey {
+            case externalProvider = "external_provider"
+            case externalKey = "external_key"
+            case externalURL = "external_url"
+            case externalCreatedAt = "external_created_at"
+            case updatedAt = "updated_at"
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encodeNil(forKey: .externalProvider)
+            try container.encodeNil(forKey: .externalKey)
+            try container.encodeNil(forKey: .externalURL)
+            try container.encodeNil(forKey: .externalCreatedAt)
+            try container.encode(updatedAt, forKey: .updatedAt)
+        }
+    }
+
     private struct FilingBody: Encodable {
         let external_provider: String
         let external_key: String
         let external_url: String
         let external_created_at: Date
         let updated_at: Date
+    }
+
+    /// The server already wrote the reference (`proposal-execute` did); this
+    /// only brings the row on this Mac up to date, so its filing mark turns
+    /// into the link now rather than after the next refresh.
+    func applyFiling(itemID: UUID, reference: ProviderLinkItem) {
+        guard let index = items.firstIndex(where: { $0.id == itemID }), !items[index].isFiled else { return }
+        items[index] = items[index].filed(in: reference, at: Date())
+    }
+
+    /// The reverse of `recordFiling`, for a ticket the person took back. The
+    /// ticket itself is closed by the caller first; this only lets the row
+    /// offer its filing mark again.
+    func clearFiling(itemID: UUID) async {
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+        let previous = items[index]
+        items[index] = previous.unfiled()
+        do {
+            try await patch(UnfilingBody(updatedAt: Date()), itemID: itemID)
+        } catch {
+            restore(previous)
+            Log.ui.error("ActionItemStore.clearFiling failed: \(error.localizedDescription)")
+        }
     }
 
     /// Puts a row back where the id still is, after a failed write.

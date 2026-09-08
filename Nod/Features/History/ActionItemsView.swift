@@ -21,6 +21,7 @@ struct ActionItemsView: View {
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var entitlements: EntitlementService
     @EnvironmentObject private var analytics: ProductAnalytics
+    @EnvironmentObject private var proposals: ActionProposalStore
 
     /// Loops from earlier meetings this conversation moved, newest first.
     @State private var moved: [Moved] = []
@@ -213,7 +214,12 @@ struct ActionItemsView: View {
         .buttonStyle(.plain)
         .contextMenu {
             Button(role: .destructive) {
-                Task { await actionItemStore.softDelete(itemID: item.id) }
+                Task {
+                    await actionItemStore.softDelete(itemID: item.id)
+                    // An offer to file a row that no longer exists is not
+                    // hidden, it is withdrawn — or it comes back on refresh.
+                    await proposals.rejectAll(forActionItem: item.id)
+                }
             } label: {
                 IconLabel(title: "Delete", icon: "nc-trash")
             }

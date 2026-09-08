@@ -37,6 +37,7 @@ struct MainWindowView: View {
     /// The session open *over* the current surface. The surface underneath is
     /// remembered, so closing returns to it.
     @State private var focus: Meeting?
+    @State private var awaitedFocusMeetingID: UUID?
     /// A beat report Today asked to open; cleared by any other navigation so
     /// the Beats row in the sidebar still opens the grid.
     @State private var beatRequest: BeatOpenRequest?
@@ -137,8 +138,15 @@ struct MainWindowView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .nodOpenMeetingDetail)) { note in
             if let id = note.userInfo?[Notification.nodMeetingIDKey] as? UUID {
-                focus(on: id)
+                // A deep link from a ticket can land before the first load
+                // has filled the cache; the id waits for it rather than
+                // being dropped.
+                if !focus(on: id) { awaitedFocusMeetingID = id }
             }
+        }
+        .onChange(of: meetingStore.digestKey) { _ in
+            guard let id = awaitedFocusMeetingID, focus(on: id) else { return }
+            awaitedFocusMeetingID = nil
         }
         // A deep link asked for a Settings pane (post-checkout return, an upsell
         // button, the menu-bar item) — the pane itself reads which one.
@@ -401,14 +409,16 @@ struct MainWindowView: View {
         }
     }
 
-    /// Open the matching session from the in-memory cache. No-op if the id
-    /// isn't cached — the caller inserts into MeetingStore before signalling.
-    private func focus(on id: UUID) {
-        guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else {
+    /// Open the matching session from the in-memory cache. False if the id
+    /// isn't cached yet.
+    @discardableResult
+    private func focus(on id: UUID) -> Bool {
+        guard let meeting = meetingStore.byID[id] else {
             Log.ui.info("MainWindowView.focus skipped — meeting not in cache: \(id.uuidString)")
-            return
+            return false
         }
         focus = meeting
+        return true
     }
 }
 
