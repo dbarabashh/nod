@@ -269,11 +269,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(checkForUpdates)
             menu.addItem(.separator())
 
+            // ⌥⌘Q here as in the app menu: ⌘Q alone hides (see `QuitPolicy`).
             let quit = NSMenuItem(
                 title: "Quit Nod",
                 action: #selector(NSApplication.terminate(_:)),
                 keyEquivalent: "q"
             )
+            quit.keyEquivalentModifierMask = [.command, .option]
             menu.addItem(quit)
         }
     }

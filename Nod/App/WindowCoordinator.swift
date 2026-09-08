@@ -104,6 +104,21 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         }
     }
 
+    /// The live session, for the one caller outside the notch that has to ask
+    /// it something: quitting.
+    var meetingSession: MeetingSession? {
+        notch.model?.session
+    }
+
+    /// ⌘Q. Every window closes and the notch folds to its resting bar; capture,
+    /// uploads and the menu-bar item carry on. The hotkey, the Dock icon and
+    /// the menu-bar item all bring it back.
+    func hideAll() {
+        close(&mainWindow)
+        notch.model?.close()
+        syncActivationPolicy()
+    }
+
     /// The toggle hotkey and the menu-bar item: pull the notch open, or fold it
     /// back. The surface itself is always on screen — at rest it is the bare
     /// cut-out — so there is nothing to show or hide, only to open or close.

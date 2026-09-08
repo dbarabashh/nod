@@ -52,6 +52,14 @@ Nod launches as an accessory (`LSUIElement = YES`), then switches
 a Dock icon and a normal window when one is visible or while sharing the panel;
 it drops back to `.accessory` otherwise.
 
+⌘Q does not quit. It posts `.nodHideAll`: the main window closes, the notch
+folds to its resting bar, capture and uploads carry on, and the hotkey, the
+Dock icon or the menu-bar item bring the surface back. Quitting is its own
+item — "Quit Nod", ⌥⌘Q, in the app menu and the menu-bar menu — and
+`applicationShouldTerminate` (`QuitPolicy`) ends a recording first, after
+asking, so the outbox lands the transcript's tail before the process leaves;
+the recap is written on the next launch from the same outbox.
+
 `NodApp` is a near-empty SwiftUI `App`; the real bootstrap is in
 `AppDelegate.applicationDidFinishLaunching` (`Nod/App/NodApp.swift`). It
 constructs every service exactly once, wires them together, then

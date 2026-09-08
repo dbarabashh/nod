@@ -20,6 +20,23 @@ struct NodApp: App {
                 }
             }
 
+            // ⌘Q hides; quitting is its own item. See `QuitPolicy`.
+            CommandGroup(replacing: .appTermination) {
+                Button {
+                    NotificationCenter.default.post(name: .nodHideAll, object: nil)
+                } label: {
+                    IconLabel(title: "Hide Nod", icon: "nc-eye-closed")
+                }
+                .keyboardShortcut("q", modifiers: .command)
+
+                Button {
+                    NSApp.terminate(nil)
+                } label: {
+                    IconLabel(title: "Quit Nod", icon: "nc-circle-xmark")
+                }
+                .keyboardShortcut("q", modifiers: [.command, .option])
+            }
+
             CommandGroup(replacing: .appSettings) {
                 Button {
                     NotificationCenter.default.post(name: .nodOpenSettings, object: nil)
@@ -140,6 +157,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeSettingsPane(.nodOpenSubscription, .subscription)
         observeSettingsPane(.nodOpenOrganization, .organization)
         observeSettingsPane(.nodOpenOrganizationBilling, .organizationBilling)
+
+        NotificationCenter.default.addObserver(forName: .nodHideAll, object: nil, queue: nil) { [weak windows] _ in
+            Task { @MainActor in windows?.hideAll() }
+        }
 
         NotificationCenter.default.addObserver(forName: .nodOpenLibrary, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in
@@ -445,6 +466,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// Only an explicit Quit reaches here (⌘Q hides — see `NodApp.commands`).
+    /// A recording is ended first, never dropped: the transcript is already
+    /// in the outbox as it was captured, and the end flow lands the tail.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let session = windows?.meetingSession else { return .terminateNow }
+        switch QuitPolicy.decision(meeting: session.meeting) {
+        case .terminate:
+            return .terminateNow
+        case .askToEndRecording:
+            let alert = NSAlert()
+            alert.messageText = "Nod is recording"
+            alert.informativeText = "Quitting ends the session. What was captured so far is kept and its recap is written the next time Nod opens."
+            alert.addButton(withTitle: "End Session and Quit")
+            alert.addButton(withTitle: "Cancel")
+            NSApp.activate(ignoringOtherApps: true)
+            guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+            session.endMeeting()
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(QuitPolicy.endGraceSeconds * 1_000_000_000))
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
+        }
+    }
+
     /// Fired when the user clicks the Dock icon (with no visible windows).
     /// Re-open whichever primary surface matches the current state, and bring
     /// back a panel that was hidden via the toggle hotkey.
@@ -469,6 +515,8 @@ extension Notification.Name {
     static let nodOpenMeetingDetail = Notification.Name("nod.history.openMeetingDetail")
 
     static let nodOpenSettings = Notification.Name("nod.app.openSettings")
+    /// ⌘Q: every surface folds away, the process stays.
+    static let nodHideAll = Notification.Name("nod.app.hideAll")
     /// Posted by the `nod://invite` deep link so Settings lands where the invite
     /// is redeemed rather than wherever it was last left.
     static let nodOpenOrganization = Notification.Name("nod.app.openOrganization")
