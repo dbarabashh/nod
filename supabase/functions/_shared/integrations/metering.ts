@@ -19,6 +19,7 @@ const FREE_VERBS = [
   "append_",
   "comment_",
   "invite_",
+  "respond_",
 ];
 
 // Reads the app makes for its own screens rather than because the person asked

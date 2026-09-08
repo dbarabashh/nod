@@ -18,6 +18,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     var feed = UpdaterChannelDelegate()
     private var schedule: ScheduledMeetingWatcher?
     private var onboardingWindow: NSWindow?
+    /// The window's own ear for the held key, alive only with the window.
+    private var talkRehearsal: TalkRehearsal?
     private var signInWindow: NSWindow?
     private var mainWindow: NSWindow?
 
@@ -83,14 +85,23 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         notch.askNod()
     }
 
-    /// The held key, down and up. Same reach as `askNod`: the notch, or
-    /// nothing before it exists.
+    /// The held key, down and up. While the onboarding window is up, its talk
+    /// step is the only thing that hears it — the notch does not exist yet.
+    /// The rehearsal goes with the window, so its presence is the route.
     func beginVoiceAsk() {
-        notch.beginVoiceAsk()
+        if let talkRehearsal {
+            talkRehearsal.beginHold()
+        } else {
+            notch.beginVoiceAsk()
+        }
     }
 
     func endVoiceAsk() {
-        notch.endVoiceAsk()
+        if let talkRehearsal {
+            talkRehearsal.endHold()
+        } else {
+            notch.endVoiceAsk()
+        }
     }
 
     /// The toggle hotkey and the menu-bar item: pull the notch open, or fold it
@@ -221,15 +232,25 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         )
         window.titleVisibility = .hidden
 
+        let rehearsal = TalkRehearsal(
+            combo: services.hotkeys.combo(for: .holdToAsk),
+            audioCapture: services.audioCapture,
+            permissions: services.permissions,
+            llmClient: services.llmClient,
+            telemetry: services.onboardingTelemetry,
+            language: services.languagePreference
+        )
+        talkRehearsal = rehearsal
+
         let root = OnboardingView(onHandoff: { [weak self] in
             self?.reconcile()
         })
+        .environmentObject(rehearsal)
         .environmentObject(services.onboarding)
         .environmentObject(services.languagePreference)
         .environmentObject(services.profileStore)
         .environmentObject(services.auth)
         .environmentObject(services.onboardingTelemetry)
-        .environmentObject(services.modeStore)
         .environmentObject(services.productAnalytics)
         .environmentObject(services.consent)
 
@@ -257,6 +278,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     private func closeOnboardingWindow() {
         close(&onboardingWindow)
+        dropTalkRehearsal()
+    }
+
+    /// Gone with the window, so a held key reaches the notch again.
+    private func dropTalkRehearsal() {
+        talkRehearsal?.disarm()
+        talkRehearsal = nil
     }
 
     // MARK: - Notch
@@ -390,7 +418,6 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 onboarding: services.onboarding,
                 onboardingTelemetry: services.onboardingTelemetry,
                 integrations: services.integrations,
-                screenContext: services.screenContext,
                 hotkeys: services.hotkeys
             ),
             cards: NotchCardEnvironment(
@@ -511,6 +538,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                         .environmentObject(services.chatStore)
                         .environmentObject(services.reachability)
                         .environmentObject(services.profileStore)
+                        .environmentObject(services.modeStore)
                         .environmentObject(services.entityStore)
                         .environmentObject(services.knowledgeStore)
                         .environmentObject(services.knowledgeChat)
@@ -601,6 +629,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 signInWindow = nil
             } else if closed === onboardingWindow {
                 onboardingWindow = nil
+                dropTalkRehearsal()
             } else if closed === mainWindow {
                 // The main window is auxiliary to the panel — closing it
                 // doesn't trigger any reconciliation; capture keeps running.

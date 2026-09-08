@@ -52,6 +52,9 @@ final class SpokenAnswer: ObservableObject {
     private let llmClient: LLMProxyClient
     private let synthesizer = AVSpeechSynthesizer()
     private var player: AVAudioPlayer?
+    /// One line fetched ahead of its moment, so a hello whose words are known
+    /// before the person speaks starts the instant it is called for.
+    private var prepared: (text: String, language: AppLanguage, fetch: Task<SpokenLine?, Never>)?
     private var queue: [(Line, AppLanguage)] = []
     private var playing: Line?
     private var finish: CheckedContinuation<Void, Never>?
@@ -79,6 +82,11 @@ final class SpokenAnswer: ObservableObject {
 
     private var utterance: AVSpeechUtterance?
 
+    /// Whether a line is on its way out — queued, being fetched, or playing.
+    var isSaying: Bool {
+        playing != nil || !queue.isEmpty
+    }
+
     /// Said as soon as the question is understood, while the answer is still
     /// being worked out.
     func acknowledge(_ question: String, language: AppLanguage) {
@@ -96,6 +104,25 @@ final class SpokenAnswer: ObservableObject {
             cutCurrent()
         }
         enqueue(.answer(String(answer.prefix(Self.maxLineLength)), question: question), language: language)
+    }
+
+    /// Fetches the audio for an answer now, to be played when `say` is
+    /// called with the same words. Anything else said meanwhile is unaffected.
+    func prepare(_ answer: String, asking question: String, language: AppLanguage) {
+        let text = String(answer.prefix(Self.maxLineLength))
+        if let prepared, prepared.text == text, prepared.language == language { return }
+        prepared?.fetch.cancel()
+        let fetch = Task { [llmClient] in
+            try? await llmClient.speak(text: text, question: question, language: language.rawValue, purpose: "answer")
+        }
+        prepared = (text, language, fetch)
+    }
+
+    /// The prepared clip for `line`, waited for if it is still on its way.
+    private func preparedClip(for line: Line, language: AppLanguage) async -> SpokenLine? {
+        guard let prepared, line.isAnswer, prepared.text == line.text, prepared.language == language else { return nil }
+        self.prepared = nil
+        return await prepared.fetch.value
     }
 
     func stop() {
@@ -126,12 +153,16 @@ final class SpokenAnswer: ObservableObject {
     /// Says the line and returns once it has been said, or cut.
     private func voice(_ line: Line, language: AppLanguage, generation: Int) async {
         do {
-            let spoken = try await llmClient.speak(
-                text: line.text,
-                question: line.question,
-                language: language.rawValue,
-                purpose: line.purpose
-            )
+            let spoken: SpokenLine = if let clip = await preparedClip(for: line, language: language) {
+                clip
+            } else {
+                try await llmClient.speak(
+                    text: line.text,
+                    question: line.question,
+                    language: language.rawValue,
+                    purpose: line.purpose
+                )
+            }
             guard generation == self.generation else { return }
             let player = try AVAudioPlayer(data: spoken.audio)
             player.delegate = delegateBridge

@@ -71,6 +71,8 @@ struct GlassPillButton: View {
                 }
                 Text(title)
                     .textStyle(size.style.weight(.semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                 if let trailingIcon {
                     Image(trailingIcon).icon(Theme.Control.iconMicro)
                 }

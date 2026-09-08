@@ -1,17 +1,19 @@
 import SwiftUI
 
-/// The second half of onboarding, run where Nod lives. The window asked who
-/// this is; the notch asks for what it needs, one thing per card, and the
-/// last card's own button hands off to the Library.
+/// The second half of onboarding, run where Nod lives. The window has heard
+/// the person once; the notch asks for the two things it cannot do without —
+/// the microphone and a calendar — one per card, then asks for the week: a
+/// real capture, spoken, that comes back as a recap with next steps, which
+/// is the product doing the thing it is for. Hearing the other side of a
+/// call and reading the screen are asked for later, where first needed.
 enum NotchSetupStage: String, Equatable, CaseIterable {
     case intro
     case microphone
-    case systemAudio
-    case ambient
     case calendar
+    case plans
 
     /// The asks, in order — the ones the progress marks count.
-    static let asks: [NotchSetupStage] = [.microphone, .systemAudio, .ambient, .calendar]
+    static let asks: [NotchSetupStage] = [.microphone, .calendar]
 
     var next: NotchSetupStage? {
         let all = Self.allCases
@@ -175,108 +177,25 @@ struct NotchSetupMicrophone: View {
     }
 }
 
-struct NotchSetupSystemAudio: View {
-    @ObservedObject var permissions: PermissionManager
-    let isRequesting: Bool
-    let onAllow: () -> Void
-    let onRelaunch: () -> Void
+/// The first capture, offered rather than explained: what is on the week,
+/// said out loud, becomes the first recap and the first action items. A
+/// voice note, so it needs nothing the person has not already granted.
+struct NotchSetupPlans: View {
+    let onStart: () -> Void
     let onSkip: () -> Void
     let onLeave: () -> Void
 
     var body: some View {
         NotchSetupCard(
-            stage: .systemAudio,
-            title: "This lets me hear the other side.",
-            subtitle: "macOS calls it Screen Recording. It's the audio your Mac plays — never your screen.",
-            onLeave: onLeave,
-            detail: { relaunchHint },
-            actions: {
-                VStack(spacing: 10) {
-                    switch permissions.screenRecording {
-                    case .authorized:
-                        NotchActionButton(title: "Continue", icon: "nc-check", action: onSkip)
-                    case .denied where permissions.requestedScreenRecordingThisSession:
-                        NotchActionButton(title: "Quit & Relaunch Nod", action: onRelaunch)
-                    case .denied:
-                        NotchActionButton(title: "Open Settings", action: permissions.openScreenRecordingSettings)
-                    case .notDetermined:
-                        NotchActionButton(title: "Allow", icon: "nc-volume-up", isLoading: isRequesting, action: onAllow)
-                    }
-                    if permissions.screenRecording != .authorized {
-                        NotchSetupSecondaryButton(
-                            title: permissions.requestedScreenRecordingThisSession ? "Continue anyway" : "Skip",
-                            action: onSkip
-                        )
-                    }
-                }
+            stage: .plans,
+            title: "Now, what's on your plate this week?",
+            subtitle: "Say it out loud, the way you'd tell a colleague. Stop when you're done and I'll write it up, next steps included.",
+            onLeave: onLeave
+        ) {
+            VStack(spacing: 10) {
+                NotchActionButton(title: "Start talking", icon: "nc-mic", action: onStart)
+                NotchSetupSecondaryButton(title: "Not now", action: onSkip)
             }
-        )
-    }
-
-    /// A TCC entry added while this process runs stays invisible to it, so
-    /// "did that work?" is a question only a fresh process can answer.
-    @ViewBuilder
-    private var relaunchHint: some View {
-        if permissions.screenRecording != .authorized, permissions.requestedScreenRecordingThisSession {
-            VStack(spacing: 4) {
-                Text(PermissionManager.relaunchHint)
-                if let error = permissions.lastRelaunchError {
-                    Text(PermissionManager.relaunchFailureMessage(error))
-                        .foregroundStyle(Theme.Palette.danger)
-                }
-            }
-            .font(.system(size: 11))
-            .foregroundStyle(Theme.Palette.warning)
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.top, 10)
-        }
-    }
-}
-
-/// The ambient ask. Every line here is one `privacy.md` § 3.10(b) makes, and
-/// the switch it flips is the same one Settings and the sidebar control flip:
-/// off until this click, bounded, and the person's to pause or delete.
-struct NotchSetupAmbient: View {
-    @ObservedObject var screenContext: ScreenContextService
-    let onTurnOn: () -> Void
-    let onContinue: () -> Void
-    let onSkip: () -> Void
-    let onLeave: () -> Void
-
-    var body: some View {
-        NotchSetupCard(
-            stage: .ambient,
-            title: "This lets me see what you're working on.",
-            subtitle: "Text from the window in front of you, kept \(screenContext.retentionDays) days, never an image. "
-                + "Off until you say so, and yours to pause or delete any time.",
-            onLeave: onLeave,
-            detail: { waitingForTrust },
-            actions: {
-                VStack(spacing: 10) {
-                    if screenContext.isRunning {
-                        NotchActionButton(title: "Continue", icon: "nc-check", action: onContinue)
-                    } else if screenContext.needsAccessibility {
-                        NotchActionButton(title: "Open System Settings", action: AccessibilityAccess.openSystemSettings)
-                        NotchSetupSecondaryButton(title: "Continue without it", action: onContinue)
-                    } else {
-                        NotchActionButton(title: "Turn on", icon: "nc-stack-perspective", action: onTurnOn)
-                        NotchSetupSecondaryButton(title: "Not now", action: onSkip)
-                    }
-                }
-            }
-        )
-    }
-
-    @ViewBuilder
-    private var waitingForTrust: some View {
-        if screenContext.needsAccessibility {
-            Text("Add Nod under Accessibility. I'll notice the moment it's on.")
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.Palette.warning)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 10)
         }
     }
 }
@@ -351,28 +270,17 @@ struct NotchSetupContent: View {
                 onSkip: model.skipSetupStage,
                 onLeave: model.finishSetup
             )
-        case .systemAudio:
-            NotchSetupSystemAudio(
-                permissions: model.permissions,
-                isRequesting: model.isRequestingSetupPermission,
-                onAllow: model.requestSystemAudioFromSetup,
-                onRelaunch: model.relaunchFromSetup,
-                onSkip: model.skipSetupStage,
-                onLeave: model.finishSetup
-            )
-        case .ambient:
-            NotchSetupAmbient(
-                screenContext: model.screenContext,
-                onTurnOn: model.enableAmbientFromSetup,
-                onContinue: model.advanceSetup,
-                onSkip: model.skipSetupStage,
-                onLeave: model.finishSetup
-            )
         case .calendar:
             NotchSetupCalendar(
                 calendar: model.calendar,
                 integrations: model.integrations,
                 onContinue: model.advanceSetup,
+                onLeave: model.finishSetup
+            )
+        case .plans:
+            NotchSetupPlans(
+                onStart: model.startFirstCaptureFromSetup,
+                onSkip: model.finishSetup,
                 onLeave: model.finishSetup
             )
         }

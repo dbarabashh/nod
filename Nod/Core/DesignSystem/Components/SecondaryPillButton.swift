@@ -20,6 +20,8 @@ struct SecondaryPillButton: View {
         Button(action: action) {
             Text(title)
                 .textStyle(isSelected ? Theme.Typography.uiEmphasis : Theme.Typography.ui)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.ink.opacity(0.6))
                 .padding(.horizontal, Theme.Space.x3)
                 .padding(.vertical, Theme.Space.x1)

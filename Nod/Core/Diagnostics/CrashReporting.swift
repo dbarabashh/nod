@@ -40,7 +40,13 @@ enum CrashReporting {
     }
 
     static func isEnabled(in defaults: UserDefaults = .standard) -> Bool {
-        hasBeenAsked(in: defaults) && (defaults.object(forKey: defaultsKey) as? Bool ?? isEnabledByDefault)
+        hasBeenAsked(in: defaults) && currentChoice(in: defaults)
+    }
+
+    /// What a switch for the question should start on: the answer given, or
+    /// the default while there is none yet.
+    static func currentChoice(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: defaultsKey) as? Bool ?? isEnabledByDefault
     }
 
     /// The answer, wherever it was given. Starts or stops the SDK to match.
@@ -85,3 +91,13 @@ enum CrashReporting {
         SentrySDK.close()
     }
 }
+
+#if DEBUG || NOD_SANDBOX
+    extension CrashReporting {
+        /// Forgets the answer, so the welcome step asks again.
+        static func resetPersistedChoice(in defaults: UserDefaults = .standard) {
+            defaults.removeObject(forKey: askedKey)
+            defaults.removeObject(forKey: defaultsKey)
+        }
+    }
+#endif

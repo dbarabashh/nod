@@ -10,9 +10,9 @@ struct OnboardingView: View {
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var telemetry: OnboardingTelemetry
-    @EnvironmentObject private var modeStore: ModeStore
     @EnvironmentObject private var analytics: ProductAnalytics
     @EnvironmentObject private var consent: ConsentPreference
+    @EnvironmentObject private var rehearsal: TalkRehearsal
 
     /// Pad past the traffic-light strip so step titles never collide with the
     /// close button. macOS chrome occupies ~28pt of the window's top.
@@ -21,6 +21,9 @@ struct OnboardingView: View {
     /// True once the profile fetch has finished — successfully or not. Gates
     /// only the profile step; every other step is independent of it.
     @State private var profileLoaded = false
+    /// The name typed on the welcome step, greeted by on the next before the
+    /// profile save has come back.
+    @State private var typedName: String?
 
     var body: some View {
         WelcomeBackdrop {
@@ -67,6 +70,10 @@ struct OnboardingView: View {
         return stored.isEmpty ? (auth.session?.user.profileDisplayName ?? "") : stored
     }
 
+    private var greetedName: String? {
+        PersonName.first(of: typedName ?? seededName)
+    }
+
     @ViewBuilder
     private var content: some View {
         switch state.status.currentStep {
@@ -75,58 +82,46 @@ struct OnboardingView: View {
                 .controlSize(.small)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .welcome:
-            // Commit the language pick only when the user actually advances
-            // past Welcome — so an exploratory tap in the picker doesn't
-            // persist if they close onboarding mid-flow.
+            // Everything here is committed only when the user actually
+            // advances past Welcome — so an exploratory tap in the language
+            // picker doesn't persist if they close onboarding mid-flow.
             WelcomeStep(
                 strings: strings,
-                firstName: PersonName.first(of: seededName),
+                firstName: greetedName,
                 currentLanguage: language.current,
-                onContinue: { picked in
-                    language.current = picked
-                    state.goNext()
-                }
-            )
-        case .profile where !profileLoaded:
-            ProgressView()
-                .controlSize(.small)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .profile:
-            ProfileStep(
                 initialName: seededName,
-                initialPreferences: profileStore.profile?.preferences ?? "",
-                initialRole: profileStore.profile?.role,
-                initialHeardFrom: profileStore.profile?.heardFrom,
+                initialSendsCrashReports: CrashReporting.currentChoice(),
+                initialSharesUsage: !analytics.isOptedOut,
                 onContinue: { answers in
-                    if let role = answers.role { modeStore.selectPreset(for: role) }
-                    telemetry.profileCompleted(role: answers.role)
-                    // Fire-and-forget: the profile is a nice-to-have, never a
-                    // blocker. A transient save failure just leaves the field
-                    // empty (recoverable in Settings) — don't gate onboarding
-                    // on the network round trip.
-                    Task {
-                        try? await profileStore.update {
-                            $0.displayName = answers.name
-                            $0.preferences = answers.preferences
-                            $0.role = answers.role
-                            $0.heardFrom = answers.heardFrom
+                    language.current = answers.language
+                    consent.applyDiagnosticsChoice(
+                        crashReports: answers.sendsCrashReports,
+                        usageEvents: answers.sharesUsage,
+                        analytics: analytics
+                    )
+                    // Fire-and-forget: the name is a nice-to-have, never a
+                    // blocker. A transient save failure leaves the stored
+                    // name as it was (recoverable in Settings).
+                    if !answers.name.isEmpty, answers.name != profileStore.profile?.displayName {
+                        typedName = answers.name
+                        Task {
+                            try? await profileStore.update { $0.displayName = answers.name }
                         }
                     }
                     state.goNext()
-                },
-                onSkip: {
-                    telemetry.profileSkipped()
-                    state.goNext()
                 }
             )
-        case .diagnostics:
-            DiagnosticsChoice(analytics: analytics, consent: consent, style: .onboarding) { state.goNext() }
-                .frame(maxWidth: 520)
-                .padding(.horizontal, 40)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .notch, .calendar, .permissions, .emailPreferences:
+        case .talk:
+            TalkStep(
+                rehearsal: rehearsal,
+                firstName: greetedName,
+                onContinue: { state.goNext() },
+                onSkip: { state.goNext() }
+            )
+        case .notch, .calendar, .permissions, .emailPreferences, .profile, .diagnostics:
             // Never on screen for more than a frame: the `.task` above hands
-            // the window off the moment the step lands here.
+            // the window off the moment the step lands on `.notch`, and the
+            // rest are names `current` already resolved away.
             Color.clear
         }
     }

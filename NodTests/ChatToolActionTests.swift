@@ -42,7 +42,7 @@ final class ChatToolActionTests: XCTestCase {
         let tools = ChatTools.definitions(for: [.googleCalendar])
         XCTAssertEqual(
             Set(tools.map(\.action)),
-            ["list_events", "check_availability", "create_event", "update_event", "delete_event"]
+            ["list_events", "check_availability", "create_event", "update_event", "delete_event", "respond_to_event"]
         )
         // Reading back the user's own calendar needs no confirmation. Every
         // write does: `sendUpdates=all` puts mail in other people's inboxes and
@@ -69,7 +69,7 @@ final class ChatToolActionTests: XCTestCase {
             .jira: ["create_issue", "update_issue"],
             .asana: ["create_task", "update_task"],
             .slack: ["create_channel", "invite_users", "post_message"],
-            .googleCalendar: ["create_event", "update_event", "delete_event"],
+            .googleCalendar: ["create_event", "update_event", "delete_event", "respond_to_event"],
             .github: ["create_issue", "comment_issue", "update_issue"],
             .notion: ["create_page", "append_page"],
             .hubspot: ["create_note"],

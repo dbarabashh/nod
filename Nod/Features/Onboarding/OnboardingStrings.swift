@@ -23,6 +23,6 @@ extension OnboardingStrings {
         welcomeTagline: "I'm Nod. I remember your meetings, your day and what's on your screen — so you can just ask.",
         welcomeLanguageLabel: "Nod language",
         welcomeLanguageHint: MeetingLanguagePrompt.scopeNote,
-        welcomeContinue: "Give me a home"
+        welcomeContinue: "Let's go"
     )
 }

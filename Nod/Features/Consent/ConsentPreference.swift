@@ -90,6 +90,16 @@ final class ConsentPreference: ObservableObject {
         }
     }
 
+    /// The diagnostics question answered in full: both switches applied, and
+    /// the choice recorded. One path for the welcome step and the prompt, so
+    /// the two never differ in what a "yes" does.
+    @MainActor
+    func applyDiagnosticsChoice(crashReports: Bool, usageEvents: Bool, analytics: ProductAnalytics) {
+        analytics.isOptedOut = !usageEvents
+        CrashReporting.record(enabled: crashReports)
+        recordDiagnosticsChoice(crashReports: crashReports, usageEvents: usageEvents, source: .prompt)
+    }
+
     /// Records which way the two diagnostics switches are set. The local
     /// defaults stay the source of truth for starting the crash reporter; this
     /// row is the evidence of what was chosen, at the question and at every

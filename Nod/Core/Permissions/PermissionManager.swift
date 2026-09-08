@@ -36,6 +36,12 @@ final class PermissionManager: ObservableObject {
         "Relaunch failed: \(error). Quit and reopen Nod yourself."
     }
 
+    /// The line under a Screen Recording ask once it has been made: why
+    /// nothing changed yet, or why the relaunch that would change it failed.
+    var relaunchMessage: String {
+        lastRelaunchError.map(Self.relaunchFailureMessage) ?? Self.relaunchHint
+    }
+
     init() {
         refresh()
         NotificationCenter.default.addObserver(
@@ -143,11 +149,29 @@ final class PermissionManager: ObservableObject {
     }
 
     #if DEBUG || NOD_SANDBOX
-        /// Forgets that we ever prompted for Screen Recording, so the row reads
-        /// `notDetermined` again. Pair it with `tccutil reset ScreenCapture
-        /// com.example.nod` — this clears our synthesized flag, not the OS grant.
-        static func resetPersistedScreenPrompt() {
+        /// The next launch is a genuine first run rather than a replay over
+        /// green ticks: our own prompted flag goes, and macOS is asked to
+        /// forget the grants. `tccutil reset` on the app's own bundle needs
+        /// no privilege and has to land before the relaunch, so it is waited
+        /// for; a grant it could not clear is logged, not fatal.
+        static func resetPersistedGrants() {
             UserDefaults.standard.removeObject(forKey: screenPromptedKey)
+            guard let bundleID = Bundle.main.bundleIdentifier else { return }
+            for service in ["Microphone", "ScreenCapture", "Accessibility"] {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+                process.arguments = ["reset", service, bundleID]
+                process.standardOutput = FileHandle.nullDevice
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    if process.terminationStatus != 0 {
+                        Log.ui.error("first-run reset: tccutil reset \(service) exited \(process.terminationStatus)")
+                    }
+                } catch {
+                    Log.ui.error("first-run reset: tccutil reset \(service) failed — \(error.localizedDescription)")
+                }
+            }
         }
     #endif
 

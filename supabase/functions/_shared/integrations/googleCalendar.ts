@@ -118,7 +118,14 @@ export interface GoogleEvent {
     start?: { dateTime?: string; date?: string };
     end?: { dateTime?: string; date?: string };
     organizer?: { email?: string };
-    attendees?: Array<{ email?: string; displayName?: string; responseStatus?: string; resource?: boolean }>;
+    attendees?: Array<{
+        email?: string;
+        displayName?: string;
+        responseStatus?: string;
+        resource?: boolean;
+        self?: boolean;
+        organizer?: boolean;
+    }>;
     conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
 }
 
@@ -168,8 +175,12 @@ export function titleMatches(expected: string, summary: string | null | undefine
     return actual === wanted || (actual === "" && wanted === "(no title)");
 }
 
-/// The event `event_id` names, checked against the title and start the person
-/// approved.
+/// The one event a write is for, checked against the title and start the
+/// person approved.
+///
+/// Named by `event_id` from chat, where `list_events` handed the model
+/// Google's id; or by `ical_uid` from the Today card, since the desktop's
+/// calendar rows carry the invitation's UID and never Google's id.
 ///
 /// The card shows words while the wire carries an id, and this is what keeps a
 /// model from pairing the right words with the wrong event. The title alone
@@ -178,6 +189,24 @@ export function titleMatches(expected: string, summary: string | null | undefine
 /// refused too: updating one resurrects it, and deleting one implies to the
 /// person that it was still standing.
 async function confirmedEvent(
+    connection: Parameters<typeof proxy>[0],
+    params: Record<string, unknown>,
+): Promise<GoogleEvent> {
+    if (params.ical_uid !== undefined && params.event_id !== undefined) {
+        throw new ActionError("invalid_params", "Name the event by `event_id` or by `ical_uid`, not both.");
+    }
+    return params.ical_uid !== undefined
+        ? await occurrenceByICalUID(connection, params)
+        : await eventByID(connection, params);
+}
+
+function titleMismatch(noun: string, expectedTitle: string, event: GoogleEvent, hint = ""): ActionError {
+    const summary = event.summary?.trim();
+    const actual = summary ? `"${summary}"` : "untitled";
+    return new ActionError("invalid_params", `That ${noun} is ${actual}, not "${expectedTitle}".${hint}`);
+}
+
+async function eventByID(
     connection: Parameters<typeof proxy>[0],
     params: Record<string, unknown>,
 ): Promise<GoogleEvent> {
@@ -203,15 +232,52 @@ async function confirmedEvent(
     }
     const relist = "List events again and use the id, title and start shown next to the right event.";
     if (!titleMatches(expectedTitle, event.summary)) {
-        const summary = event.summary?.trim();
-        const actual = summary ? `"${summary}"` : "untitled";
-        throw new ActionError("invalid_params", `That event is ${actual}, not "${expectedTitle}". ${relist}`);
+        throw titleMismatch("event", expectedTitle, event, ` ${relist}`);
     }
     if (!startMatches(expectedStart, event)) {
         const actual = event.start?.dateTime ?? event.start?.date ?? "unknown";
         throw new ActionError("invalid_params", `That event starts at ${actual}, not ${expectedStart}. ${relist}`);
     }
     return event;
+}
+
+/// The one occurrence an invitation's iCalUID, title and start name — the
+/// same UID in every guest's copy of one invitation. Google answers a UID
+/// query with every occurrence of a series from the first one onwards, so the
+/// query is boxed to a day either side of the start — a weekly meeting older
+/// than a page of occurrences would otherwise never find today's.
+async function occurrenceByICalUID(
+    connection: Parameters<typeof proxy>[0],
+    params: Record<string, unknown>,
+): Promise<GoogleEvent> {
+    const icalUID = requireString(params, "ical_uid");
+    const expectedTitle = requireString(params, "event_title");
+    const startsAt = requireInstant(params, "event_starts_at");
+    const day = 24 * 3600 * 1000;
+    const listed = await proxy(connection, EVENTS_PATH, null, {
+        method: "GET",
+        query: {
+            iCalUID: icalUID,
+            singleEvents: "true",
+            timeMin: new Date(Date.parse(startsAt) - day).toISOString(),
+            timeMax: new Date(Date.parse(startsAt) + day).toISOString(),
+            maxResults: String(MAX_RESULTS),
+        },
+    }) as { items?: GoogleEvent[] } | null;
+    const occurrences = (listed?.items ?? []).filter((event) => event.status !== "cancelled");
+    const match = occurrences.find((event) => startMatches(startsAt, event));
+    if (!match?.id) {
+        throw new ActionError(
+            "invalid_params",
+            occurrences.length === 0
+                ? "That invitation is not on the connected Google calendar."
+                : "That meeting is no longer at the time shown — it may have been moved. Refresh and try again.",
+        );
+    }
+    if (!titleMatches(expectedTitle, match.summary)) {
+        throw titleMismatch("invitation", expectedTitle, match);
+    }
+    return match;
 }
 
 /// Whether the start the person approved is the start the id points at. An
@@ -439,6 +505,52 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
         };
     },
 
+    /// The person's own RSVP on one event: going, not going, or maybe.
+    ///
+    /// Only the person's own attendee row is patched, and only when there is
+    /// one: the organizer's own event, or one they were never invited to, has
+    /// no RSVP to give. `sendUpdates=all` mails the organizer the answer,
+    /// which is why this waits for a confirmation too.
+    respond_to_event: async (connection, params, context) => {
+        const response = responseOf(params);
+        const event = await confirmedEvent(connection, params);
+
+        const self = (event.attendees ?? []).find((attendee) => attendee.self && attendee.email);
+        if (!self) {
+            throw new ActionError("invalid_params", "You are not a guest on that event, so there is no invitation to answer.");
+        }
+        // The organizer's own row has `self` too, and Google would happily mail
+        // every guest about the organizer "declining" a meeting they still
+        // hold. Their answer to their own meeting is to cancel it.
+        if (self.organizer) {
+            throw new ActionError("invalid_params", "You organize that event, so there is no invitation to answer — cancel it instead.");
+        }
+        if (self.responseStatus === response) {
+            return { id: event.id, title: event.summary ?? null, response, unchanged: true, ...occurrenceScope(event) };
+        }
+
+        const updated = await proxy(connection, eventPath(event.id as string), {
+            attendees: (event.attendees ?? []).map((attendee) =>
+                attendee.self ? { ...attendee, responseStatus: response } : attendee
+            ),
+        }, {
+            method: "PATCH",
+            query: { sendUpdates: "all" },
+            ...(event.etag ? { headers: { "If-Match": event.etag } } : {}),
+        }) as GoogleEvent | null;
+
+        if (!updated?.id) {
+            throw new ActionError("provider_error", "Google did not return the updated event.", 502);
+        }
+
+        // Kept in the cache even when declined: the sync keeps declined
+        // invitations too, and the app drops the person from the guest list
+        // on read — the record stays honest about who was asked.
+        await cache(updated, context, { colleagues: false });
+
+        return { id: updated.id, title: updated.summary ?? null, response, ...occurrenceScope(event) };
+    },
+
     /// Removes one event the person confirmed by title and start. Google mails
     /// the guests the cancellation; an attendee without delete rights only
     /// leaves their own copy, which is Google's rule, not a choice made here.
@@ -456,6 +568,18 @@ export const GOOGLE_CALENDAR_ACTIONS: ActionHandlers = {
         return { id: event.id, title: event.summary ?? null, deleted: true, ...occurrenceScope(event) };
     },
 };
+
+const RESPONSES = ["accepted", "declined", "tentative"] as const;
+type Response = typeof RESPONSES[number];
+
+/// `response` as one of Google's three answers, refused otherwise.
+export function responseOf(params: Record<string, unknown>): Response {
+    const response = requireString(params, "response");
+    if (!(RESPONSES as readonly string[]).includes(response)) {
+        throw new ActionError("invalid_params", "`response` must be accepted, declined, or tentative.");
+    }
+    return response as Response;
+}
 
 /// Says when an action landed on one occurrence of a recurring meeting rather
 /// than the series — with `singleEvents` listing, an occurrence is the only

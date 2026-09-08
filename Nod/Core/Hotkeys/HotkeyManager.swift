@@ -243,15 +243,21 @@ final class HotkeyManager: ObservableObject {
 // MARK: - Display
 
 extension HotkeyManager.Combo {
+    /// One cap per key, drawn where the combo is taught rather than named:
+    /// the modifier glyph with its word under it, then the key itself.
+    var keyCaps: [(symbol: String, name: String?)] {
+        var caps: [(symbol: String, name: String?)] = []
+        if modifiers & UInt32(controlKey) != 0 { caps.append(("⌃", "control")) }
+        if modifiers & UInt32(optionKey) != 0 { caps.append(("⌥", "option")) }
+        if modifiers & UInt32(shiftKey) != 0 { caps.append(("⇧", "shift")) }
+        if modifiers & UInt32(cmdKey) != 0 { caps.append(("⌘", "command")) }
+        caps.append((keyName(keyCode), nil))
+        return caps
+    }
+
     /// User-facing glyph string e.g. "⌘⇧S".
     var displayString: String {
-        var s = ""
-        if modifiers & UInt32(controlKey) != 0 { s += "⌃" }
-        if modifiers & UInt32(optionKey) != 0 { s += "⌥" }
-        if modifiers & UInt32(shiftKey) != 0 { s += "⇧" }
-        if modifiers & UInt32(cmdKey) != 0 { s += "⌘" }
-        s += keyName(keyCode)
-        return s
+        keyCaps.map(\.symbol).joined()
     }
 
     /// `(keyEquivalent, modifierMask)` for displaying this combo on an

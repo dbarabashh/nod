@@ -7,7 +7,11 @@ import Foundation
 /// the bar's own Ask box shows the same phases in place.
 extension NotchModel {
     func beginVoiceAsk() {
-        if demo.isRunning || setup != nil { return }
+        if demo.isRunning { return }
+        if setup != nil {
+            noticeSetupOnVoiceAsk()
+            return
+        }
         // Already an open conversation: the key's only job now is to end it,
         // on release — nothing to start, and its own mic must not collide
         // with a fresh `heldQuestion` capture on the same input device.
@@ -59,6 +63,18 @@ extension NotchModel {
             guard !Task.isCancelled else { return }
             self?.endVoiceAsk()
         }
+    }
+
+    /// Mid-setup the key is the one the window just taught, so silence would
+    /// read as it not working: nothing is recorded, but Nod says where the
+    /// person is, once per hold while it isn't already saying it.
+    private func noticeSetupOnVoiceAsk() {
+        guard !voice.isSaying else { return }
+        voice.say(
+            "You're still setting me up — finish these few cards, then hold the key from anywhere and I'll listen.",
+            asking: "the person held the ask key during setup",
+            language: language.current
+        )
     }
 
     /// The key let go. Held past `HeldQuestionRecorder.minSeconds`, this was a

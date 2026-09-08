@@ -180,10 +180,25 @@ final class TodayViewTests: XCTestCase {
         XCTAssertTrue(ActionIntent.createTask.carriers.contains(.googleTasks))
     }
 
+    /// The decline names the invitation by what the calendar row carries —
+    /// its UID and start — plus the words the dialog showed, so the server
+    /// can refuse a mismatch; an untitled entry uses the server's own sentinel.
+    func testDeclineArgumentsNameTheInvitationAndItsWords() {
+        XCTAssertNil(TodayBrief.declineArguments(for: occurrence("Weekly sync", startsIn: 30)))
+        let invited = occurrence("Weekly sync", startsIn: 30, externalID: "abc@google.com")
+        let arguments = TodayBrief.declineArguments(for: invited)
+        XCTAssertEqual(arguments?["ical_uid"], "abc@google.com")
+        XCTAssertEqual(arguments?["event_title"], "Weekly sync")
+        XCTAssertEqual(arguments?["response"], "declined")
+        XCTAssertEqual(arguments?["event_starts_at"], PromptLibrary.rfc3339String(invited.startsAt))
+        let untitled = occurrence("  ", startsIn: 30, externalID: "x")
+        XCTAssertEqual(TodayBrief.declineArguments(for: untitled)?["event_title"], "(no title)")
+    }
+
     func testCaptureLabelNamesTheMeeting() {
         XCTAssertEqual(TodayBrief.captureLabel(for: occurrence("Перегляд кв", startsIn: 10)), "Start “Перегляд кв”")
-        let long = occurrence(String(repeating: "a", count: 40), startsIn: 10)
-        XCTAssertTrue(TodayBrief.captureLabel(for: long).hasSuffix("…”"))
+        let long = occurrence("Camille Temple and Vlad Kam sync", startsIn: 10)
+        XCTAssertEqual(TodayBrief.captureLabel(for: long), "Start this meeting")
     }
 
     /// The invitation id outranks name matching — two people can share a first

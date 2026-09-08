@@ -28,12 +28,14 @@ enum TodayBrief {
     }
 
     /// The card's one CTA, named for the meeting it starts — "Start capture"
-    /// beside the sidebar's capture button was the same action twice.
+    /// beside the sidebar's capture button was the same action twice. A name
+    /// too long to fit on one line beside "Open last session" is not cut
+    /// short — a truncated name in a button reads as a bug — the button says
+    /// "this meeting" and the full name sits on the card right above.
     static func captureLabel(for occurrence: CalendarOccurrence) -> String {
         let title = occurrence.title.trimmingCharacters(in: .whitespaces)
         guard !title.isEmpty else { return "Start capture" }
-        let shown = title.count <= 28 ? title : String(title.prefix(27)).trimmingCharacters(in: .whitespaces) + "…"
-        return "Start “\(shown)”"
+        return title.count <= 18 ? "Start “\(title)”" : "Start this meeting"
     }
 
     /// What Google Tasks gets for a calendar entry. The due date is the start
@@ -45,6 +47,26 @@ enum TodayBrief {
             "due": PromptLibrary.rfc3339String(occurrence.startsAt),
             "notes": taskNotes(for: occurrence)
         ]
+    }
+
+    /// What Google Calendar gets for a declined invitation. The invitation is
+    /// named by its iCalUID and start — what the calendar row carries — and
+    /// the title, so the server acts only on the words the dialog showed.
+    static func declineArguments(for occurrence: CalendarOccurrence) -> [String: String]? {
+        guard let externalID = occurrence.externalID else { return nil }
+        return [
+            "ical_uid": externalID,
+            "event_title": confirmedTitle(of: occurrence),
+            "event_starts_at": PromptLibrary.rfc3339String(occurrence.startsAt),
+            "response": "declined"
+        ]
+    }
+
+    /// The words the person confirms for an event. An untitled entry is named
+    /// by the same sentinel the server accepts for an empty summary.
+    static func confirmedTitle(of occurrence: CalendarOccurrence) -> String {
+        let title = occurrence.title.trimmingCharacters(in: .whitespaces)
+        return title.isEmpty ? "(no title)" : title
     }
 
     /// The note the task carries — shown in the confirmation word for word,

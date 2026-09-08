@@ -27,6 +27,8 @@ struct TodayView: View {
     @EnvironmentObject private var screenContext: ScreenContextService
     @EnvironmentObject private var integrations: IntegrationService
     @EnvironmentObject private var settingsFocus: SettingsFocus
+    @EnvironmentObject private var permissions: PermissionManager
+    @EnvironmentObject private var modeStore: ModeStore
 
     /// The rest of the day's calendar, kept whole so the card can move to the
     /// next entry on the clock without another load.
@@ -35,7 +37,10 @@ struct TodayView: View {
     @State private var answers: [String: MeetingAttendance.Answer] = [:]
     /// The entry waiting on "Add task" in the confirmation.
     @State private var taskCandidate: CalendarOccurrence?
-    @State private var taskError: String?
+    /// A meeting just marked "not going", waiting on whether Google should
+    /// hear it too.
+    @State private var declineCandidate: CalendarOccurrence?
+    @State private var actionError: String?
     /// The last conversation with the same people, per upcoming entry.
     @State private var lastTimeByStart: [Date: Meeting] = [:]
     /// The evidence-linked "last time" sentence for `nextMeeting`, when the
@@ -54,6 +59,8 @@ struct TodayView: View {
     @State private var now = Date()
     /// "You're clear" is a claim; it waits for the first load to have earned it.
     @State private var hasLoaded = false
+    /// The asks put off from onboarding that this account has waved away.
+    @State private var dismissedNudges: Set<TodayNudge> = []
 
     /// A minute is the resolution the card speaks in ("Starts in 24 min"), so
     /// it is also how often the clock this view reads moves.
@@ -183,6 +190,7 @@ struct TodayView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     header
+                    setupCards
                     if nextMeeting != nil || !laterToday.isEmpty {
                         meetingCard
                     }
@@ -223,6 +231,7 @@ struct TodayView: View {
             now = tick
         }
         .onChange(of: actionItemStore.items) { _ in repartition() }
+        .onReceive(profileStore.$profile) { _ in readDismissals() }
         .onReceive(NotificationCenter.default.publisher(for: .nodActionDelegated)) { _ in
             repartition()
         }
@@ -262,7 +271,7 @@ struct TodayView: View {
             meetingBriefing: meetingBriefing,
             rest: laterToday,
             now: now,
-            taskError: taskError,
+            actionError: actionError,
             onCapture: onCapture,
             onOpenMeeting: onOpenMeeting,
             onSkip: skip,
@@ -281,6 +290,86 @@ struct TodayView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(taskCandidate.map(TodayBrief.taskConsequence) ?? "")
+        }
+        .confirmationDialog(
+            "Also decline “\(declineCandidate.map(TodayBrief.confirmedTitle) ?? "")” in Google Calendar?",
+            isPresented: .isPresented(by: $declineCandidate),
+            titleVisibility: .visible
+        ) {
+            // Destructive so Return lands on the cancel: the other button
+            // puts an email in the organizer's inbox.
+            Button("Decline", role: .destructive) {
+                guard let occurrence = declineCandidate else { return }
+                Task { await decline(occurrence) }
+            }
+            Button("Don't tell Google", role: .cancel) {}
+        } message: {
+            Text("The organizer is emailed that you're not going. Either way, Nod stops offering to record it.")
+        }
+    }
+
+    /// What onboarding left for here, in the order it is worth granting:
+    /// the audio of a call first, the screen second, the questions about the
+    /// person last — never more than one at a time, so Today is not a form.
+    @ViewBuilder
+    private var setupCards: some View {
+        if let nudge = pendingNudge {
+            switch nudge {
+            case .systemAudio:
+                TodaySystemAudioCard(permissions: permissions) { dismiss(.systemAudio) }
+            case .ambient:
+                TodayAmbientCard(screenContext: screenContext) { dismiss(.ambient) }
+            case .profile:
+                TodayProfileCard(
+                    initialRole: profileStore.profile?.role,
+                    initialHeardFrom: profileStore.profile?.heardFrom,
+                    initialPreferences: profileStore.profile?.preferences ?? "",
+                    onSave: { role, heardFrom, preferences in
+                        Task { await saveProfile(role: role, heardFrom: heardFrom, preferences: preferences) }
+                    },
+                    onDismiss: { dismiss(.profile) }
+                )
+            }
+        }
+    }
+
+    /// Nothing is offered until the profile is here: the dismissals are
+    /// keyed by account, and a card the person waved away yesterday must
+    /// not come back for the second it takes the profile to load.
+    private var pendingNudge: TodayNudge? {
+        guard hasLoaded, let profile = profileStore.profile else { return nil }
+        if permissions.screenRecording != .authorized, !dismissedNudges.contains(.systemAudio) { return .systemAudio }
+        // The switch, not `isRunning`: a pause the person set, or a plan
+        // without it, is not an invitation to turn it on.
+        if !screenContext.isAmbientEnabled, screenContext.isEntitled, !dismissedNudges.contains(.ambient) { return .ambient }
+        if profile.role == nil, profile.heardFrom == nil, !dismissedNudges.contains(.profile) { return .profile }
+        return nil
+    }
+
+    private func readDismissals() {
+        guard let userID = profileStore.profile?.userID else { return }
+        dismissedNudges = Set(TodayNudge.allCases.filter { TodayNudge.isDismissed($0, for: userID) })
+    }
+
+    private func dismiss(_ nudge: TodayNudge) {
+        guard let userID = profileStore.profile?.userID else { return }
+        dismissedNudges.insert(nudge)
+        TodayNudge.dismiss(nudge, for: userID)
+    }
+
+    /// The card goes only once the row is written: a save that failed would
+    /// otherwise leave the person thinking they had answered.
+    private func saveProfile(role: WorkRole?, heardFrom: AcquisitionSource?, preferences: String) async {
+        do {
+            try await profileStore.update {
+                $0.role = role
+                $0.heardFrom = heardFrom
+                $0.preferences = preferences
+            }
+            if let role { modeStore.selectPreset(for: role) }
+            dismiss(.profile)
+        } catch {
+            actionError = "Couldn't save that — try again."
         }
     }
 
@@ -335,14 +424,43 @@ struct TodayView: View {
         .padding(.bottom, 20)
     }
 
+    /// Nod's own word first — the card moves on whatever Google is told — and
+    /// then the question, only when the connected Google calendar actually
+    /// holds this invitation. An entry from another account in Calendar.app
+    /// would only earn a dead-end "not on the connected calendar".
     private func skip(_ occurrence: CalendarOccurrence) {
         mark(occurrence, as: .notGoing)
+        guard integrations.isUsable(.googleCalendar), isOnConnectedGoogleCalendar(occurrence) else { return }
+        declineCandidate = occurrence
+    }
+
+    private func isOnConnectedGoogleCalendar(_ occurrence: CalendarOccurrence) -> Bool {
+        guard let externalID = occurrence.externalID, let remote = calendar.remote else { return false }
+        let span = DateInterval(start: occurrence.startsAt, end: max(occurrence.startsAt, occurrence.endsAt))
+        return remote.occurrences(overlapping: span).contains { $0.externalID == externalID }
+    }
+
+    private func decline(_ occurrence: CalendarOccurrence) async {
+        guard let arguments = TodayBrief.declineArguments(for: occurrence) else { return }
+        let result = await integrations.run(
+            ActionDelegation.call(action: "respond_to_event", of: .googleCalendar, arguments: arguments),
+            tool: ActionDelegation.tool(action: "respond_to_event", of: .googleCalendar),
+            origin: .app
+        )
+        if let failure = IntegrationService.failure(in: result) {
+            actionError = failure
+            return
+        }
+        // The server already wrote the row; a plain refresh is what brings
+        // the declined copy forward, since `.open` was asked seconds ago and
+        // its floor would refuse.
+        Task { await calendar.remote?.refresh() }
     }
 
     private func mark(_ occurrence: CalendarOccurrence, as answer: MeetingAttendance.Answer) {
         MeetingAttendance.mark(occurrence, as: answer, now: now)
         answers[MeetingAttendance.fingerprint(occurrence)] = answer
-        taskError = nil
+        actionError = nil
         analytics.record(
             .meetingAttendanceAnswered,
             // Not going, or turned into a task instead of a recording.
@@ -355,7 +473,7 @@ struct TodayView: View {
     private func clearAnswer(_ occurrence: CalendarOccurrence) {
         MeetingAttendance.clear(occurrence, now: now)
         answers.removeValue(forKey: MeetingAttendance.fingerprint(occurrence))
-        taskError = nil
+        actionError = nil
     }
 
     private func offerTask(_ occurrence: CalendarOccurrence) {
@@ -363,7 +481,7 @@ struct TodayView: View {
             settingsFocus.open(.integrations)
             return
         }
-        taskError = nil
+        actionError = nil
         taskCandidate = occurrence
     }
 
@@ -374,7 +492,7 @@ struct TodayView: View {
             origin: .app
         )
         if let failure = IntegrationService.failure(in: result) {
-            taskError = failure
+            actionError = failure
             return
         }
         mark(occurrence, as: .task)
@@ -404,7 +522,8 @@ struct TodayView: View {
             .sorted { $0.startsAt < $1.startsAt }
         upcoming = ahead
         answers = MeetingAttendance.answers()
-        taskError = nil
+        actionError = nil
+        readDismissals()
         lastTimeByStart = Dictionary(
             ahead.prefix(6).compactMap { occurrence in
                 TodayBrief.lastSession(before: occurrence, in: meetingStore.meetings).map { (occurrence.startsAt, $0) }

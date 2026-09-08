@@ -2,19 +2,19 @@ import SwiftUI
 
 /// The next meeting the person is going to, and the rest of the day behind it.
 ///
-/// "Not going" is this Mac's word, not the calendar's: the card moves on to
-/// the next entry and the notch stops offering to record this one, but the
-/// invitation stays accepted — declining emails the organizer, and that is a
-/// write the person confirms in chat, not a button on a card. "Make it a task"
-/// is the same word with somewhere to go: the entry stays on the calendar and
-/// a copy lands in Google Tasks.
+/// "Not going" is this Mac's word first: the card moves on to the next entry
+/// and the notch stops offering to record this one. Whether Google hears it
+/// too is a separate question the Today screen asks right after — declining
+/// emails the organizer, so it waits on a confirmation, never on this button
+/// alone. "Make it a task" is the same word with somewhere to go: the entry
+/// stays on the calendar and a copy lands in Google Tasks.
 struct TodayMeetingCard: View {
     let occurrence: CalendarOccurrence?
     let lastTime: Meeting?
     let meetingBriefing: RemoteCalendar.MeetingBriefing?
     let rest: [TodayMeetingRow]
     let now: Date
-    let taskError: String?
+    let actionError: String?
     let onCapture: () -> Void
     let onOpenMeeting: (Meeting) -> Void
     let onSkip: (CalendarOccurrence) -> Void
@@ -37,8 +37,8 @@ struct TodayMeetingCard: View {
                     laterRow(row)
                 }
             }
-            if let taskError {
-                Text(taskError)
+            if let actionError {
+                Text(actionError)
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.Palette.danger)
             }

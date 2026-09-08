@@ -11,6 +11,7 @@ Deno.test("a write is never metered, whoever made it", () => {
       "invite_users",
       "post_message",
       "delete_event",
+      "respond_to_event",
       "create_draft",
     ]
   ) {

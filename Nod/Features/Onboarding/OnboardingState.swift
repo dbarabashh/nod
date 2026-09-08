@@ -1,28 +1,31 @@
 import Combine
 import Foundation
 
-/// The flow, in order. Two answers are asked in a window — who this is, and
-/// what to call them — and everything after that happens in the notch, where
-/// Nod is going to live: the permissions, the calendar, and the first question.
+/// The flow, in order. The window asks the little that cannot wait — what
+/// language, what to call the person, whether diagnostics may leave the Mac
+/// — then has them try the held key on something real, and everything after
+/// that happens in the notch, where Nod is going to live: the microphone and
+/// the calendar. Who they are and where they heard of Nod is asked later, on
+/// the Today screen, once Nod has done something for them.
 /// `.notch` is the hand-off, not a screen; `WindowCoordinator` closes the
 /// window on it and `NotchModel` runs the rest.
 ///
 /// The raw value is a *name*, not a position, so a reorder is a reorder rather
 /// than a stored-data migration — which is what the 1.0–1.5 table below exists
-/// to stop happening again. The three retired names are still decodable: a
-/// person mid-flow on one of them resumes in the notch, which now asks the
-/// same things.
+/// to stop happening again. The retired names are still decodable: a person
+/// mid-flow on one of them resumes where the flow now asks the same things.
 enum OnboardingStep: String, Codable, CaseIterable {
     case welcome
     case profile
     case diagnostics
+    case talk
     case notch
     case calendar
     case permissions
     case emailPreferences
 
     /// The steps the flow actually shows, in order.
-    static let allCases: [OnboardingStep] = [.welcome, .profile, .diagnostics, .notch]
+    static let allCases: [OnboardingStep] = [.welcome, .talk, .notch]
 
     /// Where this step sits today, for the dots and for next/previous. Read
     /// rather than stored: nothing persists it any more.
@@ -31,9 +34,13 @@ enum OnboardingStep: String, Codable, CaseIterable {
     }
 
     /// Where somebody standing on a step this build no longer shows resumes.
+    /// The questions that used to sit between welcome and the held key moved
+    /// to the welcome step and the Today screen, so whoever was on one of
+    /// them has done the welcome and goes on to the key.
     var current: OnboardingStep {
         switch self {
-        case .welcome, .profile, .diagnostics, .notch: self
+        case .welcome, .talk, .notch: self
+        case .profile, .diagnostics: .talk
         case .calendar, .permissions, .emailPreferences: .notch
         }
     }
@@ -60,7 +67,7 @@ enum OnboardingStep: String, Codable, CaseIterable {
 }
 
 struct OnboardingStatus: Codable {
-    static let currentVersion = "1.7"
+    static let currentVersion = "1.9"
 
     var version: String = currentVersion
 
@@ -131,7 +138,8 @@ struct OnboardingStatus: Codable {
         "1.3": [.welcome, .profile, .permissions, .calendar, .calendar, .emailPreferences],
         "1.4": [.welcome, .calendar, .permissions, .profile, .emailPreferences],
         "1.5": [.welcome, .calendar, .permissions, .profile, .emailPreferences],
-        "1.6": [.welcome, .profile, .notch]
+        "1.6": [.welcome, .profile, .notch],
+        "1.7": [.welcome, .profile, .diagnostics, .notch]
     ]
 
     /// An unknown version is one this build has never shipped — a downgrade, or

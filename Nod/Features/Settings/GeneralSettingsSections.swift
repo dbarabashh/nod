@@ -459,23 +459,26 @@ struct GeneralSettingsPane: View {
     // other `#if DEBUG` sites, demo mode and its fixture data among them.
     #if DEBUG || NOD_SANDBOX
         /// Replays the first-run experience without touching the account: the
-        /// onboarding flag, the consent gate and our "we've prompted for Screen
-        /// Recording" flag are all device-local. Meetings, profile and
-        /// subscription live on the server and are untouched.
-        ///
-        /// The OS grants themselves are not ours to revoke — `tccutil reset
-        /// ScreenCapture com.example.nod` does that, with Nod quit.
+        /// onboarding flag, the consent gate, the diagnostics answer, Today's
+        /// put-off asks and the ambient switch are all device-local, and the
+        /// microphone, Screen Recording and Accessibility grants are handed
+        /// back to macOS with `tccutil`, so every card in the flow is asked
+        /// for real. Meetings, profile and subscription live on the server
+        /// and are untouched.
         private var resetFirstRunCard: some View {
             SettingsCard {
                 SettingsRow(
                     icon: "nc-arrow-dotted-rotate-anticlockwise",
                     title: "Reset first run",
-                    subtitle: "Replay onboarding and the consent disclaimer on the next launch. Local flags only — no meetings, profile or subscription data is touched. Relaunches Nod."
+                    subtitle: "Replay onboarding on the next launch, with the microphone, Screen Recording, Accessibility and ambient context all asked again. Local flags only — no meetings, profile or subscription data is touched. Relaunches Nod."
                 ) {
                     Button {
                         OnboardingState.resetPersistedStatus()
                         ConsentPreference.resetPersistedGate()
-                        PermissionManager.resetPersistedScreenPrompt()
+                        CrashReporting.resetPersistedChoice()
+                        TodayNudge.resetPersistedDismissals()
+                        ScreenContextDefaults.setEnabled(false)
+                        PermissionManager.resetPersistedGrants()
                         Self.relaunch()
                     } label: {
                         Text("Reset")

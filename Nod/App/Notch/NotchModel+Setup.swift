@@ -2,7 +2,7 @@ import Foundation
 
 /// The notch's half of onboarding. Every card asks for one thing; a thing this
 /// Mac has already granted is stepped over rather than shown as a tick, and the
-/// flow ends when the last ask has been answered.
+/// flow ends on the first capture — or on declining it.
 extension NotchModel {
     /// Called by the coordinator once the window has handed off. A no-op for
     /// an account that has finished — the notch is built on every sign-in.
@@ -52,47 +52,21 @@ extension NotchModel {
         }
     }
 
-    func requestSystemAudioFromSetup() {
-        guard !isRequestingSetupPermission else { return }
-        isRequestingSetupPermission = true
-        onboardingTelemetry.permissionRequested(.screenRecording)
-        Task { @MainActor in
-            switch await permissions.requestScreenRecording() {
-            case .authorized:
-                onboardingTelemetry.permissionResolved(.screenRecording, granted: true)
-                isRequestingSetupPermission = false
-                advanceSetup()
-            case .pendingRelaunch:
-                onboardingTelemetry.screenRecordingPendingRelaunch()
-                onboardingTelemetry.relaunchPrompted()
-                isRequestingSetupPermission = false
-                refresh()
-            }
-        }
-    }
-
-    /// The relaunch the Screen Recording grant needs. The setup resumes on
-    /// this same card in the new process: the step is stored, and the next
-    /// launch walks straight past it if the grant took.
-    func relaunchFromSetup() {
-        Task { @MainActor in
-            await onboardingTelemetry.relaunchClicked()
-            permissions.relaunch()
-        }
-    }
-
-    /// The same switch Settings flips, flipped from the card that explained it.
-    /// It asks macOS for Accessibility on the way; the card then waits for the
-    /// grant, which `ScreenContextService` notices on its own.
-    func enableAmbientFromSetup() {
-        screenContext.setAmbientEnabled(true)
-        refresh()
+    /// The week, spoken: setup is over, and the first recording starts on the
+    /// same click. A voice note, so the system-audio gate never stands in
+    /// the way; the consent and language gates still do, as for any first
+    /// recording. The Library opens behind it, which is where the recap and
+    /// its action items will land.
+    func startFirstCaptureFromSetup() {
+        session.selectedKind = .voiceNote
+        finishSetup()
+        requestStart()
     }
 
     /// The person left a permission ungranted on purpose.
     func skipSetupStage() {
         guard let current = setup else { return }
-        if current == .microphone || current == .systemAudio {
+        if current == .microphone {
             onboardingTelemetry.permissionsSkipped()
             onboarding.recordPermissionsDecision(skipped: true)
         }
@@ -113,10 +87,8 @@ extension NotchModel {
     private func isSetupStageSatisfied(_ stage: NotchSetupStage) -> Bool {
         switch stage {
         case .microphone: permissions.microphone == .authorized
-        case .systemAudio: permissions.screenRecording == .authorized
-        case .ambient: screenContext.isRunning
         case .calendar: CalendarSourceState.isAnswered(calendar: calendar, integrations: integrations)
-        case .intro: false
+        case .intro, .plans: false
         }
     }
 }

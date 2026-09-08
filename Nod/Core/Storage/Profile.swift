@@ -111,29 +111,59 @@ enum WorkRole: String, Codable, CaseIterable, Identifiable {
 /// Where the user first heard about Nod. We have no attribution at all today,
 /// so every answer is signal we currently don't have.
 enum AcquisitionSource: String, Codable, CaseIterable, Identifiable {
-    case friend
-    case search
+    case tiktok
+    case instagram
+    case youtube
     case twitter
     case linkedin
-    case youtube
     case reddit
+    case chatgpt
+    case claude
+    case search
+    case friend
     case productHunt = "product_hunt"
     case other
+
+    /// The chips onboarding offers, in the order they are shown. Product
+    /// Hunt stays decodable for the rows that already say so but is no
+    /// longer asked.
+    static let asked = allCases.filter { $0 != .productHunt }
 
     var id: String {
         rawValue
     }
 
+    /// The product's own mark, for the chips that name one. The two answers
+    /// that are not a product have no logo to show.
+    var brandImageName: String? {
+        switch self {
+        case .tiktok: "Brandtiktok"
+        case .instagram: "Brandinstagram"
+        case .youtube: "Brandyoutube"
+        case .twitter: "Brandx"
+        case .linkedin: "Brandlinkedin"
+        case .reddit: "Brandreddit"
+        case .chatgpt: "Brandchatgpt"
+        case .claude: "Brandclaude"
+        case .search: "BrandGoogle"
+        case .friend, .productHunt, .other: nil
+        }
+    }
+
     var title: String {
         switch self {
-        case .friend: "Friend or colleague"
-        case .search: "Search engine"
-        case .twitter: "X (Twitter)"
-        case .linkedin: "LinkedIn"
+        case .tiktok: "TikTok"
+        case .instagram: "Instagram"
         case .youtube: "YouTube"
+        case .twitter: "X/Twitter"
+        case .linkedin: "LinkedIn"
         case .reddit: "Reddit"
+        case .chatgpt: "ChatGPT"
+        case .claude: "Claude"
+        case .search: "Google"
+        case .friend: "A friend"
         case .productHunt: "Product Hunt"
-        case .other: "Somewhere else"
+        case .other: "Other"
         }
     }
 }

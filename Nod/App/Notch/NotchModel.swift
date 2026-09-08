@@ -109,7 +109,6 @@ final class NotchModel: ObservableObject {
     let onboarding: OnboardingState
     let onboardingTelemetry: OnboardingTelemetry
     let integrations: IntegrationService
-    let screenContext: ScreenContextService
     let hotkeys: HotkeyManager
     /// Asked for by the Ask box and the setup's last step: the panel has to
     /// become key for a field to take the caret, and only the controller
@@ -234,7 +233,6 @@ final class NotchModel: ObservableObject {
         onboarding: OnboardingState,
         onboardingTelemetry: OnboardingTelemetry,
         integrations: IntegrationService,
-        screenContext: ScreenContextService,
         hotkeys: HotkeyManager,
         defaults: UserDefaults = .standard
     ) {
@@ -272,7 +270,6 @@ final class NotchModel: ObservableObject {
         self.onboarding = onboarding
         self.onboardingTelemetry = onboardingTelemetry
         self.integrations = integrations
-        self.screenContext = screenContext
         self.hotkeys = hotkeys
         self.defaults = defaults
         askLanguageEachTime = defaults.object(forKey: MeetingLanguagePromptDefaults.defaultsKey) as? Bool
@@ -805,7 +802,6 @@ final class NotchModel: ObservableObject {
         // Ask box on the answer it is waiting for.
         let serviceSignals: [AnyPublisher<Void, Never>] = [
             permissions.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            screenContext.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             calendar.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             integrations.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             knowledgeChat.$isSending.map { _ in () }.eraseToAnyPublisher()

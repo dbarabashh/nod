@@ -56,35 +56,29 @@ it drops back to `.accessory` otherwise.
 `AppDelegate.applicationDidFinishLaunching` (`Nod/App/NodApp.swift`). It
 constructs every service exactly once, wires them together, then
 `WindowCoordinator.reconcile()` picks the surface from `OnboardingState`:
-the onboarding window for `.welcome` and `.profile`, the notch running its
-setup cards (`NotchSetupStage`: permissions, ambient context, calendar) once
-the flow has handed off to `.notch`, and the notch alone once `isCompleted`.
-The setup skips any ask this Mac has already answered and ends on the last
-card's button — or on any card's own close, which completes the flow and
-leaves the rest to Settings. Services are
-passed downstream via `@EnvironmentObject`.
+the onboarding window for `.welcome` (language, name, the two diagnostics
+switches) and `.talk` (say what the week holds while holding ⌘T — or type
+it — and hear it back as what matters plus next steps; `TalkRehearsal`
+owns the microphone, the transcription and the read-back while the window
+is up, and `WindowCoordinator` routes the global hold-to-ask key to it), the
+notch running its setup cards (`NotchSetupStage`: intro, microphone,
+calendar, plans) once the flow has handed off to `.notch`, and the notch
+alone once `isCompleted`. The setup skips any ask this Mac has already
+answered and ends on the plans card: "Start talking" completes the flow and
+starts a real voice-note capture through `requestStart()`, whose recap is
+the first thing the person sees Nod make — or on any card's own close,
+which completes the flow and leaves the rest to Today. Screen Recording (the other
+side of a call), ambient screen context, and who the person is (role,
+where they heard of Nod, what to win at) are not asked in onboarding: Today
+raises one card at a time for them (`TodaySetupCards`), and a recording
+that needs system audio still stops at the notch's own `systemAudioAccess`
+gate. Services are passed downstream via `@EnvironmentObject`.
 
 The Ask hotkey (`HotkeyAction.askNod`, ⌘⇧K by default) lands in the notch too:
 idle, it opens `NotchAskCard` over the shared `KnowledgeChatStore` thread and
 makes the panel key so the field takes the caret without a click; during a
 recording it expands the meeting bar's own Ask box instead. There is no
 separate quick panel any more.
-
-## Onboarding narration
-
-Each onboarding step says a short, pre-written line aloud once, on arrival
-(`Nod/Features/Onboarding/OnboardingNarration.swift`) — the window's two
-steps through a dedicated `AppServices.onboardingNarrator: SpokenAnswer`
-(the notch doesn't exist yet), the notch's own setup cards through
-`NotchModel.voice`, the same instance the ask feature speaks answers with.
-Both go through `SpokenAnswer.sayScripted(_:language:)`, a `purpose:
-"narration"` line that the proxy still routes through the OpenRouter rewrite
-step before TTS — the copy itself is final and never generated, but reading
-it in spoken register (contractions, natural pacing) instead of verbatim is
-what keeps it sounding like the same voice as an answer. `NotchSetupContent`
-gates re-narration to an actual stage change via `.id(stage)`, so an
-unrelated `NotchModel` republish while on the same card doesn't say the line
-again.
 
 ## Audio pipeline (the hot path)
 

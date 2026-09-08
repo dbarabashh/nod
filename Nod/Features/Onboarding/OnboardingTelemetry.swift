@@ -13,22 +13,15 @@ import Supabase
 final class OnboardingTelemetry: ObservableObject {
     enum Event: String {
         case stepShown = "step_shown"
-        case profileCompleted = "profile_completed"
-        case profileSkipped = "profile_skipped"
         case permissionRequested = "permission_requested"
         case permissionGranted = "permission_granted"
         case permissionDenied = "permission_denied"
-        case permissionPendingRelaunch = "permission_pending_relaunch"
         case permissionsSkipped = "permissions_skipped"
-        case relaunchPrompted = "relaunch_prompted"
-        case relaunchClicked = "relaunch_clicked"
-        case relaunchFailed = "relaunch_failed"
         case completed = "onboarding_completed"
     }
 
     enum Permission: String {
         case microphone
-        case screenRecording = "screen_recording"
     }
 
     private let supabase: SupabaseClient?
@@ -90,14 +83,6 @@ final class OnboardingTelemetry: ObservableObject {
 
     /// `detail` carries the role, so the funnel answers "who signs up" and
     /// "who finishes" in one query. Nil when they answered without picking one.
-    func profileCompleted(role: WorkRole?) {
-        log(.profileCompleted, stage: "profile", detail: role?.rawValue)
-    }
-
-    func profileSkipped() {
-        log(.profileSkipped, stage: "profile")
-    }
-
     func permissionRequested(_ permission: Permission) {
         log(.permissionRequested, stage: "notch.permissions", detail: permission.rawValue)
     }
@@ -106,33 +91,8 @@ final class OnboardingTelemetry: ObservableObject {
         log(granted ? .permissionGranted : .permissionDenied, stage: "notch.permissions", detail: permission.rawValue)
     }
 
-    /// Screen Recording only: the answer can't be read back before a restart,
-    /// so this replaces the `permission_denied` we used to log on faith. Every
-    /// such row was a guess, and the funnel read 0 grants while users were
-    /// recording system audio fine.
-    func screenRecordingPendingRelaunch() {
-        log(.permissionPendingRelaunch, stage: "notch.permissions", detail: Permission.screenRecording.rawValue)
-    }
-
     func permissionsSkipped() {
         log(.permissionsSkipped, stage: "notch.permissions")
-    }
-
-    func relaunchPrompted() {
-        log(.relaunchPrompted, stage: "notch.permissions")
-    }
-
-    /// Awaits the write, unlike every other event: the caller terminates the
-    /// process immediately afterwards, and a detached task would lose the row.
-    func relaunchClicked() async {
-        guard let queued = makeQueuedEvent(.relaunchClicked, stage: "notch.permissions") else { return }
-        queue.append(queued)
-        persistQueue()
-        await flush()
-    }
-
-    func relaunchFailed(_ reason: String) {
-        log(.relaunchFailed, stage: "notch.permissions", detail: reason)
     }
 
     func completed() {
@@ -218,6 +178,7 @@ final class OnboardingTelemetry: ObservableObject {
         switch step {
         case .welcome: "welcome"
         case .profile: "profile"
+        case .talk: "tutorial"
         // The server's stage list has no "diagnostics"; this is a consent
         // question and files under the name the list already has for one.
         case .diagnostics: "consent"
@@ -240,16 +201,13 @@ final class OnboardingTelemetry: ObservableObject {
         case .stepShown: "viewed"
         case .permissionGranted: "granted"
         case .permissionDenied: "declined"
-        case .relaunchFailed: "failure"
-        case .completed, .profileCompleted, .profileSkipped, .permissionRequested,
-             .permissionPendingRelaunch, .permissionsSkipped, .relaunchPrompted,
-             .relaunchClicked: "success"
+        case .completed, .permissionRequested, .permissionsSkipped: "success"
         }
     }
 
     private static func permission(for event: Event, detail: String?) -> String? {
         switch event {
-        case .permissionRequested, .permissionGranted, .permissionDenied, .permissionPendingRelaunch:
+        case .permissionRequested, .permissionGranted, .permissionDenied:
             detail
         default:
             nil
@@ -259,7 +217,6 @@ final class OnboardingTelemetry: ObservableObject {
     private static func reasonCode(for event: Event) -> String? {
         switch event {
         case .permissionDenied: "permission_denied"
-        case .relaunchFailed: "unknown"
         default: nil
         }
     }

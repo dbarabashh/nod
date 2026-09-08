@@ -922,6 +922,27 @@ enum ChatTools {
         ),
         ChatTool(
             provider: .googleCalendar,
+            name: "google-calendar_respond_to_event",
+            description: [
+                "Answer the user's own invitation to one event: going, not going, or maybe.",
+                "Only after list_events in this conversation: `event_id`, `event_title` and `event_starts_at` must come",
+                "from its results, and the server refuses a title or start that doesn't match the id.",
+                "Refused when the user organizes the event or is not a guest on it. For a recurring meeting this answers only the one occurrence named.",
+                "The organizer is emailed the answer."
+            ].joined(separator: " "),
+            parameters: ChatToolSchema(
+                properties: [
+                    "event_title": .init(description: "The event's title, exactly as list_events returned it."),
+                    "event_id": .init(description: "The event's id from list_events."),
+                    "event_starts_at": .init(description: "The event's start, exactly as list_events returned it."),
+                    "response": .init(description: "`accepted`, `declined`, or `tentative`.")
+                ],
+                required: ["event_title", "event_id", "event_starts_at", "response"]
+            ),
+            mutating: true
+        ),
+        ChatTool(
+            provider: .googleCalendar,
             name: "google-calendar_delete_event",
             description: [
                 "Cancel one event on the user's calendar.",
