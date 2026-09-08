@@ -57,7 +57,7 @@ it drops back to `.accessory` otherwise.
 constructs every service exactly once, wires them together, then
 `WindowCoordinator.reconcile()` picks the surface from `OnboardingState`:
 the onboarding window for `.welcome` (language, name, the two diagnostics
-switches) and `.talk` (say what the week holds while holding ⌘T — or type
+switches) and `.talk` (say what the week holds while holding ⌥T — or type
 it — and hear it back as what matters plus next steps; `TalkRehearsal`
 owns the microphone, the transcription and the read-back while the window
 is up, and `WindowCoordinator` routes the global hold-to-ask key to it), the
@@ -131,7 +131,7 @@ The data flow that produces a transcript:
 
 ### A live conversation, tapped open
 
-A bare tap on `HotkeyAction.holdToAsk` (⌘T, held under `HeldQuestionRecorder
+A bare tap on `HotkeyAction.holdToAsk` (⌥T, held under `HeldQuestionRecorder
 .minSeconds` — a real hold is the section below) opens a continuous voice
 session instead of one clip: `RealtimeVoiceSession` mints a short-lived
 credential from the proxy (`kind: "realtime_token"`, `_shared/realtime.ts`) —
@@ -175,7 +175,7 @@ conversation is open is to close it.
 
 ### A question spoken into the notch
 
-Holding `HotkeyAction.holdToAsk` (⌘T by default) opens the microphone for as
+Holding `HotkeyAction.holdToAsk` (⌥T by default) opens the microphone for as
 long as the key is down. With no meeting running the surface stays at rest:
 `NotchPresentation.voice(VoiceAskPhase)` is the pill saying "Listening…" then
 "Thinking…", and the Ask card opens (`revealAsk(baseline:)`) only once the

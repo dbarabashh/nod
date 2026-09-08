@@ -46,6 +46,12 @@ export interface SpeechRequest {
     language: string;
     purpose: SpeechPurpose;
     question: string;
+    /// The text is already the line to say — no script step. A client uses
+    /// it for lines it wrote itself, like the asides it keeps ready.
+    verbatim: boolean;
+    /// Answer as NDJSON, one clip per line, the first sentence on its own so
+    /// it can play while the rest is still being synthesised.
+    stream: boolean;
 }
 
 export interface SpeechRefusal {
@@ -71,7 +77,7 @@ export function speechRequest(payload: unknown): SpeechRequest | SpeechRefusal {
     if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
         return { error: "invalid_payload", status: 400 };
     }
-    const { text, language, purpose, question } = payload as Record<string, unknown>;
+    const { text, language, purpose, question, verbatim, stream } = payload as Record<string, unknown>;
     if (typeof text !== "string" || text.trim().length === 0) {
         return { error: "invalid_text", status: 400 };
     }
@@ -84,7 +90,40 @@ export function speechRequest(payload: unknown): SpeechRequest | SpeechRefusal {
     const kind: SpeechPurpose =
         purpose === "acknowledgement" ? "acknowledgement" : purpose === "narration" ? "narration" : "answer";
     const asked = typeof question === "string" ? question.slice(0, SPEECH_MAX_CHARS) : "";
-    return { text: text.trim(), language, purpose: kind, question: asked };
+    return {
+        text: text.trim(),
+        language,
+        purpose: kind,
+        question: asked,
+        verbatim: verbatim === true,
+        stream: stream === true,
+    };
+}
+
+/// Whether the script step can be skipped: the caller vouched for the text,
+/// or a short plain answer needs no rephrasing.
+export function speaksAsWritten(request: SpeechRequest): boolean {
+    // A vouched-for line is bounded like a plain one: the asides a client
+    // keeps ready are a few words, and a patched client must not get the
+    // voice to read a page under the same flag.
+    return (request.verbatim && request.text.length <= VERBATIM_MAX_CHARS)
+        || (request.purpose === "answer" && looksAlreadySpoken(request.text));
+}
+
+export const VERBATIM_MAX_CHARS = 220;
+
+/// The script in the pieces it is synthesised in: the first sentence alone,
+/// then everything after it. Two calls in flight at once, and the first is
+/// the short one, so the voice starts on the opening sentence while the rest
+/// is still being made. One piece when there is only one sentence.
+export function speechChunks(script: string): string[] {
+    const trimmed = script.trim();
+    const match = trimmed.match(/^(.+?[.!?…]["'”’)]?)\s+(\S[\s\S]*)$/);
+    // A first piece shorter than this is an abbreviation ("Dr.") or a word
+    // ("Okay.") — not worth a round-trip of its own, and said with a pause
+    // where none belongs.
+    if (!match || match[1].length < 12) return [trimmed];
+    return [match[1], match[2]];
 }
 
 export function isSpeechRefusal(value: SpeechRequest | SpeechRefusal): value is SpeechRefusal {
@@ -134,8 +173,9 @@ export function scriptPrompt(request: SpeechRequest): { system: string; user: st
             `them to read. Say the substance of that answer in ${language}, the way you'd say it across ` +
             `a desk, answer first. Match the length to the question: a quick question gets one short ` +
             `sentence — often just the fact — and only a question about a meeting, a session, a day's ` +
-            `work or a brief earns two or three sentences with the details that matter. Never pad, never ` +
-            `recap the question, never list. Keep people's names, meeting titles and times; say numbers ` +
+            `work or a brief earns two or three sentences with the details that matter — never more than ` +
+            `about sixty words in all. Never pad, never recap the question, never list. Keep people's ` +
+            `names, meeting titles and times; say numbers ` +
             `the way people say them. If the written answer asks them something, ask it. If it could not ` +
             `find what they wanted, say so in one honest sentence and, if it's obvious, what would help.`,
         user: `Question, as spoken:\n${request.question}\n\nAnswer, as written:\n${request.text}`,
@@ -179,7 +219,11 @@ export function ttsBody(script: string, voice: string, purpose: SpeechPurpose): 
         voice,
         input: script,
         instructions: speechInstructions(purpose),
-        response_format: "wav",
+        // Not wav: a half-minute answer is 1.4 MB of PCM, base64'd into JSON
+        // and downloaded whole before the first word plays — six seconds of
+        // the wait on an ordinary connection. MP3 is a tenth of that, and
+        // `AVAudioPlayer(data:)` on every shipped build plays it as it is.
+        response_format: "mp3",
     };
 }
 

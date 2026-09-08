@@ -21,10 +21,22 @@ final class ProfileStore: ObservableObject {
         self.auth = auth
     }
 
-    /// The block injected into LLM system prompts. Empty string when there's
-    /// no profile or it's blank — callers prepend it unconditionally.
+    /// The block injected into LLM system prompts. Empty string when nothing
+    /// is known — callers prepend it unconditionally. The name is the saved
+    /// one, else the one sign-in carried; the address is the account's.
     var promptContext: String {
-        profile?.promptBlock ?? ""
+        Profile.promptBlock(
+            name: displayNameOrAccountName,
+            email: auth.currentSupabaseSession?.user.email,
+            preferences: profile?.preferences ?? ""
+        )
+    }
+
+    /// The name Nod calls the person by: what they saved, else what the
+    /// sign-in provider knew them as.
+    var displayNameOrAccountName: String {
+        let stored = profile?.displayName.trimmedOrEmpty ?? ""
+        return stored.isEmpty ? (auth.currentSupabaseSession?.user.profileDisplayName ?? "") : stored
     }
 
     /// Fetches the current user's row. No-op if the cache is already

@@ -63,9 +63,11 @@ final class RealtimeVoiceSession: NSObject {
     private var playbackNode: AVAudioPlayerNode?
     /// Gates the mic while true: nothing captured during this window reaches
     /// the server, so the model's own voice can never reach the server's VAD
-    /// and be mistaken for a barge-in. The one cost is that talking over the
-    /// assistant no longer interrupts it; a tap of the hotkey still does.
+    /// and be mistaken for a barge-in. Talking over the assistant still
+    /// interrupts it — `BargeIn` below listens for a voice that stands well
+    /// above the speaker's bleed and opens the gate on it.
     private var isModelSpeaking = false
+    private let bargeIn = BargeIn()
     /// Buffers handed to `playbackNode` that haven't finished playing yet.
     /// `response.done` means the server stopped *generating* — audio arrives
     /// well ahead of real time, so a several-second answer can still have
@@ -143,12 +145,14 @@ final class RealtimeVoiceSession: NSObject {
         }
     }
 
-    func start(language: AppLanguage?) async {
+    /// `name` is who the voice is talking to, so it can greet and refer to
+    /// them; nothing else about the person reaches the live model directly.
+    func start(language: AppLanguage?, name: String? = nil) async {
         guard state == .idle else { return }
         state = .connecting
         let generation = generation
         do {
-            let credentials = try await llmClient.mintRealtimeToken(language: language?.rawValue)
+            let credentials = try await llmClient.mintRealtimeToken(language: language?.rawValue, name: name)
             guard generation == self.generation, state == .connecting else { return }
             try connect(credentials: credentials)
             try startMicrophone()
@@ -274,6 +278,7 @@ final class RealtimeVoiceSession: NSObject {
                 isModelSpeaking = true
                 serverResponseDone = false
                 state = .responding("")
+                micQueue.async { [bargeIn] in bargeIn.reset() }
             }
             enqueuePlayback(pcm16: bytes)
         case "response.output_audio_transcript.delta":
@@ -329,6 +334,21 @@ final class RealtimeVoiceSession: NSObject {
         default:
             break
         }
+    }
+
+    /// The person spoke over the answer: what is queued at the speaker is
+    /// cut, the server is told to stop, and the gate opens so the words that
+    /// follow reach it. The server's own `speech_started` then does its part.
+    private func interruptModel() {
+        flushPlayback()
+        pendingPlaybackBuffers = 0
+        isModelSpeaking = false
+        cancelTranscriptFlush()
+        if hasActiveResponse {
+            send(["type": "response.cancel"])
+            hasActiveResponse = false
+        }
+        state = .userSpeaking
     }
 
     /// The mic gate actually reopens here — once the server says a response
@@ -434,13 +454,19 @@ final class RealtimeVoiceSession: NSObject {
         micEncoder = encoder
         let queue = micQueue
         let generation = generation
+        let bargeIn = bargeIn
         input.installTap(onBus: 0, bufferSize: 2400, format: nil) { [weak self] buffer, _ in
             guard let copy = Self.copyBuffer(buffer) else { return }
             queue.async {
-                guard let base64 = encoder.encode(copy) else { return }
+                guard let encoded = encoder.encode(copy) else { return }
+                let interrupts = bargeIn.observe(level: encoded.level)
                 Task { @MainActor [weak self] in
-                    guard let self, generation == self.generation, !isModelSpeaking else { return }
-                    send(["type": "input_audio_buffer.append", "audio": base64])
+                    guard let self, generation == self.generation else { return }
+                    if isModelSpeaking {
+                        guard interrupts else { return }
+                        interruptModel()
+                    }
+                    send(["type": "input_audio_buffer.append", "audio": encoded.base64])
                 }
             }
         }
@@ -467,7 +493,7 @@ final class RealtimeVoiceSession: NSObject {
             self.targetFormat = targetFormat
         }
 
-        func encode(_ buffer: AVAudioPCMBuffer) -> String? {
+        func encode(_ buffer: AVAudioPCMBuffer) -> (base64: String, level: Float)? {
             let ratio = targetFormat.sampleRate / buffer.format.sampleRate
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 256
             guard let output = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return nil }
@@ -483,8 +509,54 @@ final class RealtimeVoiceSession: NSObject {
                 return buffer
             }
             guard status != .error, output.frameLength > 0, let channel = output.int16ChannelData else { return nil }
-            let data = Data(bytes: channel[0], count: Int(output.frameLength) * MemoryLayout<Int16>.size)
-            return data.base64EncodedString()
+            let count = Int(output.frameLength)
+            let data = Data(bytes: channel[0], count: count * MemoryLayout<Int16>.size)
+            var energy: Float = 0
+            for index in 0 ..< count {
+                let sample = Float(channel[0][index]) / Float(Int16.max)
+                energy += sample * sample
+            }
+            return (data.base64EncodedString(), (energy / Float(count)).squareRoot())
+        }
+    }
+
+    /// Hears the person over the assistant without echo cancellation.
+    ///
+    /// While the model speaks, the mic hears the speakers; how loudly is
+    /// learned from the first moments of each answer and tracked after. A
+    /// voice at the desk is several times louder than that bleed, and once
+    /// it has been for a few buffers in a row this says so. Touched only
+    /// from `micQueue`.
+    private final class BargeIn: @unchecked Sendable {
+        private var bleed: Float = 0
+        private var buffers = 0
+        private var loud = 0
+
+        private static let settleBuffers = 6
+        private static let ratio: Float = 4
+        private static let floor: Float = 0.02
+        private static let loudBuffers = 3
+
+        /// Whether this buffer, on top of the ones before it, is the person.
+        func observe(level: Float) -> Bool {
+            buffers += 1
+            if buffers <= Self.settleBuffers {
+                bleed = max(bleed, level)
+                return false
+            }
+            if level > max(bleed * Self.ratio, Self.floor) {
+                loud += 1
+                return loud >= Self.loudBuffers
+            }
+            loud = 0
+            bleed = bleed * 0.95 + level * 0.05
+            return false
+        }
+
+        func reset() {
+            bleed = 0
+            buffers = 0
+            loud = 0
         }
     }
 

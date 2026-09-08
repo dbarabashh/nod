@@ -1,9 +1,10 @@
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   REALTIME_DEFAULT_VOICE,
   REALTIME_SESSIONS_PER_WINDOW,
   REALTIME_TOKEN_TTL_SECONDS,
   REALTIME_WINDOW_MS,
+  realtimeInstructions,
   realtimeSessionBody,
   RealtimeSessionMeter,
   realtimeTokenRequest,
@@ -17,6 +18,16 @@ Deno.test("a payload with no language is accepted as an empty request", () => {
 
 Deno.test("a language hint is carried through", () => {
   assertEquals(realtimeTokenRequest({ language: "uk" }), { language: "uk" });
+});
+
+Deno.test("a name is carried into the instructions, bounded and trimmed", () => {
+  assertEquals(realtimeTokenRequest({ name: " Dima " }), { name: "Dima" });
+  assertEquals(realtimeTokenRequest({ name: "x".repeat(61) }), {});
+  assertEquals(realtimeTokenRequest({ name: 7 }), {});
+  const named = realtimeInstructions({ name: "Dima", language: "uk" });
+  assertStringIncludes(named, "talking to is Dima");
+  assertStringIncludes(named, "start in uk");
+  assertEquals(realtimeInstructions({}).includes("talking to is"), false);
 });
 
 Deno.test("the session body asks for pcm24 both ways and the chosen voice", () => {

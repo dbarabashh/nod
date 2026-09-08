@@ -32,6 +32,10 @@ struct ScreenObservation: Codable, Equatable, Identifiable {
         case expiresAt = "expires_at"
     }
 
+    /// Named rather than `*`: the row also carries `content_tsv`, the search
+    /// vector, which is as long as the text it indexes and of no use here.
+    static let columns = "id,user_id,observed_at,source_app,source_title,source_url,content,content_hash,expires_at"
+
     init(
         id: UUID = UUID(),
         userID: UUID,

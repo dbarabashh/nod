@@ -14,8 +14,8 @@ final class HotkeyActionTests: XCTestCase {
         XCTAssertEqual(Set(combos.map(\.displayString)).count, combos.count)
     }
 
-    func testHoldToAskDefaultsToCommandT() {
-        XCTAssertEqual(HotkeyAction.holdToAsk.defaultCombo.displayString, "⌘T")
+    func testHoldToAskDefaultsToOptionT() {
+        XCTAssertEqual(HotkeyAction.holdToAsk.defaultCombo.displayString, "⌥T")
     }
 
     func testEveryActionRoundTripsThroughItsID() {

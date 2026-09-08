@@ -306,6 +306,57 @@ export const LINEAR_ACTIONS: ActionHandlers = {
         };
     },
 
+    /// The issues a person or a column holds, for "what's on me" and "what's
+    /// in progress" — questions a keyword search cannot answer, because the
+    /// answer is a filter, not a phrase. `assignee` is `me` for the connected
+    /// account or a name for a colleague; `state` is a column name as the
+    /// workspace spells it. Open issues only unless `closed` says otherwise.
+    list_issues: async (connection, params) => {
+        const filter: Record<string, unknown> = {};
+        const assignee = typeof params.assignee === "string" ? params.assignee.trim() : "";
+        if (assignee.toLowerCase() === "me") {
+            filter.assignee = { isMe: { eq: true } };
+        } else if (assignee) {
+            filter.assignee = { name: { containsIgnoreCase: assignee } };
+        }
+        const state = typeof params.state === "string" ? params.state.trim() : "";
+        if (state) {
+            filter.state = { name: { eqIgnoreCase: state } };
+        } else if (params.closed !== true && params.closed !== "true") {
+            filter.state = { type: { nin: ["completed", "canceled"] } };
+        }
+        const data = await graphql(
+            connection,
+            `query($filter: IssueFilter!, $first: Int!) {
+                issues(filter: $filter, first: $first, orderBy: updatedAt) {
+                    nodes { identifier title url updatedAt state { name type } assignee { name } }
+                }
+            }`,
+            { filter, first: STATUS_LIMIT },
+        );
+        const nodes = (data.issues as {
+            nodes?: {
+                identifier: string;
+                title: string;
+                url: string;
+                updatedAt?: string;
+                state?: { name?: string; type?: string };
+                assignee?: { name?: string };
+            }[];
+        } | undefined)?.nodes ?? [];
+        return {
+            tasks: nodes.map((issue) => ({
+                key: issue.identifier,
+                title: issue.title,
+                url: issue.url,
+                closed: isClosed(issue.state),
+                state: issue.state?.name,
+                assignee: issue.assignee?.name,
+                updatedAt: issue.updatedAt,
+            })),
+        };
+    },
+
     search_issues: async (connection, params) => {
         const term = requireString(params, "query");
         const data = await graphql(

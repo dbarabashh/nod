@@ -143,6 +143,11 @@ final class MentionCell: NSTextAttachmentCell {
     private static let gap: CGFloat = 5
     private static let horizontalPadding: CGFloat = 7
     private static let verticalPadding: CGFloat = 3
+    /// Clear space the cell claims above and below the pill it draws. The
+    /// layout manager grows a line to fit the attachment exactly, so without
+    /// it the pill's edge sat flush against the glyphs of the line above and
+    /// two pills on consecutive lines touched.
+    private static let rowGap: CGFloat = 2
     private static let fill = NSColor.themed(light: .black.withAlphaComponent(0.14), dark: .white.withAlphaComponent(0.14))
     private static let border = NSColor.themed(light: .black.withAlphaComponent(0.22), dark: .white.withAlphaComponent(0.22))
 
@@ -163,9 +168,9 @@ final class MentionCell: NSTextAttachmentCell {
         labelSize = label.size()
         size = NSSize(
             width: Self.horizontalPadding * 2 + Self.markSide + Self.gap + ceil(labelSize.width),
-            height: ceil(font.ascender - font.descender) + Self.verticalPadding * 2
+            height: ceil(font.ascender - font.descender) + (Self.verticalPadding + Self.rowGap) * 2
         )
-        baselineOffset = NSPoint(x: 0, y: font.descender - Self.verticalPadding)
+        baselineOffset = NSPoint(x: 0, y: font.descender - Self.verticalPadding - Self.rowGap)
         artwork = Self.artwork(for: mark.glyph, side: Self.markSide, tint: MentionText.ink)
         super.init()
     }
@@ -186,7 +191,7 @@ final class MentionCell: NSTextAttachmentCell {
     }
 
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
-        let box = cellFrame.insetBy(dx: 0.25, dy: 0.25)
+        let box = cellFrame.insetBy(dx: 0.25, dy: Self.rowGap + 0.25)
         let path = NSBezierPath(roundedRect: box, xRadius: box.height / 2, yRadius: box.height / 2)
         Self.fill.setFill()
         path.fill()
@@ -344,7 +349,7 @@ enum MentionText {
     ///   neither follows the clip view's width nor grows with its content — and
     ///   a click lands on the clip view instead of the text, which reads as a
     ///   field that refuses the caret.
-    static func makeTextView(scrollable: Bool = false) -> NSTextView {
+    static func makeTextView(_ type: NSTextView.Type = NSTextView.self, scrollable: Bool = false) -> NSTextView {
         let storage = NSTextStorage()
         let layout = NSLayoutManager()
         let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
@@ -353,7 +358,7 @@ enum MentionText {
         storage.addLayoutManager(layout)
         layout.addTextContainer(container)
 
-        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 40), textContainer: container)
+        let view = type.init(frame: NSRect(x: 0, y: 0, width: 320, height: 40), textContainer: container)
         view.isRichText = false
         view.drawsBackground = false
         view.font = font
@@ -396,11 +401,19 @@ final class MentionMeasurer {
         layout.addTextContainer(container)
     }
 
-    func size(text: String, marks: [MentionMark], width: CGFloat, isIdeal: Bool = false) -> CGSize {
+    /// `build` is what gets laid out when the answer is not remembered; the
+    /// default is the composer's own rendering of `text` and `marks`.
+    func size(
+        text: String,
+        marks: [MentionMark],
+        width: CGFloat,
+        isIdeal: Bool = false,
+        build: (() -> NSAttributedString)? = nil
+    ) -> CGSize {
         let input = MentionMeasurement(text: text, marks: marks, width: width)
         if let remembered = isIdeal ? ideal : concrete, remembered.input == input { return remembered.size }
 
-        storage.setAttributedString(MentionText.attributed(from: text, marks: marks))
+        storage.setAttributedString(build?() ?? MentionText.attributed(from: text, marks: marks))
         container.size = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)

@@ -390,7 +390,7 @@ private func connectedToolsRules(_ tools: [ChatTool]) -> String {
     - Search with the USER'S words. Session excerpts and the screen record are background; they are not a list of things to go looking for. Turning a topic the user never raised into a search is how an answer about today's progress comes back full of last week's projects.
     - One search answers most questions. Search again only when the first came back empty or plainly missed what was asked — every extra call is another round trip the user waits through and another approval they have to read.
     - Report a finished action in one line: what it is now, its identifier, and its link. Never restate the title or description the user just gave you — they wrote it, they can see it, and repeating it back is the difference between a receipt and a wall of text.
-    - Put every reference to a connected product on its OWN line, as a markdown link, never inside a sentence: `[NOD-57 — Provide team access](https://linear.app/…)`. Nod draws those lines itself; a link buried mid-sentence is drawn as plain text and looks like a mistake.
+    - Put every reference to a connected product on its OWN line, as a markdown link, never inside a sentence: `[NOD-57 — Provide team access](https://linear.app/…)`. A short fact may follow it after a dash — a status, an assignee: `[NOD-57 — Provide team access](https://linear.app/…) — In Progress`. Nod draws those lines itself; a link buried mid-sentence is drawn as plain text and looks like a mistake.
     """
 }
 

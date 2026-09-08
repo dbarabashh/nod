@@ -850,28 +850,6 @@ final class LLMProxyClient: ObservableObject {
         }
     }
 
-    /// A line said by the proxy's voice model: WAV bytes and the words it
-    /// chose. `purpose` picks the model — an acknowledgement has to land fast,
-    /// an answer has to sound like somebody — and `question` gives the answer
-    /// its context.
-    func speak(text: String, question: String, language: String, purpose: String) async throws -> SpokenLine {
-        Log.llm.info("→ speak via proxy chars=\(text.count) lang=\(language) purpose=\(purpose)")
-        let request = SpeakRequest(text: text, question: question, language: language, purpose: purpose)
-        let data = try await postToProxyWithRetry(body: JSONEncoder().encode(ProxyEnvelope(kind: "speak", payload: request)))
-        do {
-            let answer = try JSONDecoder().decode(SpeakAnswer.self, from: data)
-            guard let audio = Data(base64Encoded: answer.audio), !audio.isEmpty else {
-                throw ClientError.decodingFailed("speak returned no audio")
-            }
-            Log.llm.info("← speak OK bytes=\(audio.count) words=\(answer.transcript.count)")
-            return SpokenLine(audio: audio, transcript: answer.transcript)
-        } catch let error as ClientError {
-            throw error
-        } catch {
-            throw ClientError.decodingFailed(error.localizedDescription)
-        }
-    }
-
     // MARK: - Cross-session knowledge (step 5)
 
     /// Embedding ~1200-char chunks is CPU-heavy server-side; gte-small runs
@@ -1405,6 +1383,110 @@ private struct SpeakRequest: Encodable {
     let question: String
     let language: String
     let purpose: String
+    let verbatim: Bool
+    let stream: Bool
+}
+
+private struct SpeakClipLine: Decodable {
+    let index: Int?
+    let audio: String?
+    let transcript: String?
+    let error: String?
+}
+
+/// One line of a clip-by-clip speak: what will be said, a piece of it as
+/// audio, or a piece the proxy could not make.
+enum SpeakEvent {
+    case transcript(String)
+    case clip(Data)
+    case missing
+}
+
+/// The spoken side of the proxy: a line as one file, or as clips.
+extension LLMProxyClient {
+    /// A line said by the proxy's voice model: MP3 bytes and the words it
+    /// chose. `purpose` picks the model — an acknowledgement has to land fast,
+    /// an answer has to sound like somebody — and `question` gives the answer
+    /// its context.
+    /// `verbatim` says the text is already the line to say — no rewrite on
+    /// the proxy — for the lines the client keeps ready itself.
+    func speak(text: String, question: String, language: String, purpose: String, verbatim: Bool = false) async throws -> SpokenLine {
+        Log.llm.info("→ speak via proxy chars=\(text.count) lang=\(language) purpose=\(purpose)")
+        let request = SpeakRequest(text: text, question: question, language: language, purpose: purpose, verbatim: verbatim, stream: false)
+        let data = try await postToProxyWithRetry(body: JSONEncoder().encode(ProxyEnvelope(kind: "speak", payload: request)))
+        do {
+            let answer = try JSONDecoder().decode(SpeakAnswer.self, from: data)
+            guard let audio = Data(base64Encoded: answer.audio), !audio.isEmpty else {
+                throw ClientError.decodingFailed("speak returned no audio")
+            }
+            Log.llm.info("← speak OK bytes=\(audio.count) words=\(answer.transcript.count)")
+            return SpokenLine(audio: audio, transcript: answer.transcript)
+        } catch let error as ClientError {
+            throw error
+        } catch {
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+
+    /// The same line, a clip at a time: the transcript first, then the
+    /// opening sentence's audio as soon as it exists, then the rest. The
+    /// voice starts on the first clip while the proxy is still making the
+    /// second, instead of waiting for one file of the whole answer.
+    func speakInClips(text: String, question: String, language: String, purpose: String) -> AsyncThrowingStream<SpeakEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    Log.llm.info("→ speak (clips) via proxy chars=\(text.count) lang=\(language) purpose=\(purpose)")
+                    let request = SpeakRequest(
+                        text: text,
+                        question: question,
+                        language: language,
+                        purpose: purpose,
+                        verbatim: false,
+                        stream: true
+                    )
+                    let body = try JSONEncoder().encode(ProxyEnvelope(kind: "speak", payload: request))
+                    let (bytes, response) = try await session.bytes(for: makeProxyRequest(body: body))
+                    guard let http = response as? HTTPURLResponse else {
+                        throw ClientError.decodingFailed("Non-HTTP response")
+                    }
+                    try throwIfGatedStatus(http)
+                    if http.statusCode >= 400 {
+                        throw await streamFailure(status: http.statusCode, bytes: bytes)
+                    }
+                    var clips = 0
+                    // Split on the newline byte only: `bytes.lines` also
+                    // breaks on U+2028/U+2029, which the proxy's JSON carries
+                    // raw when the script has one.
+                    var pending = Data()
+                    for try await byte in bytes {
+                        try Task.checkCancellation()
+                        guard byte == UInt8(ascii: "\n") else {
+                            pending.append(byte)
+                            continue
+                        }
+                        let data = pending
+                        pending = Data()
+                        guard !data.isEmpty else { continue }
+                        let event = try JSONDecoder().decode(SpeakClipLine.self, from: data)
+                        if let transcript = event.transcript, event.index == nil {
+                            continuation.yield(.transcript(transcript))
+                        } else if let audio = event.audio.flatMap({ Data(base64Encoded: $0) }), !audio.isEmpty {
+                            clips += 1
+                            continuation.yield(.clip(audio))
+                        } else {
+                            continuation.yield(.missing)
+                        }
+                    }
+                    Log.llm.info("← speak (clips) done clips=\(clips)")
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
 }
 
 private struct SpeakAnswer: Decodable {
@@ -1417,9 +1499,9 @@ extension LLMProxyClient {
     /// WebSocket to OpenAI's Realtime API directly with this, never the real
     /// key — the one call in this file that hands the caller something it
     /// then uses without the proxy in the loop for the rest of the exchange.
-    func mintRealtimeToken(language: String?) async throws -> RealtimeCredentials {
+    func mintRealtimeToken(language: String?, name: String? = nil) async throws -> RealtimeCredentials {
         let bodyData = try JSONEncoder().encode(
-            ProxyEnvelope(kind: "realtime_token", payload: RealtimeTokenRequest(language: language))
+            ProxyEnvelope(kind: "realtime_token", payload: RealtimeTokenRequest(language: language, name: name))
         )
         Log.llm.info("→ realtime_token via proxy lang=\(language ?? "auto")")
         let data = try await postToProxyWithRetry(body: bodyData)
@@ -1437,6 +1519,7 @@ extension LLMProxyClient {
 
 private struct RealtimeTokenRequest: Encodable {
     let language: String?
+    let name: String?
 }
 
 private struct RealtimeTokenAnswer: Decodable {

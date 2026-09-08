@@ -45,6 +45,27 @@ final class AnswerLinkPieceTests: XCTestCase {
         XCTAssertEqual(kinds("Nothing was filed for this one.\nIt is still open."), ["prose"])
     }
 
+    /// The case from the Linear screenshot: the model puts the issue's state
+    /// after the link. That is a reference with a note, not markdown prose.
+    func testAReferenceWithAStatusAfterItIsARowWithANote() {
+        let pieces = AnswerPiece.pieces(from: "- \(link) — In Progress", at: 0)
+        guard case let .links(items) = pieces.first?.content else { return XCTFail("expected a links piece") }
+        XCTAssertEqual(items.map(\.note), ["In Progress"])
+        XCTAssertEqual(items.map(\.title), ["NOD-93 — Retire communications-v1 consent branches"])
+    }
+
+    func testANoteInBracketsLosesItsBrackets() {
+        XCTAssertEqual(ProviderLinkItem.item(in: "\(link) (Todo)")?.note, "Todo")
+        XCTAssertEqual(ProviderLinkItem.item(in: "\(link): assigned to Vlad")?.note, "assigned to Vlad")
+    }
+
+    /// A reference inside a sentence stays in the sentence: the paragraph is
+    /// one prose piece, and the link is drawn inline by `ReferenceText`.
+    func testAReferenceInsideASentenceStaysProse() {
+        XCTAssertEqual(kinds("Ще є \(link), але вона на Владі, не на тобі."), ["prose"])
+        XCTAssertEqual(kinds("\(link) is the one that blocks the release."), ["prose"])
+    }
+
     /// A link to somewhere Nod has no integration for is not a reference — it
     /// stays markdown, where a normal link belongs.
     func testAnUnknownHostIsNotAReference() {

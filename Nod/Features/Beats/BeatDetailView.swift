@@ -97,6 +97,7 @@ struct BeatDetailView: View {
                             .complete(in: text, isFinished: true)
                             .enumerated()
                             .flatMap { AnswerPiece.pieces(from: $0.element, at: $0.offset) })
+                            .font(.system(size: MentionText.font.pointSize))
                     } else {
                         Text(Self.placeholder(for: run))
                             .font(.system(size: 12.5))

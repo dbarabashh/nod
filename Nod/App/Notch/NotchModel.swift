@@ -132,7 +132,7 @@ final class NotchModel: ObservableObject {
     /// surfaced in the notch too instead of only in the full window.
     private let meetingStore: MeetingStore
     let knowledge: KnowledgeStore
-    private let profiles: ProfileStore
+    let profiles: ProfileStore
     private let briefing: CallBriefing
     private let consent: ConsentPreference
     private let entitlements: EntitlementService

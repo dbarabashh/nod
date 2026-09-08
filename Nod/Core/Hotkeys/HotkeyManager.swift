@@ -61,10 +61,11 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         // ⌘Space is Spotlight and ⌥Space is Raycast's own; ⌘⇧K stays clear of
         // both and matches the ⌘K command-bar convention.
         case .askNod: .init(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(cmdKey | shiftKey))
-        // Bare ⌘T is what was asked for: one hand, one key, held. It is also
-        // "new tab" in every browser, so it is the one default a person may
-        // want to move, and the recorder in Settings lets them.
-        case .holdToAsk: .init(keyCode: UInt32(kVK_ANSI_T), modifiers: UInt32(cmdKey))
+        // One hand, one key, held. ⌘T was the first choice and it is "new
+        // tab" in every browser: a person asking about a Jira page got a blank
+        // tab instead. ⌥ with a letter is bound by almost nothing, and ⌥Space
+        // — the other voice apps' default — is Raycast's and Alfred's.
+        case .holdToAsk: .init(keyCode: UInt32(kVK_ANSI_T), modifiers: UInt32(optionKey))
         }
     }
 

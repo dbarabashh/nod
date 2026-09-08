@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import Foundation
 
 /// Nod's side of a spoken exchange: a word that it is on it the moment the
@@ -14,6 +15,8 @@ import Foundation
 final class SpokenAnswer: ObservableObject {
     private enum Line {
         case acknowledgement(question: String)
+        /// An acknowledgement the client already holds the audio for.
+        case aside(SpokenLine)
         case answer(String, question: String)
 
         var isAnswer: Bool {
@@ -23,7 +26,7 @@ final class SpokenAnswer: ObservableObject {
 
         var purpose: String {
             switch self {
-            case .acknowledgement: "acknowledgement"
+            case .acknowledgement, .aside: "acknowledgement"
             case .answer: "answer"
             }
         }
@@ -31,6 +34,7 @@ final class SpokenAnswer: ObservableObject {
         var text: String {
             switch self {
             case let .acknowledgement(question): question
+            case let .aside(clip): clip.transcript
             case let .answer(answer, _): answer
             }
         }
@@ -38,6 +42,7 @@ final class SpokenAnswer: ObservableObject {
         var question: String {
             switch self {
             case let .acknowledgement(question), let .answer(_, question): question
+            case .aside: ""
             }
         }
     }
@@ -50,6 +55,7 @@ final class SpokenAnswer: ObservableObject {
     var onSpeaking: ((String?) -> Void)?
 
     private let llmClient: LLMProxyClient
+    private let asides: SpokenAsides
     private let synthesizer = AVSpeechSynthesizer()
     private var player: AVAudioPlayer?
     /// One line fetched ahead of its moment, so a hello whose words are known
@@ -64,6 +70,7 @@ final class SpokenAnswer: ObservableObject {
 
     init(llmClient: LLMProxyClient) {
         self.llmClient = llmClient
+        asides = SpokenAsides(llmClient: llmClient)
         synthesizer.delegate = delegateBridge
     }
 
@@ -88,9 +95,22 @@ final class SpokenAnswer: ObservableObject {
     }
 
     /// Said as soon as the question is understood, while the answer is still
-    /// being worked out.
+    /// being worked out. A line kept ready plays at once; without one the
+    /// proxy writes and says one for this question — five seconds the person
+    /// spends in silence — and the next hold finds the ready line in place.
     func acknowledge(_ question: String, language: AppLanguage) {
-        enqueue(.acknowledgement(question: question), language: language)
+        if let clip = asides.clip(for: language) {
+            enqueue(.aside(clip), language: language)
+        } else {
+            enqueue(.acknowledgement(question: question), language: language)
+            asides.prepare(language)
+        }
+    }
+
+    /// Fetches the ready acknowledgement for `language` if there is none yet,
+    /// so the first hold of the key is answered as fast as the tenth.
+    func prepareAside(language: AppLanguage) {
+        asides.prepare(language)
     }
 
     /// A newer answer replaces one that has not been said and cuts one that
@@ -151,38 +171,83 @@ final class SpokenAnswer: ObservableObject {
     }
 
     /// Says the line and returns once it has been said, or cut.
+    ///
+    /// A line whose audio is in hand plays as one clip. An answer is fetched
+    /// a clip at a time and each plays as it arrives, so the voice starts on
+    /// the first sentence while the proxy is still making the rest.
     private func voice(_ line: Line, language: AppLanguage, generation: Int) async {
+        var played = 0
         do {
-            let spoken: SpokenLine = if let clip = await preparedClip(for: line, language: language) {
-                clip
-            } else {
-                try await llmClient.speak(
-                    text: line.text,
-                    question: line.question,
-                    language: language.rawValue,
-                    purpose: line.purpose
-                )
+            if case let .aside(clip) = line {
+                try await play(clip, purpose: line.purpose, language: language, generation: generation)
+                return
             }
-            guard generation == self.generation else { return }
-            let player = try AVAudioPlayer(data: spoken.audio)
-            player.delegate = delegateBridge
-            self.player = player
-            onSpeaking?(spoken.transcript)
-            Log.ui.info("spoken: \(line.purpose) in \(language.rawValue), \(spoken.transcript.count) chars via proxy voice")
-            var started = false
-            await untilFinished {
-                started = player.play()
-                if !started { finished() }
+            if let clip = await preparedClip(for: line, language: language) {
+                try await play(clip, purpose: line.purpose, language: language, generation: generation)
+                return
             }
-            self.player = nil
-            if started { return }
-            Log.ui.error("spoken: the player would not start — using the system voice")
+            var transcript = line.text
+            for try await event in llmClient.speakInClips(
+                text: line.text,
+                question: line.question,
+                language: language.rawValue,
+                purpose: line.purpose
+            ) {
+                guard generation == self.generation else { return }
+                switch event {
+                case let .transcript(words):
+                    transcript = words
+                case let .clip(audio):
+                    try await play(
+                        SpokenLine(audio: audio, transcript: transcript),
+                        purpose: line.purpose,
+                        language: language,
+                        generation: generation,
+                        announce: played == 0
+                    )
+                    played += 1
+                    // A cut lands while a clip plays; leaving the loop here
+                    // drops the stream at once instead of after its next clip.
+                    guard generation == self.generation else { return }
+                case .missing:
+                    Log.ui.error("spoken: a clip of the \(line.purpose) was not made")
+                }
+            }
+            guard generation == self.generation, played == 0 else { return }
+            Log.ui.error("spoken: no clip of the \(line.purpose) arrived — using the system voice")
             await speakOnDevice(line, language: language)
         } catch {
             guard generation == self.generation else { return }
+            guard played == 0 else {
+                Log.ui.error("spoken: the \(line.purpose) broke off after \(played) clip(s) — \(error.localizedDescription)")
+                return
+            }
             Log.ui.error("spoken: proxy voice failed (\(error.localizedDescription)) — using the system voice")
             await speakOnDevice(line, language: language)
         }
+    }
+
+    /// Plays one clip through to its end, or to the cut.
+    private func play(_ clip: SpokenLine, purpose: String, language: AppLanguage, generation: Int, announce: Bool = true) async throws {
+        let player = try AVAudioPlayer(data: clip.audio)
+        player.delegate = delegateBridge
+        self.player = player
+        if announce {
+            onSpeaking?(clip.transcript)
+            Log.ui.info("spoken: \(purpose) in \(language.rawValue), \(clip.transcript.count) chars via proxy voice")
+        }
+        var started = false
+        await untilFinished {
+            started = player.play()
+            if !started { finished() }
+        }
+        self.player = nil
+        guard !started, generation == self.generation else { return }
+        throw PlaybackFailure.playerRefused
+    }
+
+    private enum PlaybackFailure: Error {
+        case playerRefused
     }
 
     /// The Mac's own voice, reading a plain rendering of the line: the answer
@@ -231,7 +296,7 @@ final class SpokenAnswer: ObservableObject {
     // to compile until somebody writes what Nod says in it. The complexity
     // metric counts thirty-five one-line cases as branching; it isn't.
     // swiftlint:disable:next cyclomatic_complexity
-    private static func fallbackAcknowledgement(_ language: AppLanguage) -> String {
+    static func fallbackAcknowledgement(_ language: AppLanguage) -> String {
         switch language {
         case .english: "Okay, one moment."
         case .mandarin: "好的，稍等。"
@@ -283,6 +348,53 @@ final class SpokenAnswer: ObservableObject {
         return AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language.lowercased().hasPrefix(code) }
             .max { $0.quality.rawValue < $1.quality.rawValue }
+    }
+}
+
+/// The acknowledgements kept ready, one per language: the line every
+/// language already has for the on-device fallback, said once by the proxy's
+/// voice and kept on disk. Writing an aside for each question and saying it
+/// cost five seconds between the question and the first sound — the whole
+/// point of an aside is that it comes at once.
+@MainActor
+final class SpokenAsides {
+    private let llmClient: LLMProxyClient
+    private var clips: [AppLanguage: SpokenLine] = [:]
+    private var pending: Set<AppLanguage> = []
+
+    init(llmClient: LLMProxyClient) {
+        self.llmClient = llmClient
+    }
+
+    func clip(for language: AppLanguage) -> SpokenLine? {
+        if let clip = clips[language] { return clip }
+        let line = SpokenAnswer.fallbackAcknowledgement(language)
+        guard let audio = try? Data(contentsOf: Self.file(for: language, line: line)), !audio.isEmpty else { return nil }
+        let clip = SpokenLine(audio: audio, transcript: line)
+        clips[language] = clip
+        return clip
+    }
+
+    func prepare(_ language: AppLanguage) {
+        guard clip(for: language) == nil, !pending.contains(language) else { return }
+        pending.insert(language)
+        Task { [weak self] in
+            defer { self?.pending.remove(language) }
+            guard let self else { return }
+            let line = SpokenAnswer.fallbackAcknowledgement(language)
+            guard let clip = try? await llmClient.speak(
+                text: line, question: "", language: language.rawValue, purpose: "acknowledgement", verbatim: true
+            ) else { return }
+            clips[language] = clip
+            try? clip.audio.write(to: Self.file(for: language, line: line))
+        }
+    }
+
+    /// Named by the words as well as the language, so a reworded line misses
+    /// the cache instead of playing the old audio under the new transcript.
+    private static func file(for language: AppLanguage, line: String) -> URL {
+        let digest = SHA256.hash(data: Data(line.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+        return AppSupport.directory("spoken-asides").appendingPathComponent("\(language.rawValue)-\(digest).mp3")
     }
 }
 

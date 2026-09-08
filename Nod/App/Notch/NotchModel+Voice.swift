@@ -58,6 +58,9 @@ extension NotchModel {
             return
         }
         setVoiceAsk(.listening)
+        // Two seconds of holding is enough to have the aside ready by the
+        // time the words come back, on a language the launch did not cover.
+        voice.prepareAside(language: voiceLanguage ?? language.current)
         voiceHoldLimit = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(HeldQuestionRecorder.maxSeconds * 1_000_000_000))
             guard !Task.isCancelled else { return }
@@ -96,7 +99,8 @@ extension NotchModel {
                 setVoiceAsk(.idle)
                 guard !hasMeetingBar else { return }
                 UISound.meetingDetected.play(recording: false)
-                await realtimeVoice.start(language: voiceLanguage ?? language.current)
+                let name = PersonName.first(of: profiles.displayNameOrAccountName)
+                await realtimeVoice.start(language: voiceLanguage ?? language.current, name: name)
                 return
             }
             do {

@@ -610,12 +610,15 @@ extension ScreenContextService {
         do {
             return try await supabase
                 .from("screen_observations")
-                .select()
+                .select(ScreenObservation.columns)
                 .gt("expires_at", value: Date())
-                // `simple`, matching the GIN index: the default `english`
-                // config stems away the Ukrainian half of what people ask, and
-                // a query on another config would skip the index entirely.
-                .textSearch("content", query: terms.joined(separator: " | "), config: "simple")
+                // The stored vector, not `content`: the expression form made
+                // the planner parse every row it walked, and a question with
+                // no match on screen took the statement timeout before the
+                // answer could start. `simple`, matching how the column is
+                // built: the default `english` config stems away the
+                // Ukrainian half of what people ask.
+                .textSearch("content_tsv", query: terms.joined(separator: " | "), config: "simple")
                 .order("observed_at", ascending: false)
                 .limit(limit)
                 .execute()
@@ -708,7 +711,7 @@ extension ScreenContextService {
             let chunk = Array(hashes[start ..< min(start + Self.bodyChunkSize, hashes.count)])
             let rows: [ScreenObservation] = try await supabase
                 .from("screen_observations")
-                .select()
+                .select(ScreenObservation.columns)
                 .gt("expires_at", value: Date())
                 .in("content_hash", values: chunk)
                 .execute()

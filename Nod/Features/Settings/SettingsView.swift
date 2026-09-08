@@ -430,7 +430,7 @@ struct SettingsView: View {
             SettingsRow(
                 icon: "nc-mic",
                 title: "Hold to ask by voice",
-                subtitle: "Hold the key, say the question, let go. Nod writes it down, answers in the notch and reads the answer back. ⌘T is also \u{201C}new tab\u{201D} in browsers — move it if that bites."
+                subtitle: "Hold the key, say the question, let go. Nod writes it down, answers in the notch and reads the answer back. Move it here if ⌥T is taken by something you use."
             ) {
                 HotkeyRecorderView(hotkey: hotkey, action: .holdToAsk)
             }

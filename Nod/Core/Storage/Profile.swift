@@ -69,10 +69,26 @@ struct Profile: Codable, Equatable {
     /// tag belongs to is known where the session is, so it is stated there, by
     /// the prompts that hold a transcript.
     var promptBlock: String {
-        guard !isEmpty else { return "" }
+        Self.promptBlock(name: displayName, email: nil, preferences: preferences)
+    }
+
+    /// The same block with the account filled in from sign-in, so "me" in a
+    /// question — my tasks, mail to me, invite me — has a name and an address
+    /// even before a profile is saved.
+    static func promptBlock(name: String, email: String?, preferences: String) -> String {
+        let name = name.trimmed
+        let email = email?.trimmed ?? ""
+        let preferences = preferences.trimmed
+        guard !name.isEmpty || !email.isEmpty || !preferences.isEmpty else { return "" }
         var lines = ["[WHO IS ASKING — background only, never invent beyond it]"]
-        if !displayName.trimmed.isEmpty { lines.append("- Name: \(displayName.trimmed)") }
-        if !preferences.trimmed.isEmpty { lines.append("- What they want Nod to focus on: \(preferences.trimmed)") }
+        if !name.isEmpty { lines.append("- Name: \(name)") }
+        if !email.isEmpty { lines.append("- Email: \(email)") }
+        if !name.isEmpty || !email.isEmpty {
+            lines.append(
+                "- \u{201C}Me\u{201D}, \u{201C}my\u{201D} and \u{201C}mine\u{201D} in a question mean this person; when a connected tool takes an assignee, owner or address, this is who to filter by."
+            )
+        }
+        if !preferences.isEmpty { lines.append("- What they want Nod to focus on: \(preferences)") }
         lines.append(
             "Use this to shape what you emphasise. It is NOT part of the transcript — do not attribute it as something that was said, and do not assume this person is a voice in the recording."
         )

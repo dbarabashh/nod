@@ -432,7 +432,7 @@ struct AnswerPieceView: View {
     var body: some View {
         switch piece.content {
         case let .prose(block):
-            Text(block)
+            ReferenceProse(block)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case let .links(items):
             ProviderLinkList(items: items)
@@ -456,7 +456,7 @@ struct AnswerPieceView: View {
                         Text(item.marker)
                             .foregroundStyle(Theme.Palette.muted)
                             .frame(minWidth: 10, alignment: .trailing)
-                        Text(item.text)
+                        ReferenceProse(item.text)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.leading, CGFloat(item.level) * 16)

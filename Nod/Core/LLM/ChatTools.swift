@@ -645,8 +645,24 @@ enum ChatTools {
     private static let linearTools: [ChatTool] = [
         ChatTool(
             provider: .linear,
+            name: "linear_list_issues",
+            description: "List Linear issues by who holds them and which column they are in: what is assigned to the user, what a colleague has, what is In Progress. Use for any \u{201C}my tasks\u{201D} or \u{201C}what's in <column>\u{201D} question; keyword search cannot answer those.",
+            parameters: ChatToolSchema(
+                properties: [
+                    "assignee": .init(description: "\u{201C}me\u{201D} for the user, or a colleague's name. Omit for everyone's."),
+                    "state": .init(
+                        description: "A column name as the workspace spells it, e.g. In Progress, Todo, In Review. Omit for every open column."
+                    ),
+                    "closed": .init(description: "\"true\" to include completed and cancelled issues. Defaults to open issues only.")
+                ],
+                required: []
+            ),
+            mutating: false
+        ),
+        ChatTool(
+            provider: .linear,
             name: "linear_search_issues",
-            description: "Search the user's Linear issues by keyword. Returns titles and states only — call linear_read_issue for the description and comments of the one that matters. Use before claiming a task does or doesn't exist.",
+            description: "Search the user's Linear issues by keyword. Returns titles and states only — call linear_read_issue for the description and comments of the one that matters. Use before claiming a task does or doesn't exist. Not for \u{201C}my tasks\u{201D} — that is linear_list_issues.",
             parameters: ChatToolSchema(
                 properties: ["query": .init(description: "Keywords to search for.")],
                 required: ["query"]

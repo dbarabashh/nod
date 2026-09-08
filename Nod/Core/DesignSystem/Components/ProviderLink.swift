@@ -39,6 +39,13 @@ struct ProviderLink: View {
                 .foregroundStyle(Theme.Palette.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .multilineTextAlignment(.leading)
+            if let note = item.note {
+                Text(note)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+            }
             Image("nc-arrow-up-right")
                 .icon(9)
                 .foregroundStyle(Theme.Palette.muted)
@@ -70,8 +77,11 @@ struct ProviderLink: View {
         title: "NOD-57 — Provide team access",
         url: URL(fileURLWithPath: "/")
     )
+    var noted = item
+    noted.note = "In Progress"
     return VStack(alignment: .leading, spacing: 16) {
         ProviderLink(item: item)
+        ProviderLink(item: noted)
         ProviderLink(item: item, style: .compact)
     }
     .padding(20)

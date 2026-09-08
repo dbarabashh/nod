@@ -369,29 +369,29 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// The host whose links belong to this product, so an answer that cites one
-    /// can carry its mark instead of an anonymous blue phrase.
-    var linkHost: String {
+    /// The hosts whose links belong to this product, so an answer that cites
+    /// one can carry its mark instead of an anonymous blue phrase.
+    var linkHosts: [String] {
         switch self {
-        case .linear: "linear.app"
-        case .googleCalendar: "calendar.google.com"
-        case .slack: "slack.com"
-        case .github: "github.com"
-        case .jira: "atlassian.net"
-        case .notion: "notion.so"
-        case .asana: "asana.com"
-        case .hubspot: "hubspot.com"
-        case .gmail: "mail.google.com"
-        case .googleDrive: "drive.google.com"
-        case .googleAds: "ads.google.com"
-        case .googleTasks: "tasks.google.com"
+        case .linear: ["linear.app"]
+        case .googleCalendar: ["calendar.google.com"]
+        case .slack: ["slack.com"]
+        case .github: ["github.com"]
+        case .jira: ["atlassian.net"]
+        case .notion: ["notion.so", "notion.site"]
+        case .asana: ["asana.com"]
+        case .hubspot: ["hubspot.com"]
+        case .gmail: ["mail.google.com"]
+        case .googleDrive: ["drive.google.com", "docs.google.com"]
+        case .googleAds: ["ads.google.com"]
+        case .googleTasks: ["tasks.google.com"]
         }
     }
 
     init?(linkHost host: String?) {
         guard let host = host?.lowercased(), !host.isEmpty else { return nil }
-        guard let match = Self.allCases.first(where: {
-            host == $0.linkHost || host.hasSuffix("." + $0.linkHost)
+        guard let match = Self.allCases.first(where: { provider in
+            provider.linkHosts.contains { host == $0 || host.hasSuffix("." + $0) }
         }) else { return nil }
         self = match
     }

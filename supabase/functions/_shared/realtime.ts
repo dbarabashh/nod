@@ -26,12 +26,28 @@ export const REALTIME_PERSONA =
 
 export interface RealtimeTokenRequest {
     language?: string;
+    /// What to call the person. Bounded: it lands in the instructions verbatim.
+    name?: string;
 }
 
 export function realtimeTokenRequest(payload: unknown): RealtimeTokenRequest {
     if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return {};
-    const { language } = payload as Record<string, unknown>;
-    return typeof language === "string" ? { language } : {};
+    const { language, name } = payload as Record<string, unknown>;
+    const request: RealtimeTokenRequest = {};
+    if (typeof language === "string") request.language = language;
+    if (typeof name === "string" && name.trim() && name.trim().length <= 60) request.name = name.trim();
+    return request;
+}
+
+export function realtimeInstructions(request: RealtimeTokenRequest): string {
+    const parts = [REALTIME_PERSONA];
+    if (request.name) {
+        parts.push(`The person you're talking to is ${request.name}; use their name the way a friend would, sometimes and not every turn.`);
+    }
+    if (request.language) {
+        parts.push(`Speak the language the person speaks to you in; if they haven't said anything yet, start in ${request.language}.`);
+    }
+    return parts.join(" ");
 }
 
 // The one thing the live model is told about the person's own data: how to
@@ -101,9 +117,7 @@ export function realtimeSessionBody(request: RealtimeTokenRequest, voice: string
         session: {
             type: "realtime",
             model: REALTIME_MODEL,
-            instructions: request.language
-                ? `${REALTIME_PERSONA} Speak the language the person speaks to you in; if they haven't said anything yet, start in ${request.language}.`
-                : REALTIME_PERSONA,
+            instructions: realtimeInstructions(request),
             output_modalities: ["audio"],
             audio: {
                 input: { format: { type: "audio/pcm", rate: 24_000 }, turn_detection: { type: "server_vad" } },

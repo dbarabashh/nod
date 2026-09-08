@@ -33,11 +33,13 @@ import { completeOnce } from "../_shared/complete.ts";
 import {
     DEFAULT_VOICE,
     isSpeechRefusal,
-    looksAlreadySpoken,
     scriptPrompt,
     SCRIPT_MAX_CHARS,
     SCRIPT_MODEL,
+    speaksAsWritten,
+    speechChunks,
     SpeechMeter,
+    type SpeechPurpose,
     speechRequest,
     ttsBody,
     ttsCostUsd,
@@ -462,9 +464,10 @@ async function forwardSpeak(payload: unknown, userId: string): Promise<Response>
     if (isSpeechRefusal(request)) return json({ error: request.error }, request.status);
     // 422, not 503: a branch with no key will have no key on the next attempt
     // either, and the client retries 5xx before it falls back to its own voice.
-    // Only a short, already-plain answer skips the OpenRouter rewrite —
-    // narration still needs it, to come out sounding spoken rather than read.
-    const needsOpenRouter = !(request.purpose === "answer" && looksAlreadySpoken(request.text));
+    // Only a vouched-for or short, already-plain line skips the OpenRouter
+    // rewrite — narration still needs it, to come out sounding spoken rather
+    // than read.
+    const needsOpenRouter = !speaksAsWritten(request);
     if ((needsOpenRouter && !OPENROUTER_API_KEY) || !OPENAI_API_KEY) {
         console.error(`speak unavailable user=${userId} openrouter=${!!OPENROUTER_API_KEY} openai=${!!OPENAI_API_KEY}`);
         return json({ error: "speech_unavailable" }, 422);
@@ -478,7 +481,7 @@ async function forwardSpeak(payload: unknown, userId: string): Promise<Response>
     // markdown, a list, or real length still goes through the model, from
     // OpenRouter like every other chat call.
     let script: string;
-    if (request.purpose === "answer" && looksAlreadySpoken(request.text)) {
+    if (speaksAsWritten(request)) {
         script = request.text;
     } else {
         const { system, user } = scriptPrompt(request);
@@ -492,48 +495,8 @@ async function forwardSpeak(payload: unknown, userId: string): Promise<Response>
     }
     script = script.slice(0, SCRIPT_MAX_CHARS);
 
-    // Step 2 — the performance. Direct to OpenAI: this is the one endpoint
-    // that takes a plain-language `instructions` field, and OpenRouter
-    // doesn't route it. The timeout has to cover reading the body, not just
-    // getting headers — `fetch` resolves as soon as headers arrive, and a
-    // stalled body would otherwise run past `SPEECH_TIMEOUT_MS` unbounded.
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), SPEECH_TIMEOUT_MS);
-    try {
-        let upstream: Response;
-        try {
-            upstream = await fetch("https://api.openai.com/v1/audio/speech", {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(ttsBody(script, SPEECH_VOICE, request.purpose)),
-                signal: controller.signal,
-            });
-        } catch (error) {
-            // The network itself failed before OpenAI ever saw the request —
-            // never something the caller's content could have provoked, so
-            // this is the one failure worth giving the slot back for.
-            const aborted = error instanceof DOMException && error.name === "AbortError";
-            console.error(`speak tts user=${userId} ${aborted ? "timeout" : "unreachable"}: ${(error as Error).message}`);
-            speechMeter.refund(userId);
-            return json({ error: "speech_unavailable" }, aborted ? 504 : 502);
-        }
-        if (!upstream.ok) {
-            // No refund: a script this call itself wrote can be exactly what
-            // provoked OpenAI's refusal, so crediting it back would let a
-            // caller mint free attempts by tripping this on purpose.
-            const detail = (await upstream.text().catch(() => "")).slice(0, 300);
-            console.error(`speak tts ${upstream.status} user=${userId}: ${detail}`);
-            return json({ error: "speech_failed", status: upstream.status }, 502);
-        }
-        const wav = new Uint8Array(await upstream.arrayBuffer());
-        if (wav.length === 0) {
-            console.error(`speak returned no audio user=${userId}`);
-            return json({ error: "speech_failed" }, 502);
-        }
-        console.log(`speak served user=${userId} model=${TTS_MODEL} purpose=${request.purpose} lang=${request.language} dt=${Date.now() - started}ms bytes=${wav.length} chars=${script.length}`);
+    const served = async (bytes: number) => {
+        console.log(`speak served user=${userId} model=${TTS_MODEL} purpose=${request.purpose} lang=${request.language} stream=${request.stream} dt=${Date.now() - started}ms bytes=${bytes} chars=${script.length}`);
         await recordUsage({
             user_id: userId,
             kind: "speak",
@@ -546,14 +509,121 @@ async function forwardSpeak(payload: unknown, userId: string): Promise<Response>
             requested_model: TTS_MODEL,
             resolved_model: TTS_MODEL,
         });
-        let binary = "";
-        for (let i = 0; i < wav.length; i += 0x8000) {
-            binary += String.fromCharCode(...wav.subarray(i, i + 0x8000));
+    };
+
+    if (!request.stream) {
+        const clip = await synthesise(script, request.purpose, userId);
+        if ("error" in clip) {
+            if (clip.refundable) speechMeter.refund(userId);
+            return json({ error: "speech_failed", status: clip.status }, clip.status === 504 ? 504 : 502);
         }
-        return json({ audio: btoa(binary), format: "wav", transcript: script }, 200);
+        await served(clip.audio.length);
+        return json({ audio: encodeBase64(clip.audio), format: "mp3", transcript: script }, 200);
+    }
+
+    // Step 2, streamed — the first sentence and the rest are synthesised at
+    // once, and each goes out the moment it exists, in order. The status is
+    // committed before any clip is, so a clip that fails is a line saying so
+    // and the client falls back to its own voice for what is missing. One
+    // call, one refund at most, and usage only for audio that was made; a
+    // client that hangs up mid-stream still gets the clips it took billed.
+    const chunks = speechChunks(script);
+    const clips = chunks.map((chunk) => synthesise(chunk, request.purpose, userId));
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+            const line = (value: unknown) => controller.enqueue(encoder.encode(JSON.stringify(value) + "\n"));
+            let bytes = 0;
+            let refund = false;
+            try {
+                line({ transcript: script, clips: chunks.length });
+                for (const [index, pending] of clips.entries()) {
+                    const clip = await pending;
+                    if ("error" in clip) {
+                        refund ||= clip.refundable;
+                        line({ index, error: "speech_failed" });
+                        continue;
+                    }
+                    bytes += clip.audio.length;
+                    line({ index, audio: encodeBase64(clip.audio), format: "mp3", transcript: chunks[index] });
+                }
+            } catch (error) {
+                console.warn(`speak stream cut user=${userId}: ${(error as Error).message}`);
+            } finally {
+                if (refund && bytes === 0) speechMeter.refund(userId);
+                if (bytes > 0) await served(bytes).catch((error) => console.error(`speak usage user=${userId}: ${(error as Error).message}`));
+                try {
+                    controller.close();
+                } catch {
+                    // Already cancelled by the client going away.
+                }
+            }
+        },
+    });
+    return new Response(body, { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
+}
+
+/// One clip from OpenAI, direct: this is the one endpoint that takes a
+/// plain-language `instructions` field, and OpenRouter doesn't route it. The
+/// timeout has to cover reading the body, not just getting headers — `fetch`
+/// resolves as soon as headers arrive, and a stalled body would otherwise run
+/// past `SPEECH_TIMEOUT_MS` unbounded.
+async function synthesise(
+    script: string,
+    purpose: SpeechPurpose,
+    userId: string,
+): Promise<{ audio: Uint8Array } | { error: true; status: number; refundable: boolean }> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SPEECH_TIMEOUT_MS);
+    try {
+        let upstream: Response;
+        let audio: Uint8Array;
+        try {
+            upstream = await fetch("https://api.openai.com/v1/audio/speech", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(ttsBody(script, SPEECH_VOICE, purpose)),
+                signal: controller.signal,
+            });
+            if (!upstream.ok) {
+                // No refund: a script this call itself wrote can be exactly
+                // what provoked OpenAI's refusal, so crediting it back would
+                // let a caller mint free attempts by tripping this on purpose.
+                const detail = (await upstream.text().catch(() => "")).slice(0, 300);
+                console.error(`speak tts ${upstream.status} user=${userId}: ${detail}`);
+                return { error: true, status: upstream.status, refundable: false };
+            }
+            // Inside the same try: the abort can fire while the body is still
+            // being read, and a rejection here must come back as a result,
+            // never escape — in the streamed path nothing would catch it.
+            audio = new Uint8Array(await upstream.arrayBuffer());
+        } catch (error) {
+            // The network itself failed — never something the caller's
+            // content could have provoked, so this is the one failure worth
+            // giving the slot back for.
+            const aborted = error instanceof DOMException && error.name === "AbortError";
+            console.error(`speak tts user=${userId} ${aborted ? "timeout" : "unreachable"}: ${(error as Error).message}`);
+            return { error: true, status: aborted ? 504 : 502, refundable: true };
+        }
+        if (audio.length === 0) {
+            console.error(`speak returned no audio user=${userId}`);
+            return { error: true, status: 502, refundable: false };
+        }
+        return { audio };
     } finally {
         clearTimeout(timeout);
     }
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(binary);
 }
 
 // Allowance is enforced here, once, before any audio exists — not per chunk.
