@@ -20,18 +20,15 @@ final class ActionItemStore: ObservableObject {
     private let supabase: SupabaseClient
     private static let tableName = "action_items"
 
-    /// How many actions a recap has to name before its silence about the rest
-    /// counts as a judgement. Below this it is a recap that underperformed, not
-    /// one that disagreed, and it retires nothing.
+    /// Whether this recap has standing to retire the live findings it did not
+    /// restate. Below the floor it is a recap that underperformed, not one that
+    /// disagreed, and it retires nothing.
     ///
     /// Two, not one: a recap that found a single action is the shape that lost
-    /// three corroborated live findings on a real meeting.
-    private static let recapFloor = 2
-
-    /// Whether this recap has standing to retire the live findings it did not
-    /// restate. Pure, so the rule can be exercised without a round trip.
+    /// three corroborated live findings on a real meeting. Pure, so the rule
+    /// can be exercised without a round trip.
     nonisolated static func recapOverrulesLive(recapCount: Int) -> Bool {
-        recapCount >= recapFloor
+        recapCount >= 2
     }
 
     private static let transitionsTable = "action_item_transitions"

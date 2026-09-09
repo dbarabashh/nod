@@ -252,8 +252,8 @@ struct MeetingLookup {
     /// mark — `NOD-57`, `eng_releases`, `Pricing sync` — is none of those.
     nonisolated static func isOpaqueIdentifier(_ subject: String) -> Bool {
         guard subject.count >= 20, !subject.contains(" ") else { return false }
-        let digits = subject.filter(\.isNumber).count
-        return digits > 0 && subject.allSatisfy { $0.isLowercase && $0.isLetter || $0.isNumber }
+        guard subject.contains(where: \.isNumber) else { return false }
+        return subject.allSatisfy { $0.isLowercase && $0.isLetter || $0.isNumber }
     }
 
     /// What the question reached, and whether the product answered it.
