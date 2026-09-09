@@ -23,10 +23,7 @@ struct ProviderMark: View {
         Group {
             if Self.ships.contains(provider) {
                 Image(provider.iconName)
-                    // The stand-in is a Nucleo glyph drawn on the same 18pt grid as
-                    // the rest of the interface, so it sits a size smaller than a
-                    // brand mark that fills its own square.
-                    .icon(Self.tinted.contains(provider) ? size * 0.82 : size)
+                    .icon(Self.side(for: provider, size: size))
                     .foregroundStyle(Theme.Palette.ink)
             } else {
                 // No asset shipped for this one. Now that a connection can be to any
@@ -55,6 +52,41 @@ struct ProviderMark: View {
     private static let tinted: Set<IntegrationProvider> = Set(
         IntegrationProvider.allCases.filter { NSImage(named: $0.iconName)?.isTemplate != false }
     )
+
+    /// The stand-in is a Nucleo glyph drawn on the same 18pt grid as the rest
+    /// of the interface, so it sits a size smaller than a brand mark that fills
+    /// its own square. One rule for the row and the inline mark: two copies of
+    /// the shrink drift apart silently.
+    private static func side(for provider: IntegrationProvider, size: CGFloat) -> CGFloat {
+        tinted.contains(provider) ? size * 0.82 : size
+    }
+
+    /// The mark as a piece of text, so it can sit at the end of a sentence
+    /// rather than on a line of its own.
+    ///
+    /// The notch answer is a few hundred points wide and four lines tall; a row
+    /// holding one 11pt icon spent a whole line saying what a trailing glyph
+    /// says for nothing. Sized in the image rather than by a modifier because a
+    /// `Text` draws an image at its natural size and no modifier reaches inside
+    /// one.
+    ///
+    /// Nil for a product whose mark comes from the broker's catalogue: that one
+    /// arrives asynchronously, and a sentence cannot wait for it.
+    static func inline(_ provider: IntegrationProvider) -> Text? {
+        inlineMarks[provider]
+    }
+
+    private static let inlineSize: CGFloat = 11
+
+    /// Resolved once, for the same reason `ships` is: this is read from a notch
+    /// body that re-runs every second a meeting is recorded, and building the
+    /// image per call rasterised the glyph again each time.
+    private static let inlineMarks: [IntegrationProvider: Text] = ships.reduce(into: [:]) { marks, provider in
+        guard let mark = NSImage.nodIcon(provider.iconName, side: side(for: provider, size: inlineSize)) else { return }
+        // A brand mark keeps its own colours; only the stand-in takes the ink.
+        mark.isTemplate = tinted.contains(provider)
+        marks[provider] = Text(Image(nsImage: mark))
+    }
 }
 
 /// A catalogue product's own logo, or the stand-in until it arrives.

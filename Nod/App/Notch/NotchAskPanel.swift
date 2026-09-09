@@ -89,27 +89,15 @@ struct MeetingAskPanel: View {
                 Text(question)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Theme.Palette.muted)
-                // Links are shortened to their host and carry the URL on the
-                // attribute: the panel is a few hundred points wide, and a
-                // pasted page id used to take three of its four lines.
-                Text(AnswerLinkDetection.linked(answer))
+                answerText(answer, source: source)
                     .font(.system(size: 12.5, weight: .regular))
                     .foregroundStyle(Theme.Palette.ink)
                     .tint(Theme.Palette.brand)
                     .fixedSize(horizontal: false, vertical: true)
-                if let source {
-                    // The mark, not the product's name in words — the row is
-                    // one line and the icon is what a person recognises.
-                    HStack(spacing: 5) {
-                        ProviderMark(provider: source.provider, size: 11)
-                        if let subject = source.subject {
-                            Text(subject)
-                                .font(.system(size: 11, weight: .regular))
-                                .foregroundStyle(Theme.Palette.muted)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    }
+                // Only a catalogue mark still needs a line of its own — it is
+                // fetched, so it cannot be part of the sentence.
+                if let source, ProviderMark.inline(source.provider) == nil {
+                    ProviderMark(provider: source.provider, size: 11)
                 }
             }
         case let .failed(question):
@@ -117,6 +105,19 @@ struct MeetingAskPanel: View {
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(Theme.Palette.muted)
         }
+    }
+
+    /// The answer with the product's mark trailing the last word, so a sentence
+    /// that already fits keeps its line instead of pushing a one-icon row under
+    /// it. A subject worth naming follows the mark, muted.
+    private func answerText(_ answer: String, source: LiveMeetingAnalyst.AnswerSource?) -> Text {
+        var text = Text(AnswerLinkText.linked(answer))
+        guard let source else { return text }
+        if let mark = ProviderMark.inline(source.provider) {
+            text = text + Text(verbatim: "  ") + mark
+        }
+        guard let subject = source.subject else { return text }
+        return text + Text(verbatim: " \(subject)").foregroundColor(Theme.Palette.muted)
     }
 
     private var inputRow: some View {

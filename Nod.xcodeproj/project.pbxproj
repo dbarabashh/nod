@@ -197,6 +197,7 @@
 		624348146B9FE2015B7FCC57 /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF4F90BC0B709AB40CEC27DF /* PaywallView.swift */; };
 		6274106E684DB2F334B7A45D /* ActionItemDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BEAC6DCD8FA49B96466AA04 /* ActionItemDrawer.swift */; };
 		62BFF4EDF84C926D3E65F417 /* RoomComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 988EB0714D3DA12F9961D884 /* RoomComposition.swift */; };
+		63496CD634923D04A3A74542 /* AnswerLinkText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90CA47498A0F3885BE089C6A /* AnswerLinkText.swift */; };
 		636C0E9B8956E3D9664D11EF /* ProposalRaiser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C309A19091BC81031E0E7D /* ProposalRaiser.swift */; };
 		643BE9434DECAB69027018C9 /* GlassPillButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AFB4F73B582118B0F0FF815 /* GlassPillButton.swift */; };
 		64A75235CDD8D85F27AA2677 /* RetrievalFeedbackStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6A4343E588EAD8505C651F /* RetrievalFeedbackStore.swift */; };
@@ -875,6 +876,7 @@
 		8F102E052CC755FB85E17782 /* DesignScaleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignScaleTests.swift; sourceTree = "<group>"; };
 		8F90613CFE7C2EE0F8EF5F5F /* RelaunchCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelaunchCard.swift; sourceTree = "<group>"; };
 		90B9A0E58621C399E4C8BE89 /* SampleBufferConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleBufferConverter.swift; sourceTree = "<group>"; };
+		90CA47498A0F3885BE089C6A /* AnswerLinkText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerLinkText.swift; sourceTree = "<group>"; };
 		91EC1F3CB967E89C69FD46C4 /* TeamRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamRow.swift; sourceTree = "<group>"; };
 		92F3B81F02B25F8E53733099 /* ConsentStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsentStrings.swift; sourceTree = "<group>"; };
 		92F6CC2374B2F564837C93C9 /* LanguageMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageMenu.swift; sourceTree = "<group>"; };
@@ -1847,6 +1849,7 @@
 			children = (
 				9304B4FAD03EB638DDBAD2E7 /* ActionCheckbox.swift */,
 				CA27FA369738ABDE9D365D7C /* ActionItemFilingButton.swift */,
+				90CA47498A0F3885BE089C6A /* AnswerLinkText.swift */,
 				77CC55E246DF44FD3DFD4FB6 /* ChatComponents.swift */,
 				F1A346DC11B298BE6A464B33 /* ChatComposer.swift */,
 				5A9DDF24A3973D5F91ABD6D9 /* ChatSourcesRow.swift */,
@@ -2344,6 +2347,7 @@
 				9679CC0CDBAA32331D006B61 /* AmbientContextSidebarRow.swift in Sources */,
 				A216F469E14FF066F4891871 /* AmbientScopes.swift in Sources */,
 				5930A1449994D4A0387AF7E8 /* AnswerLinkDetection.swift in Sources */,
+				63496CD634923D04A3A74542 /* AnswerLinkText.swift in Sources */,
 				50061825FE131CBC688B2FBB /* AppDeepLink.swift in Sources */,
 				F4EDE7F6FB207812CFB364D6 /* AppDirectory.swift in Sources */,
 				87D0FC8D4B6AFBEEC273EB12 /* AppLanguage.swift in Sources */,

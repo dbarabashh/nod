@@ -86,7 +86,7 @@ final class AnswerLinkPieceTests: XCTestCase {
 final class AnswerLinkShorteningTests: XCTestCase {
     func testAURLIsShortenedToItsHostAndStaysClickable() {
         let text = "Meetings page opened: https://app.notion.com/p/Meetings-3d6743f9ade781cdbe68cb922b718101."
-        let linked = AnswerLinkDetection.linked(text)
+        let linked = AnswerLinkText.linked(text)
         let plain = String(linked.characters)
         XCTAssertTrue(plain.contains("app.notion.com/…"))
         XCTAssertFalse(plain.contains("3d6743f9ade781cdbe68cb922b718101"))
@@ -94,7 +94,7 @@ final class AnswerLinkShorteningTests: XCTestCase {
     }
 
     func testTextWithoutALinkIsUntouched() {
-        XCTAssertEqual(String(AnswerLinkDetection.linked("No link here").characters), "No link here")
+        XCTAssertEqual(String(AnswerLinkText.linked("No link here").characters), "No link here")
     }
 
     /// The mark beside a product is meant to be a name a person recognises;
@@ -111,5 +111,21 @@ final class AnswerLinkShorteningTests: XCTestCase {
     func testNotionComIsRecognised() {
         XCTAssertEqual(IntegrationProvider(linkHost: "app.notion.com"), .notion)
         XCTAssertEqual(IntegrationProvider(linkHost: "www.notion.so"), .notion)
+    }
+}
+
+/// The notch answer is four lines tall, so a product's mark rides at the end of
+/// the sentence rather than on a row of its own.
+final class InlineProviderMarkTests: XCTestCase {
+    func testAShippedMarkCanBeDrawnInline() {
+        XCTAssertNotNil(ProviderMark.inline(.googleCalendar))
+        XCTAssertNotNil(ProviderMark.inline(.github))
+    }
+
+    /// A catalogue mark is fetched, so a sentence cannot wait for it — those
+    /// keep the separate row.
+    func testAnUnshippedMarkHasNoInlineForm() throws {
+        let unshipped = try XCTUnwrap(IntegrationProvider.allCases.first { !ProviderMark.ships.contains($0) })
+        XCTAssertNil(ProviderMark.inline(unshipped))
     }
 }

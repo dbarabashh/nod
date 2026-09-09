@@ -26,7 +26,7 @@ extension LiveMeetingAnalyst {
     /// An answer and where it came from.
     struct Answered: Equatable {
         let text: String
-        let source: AnswerSource?
+        var source: AnswerSource?
     }
 
     /// How much transcript "catch me up" reads — effectively the whole
@@ -56,8 +56,8 @@ extension LiveMeetingAnalyst {
     /// window.
     func ask(_ question: String, thread: AskThread = AskThread(), language: AppLanguage) async throws -> Answered {
         switch await answerFromTools(question, thread: thread) {
-        case let .answered(text, source):
-            return Answered(text: text, source: source)
+        case let .answered(answered):
+            return answered
         // A tool ran and had nothing. The transcript gets the question only if
         // it has something to answer with; on an empty one the fallback is not
         // "the meeting's own words", it is a model with no context inventing a
@@ -86,7 +86,7 @@ extension LiveMeetingAnalyst {
             as: PromptLibrary.AskResult.self,
             primaryModel: llm.chatModel
         )
-        return Answered(text: result.answer.trimmingCharacters(in: .whitespacesAndNewlines), source: nil)
+        return Answered(text: result.answer.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// The typed question, tried against the connected tools before the
@@ -111,7 +111,7 @@ extension LiveMeetingAnalyst {
     /// don't cover better. `.checked` is the caller's judgement call — see
     /// `ask`.
     private enum ToolAttempt {
-        case answered(String, AnswerSource?)
+        case answered(Answered)
         /// A tool was reached, and what came back did not answer the question.
         case checked(IntegrationProvider)
         /// No connected tool was chosen for this question at all.
@@ -136,7 +136,7 @@ extension LiveMeetingAnalyst {
         // to believe their Linear was read when it never was.
         if let refusal = await meetingLookup.objection(to: request) {
             Log.llm.info("live: ask names an unreachable product")
-            return .answered(refusal.label, nil)
+            return .answered(Answered(text: refusal.label))
         }
         guard let routed = await meetingLookup.routing(for: request, thread: thread) else { return .notTried }
 
@@ -144,13 +144,13 @@ extension LiveMeetingAnalyst {
         switch await meetingLookup.answer(request, running: routed, thread: thread) {
         case let .refused(refusal):
             Log.llm.info("live: ask refused — \(refusal)")
-            return .answered(refusal.label, nil)
+            return .answered(Answered(text: refusal.label))
         // Not "found nothing". The product never answered, and the two are
         // opposite pieces of news to somebody deciding whether to go and look
         // themselves — so the reason is passed on rather than flattened.
         case let .failed(failure):
             Log.llm.error("live: ask failed — \(failure.label)")
-            return .answered(failure.label, nil)
+            return .answered(Answered(text: failure.label))
         case .empty:
             Log.llm.info("live: ask \(routed.provider.rawValue) had nothing")
             return .checked(routed.provider)
@@ -164,10 +164,10 @@ extension LiveMeetingAnalyst {
             // that has to be drawn as text. The subject rides along for the
             // cases where it is a real one — an issue key, a channel.
             guard let provider = answer.provider else {
-                guard let subject = answer.subject?.nilIfBlank else { return .answered(answer.text, nil) }
-                return .answered("\(answer.text) · \(subject)", nil)
+                guard let subject = answer.subject else { return .answered(Answered(text: answer.text)) }
+                return .answered(Answered(text: "\(answer.text) · \(subject)"))
             }
-            return .answered(answer.text, AnswerSource(provider: provider, subject: answer.subject?.nilIfBlank))
+            return .answered(Answered(text: answer.text, source: AnswerSource(provider: provider, subject: answer.subject)))
         }
     }
 }

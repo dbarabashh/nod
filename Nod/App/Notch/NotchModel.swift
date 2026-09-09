@@ -1005,12 +1005,12 @@ extension NotchModel {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         runAsk(question: trimmed, spoken: spoken) { thread in
-            try await self.isListening
-                ? LiveMeetingAnalyst.Answered(
-                    text: self.rooms.ask(trimmed, thread: thread, language: self.language.current),
-                    source: nil
-                )
-                : try await self.session.analyst.ask(trimmed, thread: thread, language: self.language.current)
+            guard self.isListening else {
+                return try await self.session.analyst.ask(trimmed, thread: thread, language: self.language.current)
+            }
+            return try await LiveMeetingAnalyst.Answered(
+                text: self.rooms.ask(trimmed, thread: thread, language: self.language.current)
+            )
         }
     }
 
@@ -1103,8 +1103,7 @@ extension NotchModel {
             try await LiveMeetingAnalyst.Answered(
                 text: self.isListening
                     ? self.rooms.catchMeUp(language: self.language.current)
-                    : self.session.analyst.catchUp(language: self.language.current),
-                source: nil
+                    : self.session.analyst.catchUp(language: self.language.current)
             )
         }
     }
