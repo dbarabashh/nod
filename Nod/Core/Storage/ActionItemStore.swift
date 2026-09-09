@@ -19,6 +19,21 @@ final class ActionItemStore: ObservableObject {
     @Published private(set) var items: [ActionItem] = []
     private let supabase: SupabaseClient
     private static let tableName = "action_items"
+
+    /// How many actions a recap has to name before its silence about the rest
+    /// counts as a judgement. Below this it is a recap that underperformed, not
+    /// one that disagreed, and it retires nothing.
+    ///
+    /// Two, not one: a recap that found a single action is the shape that lost
+    /// three corroborated live findings on a real meeting.
+    private static let recapFloor = 2
+
+    /// Whether this recap has standing to retire the live findings it did not
+    /// restate. Pure, so the rule can be exercised without a round trip.
+    nonisolated static func recapOverrulesLive(recapCount: Int) -> Bool {
+        recapCount >= recapFloor
+    }
+
     private static let transitionsTable = "action_item_transitions"
     private var didLoad = false
     private var loading: Task<Void, Never>?
@@ -130,10 +145,11 @@ final class ActionItemStore: ObservableObject {
     /// the whole transcript afterwards, so where the two agree the live finding
     /// is corroborated and becomes a real task; where the recap is silent about
     /// something the live pass called an action, the live pass over-read and the
-    /// row is written `dropped`. Both are kept — a task Nod caught mid-meeting
-    /// and one it talked itself out of are both part of what happened, and
-    /// neither costs the user anything, because only `confirmed` actions are
-    /// ever counted or shown.
+    /// row is written `dropped` — but only when the recap named enough actions
+    /// to be worth believing (`recapOverrulesLive`). Both are kept — a task Nod
+    /// caught mid-meeting and one it talked itself out of are both part of what
+    /// happened, and neither costs the user anything, because only `confirmed`
+    /// actions are ever counted or shown.
     ///
     /// Returns the rows it wrote, so the caller can act on them without reading
     /// them back. What a meeting produced is decided here; whether any of it is
@@ -197,8 +213,21 @@ final class ActionItemStore: ObservableObject {
             )
         }
 
-        for orphan in unclaimed {
-            rows[orphan.id]?.status = .dropped
+        // Retiring a live finding treats the recap's silence as a verdict, and
+        // that only holds while the recap is working. On a 25-minute call it
+        // came back with one item — someone else's — and the three actions the
+        // live pass had caught, each with its quote, were all written `dropped`;
+        // the meeting then showed no action items at all.
+        //
+        // So silence is only a verdict when the recap spoke. A recap that names
+        // fewer actions than `recapFloor` did not overrule the live pass, it
+        // failed, and the live findings stand rather than being retired by it.
+        if Self.recapOverrulesLive(recapCount: recap.count) {
+            for orphan in unclaimed {
+                rows[orphan.id]?.status = .dropped
+            }
+        } else if !unclaimed.isEmpty {
+            Log.ui.info("action items: recap too thin (\(recap.count)) — keeping \(unclaimed.count) live finding(s)")
         }
 
         let inserts = Array(rows.values)

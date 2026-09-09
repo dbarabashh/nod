@@ -75,3 +75,35 @@ final class ActionItemMatchTests: XCTestCase {
         XCTAssertFalse(ActionItemDedup.same("Ship the build", ""))
     }
 }
+
+/// A live finding the recap does not restate is retired — but only when the
+/// recap actually worked. One real 25-minute meeting came back with a single
+/// action (someone else's) and silently dropped the three the live pass had
+/// caught, leaving the meeting with no action items at all.
+final class RecapStandingTests: XCTestCase {
+    func testAWorkingRecapStillRetiresWhatItDidNotRestate() {
+        XCTAssertTrue(ActionItemStore.recapOverrulesLive(recapCount: 2))
+        XCTAssertTrue(ActionItemStore.recapOverrulesLive(recapCount: 10))
+    }
+
+    func testAThinRecapRetiresNothing() {
+        XCTAssertFalse(ActionItemStore.recapOverrulesLive(recapCount: 0))
+        XCTAssertFalse(ActionItemStore.recapOverrulesLive(recapCount: 1))
+    }
+}
+
+/// GitHub's mark is a single near-black silhouette (`#161614`), so drawn as-is
+/// it disappeared into the notch. A one-colour dark mark has to take the
+/// interface's ink the way Linear's does.
+final class ProviderMarkContrastTests: XCTestCase {
+    func testTheGithubMarkIsATemplate() {
+        XCTAssertEqual(NSImage(named: IntegrationProvider.github.iconName)?.isTemplate, true)
+    }
+
+    /// The brand colours must not be flattened into one ink.
+    func testColouredMarksAreNotTemplates() {
+        for provider in [IntegrationProvider.slack, .googleCalendar, .gmail] {
+            XCTAssertEqual(NSImage(named: provider.iconName)?.isTemplate, false, "\(provider)")
+        }
+    }
+}
