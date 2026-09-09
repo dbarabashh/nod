@@ -1005,8 +1005,11 @@ extension NotchModel {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         runAsk(question: trimmed, spoken: spoken) { thread in
-            self.isListening
-                ? try await self.rooms.ask(trimmed, thread: thread, language: self.language.current)
+            try await self.isListening
+                ? LiveMeetingAnalyst.Answered(
+                    text: self.rooms.ask(trimmed, thread: thread, language: self.language.current),
+                    source: nil
+                )
                 : try await self.session.analyst.ask(trimmed, thread: thread, language: self.language.current)
         }
     }
@@ -1097,9 +1100,12 @@ extension NotchModel {
 
     func askSummarize() {
         runAsk(question: "Summarize", feature: .catchUp) { _ in
-            self.isListening
-                ? try await self.rooms.catchMeUp(language: self.language.current)
-                : try await self.session.analyst.catchUp(language: self.language.current)
+            try await LiveMeetingAnalyst.Answered(
+                text: self.isListening
+                    ? self.rooms.catchMeUp(language: self.language.current)
+                    : self.session.analyst.catchUp(language: self.language.current),
+                source: nil
+            )
         }
     }
 
@@ -1113,7 +1119,7 @@ extension NotchModel {
         question: String,
         feature: ProductAnalytics.AIFeature = .liveAsk,
         spoken: Bool = false,
-        call: @escaping (AskThread) async throws -> String
+        call: @escaping (AskThread) async throws -> LiveMeetingAnalyst.Answered
     ) {
         askTask?.cancel()
         meetingBarPanel.startAsking()
@@ -1124,10 +1130,13 @@ extension NotchModel {
         askTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let answer = try await call(thread)
+                let outcome = try await call(thread)
                 guard !Task.isCancelled else { return }
+                let answer = outcome.text
                 askThread.append(question: question, answer: answer)
-                meetingBarPanel.land(.answered(question: question, answer: answer))
+                meetingBarPanel.land(.answered(question: question, answer: answer, source: outcome.source))
+                // Spoken aloud without the mark: a product's name is drawn, not
+                // read, and `speech.ts` already refuses to read a link.
                 if spoken { voice.say(answer, asking: question, language: voiceLanguage ?? language.current) }
                 report(feature, outcome: .success)
             } catch {

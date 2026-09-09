@@ -238,7 +238,22 @@ struct MeetingLookup {
     nonisolated static func mark(_ written: String?, notNaming toolNames: [String]) -> String? {
         guard let subject = written?.nilIfBlank else { return nil }
         guard !toolNames.contains(where: { $0.caseInsensitiveCompare(subject) == .orderedSame }) else { return nil }
+        guard !isOpaqueIdentifier(subject) else { return nil }
         return subject
+    }
+
+    /// A record's id is not what it was read from — it is how the machine
+    /// found it. The model hands one over when the product's own answer had no
+    /// human name in it, and `5fn3mlb3eqagt9faq02ukc8hbk` beside a calendar
+    /// mark says less than the mark alone.
+    ///
+    /// Length and shape rather than a provider-by-provider list: every id that
+    /// reached this was long, unbroken and lowercase alphanumeric, and a real
+    /// mark — `NOD-57`, `eng_releases`, `Pricing sync` — is none of those.
+    nonisolated static func isOpaqueIdentifier(_ subject: String) -> Bool {
+        guard subject.count >= 20, !subject.contains(" ") else { return false }
+        let digits = subject.filter(\.isNumber).count
+        return digits > 0 && subject.allSatisfy { $0.isLowercase && $0.isLetter || $0.isNumber }
     }
 
     /// What the question reached, and whether the product answered it.

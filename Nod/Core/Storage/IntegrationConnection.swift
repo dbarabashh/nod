@@ -378,7 +378,10 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Hashable {
         case .slack: ["slack.com"]
         case .github: ["github.com"]
         case .jira: ["atlassian.net"]
-        case .notion: ["notion.so", "notion.site"]
+        // `notion.com` is what the API hands back as `page.url` for a good
+        // many workspaces, so leaving it out made Notion's own links the one
+        // kind Nod could not recognise.
+        case .notion: ["notion.so", "notion.site", "notion.com"]
         case .asana: ["asana.com"]
         case .hubspot: ["hubspot.com"]
         case .gmail: ["mail.google.com"]

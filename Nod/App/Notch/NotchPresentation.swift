@@ -285,7 +285,7 @@ extension VoiceAskPhase {
 enum AskPhase: Equatable {
     case composing
     case loading
-    case answered(question: String, answer: String)
+    case answered(question: String, answer: String, source: LiveMeetingAnalyst.AnswerSource? = nil)
     /// Keeps the question that failed, so retrying doesn't ask the user to
     /// retype it.
     case failed(question: String)

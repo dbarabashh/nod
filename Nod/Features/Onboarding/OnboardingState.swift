@@ -25,7 +25,15 @@ enum OnboardingStep: String, Codable, CaseIterable {
     case emailPreferences
 
     /// The steps the flow actually shows, in order.
-    static let allCases: [OnboardingStep] = [.welcome, .talk, .notch]
+    ///
+    /// `.talk` teaches the held key, which released builds no longer carry —
+    /// so it is taught only where the key exists. A step that rehearses a
+    /// shortcut the build does not register is a step that cannot be passed.
+    #if DEBUG || NOD_SANDBOX
+        static let allCases: [OnboardingStep] = [.welcome, .talk, .notch]
+    #else
+        static let allCases: [OnboardingStep] = [.welcome, .notch]
+    #endif
 
     /// Where this step sits today, for the dots and for next/previous. Read
     /// rather than stored: nothing persists it any more.
@@ -39,8 +47,15 @@ enum OnboardingStep: String, Codable, CaseIterable {
     /// them has done the welcome and goes on to the key.
     var current: OnboardingStep {
         switch self {
-        case .welcome, .talk, .notch: self
-        case .profile, .diagnostics: .talk
+        case .welcome, .notch: self
+        #if DEBUG || NOD_SANDBOX
+            case .talk: self
+            case .profile, .diagnostics: .talk
+        #else
+            // The held key is gone from released builds; whoever was standing
+            // on its card resumes at the notch rather than on a missing step.
+            case .talk, .profile, .diagnostics: .notch
+        #endif
         case .calendar, .permissions, .emailPreferences: .notch
         }
     }

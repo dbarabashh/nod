@@ -460,14 +460,18 @@ struct SettingsView: View {
             ) {
                 HotkeyRecorderView(hotkey: hotkey, action: .askNod)
             }
-            SettingsRowDivider()
-            SettingsRow(
-                icon: "nc-mic",
-                title: "Hold to ask by voice",
-                subtitle: "Hold the key, say the question, let go. Nod writes it down, answers in the notch and reads the answer back. Move it here if ⌥T is taken by something you use."
-            ) {
-                HotkeyRecorderView(hotkey: hotkey, action: .holdToAsk)
-            }
+            // Only where the key is registered: a recorder for a shortcut the
+            // build never listens for is a setting that silently does nothing.
+            #if DEBUG || NOD_SANDBOX
+                SettingsRowDivider()
+                SettingsRow(
+                    icon: "nc-mic",
+                    title: "Hold to ask by voice",
+                    subtitle: "Hold the key, say the question, let go. Nod writes it down, answers in the notch and reads the answer back. Move it here if ⌥T is taken by something you use."
+                ) {
+                    HotkeyRecorderView(hotkey: hotkey, action: .holdToAsk)
+                }
+            #endif
         }
     }
 

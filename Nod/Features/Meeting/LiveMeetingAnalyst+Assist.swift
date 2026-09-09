@@ -14,6 +14,21 @@ import Foundation
 /// answer should agree with whatever the background pass already surfaced,
 /// not re-derive it from a cold read.
 extension LiveMeetingAnalyst {
+    /// Which product an answer came out of, kept apart from the sentence so
+    /// the notch can draw the product's mark instead of spelling its name.
+    struct AnswerSource: Equatable {
+        let provider: IntegrationProvider
+        /// A human mark — an issue key, a channel — or nil when the product's
+        /// answer carried no name worth showing.
+        let subject: String?
+    }
+
+    /// An answer and where it came from.
+    struct Answered: Equatable {
+        let text: String
+        let source: AnswerSource?
+    }
+
     /// How much transcript "catch me up" reads — effectively the whole
     /// meeting, not a recent window. A tune-out can happen anywhere, and
     /// unlike the background pass this is a single on-demand call, not a
@@ -39,10 +54,10 @@ extension LiveMeetingAnalyst {
     /// than the canned catch-up above. Same wide read as `catchUp` —
     /// the question could be about anything already said, not just the recent
     /// window.
-    func ask(_ question: String, thread: AskThread = AskThread(), language: AppLanguage) async throws -> String {
+    func ask(_ question: String, thread: AskThread = AskThread(), language: AppLanguage) async throws -> Answered {
         switch await answerFromTools(question, thread: thread) {
-        case let .answered(text):
-            return text
+        case let .answered(text, source):
+            return Answered(text: text, source: source)
         // A tool ran and had nothing. The transcript gets the question only if
         // it has something to answer with; on an empty one the fallback is not
         // "the meeting's own words", it is a model with no context inventing a
@@ -52,7 +67,7 @@ extension LiveMeetingAnalyst {
         // below costs a five-hundred-line string on the main actor, and every
         // outcome above this line throws it away.
         case let .checked(provider) where !store.hasContent:
-            return LiveLookup.nothingFound(in: provider)
+            return Answered(text: LiveLookup.nothingFound(in: provider), source: AnswerSource(provider: provider, subject: nil))
         case .checked, .notTried:
             break
         }
@@ -71,7 +86,7 @@ extension LiveMeetingAnalyst {
             as: PromptLibrary.AskResult.self,
             primaryModel: llm.chatModel
         )
-        return result.answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Answered(text: result.answer.trimmingCharacters(in: .whitespacesAndNewlines), source: nil)
     }
 
     /// The typed question, tried against the connected tools before the
@@ -96,7 +111,7 @@ extension LiveMeetingAnalyst {
     /// don't cover better. `.checked` is the caller's judgement call — see
     /// `ask`.
     private enum ToolAttempt {
-        case answered(String)
+        case answered(String, AnswerSource?)
         /// A tool was reached, and what came back did not answer the question.
         case checked(IntegrationProvider)
         /// No connected tool was chosen for this question at all.
@@ -121,7 +136,7 @@ extension LiveMeetingAnalyst {
         // to believe their Linear was read when it never was.
         if let refusal = await meetingLookup.objection(to: request) {
             Log.llm.info("live: ask names an unreachable product")
-            return .answered(refusal.label)
+            return .answered(refusal.label, nil)
         }
         guard let routed = await meetingLookup.routing(for: request, thread: thread) else { return .notTried }
 
@@ -129,13 +144,13 @@ extension LiveMeetingAnalyst {
         switch await meetingLookup.answer(request, running: routed, thread: thread) {
         case let .refused(refusal):
             Log.llm.info("live: ask refused — \(refusal)")
-            return .answered(refusal.label)
+            return .answered(refusal.label, nil)
         // Not "found nothing". The product never answered, and the two are
         // opposite pieces of news to somebody deciding whether to go and look
         // themselves — so the reason is passed on rather than flattened.
         case let .failed(failure):
             Log.llm.error("live: ask failed — \(failure.label)")
-            return .answered(failure.label)
+            return .answered(failure.label, nil)
         case .empty:
             Log.llm.info("live: ask \(routed.provider.rawValue) had nothing")
             return .checked(routed.provider)
@@ -144,11 +159,15 @@ extension LiveMeetingAnalyst {
             // said it and which record it was read from. An answer repeated
             // into a meeting by the person who read it is one the room will act
             // on, and one they cannot place is one nobody can check.
-            let mark = [answer.provider?.displayName, answer.subject]
-                .compactMap { $0 }
-                .filter { !$0.isEmpty }
-            guard !mark.isEmpty else { return .answered(answer.text) }
-            return .answered("\(answer.text) · \(mark.joined(separator: " · "))")
+            // Carried rather than written into the sentence: the notch draws
+            // the product's mark, and a name flattened into the text is a name
+            // that has to be drawn as text. The subject rides along for the
+            // cases where it is a real one — an issue key, a channel.
+            guard let provider = answer.provider else {
+                guard let subject = answer.subject?.nilIfBlank else { return .answered(answer.text, nil) }
+                return .answered("\(answer.text) · \(subject)", nil)
+            }
+            return .answered(answer.text, AnswerSource(provider: provider, subject: answer.subject?.nilIfBlank))
         }
     }
 }

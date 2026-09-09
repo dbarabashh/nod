@@ -84,15 +84,33 @@ struct MeetingAskPanel: View {
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(Theme.Palette.muted)
             }
-        case let .answered(question, answer):
+        case let .answered(question, answer, source):
             VStack(alignment: .leading, spacing: 4) {
                 Text(question)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Theme.Palette.muted)
-                Text(answer)
+                // Links are shortened to their host and carry the URL on the
+                // attribute: the panel is a few hundred points wide, and a
+                // pasted page id used to take three of its four lines.
+                Text(AnswerLinkDetection.linked(answer))
                     .font(.system(size: 12.5, weight: .regular))
                     .foregroundStyle(Theme.Palette.ink)
+                    .tint(Theme.Palette.brand)
                     .fixedSize(horizontal: false, vertical: true)
+                if let source {
+                    // The mark, not the product's name in words — the row is
+                    // one line and the icon is what a person recognises.
+                    HStack(spacing: 5) {
+                        ProviderMark(provider: source.provider, size: 11)
+                        if let subject = source.subject {
+                            Text(subject)
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundStyle(Theme.Palette.muted)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                }
             }
         case let .failed(question):
             Text("Couldn't answer \u{201C}\(question)\u{201D} — try again.")

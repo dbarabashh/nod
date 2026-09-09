@@ -116,11 +116,23 @@ final class HotkeyManager: ObservableObject {
     /// Constructing registers the Carbon hotkeys immediately — create exactly
     /// one instance, in `applicationDidFinishLaunching`.
     init() {
-        for action in HotkeyAction.allCases {
+        for action in Self.registered {
             combos[action] = loadCombo(action) ?? action.defaultCombo
         }
         installEventHandler()
-        HotkeyAction.allCases.forEach { register($0) }
+        Self.registered.forEach { register($0) }
+    }
+
+    /// The actions this build actually listens for. `holdToAsk` is held back
+    /// from released builds along with the voice ask it triggers: a Carbon
+    /// hotkey registered for a feature that answers nothing takes ⌥T away from
+    /// whatever else the person had on it.
+    static var registered: [HotkeyAction] {
+        #if DEBUG || NOD_SANDBOX
+            HotkeyAction.allCases
+        #else
+            HotkeyAction.allCases.filter { $0 != .holdToAsk }
+        #endif
     }
 
     func combo(for action: HotkeyAction) -> Combo {

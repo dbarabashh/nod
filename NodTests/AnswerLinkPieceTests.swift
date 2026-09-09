@@ -80,3 +80,36 @@ final class AnswerLinkPieceTests: XCTestCase {
         XCTAssertEqual(pieces.map(\.id), ["3.0", "3.1", "3.2"])
     }
 }
+
+/// A pasted URL used to be drawn whole in the notch, where one Notion page id
+/// took three of the four lines the panel has.
+final class AnswerLinkShorteningTests: XCTestCase {
+    func testAURLIsShortenedToItsHostAndStaysClickable() {
+        let text = "Meetings page opened: https://app.notion.com/p/Meetings-3d6743f9ade781cdbe68cb922b718101."
+        let linked = AnswerLinkDetection.linked(text)
+        let plain = String(linked.characters)
+        XCTAssertTrue(plain.contains("app.notion.com/…"))
+        XCTAssertFalse(plain.contains("3d6743f9ade781cdbe68cb922b718101"))
+        XCTAssertTrue(linked.runs.contains { $0.link?.host() == "app.notion.com" })
+    }
+
+    func testTextWithoutALinkIsUntouched() {
+        XCTAssertEqual(String(AnswerLinkDetection.linked("No link here").characters), "No link here")
+    }
+
+    /// The mark beside a product is meant to be a name a person recognises;
+    /// a record's id is how the machine found it.
+    func testAnOpaqueIdentifierIsNotAMark() {
+        XCTAssertTrue(MeetingLookup.isOpaqueIdentifier("5fn3mlb3eqagt9faq02ukc8hbk"))
+        XCTAssertFalse(MeetingLookup.isOpaqueIdentifier("NOD-57"))
+        XCTAssertFalse(MeetingLookup.isOpaqueIdentifier("eng_releases"))
+        XCTAssertFalse(MeetingLookup.isOpaqueIdentifier("Pricing sync"))
+    }
+
+    /// Notion hands back `app.notion.com` for a good many workspaces, and it
+    /// was the one host Nod could not place.
+    func testNotionComIsRecognised() {
+        XCTAssertEqual(IntegrationProvider(linkHost: "app.notion.com"), .notion)
+        XCTAssertEqual(IntegrationProvider(linkHost: "www.notion.so"), .notion)
+    }
+}
