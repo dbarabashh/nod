@@ -250,14 +250,26 @@ above are what stand until it is.
 ## Connect environments — and what production needs
 
 Every Connect call carries `x-pd-environment`, set from `PIPEDREAM_ENVIRONMENT`
-per Supabase branch. Sandbox is `development`; production has to be
-`production`, and that is not a label.
+per Supabase branch. Sandbox is `development`; production is `production`, and
+that is not a label.
+
+Both branches address the same Connect project, `proj_zNsB5P7` — one project
+holds both environments, so the switch is the variable and nothing else. They
+also share one `PIPEDREAM_CLIENT_ID` / `PIPEDREAM_CLIENT_SECRET` pair, which is
+a credential for Pipedream's own API rather than any provider's, and which means
+a sandbox compromise reaches production. A separate client for production
+(`pd oauth-client create`) is the fix, and it is not done.
 
 `development` is capped at **10 external users**, and everyone connecting through
 it must be signed in to pipedream.com. It is for our own testing, not for
 customers — a real user who is not a Pipedream account holder simply cannot
 finish the flow. Production access is enabled on Pipedream's pricing page, not
 by flipping the variable.
+
+**Sandbox ran `production` until 2026-09-09**, against this file's own
+instruction, so every test connection was billing as a production external user.
+Moving it to `development` retired the sixteen connections that were live —
+`state` and `revoked_at` both, which is what the retirement script now sets.
 
 **Grants do not cross.** Connected accounts and credentials in one environment
 are invisible to the other, so every connection made while testing has to be

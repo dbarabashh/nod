@@ -17,6 +17,11 @@
 -- data behind it can no longer be refreshed. People records survive on purpose;
 -- past meetings and the audit log refer to them.
 --
+-- `state` moves with `revoked_at`. They are two columns saying one thing, and
+-- `20260903121530` already had to backfill the pair once after a migration set
+-- only one: a readiness API reading `state` reports a revoked connection as
+-- healthy.
+--
 -- Afterwards everyone reconnects. Nothing else is needed: with the rows revoked,
 -- `integration-reconcile` sees each provider as arriving and writes the fresh
 -- account id.
@@ -35,7 +40,8 @@ select provider, broker_account_id, user_id
  order by user_id, provider;
 
 update public.integration_connections
-   set revoked_at = now()
+   set revoked_at = now(),
+       state = 'revoked'
  where revoked_at is null;
 
 commit;
