@@ -82,13 +82,6 @@ final class OrganizationService: ObservableObject {
         return memberships.first { $0.id == activeOrgID }
     }
 
-    /// True once the person belongs to anything. Settings uses it to decide
-    /// whether the organization pane is worth showing at all — an account with
-    /// no memberships has nothing to put in it.
-    var belongsToAnyOrganization: Bool {
-        !memberships.isEmpty
-    }
-
     private func rebuildRoster() {
         roster = Self.rosterEntries(members: members, directory: directory)
     }

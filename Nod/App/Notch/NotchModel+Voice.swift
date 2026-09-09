@@ -97,10 +97,17 @@ extension NotchModel {
             guard let self else { return }
             guard let wav = await heldQuestion.stop() else {
                 setVoiceAsk(.idle)
-                guard !hasMeetingBar else { return }
-                UISound.meetingDetected.play(recording: false)
-                let name = PersonName.first(of: profiles.displayNameOrAccountName)
-                await realtimeVoice.start(language: voiceLanguage ?? language.current, name: name)
+                // A tap too short to be a question opens the live session —
+                // held back from customers while the gesture is reconsidered,
+                // because the same tap happens by accident. Released builds
+                // fall through to silence, which is what a tap with nothing
+                // said should do; sandbox keeps the feature reachable.
+                #if DEBUG || NOD_SANDBOX
+                    guard !hasMeetingBar else { return }
+                    UISound.meetingDetected.play(recording: false)
+                    let name = PersonName.first(of: profiles.displayNameOrAccountName)
+                    await realtimeVoice.start(language: voiceLanguage ?? language.current, name: name)
+                #endif
                 return
             }
             do {

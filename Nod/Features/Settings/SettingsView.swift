@@ -459,18 +459,15 @@ struct SettingsView: View {
         }
     }
 
-    /// The organization pane stays out of the rail until it has something to
-    /// show. A personal account has no organization, and a tab that opens onto
-    /// "you aren't in one" is a tab that shouldn't be there — except in a
-    /// sandbox build, where somebody has to be able to make the first one.
+    /// The organization pane needs a signed-in account and nothing else.
+    /// It used to be hidden until you already belonged to one, which left the
+    /// first organization impossible to make outside a sandbox build: the only
+    /// way in was an invite from an organization nobody could create.
+    /// `OrganizationSection` already opens on its own create card.
     private var visibleTabs: [Tab] {
         Tab.allCases.filter { tab in
             guard tab == .organization else { return true }
-            #if DEBUG || NOD_SANDBOX
-                return organizations != nil
-            #else
-                return organizations?.belongsToAnyOrganization == true
-            #endif
+            return organizations != nil
         }
     }
 
