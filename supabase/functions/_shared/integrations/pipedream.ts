@@ -19,6 +19,10 @@ const PROJECT_ID = Deno.env.get("PIPEDREAM_PROJECT_ID") ?? "";
 const ENVIRONMENT = Deno.env.get("PIPEDREAM_ENVIRONMENT") ?? "production";
 
 const OAUTH_URL = "https://api.pipedream.com/v1/oauth/token";
+// Asked for explicitly because the default is an account-wide `*`, which
+// `/connect/usage` refuses outright ("use a connect:* scope instead of a
+// top-level * scope"). Nothing here reaches outside Connect.
+const SCOPE = "connect:*";
 const API_BASE = "https://api.pipedream.com/v1/connect";
 
 export const isConfigured = Boolean(CLIENT_ID && CLIENT_SECRET && PROJECT_ID);
@@ -113,6 +117,7 @@ async function mintToken(): Promise<string> {
             grant_type: "client_credentials",
             client_id: CLIENT_ID,
             client_secret: CLIENT_SECRET,
+            scope: SCOPE,
         }),
     });
     const payload = await response.json().catch(() => null);
