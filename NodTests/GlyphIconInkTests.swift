@@ -54,6 +54,17 @@ final class GlyphIconInkTests: XCTestCase {
         XCTAssertLessThan(try spread(["nc-mic", "nc-stack-perspective", "nc-window-pointer"]), 1.12)
     }
 
+    /// The General settings pane's row icons — a single vertical column, where
+    /// one glyph drawn smaller than the rest is obvious at a glance. The two
+    /// Appearance icons are authored here rather than exported, so they are the
+    /// ones most likely to drift off the family's canvas coverage.
+    func testSettingsRowGlyphsMatch() throws {
+        XCTAssertLessThan(
+            try spread(["nc-contrast", "nc-transparency", "nc-video", "nc-gear-2", "nc-calendar"]),
+            1.12
+        )
+    }
+
     /// The recap card's footer: copy, and open the meeting in the main window.
     func testRecapFooterGlyphsMatch() throws {
         XCTAssertLessThan(try spread(["nc-files-2", "nc-arrow-up-right"]), 1.12)
@@ -67,5 +78,19 @@ final class GlyphIconInkTests: XCTestCase {
 
     func testMuteToggleGlyphsMatch() throws {
         XCTAssertLessThan(try spread(["nc-mic", "nc-mic-slash"]), 1.12)
+    }
+
+    /// The sign-in button draws Google's own mark by name, and a name that does
+    /// not resolve draws nothing at all — a button with a word and a hole where
+    /// the logo was. Nothing else asserts this asset exists: it is the one
+    /// brand mark drawn by hand rather than fetched by
+    /// `scripts/fetch-integration-logos.sh`, so no provider table covers it.
+    func testTheSignInButtonsGoogleMarkIsInTheCatalogue() {
+        let mark = NSImage(named: "BrandGoogle")
+
+        XCTAssertNotNil(mark)
+        // Colour, not a template. Tinted to the button's ink it would be one
+        // flat grey shape, which is the failure `ProviderMark` documents.
+        XCTAssertEqual(mark?.isTemplate, false)
     }
 }

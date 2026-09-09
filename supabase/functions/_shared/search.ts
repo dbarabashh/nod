@@ -1,6 +1,8 @@
+import { MODELS } from "./models.ts";
 import { adminClient } from "./supabase.ts";
 import { isObject, json } from "./http.ts";
 import { recordUsage } from "./usage.ts";
+import { conceptsForSearch } from "./knowledge.ts";
 
 // `Supabase.ai` is an ambient global provided by the Edge Function runtime —
 // declare it so TypeScript doesn't choke on the gte-small embedding session.
@@ -14,7 +16,7 @@ declare const Supabase: {
 
 // gte-small produces 384-dim normalised embeddings — matches the
 // `vector(384)` column in `session_embeddings`.
-const EMBEDDING_MODEL = "gte-small";
+const EMBEDDING_MODEL = MODELS.embedding.default;
 
 // Upper bound on how many chunks a single search may pull. The client asks for
 // 8; the cap stops a crafted `match_count` from turning the vector scan into a
@@ -26,7 +28,7 @@ function embedder() {
     if (!embeddingSession) embeddingSession = new Supabase.ai.Session(EMBEDDING_MODEL);
     return embeddingSession;
 }
-async function embedText(text: string): Promise<number[]> {
+export async function embedText(text: string): Promise<number[]> {
     return await embedder().run(text, { mean_pool: true, normalize: true });
 }
 
@@ -149,6 +151,14 @@ export async function handleSearch(payload: unknown, userId: string): Promise<Re
 
     const admin = adminClient();
 
+    // Stage one, cross-session only: current concepts for the entities the
+    // question names. Started here so it overlaps the chunk match instead of
+    // adding a round trip; dark until `KNOWLEDGE_READ_ENABLED` says retrieval
+    // may read what distillation writes. An old client ignores the extra field.
+    const conceptStage = meetingId
+        ? Promise.resolve([])
+        : conceptsForSearch(admin, userId, query, embedding);
+
     // Over-fetch so the entity boost below has headroom to re-rank.
     const { data, error } = await admin.rpc("match_session_chunks", {
         query_embedding: embedding,
@@ -193,7 +203,8 @@ export async function handleSearch(payload: unknown, userId: string): Promise<Re
         }
     }
 
-    return json({ matches: matches.slice(0, matchCount) }, 200);
+    const concepts = await conceptStage;
+    return json({ matches: matches.slice(0, matchCount), concepts }, 200);
 }
 
 // gte-small runs inside the Edge runtime (no upstream bill), so we log one

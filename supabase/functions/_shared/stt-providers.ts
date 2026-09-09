@@ -127,15 +127,14 @@ function callOpenRouterSTT(payload: unknown, userId: string): Promise<CallResult
 
 // Transcribe via the provider chain. Order depends on `sttRoutingMode()`:
 //
-//   groq_primary (default) — each multipart provider (Groq, then OpenAI if
-//     configured), then OpenRouter as the terminal fallback. Unchanged from
-//     before PR 2.
+//   openrouter_only (default) — OpenRouter alone. Every model reaches us
+//     through OpenRouter, and the stock `gpt-4o-transcribe` is served nowhere
+//     else, so a direct-provider fallback would have nothing to serve.
 //   openrouter_primary — OpenRouter first; on a failover-eligible status,
-//     fall through to the multipart chain exactly as above. Groq becomes the
-//     emergency path instead of OpenRouter.
-//   openrouter_only — OpenRouter alone, no direct-provider fallback at all.
-//     Diagnostic only; see the plan for why this must not become the
-//     production default while direct Groq is still the outage escape hatch.
+//     fall through to the multipart chain (Groq, then OpenAI if configured).
+//     An outage escape hatch for Whisper models only.
+//   groq_primary — the multipart chain first, OpenRouter last. The order the
+//     chain shipped with, kept so it can be restored by one secret.
 //
 // Returns which provider actually served, for usage attribution.
 export async function callTranscribe(payload: unknown, userId: string): Promise<STTResult> {

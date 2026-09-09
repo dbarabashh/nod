@@ -11,23 +11,16 @@ struct MemoryBrief: Equatable {
     /// so a Monday morning doesn't read as "you have nothing".
     let captured: Int
     let capturedSpansWeek: Bool
-    let openCommitments: Int
-    let unresolved: Int
+    /// What the week actually settled — the half of memory that isn't a to-do.
+    /// Without it the brief only ever counted work outstanding, which is the
+    /// reading of Nod this UX is moving away from.
+    let decisions: Int
     /// The session the user has been in most recently: what "where was I"
     /// resolves to without asking.
     let mostActiveContext: String?
 
-    /// True when there is nothing worth taking the space for.
-    var isEmpty: Bool {
-        captured == 0 && openCommitments == 0 && unresolved == 0
-    }
-
-    /// `openCommitments` is passed in rather than derived: it's a server-side
-    /// count, and the whole point of taking it as a number is not pulling two
-    /// hundred rows in to call `.count` on them.
     static func build(
         meetings: [Meeting],
-        openCommitments: Int,
         now: Date = Date(),
         calendar: Calendar = .current
     ) -> MemoryBrief {
@@ -40,35 +33,25 @@ struct MemoryBrief: Equatable {
         return MemoryBrief(
             captured: today.isEmpty ? week.count : today.count,
             capturedSpansWeek: today.isEmpty,
-            openCommitments: openCommitments,
-            unresolved: TodayDigest.openPointCount(meetings: meetings, now: now),
-            mostActiveContext: live.first?.title?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyOrNil
+            decisions: SessionKnowledge.across(Array(week)).decisions,
+            mostActiveContext: live.first?.title?.nilIfBlank
         )
     }
 
-    /// "3 sessions today · 5 open commitments · 2 unresolved" — assembled from
-    /// the parts that are non-zero, so the line never pads itself with noise.
-    var summary: String {
-        summaryParts.joined(separator: " · ")
-    }
-
-    private var summaryParts: [String] {
+    /// What is true but not owed: how much was captured, and what got settled.
+    ///
+    /// The counts that need doing — open commitments, unresolved — belong to
+    /// the day's briefing, which is the one place that carries a number *and*
+    /// the way to act on it. Repeating them here made the home state its own
+    /// to-do list twice, in two shapes, neither of which could be ticked off.
+    var contextSummary: String? {
         var parts: [String] = []
         if captured > 0 {
             parts.append("\(captured) \(captured == 1 ? "session" : "sessions") \(capturedSpansWeek ? "this week" : "today")")
         }
-        if openCommitments > 0 {
-            parts.append("\(openCommitments) open \(openCommitments == 1 ? "commitment" : "commitments")")
+        if decisions > 0 {
+            parts.append("\(decisions) \(decisions == 1 ? "decision" : "decisions") this week")
         }
-        if unresolved > 0 {
-            parts.append("\(unresolved) unresolved")
-        }
-        return parts
-    }
-}
-
-private extension String {
-    var nonEmptyOrNil: String? {
-        isEmpty ? nil : self
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

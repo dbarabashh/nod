@@ -54,7 +54,7 @@ final class ConsentPreference: ObservableObject {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || NOD_SANDBOX
         /// Clears the device-side UX gate so the disclaimer shows again on the
         /// next recording. The Supabase audit rows are untouched — they are the
         /// legal record, not a cache.
@@ -62,6 +62,65 @@ final class ConsentPreference: ObservableObject {
             UserDefaults.standard.removeObject(forKey: storageKey)
         }
     #endif
+
+    /// The version of the diagnostics question's wording. Bumped when the
+    /// text in `DiagnosticsChoice` changes materially, like `disclaimerVersion`.
+    static let diagnosticsVersion = "diagnostics-2026-09-06-v1"
+
+    /// Where a diagnostics answer was given.
+    enum DiagnosticsSource: String, Encodable {
+        /// The onboarding step, or the one-time question after an update.
+        case prompt
+        /// A switch in Settings, flipped later.
+        case settings
+    }
+
+    /// What one diagnostics row says: both switches as they stand, and where
+    /// they were set. Both every time, so a row reads on its own — an opt-out
+    /// is a row with `false` in it, not a row that is missing.
+    struct DiagnosticsDetails: Encodable {
+        let crashReports: Bool
+        let usageEvents: Bool
+        let source: DiagnosticsSource
+
+        enum CodingKeys: String, CodingKey {
+            case crashReports = "crash_reports"
+            case usageEvents = "usage_events"
+            case source
+        }
+    }
+
+    /// The diagnostics question answered in full: both switches applied, and
+    /// the choice recorded. One path for the welcome step and the prompt, so
+    /// the two never differ in what a "yes" does.
+    @MainActor
+    func applyDiagnosticsChoice(crashReports: Bool, usageEvents: Bool, analytics: ProductAnalytics) {
+        analytics.isOptedOut = !usageEvents
+        CrashReporting.record(enabled: crashReports)
+        recordDiagnosticsChoice(crashReports: crashReports, usageEvents: usageEvents, source: .prompt)
+    }
+
+    /// Records which way the two diagnostics switches are set. The local
+    /// defaults stay the source of truth for starting the crash reporter; this
+    /// row is the evidence of what was chosen, at the question and at every
+    /// change after it.
+    func recordDiagnosticsChoice(crashReports: Bool, usageEvents: Bool, source: DiagnosticsSource) {
+        let appVersion = Self.appVersion()
+        guard let supabase, let auth, let userID = auth.session?.user.id else {
+            Log.ui.info("consent: skipping diagnostics row (no session)")
+            return
+        }
+        Task.detached(priority: .background) {
+            await Self.logAuditRow(
+                supabase: supabase,
+                userID: userID,
+                disclaimerVersion: Self.diagnosticsVersion,
+                languageCode: "en",
+                appVersion: appVersion,
+                details: DiagnosticsDetails(crashReports: crashReports, usageEvents: usageEvents, source: source)
+            )
+        }
+    }
 
     private func writeAuditRow() {
         // Snapshot values that need MainActor isolation before crossing
@@ -79,8 +138,10 @@ final class ConsentPreference: ObservableObject {
             await Self.logAuditRow(
                 supabase: supabase,
                 userID: userID,
+                disclaimerVersion: Self.disclaimerVersion,
                 languageCode: languageCode,
-                appVersion: appVersion
+                appVersion: appVersion,
+                details: nil
             )
         }
     }
@@ -88,20 +149,24 @@ final class ConsentPreference: ObservableObject {
     private static func logAuditRow(
         supabase: SupabaseClient,
         userID: UUID,
+        disclaimerVersion: String,
         languageCode: String,
-        appVersion: String
+        appVersion: String,
+        details: DiagnosticsDetails?
     ) async {
         struct Row: Encodable {
             let userID: UUID
             let disclaimerVersion: String
             let languageCode: String
             let appVersion: String
+            let details: DiagnosticsDetails?
 
             enum CodingKeys: String, CodingKey {
                 case userID = "user_id"
                 case disclaimerVersion = "disclaimer_version"
                 case languageCode = "language_code"
                 case appVersion = "app_version"
+                case details
             }
         }
 
@@ -109,7 +174,8 @@ final class ConsentPreference: ObservableObject {
             userID: userID,
             disclaimerVersion: disclaimerVersion,
             languageCode: languageCode,
-            appVersion: appVersion
+            appVersion: appVersion,
+            details: details
         )
 
         do {

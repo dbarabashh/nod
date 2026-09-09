@@ -159,7 +159,7 @@ final class MeetingMarkdownExportTests: XCTestCase {
         let meeting = makeMeeting(title: nil, summary: "", start: start, end: start)
         let md = MeetingMarkdownExport.render(meeting: meeting, transcript: [])
 
-        XCTAssertTrue(md.contains("# Untitled meeting"))
+        XCTAssertTrue(md.contains("# Untitled session"))
         XCTAssertFalse(md.contains("title:"))
         XCTAssertFalse(md.contains("## Summary"))
         XCTAssertFalse(md.contains("## Transcript"))

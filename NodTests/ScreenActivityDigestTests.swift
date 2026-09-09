@@ -3,6 +3,7 @@ import XCTest
 
 final class ScreenActivityDigestTests: XCTestCase {
     private let user = UUID()
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
 
     private func observation(
         app: String,
@@ -121,7 +122,7 @@ final class ScreenActivityDigestTests: XCTestCase {
     }
 
     func testEmptyInputIsEmptyDigest() {
-        XCTAssertTrue(digest(from: []).isEmpty)
+        XCTAssertTrue(digest(from: []).apps.isEmpty)
     }
 
     /// The whole point of planning from an index: a window seen in the morning
@@ -135,6 +136,177 @@ final class ScreenActivityDigestTests: XCTestCase {
         let plan = plan(from: rows)
 
         XCTAssertTrue(plan.apps.contains { $0.bundleID == "com.figma" })
+    }
+
+    /// The counterpart to `testMorningWindowsSurviveAnAfternoonOfOtherApps`,
+    /// one level down: surviving as an app is no use if the window that carried
+    /// the work is then evicted from inside it.
+    ///
+    /// Asked "what was my day" twice, seconds apart, Nod described two
+    /// different days — a few idle browser tabs opened in between had newer
+    /// `lastSeen` than the pull request that took the evening, and took its
+    /// slot. Windows rank by how long they were up, exactly as apps do.
+    func testAWindowThatFilledTheDayOutranksRecentGlances() {
+        var rows: [ScreenObservation] = []
+        for minute in 60 ... 200 {
+            rows.append(observation(app: "com.chrome", title: "PR #17", content: "review", minutesAgo: minute))
+        }
+        // More glances than the cap, so something genuinely has to be evicted.
+        for index in 1 ... (ScreenActivityDigest.maximumWindowsPerApp + 3) {
+            rows.append(observation(app: "com.chrome", title: "Tab \(index)", content: "tab", minutesAgo: index))
+        }
+
+        let digest = digest(from: rows)
+        let titles = digest.apps[0].windows.map(\.title)
+
+        XCTAssertEqual(titles.first, "PR #17")
+        XCTAssertTrue(titles.contains("PR #17"))
+        XCTAssertEqual(digest.apps[0].windows.count, ScreenActivityDigest.maximumWindowsPerApp)
+    }
+
+    /// Dwell alone answers "what am I doing", not "what was my day": an
+    /// afternoon of one long document would otherwise bury every twenty-second
+    /// thing the day was about. Each hour present gets its best window before
+    /// the remaining room is filled by time on screen.
+    func testEachHourOfTheDayIsRepresented() {
+        var rows: [ScreenObservation] = []
+        // One window held for two hours, plus a short look in each of six
+        // earlier hours — more windows than the cap, so coverage has to fight.
+        for minute in 1 ... 120 {
+            rows.append(observation(app: "com.chrome", title: "Long read", content: "x", minutesAgo: minute))
+        }
+        for hour in 3 ... 8 {
+            rows.append(observation(app: "com.chrome", title: "Hour \(hour)", content: "x", minutesAgo: hour * 60 + 5))
+        }
+        for index in 1 ... 6 {
+            rows.append(observation(app: "com.chrome", title: "Glance \(index)", content: "x", minutesAgo: 1))
+        }
+
+        let titles = digest(from: rows).apps[0].windows.map(\.title)
+
+        for hour in 3 ... 8 {
+            XCTAssertTrue(titles.contains("Hour \(hour)"), "hour \(hour) missing from \(titles)")
+        }
+    }
+
+    /// The finding behind the whole change: Slack's title is the same from
+    /// morning to night, so a day in it folded into one row and one snapshot —
+    /// which is why a recap could say "you were in Slack" and never which
+    /// tickets were discussed.
+    func testComingBackToAWindowLaterIsASecondVisit() {
+        var rows: [ScreenObservation] = []
+        for minute in 1 ... 20 {
+            rows.append(observation(app: "com.slack", title: "Nod, ops", content: "morning \(minute)", minutesAgo: 400 + minute))
+        }
+        for minute in 1 ... 20 {
+            rows.append(observation(app: "com.slack", title: "Nod, ops", content: "afternoon \(minute)", minutesAgo: 60 + minute))
+        }
+
+        let windows = digest(from: rows).apps[0].windows
+
+        XCTAssertEqual(windows.count, 2, "a day in one channel is not one snapshot")
+        XCTAssertNotEqual(windows[0].content, windows[1].content)
+    }
+
+    /// Splitting on the clock instead would cut a window that was up from
+    /// 13:55 to 14:05 in half at a boundary that means nothing.
+    func testStayingInAWindowIsOneVisitHoweverLong() {
+        let rows = (1 ... 180).map {
+            observation(app: "com.code", title: "AboutNod.swift", content: "x", minutesAgo: $0)
+        }
+
+        XCTAssertEqual(digest(from: rows).apps[0].windows.count, 1)
+    }
+
+    /// A pause shorter than the threshold is stepping away for coffee, not a
+    /// second visit.
+    func testAShortPauseDoesNotSplitAVisit() {
+        let gapMinutes = Int(ScreenActivityDigest.revisitGap / 60) - 10
+        let rows = [
+            observation(app: "com.code", title: "spec", content: "a", minutesAgo: gapMinutes + 5),
+            observation(app: "com.code", title: "spec", content: "b", minutesAgo: 5)
+        ]
+
+        XCTAssertEqual(digest(from: rows).apps[0].windows.count, 1)
+    }
+
+    /// One app must not fill the screen section on its own: breadth is what a
+    /// recap of a day is for.
+    func testOneAppCannotSwallowTheWholeSection() {
+        let content = busyBrowser().apps[0].windows.map(\.content).joined()
+
+        XCTAssertLessThanOrEqual(
+            content.count,
+            ScreenActivityDigest.appBudget
+                + ScreenActivityDigest.maximumWindowCharacters
+                + ScreenActivityDigest.maximumWindowsPerApp * ScreenActivityDigest.glimpseCharacters
+        )
+    }
+
+    /// Spending the allowance used to delete the rest of the app outright — a
+    /// browser picked eight tabs for coverage and five vanished, title and all.
+    /// A tab's title is most of what it was.
+    func testTabsPastTheAllowanceSurviveAsAGlance() {
+        let windows = busyBrowser().apps[0].windows
+
+        XCTAssertEqual(windows.count, ScreenActivityDigest.maximumWindowsPerApp)
+        XCTAssertTrue(windows.allSatisfy { !$0.title.isEmpty })
+    }
+
+    /// Depth for the first few, presence for the rest — the shape a day has.
+    func testTheFirstTabsKeepTheirDepth() {
+        let windows = busyBrowser().apps[0].windows
+
+        XCTAssertEqual(windows.first?.content.count, ScreenActivityDigest.maximumWindowCharacters)
+        XCTAssertEqual(windows.last?.content.count, ScreenActivityDigest.glimpseCharacters)
+    }
+
+    /// Eight long-bodied tabs, each in its own hour so coverage keeps them all.
+    private func busyBrowser() -> ScreenActivityDigest {
+        let long = String(repeating: "x", count: ScreenActivityDigest.maximumWindowCharacters * 2)
+        let rows = (1 ... ScreenActivityDigest.maximumWindowsPerApp).map { index in
+            observation(app: "com.chrome", title: "Tab \(index)", content: long + "\(index)", minutesAgo: index * 50)
+        }
+        return digest(from: rows)
+    }
+
+    /// Coverage decides who is included, not who is listed first — the list
+    /// stays in dwell order so the day's substance leads.
+    func testCoverageDoesNotDisturbTheOrder() {
+        let windows = (0 ..< 5).map { index in
+            ScreenActivityPlan.Window(
+                title: "W\(index)",
+                firstSeen: now.addingTimeInterval(Double(-index) * 3600),
+                lastSeen: now.addingTimeInterval(Double(-index) * 3600),
+                captures: 100 - index,
+                candidateHashes: ["h\(index)"]
+            )
+        }
+
+        let kept = ScreenActivityDigest.covering(windows, limit: 3)
+
+        XCTAssertEqual(kept.map(\.title), ["W0", "W1", "W2"])
+    }
+
+    /// The same day asked about twice, with nothing but a fresh glance in
+    /// between, has to come back the same. This is the property the recency
+    /// ranking broke.
+    func testANewGlanceDoesNotChangeWhatTheDayWasAbout() {
+        var day: [ScreenObservation] = []
+        for minute in 30 ... 120 {
+            day.append(observation(app: "com.chrome", title: "PR #17", content: "review", minutesAgo: minute))
+        }
+        for minute in 130 ... 200 {
+            day.append(observation(app: "com.chrome", title: "Reddit testers", content: "post", minutesAgo: minute))
+        }
+
+        let before = digest(from: day).apps[0].windows.map(\.title)
+        let after = digest(from: day + [
+            observation(app: "com.chrome", title: "Spectre", content: "player", minutesAgo: 1)
+        ]).apps[0].windows.map(\.title)
+
+        XCTAssertEqual(before.prefix(2).map { $0 }, ["PR #17", "Reddit testers"])
+        XCTAssertEqual(after.prefix(2).map { $0 }, ["PR #17", "Reddit testers"])
     }
 
     func testPlanNamesEveryScreenStateOfAWindowUpToTheCandidateCap() {
@@ -195,6 +367,89 @@ final class ScreenActivityDigestTests: XCTestCase {
             PromptLibrary.screenRules.contains(ScreenPromptBlock.captureMarker),
             "the rules no longer say the stamp is a capture time"
         )
+    }
+
+    func testRulesTellTheModelToQuoteLinksAndNotToInferActions() {
+        XCTAssertTrue(PromptLibrary.screenRules.contains("exactly as written"))
+        XCTAssertTrue(PromptLibrary.screenRules.contains("text on the page, not something the user did"))
+    }
+
+    func testKeywordMatchesTheRecapAlreadyShowsAreDropped() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let digest = ScreenActivityDigest(apps: [
+            ScreenActivityDigest.App(
+                bundleID: "com.google.Chrome",
+                windows: [
+                    ScreenActivityDigest.Window(
+                        title: "Nod Founder Dashboard",
+                        content: "Users 84",
+                        firstSeen: now,
+                        lastSeen: now,
+                        captures: 40
+                    )
+                ],
+                captures: 40
+            )
+        ])
+        let shown = observation(userID: UUID(), app: "com.google.Chrome", title: "nod founder dashboard ", content: "Users 84")
+        let glanced = observation(
+            userID: UUID(),
+            app: "com.google.Chrome",
+            title: "Daft Punk - Get Lucky (Official Audio) - YouTube",
+            content: "youtube.com/watch?v=abc"
+        )
+        let twice = observation(
+            userID: UUID(),
+            app: "com.google.Chrome",
+            title: "Daft Punk - Get Lucky (Official Audio) - YouTube",
+            content: "YouTube Video Player"
+        )
+
+        let kept = ScreenActivityDigest.uncovered([shown, glanced, twice], by: digest)
+
+        XCTAssertEqual(kept.map(\.id), [glanced.id])
+    }
+
+    private func observation(userID: UUID, app: String, title: String, content: String) -> ScreenObservation {
+        ScreenObservation(userID: userID, sourceApp: app, sourceTitle: title, content: content, retention: 3600)
+    }
+
+    func testABrowserWindowCarriesItsLinkIntoThePrompt() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let window = ScreenActivityDigest.Window(
+            title: "Daft Punk - Get Lucky (Official Audio) - YouTube", content: "YouTube Video Player",
+            firstSeen: now, lastSeen: now, captures: 2, url: "https://youtube.com/watch?v=abc"
+        )
+        let app = ScreenActivityDigest.App(bundleID: "com.google.Chrome", windows: [window], captures: 2)
+
+        XCTAssertTrue(app.promptBlock(appName: "Chrome", now: now).contains("Link: https://youtube.com/watch?v=abc"))
+    }
+
+    func testTheLinkTravelsWithTheObservation() throws {
+        let observation = ScreenObservation(
+            userID: UUID(), sourceApp: "com.google.Chrome", sourceTitle: "Docs",
+            sourceURL: "https://example.com/doc", content: "hello", retention: 60
+        )
+        let data = try JSONEncoder().encode(observation)
+        let decoded = try JSONDecoder().decode(ScreenObservation.self, from: data)
+
+        XCTAssertEqual(decoded.sourceURL, "https://example.com/doc")
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("\"source_url\""))
+    }
+
+    @MainActor
+    func testAcronymsSurviveTheLengthFloorAndExtraTermsJoin() {
+        XCTAssertTrue(ScreenContextService.searchTerms(in: "the video from YC about pitches").contains("yc"))
+        let joined = ScreenContextService.searchTerms(in: "я загубив посилання", extra: ["YC", "Demo Day", "YouTube"])
+        XCTAssertTrue(joined.contains("yc") && joined.contains("youtube") && joined.contains("demo"), joined.joined(separator: ","))
+        XCTAssertEqual(Set(joined).count, joined.count)
+    }
+
+    func testBrowserChromeIsNotAPage() {
+        XCTAssertTrue(ScreenObservationBuilder.isBrowserChrome(url: "chrome://omnibox-popup.top-chrome/"))
+        XCTAssertTrue(ScreenObservationBuilder.isBrowserChrome(url: "about:blank"))
+        XCTAssertFalse(ScreenObservationBuilder.isBrowserChrome(url: "https://youtube.com/watch?v=abc"))
+        XCTAssertFalse(ScreenObservationBuilder.isBrowserChrome(url: nil))
     }
 
     func testPromptBlockNamesTheAppAndItsWindows() {

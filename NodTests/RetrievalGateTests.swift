@@ -38,4 +38,34 @@ final class RetrievalGateTests: XCTestCase {
 
         XCTAssertEqual(KnowledgeChatStore.worthGrounding(single).count, 1)
     }
+
+    private func concept(from meetingID: UUID?) -> RetrievedConcept {
+        RetrievedConcept(
+            id: UUID(),
+            entityID: UUID(),
+            kind: "fact",
+            claimKey: "users",
+            body: "two newly registered users",
+            validFromRaw: nil,
+            meetingID: meetingID,
+            provider: nil,
+            externalKey: nil,
+            similarity: 0.7
+        )
+    }
+
+    /// The reported case: the answer named two people from a distilled fact
+    /// whose session had no passage above the floor, and the chips showed no
+    /// source for them.
+    func testSessionsBehindFactsAreSources() {
+        let factSession = UUID()
+        let passageSession = UUID()
+
+        let ids = KnowledgeChatStore.groundedSessionIDs(
+            concepts: [concept(from: factSession), concept(from: nil)],
+            chunks: [chunk(0.7, passageSession), chunk(0.6, factSession)]
+        )
+
+        XCTAssertEqual(ids, [factSession, passageSession])
+    }
 }

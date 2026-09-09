@@ -91,7 +91,7 @@ struct UpdateRequiredNotice: View {
                 Text("Update to keep using Nod")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundColor(Theme.Palette.ink)
-                Text("This version is out of date. Your meetings are saved to your account — nothing is lost.")
+                Text("This version is out of date. Your sessions are saved to your account — nothing is lost.")
                     .font(.system(size: 11, weight: .regular))
                     .foregroundColor(Theme.Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)

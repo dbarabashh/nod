@@ -14,6 +14,13 @@ import Foundation
 /// So the whole lifecycle happens here in memory, and lands as rows once, at
 /// finalize, with its history intact — which is what `revision_of`, `source` and
 /// `evidence_idx` on the table are for.
+///
+/// One copy does leave early, and only sideways: while somebody is listening in,
+/// each finding is mirrored to `meeting_live_findings` so their Notes show what
+/// this machine's Notes show. That mirror is not the record — it is dropped when
+/// the recording stops, and `action_items` is still written here, once, at
+/// finalize. The reasoning above is unaffected: nothing about it depends on a
+/// meeting row that does not exist yet, because streaming already writes one.
 struct LiveFinding: Identifiable, Equatable {
     /// How sure the live pass was. A "strict" finding was stated outright and is
     /// written to the record on its own; a "soft" one was hedged or implied —
@@ -29,7 +36,7 @@ struct LiveFinding: Identifiable, Equatable {
     /// A single property rather than two independent flags, because the two
     /// ways of falling out of standing — the room moving on, the user vetoing
     /// it — are mutually exclusive by nature, not by accident of call order.
-    enum State: Equatable {
+    enum State: String, Equatable {
         /// Still standing: current, live, open to being read as memory.
         case standing
         /// Replaced by something said later — see `revisionOf` on the
@@ -53,6 +60,13 @@ struct LiveFinding: Identifiable, Equatable {
     /// by a line — which is a wrong neighbour, not a dangling pointer, and is
     /// why this is the index and not the entry's id (a dedup swap reissues ids).
     let evidenceIdx: Int?
+    /// The sentence this was read from, in the room's own words, already checked
+    /// against the transcript by the pass that produced it.
+    ///
+    /// Carried beside `evidenceIdx` rather than instead of it, because the two
+    /// fail differently: an index points at the line and moves when a meeting is
+    /// re-transcribed, and a quote survives that but cannot say who said it.
+    let quote: String?
     /// When the evidence line was actually said, as opposed to `foundAt` (when
     /// the pass noticed it) — the gap between the two is what makes a notice
     /// read as stale once the conversation has moved on, so the UI shows this,
@@ -74,6 +88,27 @@ struct LiveFinding: Identifiable, Equatable {
         case .dismissed: .dropped
         case .standing: kind == .action ? .proposed : .confirmed
         }
+    }
+
+    /// The same finding, read as a change to one already open.
+    ///
+    /// Minted rather than mutated so `revisionOf` stays `let`: what a finding
+    /// replaces is decided once, when it is accepted, and a row that can be
+    /// re-pointed later is a row whose history nothing can be read off.
+    func revising(_ earlier: UUID) -> LiveFinding {
+        LiveFinding(
+            id: id,
+            kind: kind,
+            text: text,
+            tier: tier,
+            deadline: deadline,
+            evidenceIdx: evidenceIdx,
+            quote: quote,
+            spokenAt: spokenAt,
+            revisionOf: earlier,
+            foundAt: foundAt,
+            state: state
+        )
     }
 
     /// What the live pass heard, as lines for the recap prompt.
@@ -98,24 +133,99 @@ struct LiveFinding: Identifiable, Equatable {
         }
     }
 
+    /// `id` and `state` are defaulted rather than split into a second
+    /// initializer: rebuilding a finding the host already made — see
+    /// `LiveFindingRow` — differs from minting one only in those two, and a
+    /// parallel init would be ten assignments that silently stop matching the
+    /// day a field is added.
     init(
+        id: UUID = UUID(),
         kind: ActionItem.Kind,
         text: String,
         tier: Tier = .strict,
         deadline: String? = nil,
         evidenceIdx: Int? = nil,
+        quote: String? = nil,
         spokenAt: Date? = nil,
         revisionOf: UUID? = nil,
-        foundAt: Date = Date()
+        foundAt: Date = Date(),
+        state: State = .standing
     ) {
-        id = UUID()
+        self.id = id
+        self.state = state
         self.kind = kind
         self.text = text
         self.tier = tier
         self.deadline = deadline
         self.evidenceIdx = evidenceIdx
+        self.quote = quote
         self.spokenAt = spokenAt
         self.revisionOf = revisionOf
         self.foundAt = foundAt
+    }
+}
+
+/// A finding as it crosses to somebody listening.
+///
+/// A DTO rather than making `LiveFinding` itself `Codable`, per the usual rule:
+/// only a subset travels. `evidenceIdx` stays behind — it indexes the host's own
+/// `TranscriptStore`, and is meaningless on a machine that does not have one.
+struct LiveFindingRow: Codable {
+    let meetingID: UUID
+    let id: UUID
+    let kind: String
+    let tier: String
+    let text: String
+    let deadline: String?
+    let spokenAt: Date?
+    let foundAt: Date
+    let state: String
+    let revisionOf: UUID?
+
+    enum CodingKeys: String, CodingKey {
+        case meetingID = "meeting_id"
+        case id
+        case kind
+        case tier
+        case text
+        case deadline
+        case spokenAt = "spoken_at"
+        case foundAt = "found_at"
+        case state
+        case revisionOf = "revision_of"
+    }
+
+    init(_ finding: LiveFinding, meetingID: UUID) {
+        self.meetingID = meetingID
+        id = finding.id
+        kind = finding.kind.rawValue
+        tier = finding.tier.rawValue
+        text = finding.text
+        deadline = finding.deadline
+        spokenAt = finding.spokenAt
+        foundAt = finding.foundAt
+        state = finding.state.rawValue
+        revisionOf = finding.revisionOf
+    }
+
+    /// Nil when the row says something this build does not understand — a newer
+    /// host having found a kind of thing this one has no case for. Dropping the
+    /// row shows the rest of the notes; refusing the whole fetch would show none.
+    var finding: LiveFinding? {
+        guard let kind = ActionItem.Kind(rawValue: kind),
+              let tier = LiveFinding.Tier(rawValue: tier),
+              let state = LiveFinding.State(rawValue: state)
+        else { return nil }
+        return LiveFinding(
+            id: id,
+            kind: kind,
+            text: text,
+            tier: tier,
+            deadline: deadline,
+            spokenAt: spokenAt,
+            revisionOf: revisionOf,
+            foundAt: foundAt,
+            state: state
+        )
     }
 }

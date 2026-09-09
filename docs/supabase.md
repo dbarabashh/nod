@@ -187,6 +187,117 @@ auth config:
   migrations from `main` into `develop` (or vice-versa) — that pushes one env's
   schema onto the other's sandbox, which then tries to apply it.
 
+## Model routing secrets — what to set at the next prod release
+
+**`supabase/functions/_shared/models.ts` is the one file that lists every
+model Nod consumes** — task, secret, default, where it goes, and why. Nothing
+else in the functions names a model; `_shared/model-policy.ts` only applies that
+table to a request. The rule since 2026-09-06: **no model is switched by
+shipping a desktop build.** Every external model has a secret (the in-runtime
+`gte-small` embedding is the one without), so a change is either an edit to the
+table plus a deploy, or a `secrets set` with no deploy at all.
+
+| Secret | Task | Runs today (`default`) | Stock client id |
+|---|---|---|---|
+| `SUMMARY_MODEL` | session summary | `anthropic/claude-sonnet-5` | `anthropic/claude-sonnet-4.6` |
+| `TITLE_MODEL` | session title, reasoning off | `mistralai/mistral-small-2603` | `anthropic/claude-sonnet-4.6` |
+| `UTILITY_MODEL` | HyDE, router, live analyst, lookups | `mistralai/mistral-small-2603` | `anthropic/claude-haiku-4.5` |
+| `CHAT_MODEL` | session chat, Ask Nod | `anthropic/claude-sonnet-5` | `anthropic/claude-sonnet-5` |
+| `STT_MODEL` | transcription and dictation | `openai/gpt-4o-transcribe` | `openai/gpt-4o-transcribe` |
+| `DISTILL_MODEL` | knowledge distillation | `mistralai/mistral-small-2603` | — |
+| `BEAT_MODEL` | beat reports (falls back to `CHAT_MODEL`) | `deepseek/deepseek-v4-flash-0731` | — |
+| `BRIEFING_MODEL` | calendar briefings | `deepseek/deepseek-v4-flash-0731` | — |
+| `SHARE_ASK_MODEL` | public share page questions | `openai/gpt-4o-mini` | — |
+| `SPEECH_SCRIPT_MODEL` | script for spoken answers | `openai/gpt-4o-mini` | — |
+| `TTS_MODEL` | OpenAI speech synthesis | `gpt-4o-mini-tts` | — |
+| `REALTIME_MODEL` | OpenAI live voice | `gpt-realtime-2` | — |
+
+A request carrying the stock id is re-routed to `default`; a person's own
+`defaults write … openrouter.model` override is anything else and is passed
+through. A secret wins over `default` while set, so once a choice is in the
+table, unset its secret or the file stops telling the truth.
+`DISABLE_REASONING_TASKS` is a comma-separated task list whose reasoning the
+proxy forces off — the client can only do that for `utility`.
+
+Two floors sit under every OpenRouter **chat** request, in code rather than in
+the OpenRouter account (`withProviderFloor`): `provider.zdr = true`, so only
+endpoints OpenRouter lists as zero-data-retention can serve us (first-party
+Anthropic, OpenAI and Google AI Studio are not on that list; Bedrock, Vertex and
+Azure are), and `provider.quantizations` that turns away any host labelling
+itself below fp8. An unlabelled host still passes, because first-party
+endpoints report nothing, so the floor filters rather than pins. The live list
+is `https://openrouter.ai/api/v1/endpoints/zdr`; a chat model with no ZDR
+endpoint fails every request, so check it there before choosing one.
+
+**Transcription has no floor in code.** OpenRouter's audio endpoint takes no
+`provider` field, and `gpt-4o-transcribe` has no ZDR endpoint listed at all, so
+audio goes to OpenAI first-party under OpenAI's own API retention terms. This
+predates the table; it is written down here so nobody reads the paragraph above
+as covering it.
+
+Transcription is OpenRouter-only by default (`STT_ROUTING_MODE` unset). The
+direct Groq and OpenAI Whisper chain still exists behind `openrouter_primary` /
+`groq_primary` as an outage path for Whisper models; it cannot serve
+`gpt-4o-transcribe`.
+
+The table above landed in code on 2026-09-06 (Sonnet 5 for summary, Mistral Small for title,
+Mistral Small for utility and distillation, DeepSeek V4 Flash for background
+jobs; chat and STT unchanged). The same values were set as sandbox secrets the
+same day and are now redundant there; unset them so the file is the one truth.
+Pending verification on real sandbox traffic.
+
+Since the table routes on its own, a stock client's rows show
+`requested_model` (what the client sent) differing from `resolved_model` (what
+served) on every summary, title and utility call. That is the table working,
+not a secret; `x-nod-model-routed` on the response says the same.
+
+The order matters, because one step gates the others:
+
+1. **Ship the client fix first.** Until `290f08b` reaches `main` and a build
+   goes out, summary/recap/entity calls are all labelled `title`, so
+   `SUMMARY_MODEL` controls nothing and `TITLE_MODEL` controls four different
+   jobs at once. Verify by looking for `task = 'summary'` rows in prod
+   `usage_events`; there are none before that build.
+2. **Deploy `llm-proxy`** — a secret is injected at isolate boot, so a warm
+   instance keeps serving the old value until it cycles. Deploy during a quiet
+   window: `usage_events` shows live traffic, and a `utility` call every ~40s
+   means someone is mid-meeting.
+3. **Then set the secrets**, sandbox first, verified on real traffic:
+
+```sh
+SUPABASE_ACCESS_TOKEN=sbp_… supabase secrets set --project-ref <ref> \
+  UTILITY_MODEL=google/gemini-3.1-flash-lite
+```
+
+Verified on sandbox 2026-08-27: `utility` resolved to
+`google/gemini-2.5-flash-lite`, HTTP 200, 5 completion tokens, billed at list
+price with no failover. Roughly 11x cheaper than `claude-haiku-4.5` on the same
+prompts.
+
+Rollback of a secret is `supabase secrets unset --project-ref <ref>
+UTILITY_MODEL`, which returns the task to the **table** default on the next
+isolate, not to the client's id. Going back to what the client sends means
+editing `default` in `models.ts` and deploying, or setting the secret to the
+stock id.
+
+### Why routing a task is safe to try
+
+Two independent nets, both already in the code:
+
+- Every `utility` call site catches and degrades — HyDE falls back to the raw
+  query, the session router to a corpus-wide search, the live analyst skips a
+  tick, loop resolution and lookup return empty. None of them can fail a
+  recording, a transcript or a summary.
+- `applyModelPolicy` keeps the client's chain behind the override, so the
+  payload carries `[<override>, claude-haiku-4.5, claude-sonnet-4.6]` and
+  OpenRouter retries down it on any upstream failure.
+
+One gap to watch: `providerPreference` is built from the *client's* model, so
+the `google-vertex` preference that exists to dodge AI Studio's shared free-tier
+429s is not applied to a server-routed `google/` model. Sandbox calls billed at
+the paid rate, so it is not currently biting; if 429s or failovers appear on a
+Gemini task, move that preference into `applyModelPolicy`.
+
 ## CLI gotcha — management commands need a PAT
 
 Management commands (`secrets set`, `branches …`) read a **Personal Access
@@ -199,6 +310,47 @@ SUPABASE_ACCESS_TOKEN=sbp_… supabase branches update develop --git-branch deve
 ```
 
 `db push` against a branch takes `--db-url` rather than `--project-ref`.
+
+## Realtime — broadcast from the database
+
+Access changes (a folder shared or unshared, a membership granted or removed)
+reach other Macs as a **Broadcast** message sent from a trigger, not as a
+Postgres Changes subscription. Topics are `user:<uuid>`, `org:<uuid>` and
+`team:<uuid>`; the policy on `realtime.messages` in
+`20260815100636_broadcast_access_changes.sql` decides who may listen to which.
+`user:` is the one that matters most — you pass its policy whether or not you
+are still in the organization, so the message telling you that you were removed
+is one you are still entitled to receive.
+
+Two things about this cost an hour to find, and neither is in Supabase's docs.
+
+**`realtime.messages` is partitioned by date, and the partitions are created by
+the Realtime service itself — not by a migration and not by `pg_cron`.** A
+project where nobody has ever opened a Realtime connection has *zero*
+partitions, so every send fails with `no partition of relation "messages" found
+for row`. The service creates several days' worth the first time a client
+connects. You cannot create them by hand: `realtime` is a managed schema and
+even `postgres` gets `permission denied for schema realtime`.
+
+**That failure is silent.** `realtime.send` wraps its insert in `EXCEPTION WHEN
+OTHERS THEN RAISE WARNING`, so a failed send returns normally and logs nothing
+you will see. If broadcast appears to do nothing, check for partitions first:
+
+```sql
+select c.relname
+  from pg_class c
+  join pg_inherits i on i.inhrelid = c.oid
+  join pg_class p on p.oid = i.inhparent
+  join pg_namespace n on n.oid = p.relnamespace
+ where n.nspname = 'realtime' and p.relname = 'messages';
+```
+
+Empty means nothing has ever connected. Open the app once and look again.
+
+**Production has the same empty state** until the first client connects there,
+which will be the first Release build carrying the subscription. Check the query
+above right after that ships — until it returns rows, every access change is
+being dropped, and the swallowed error means nobody will notice.
 
 ## NOD-76 rollout — pricing, referrals, communications
 
@@ -308,10 +460,12 @@ Supabase secrets.
 Still to do at deploy time, deliberately not done ahead:
 
 - **Vault** on each branch: `supabase_project_url` and `internal_job_secret`
-  (the same value as the branch's `INTERNAL_JOB_SECRET`). Sandbox has both;
-  production does not, on purpose — with an empty vault
-  `invoke_internal_edge_job` returns null and stays silent, so the schedules that
-  arrive with the migrations cannot hammer functions that are not deployed yet.
+  (the same value as the branch's `INTERNAL_JOB_SECRET`). Both branches carry
+  both (verified on production 2026-09-01: the vault holds them and the resend/
+  billing schedules run through them), so any schedule arriving with a future
+  migration — `answer-stale-beats` included — goes live the moment its function
+  is deployed. Anything that must stay dark needs its own gate, not an empty
+  vault.
 - **Verify the live referral discount.** Production already has
   `PADDLE_REFERRAL_DISCOUNT_ID`. Its `restrict_to` must list the live Pro monthly
   price — Paddle rejects a transaction whose item the discount does not cover, and

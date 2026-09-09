@@ -1,16 +1,18 @@
 # Privacy Policy
 
-_Last updated: 2026-08-22_
+_Last updated: 2026-09-08_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
 not sending anything today and will not begin earlier than 30 days after this
 policy is published. Until then the previously published practices govern._
 
-_The calendar provisions in § 3.11 are **advance notice** too: reading your
-calendar is not in the released app. When it arrives it stays off until you
-switch it on, and it takes effect for you only from the version that introduces
-it. Where this policy describes Nod as sitting in the notch, the released version
+_The calendar provisions in § 3.11 and the **colleague** live-listening
+provisions in §§ 3.2, 3.15, and 7 are **advance notice** too: neither calendar
+access nor colleague live listening is in the released app. Nod's current
+single-user, in-meeting transcript analysis remains described in § 3.2. When calendar access arrives it stays off
+until you switch it on, and it takes effect for you only from the version that
+introduces it. Where this policy describes Nod as sitting in the notch, the released version
 still runs as a floating panel on the left of your screen; nothing about what is
 collected turns on that difference._
 
@@ -91,16 +93,57 @@ what it finds is held in memory for the length of the meeting and saved with the
 session's action items at the end. No new recipient sees your transcript because
 of this — it is the same summarising model, asked earlier and more often.
 
+**Advance notice — not current:** a future live-listening feature may let a
+colleague from your organization join a recording to follow along (see § 3.15).
+If that feature is released, what the live pass finds would be shared with the
+listener while they are following the meeting. The proposed transient store
+(`meeting_live_findings`) would exist for that purpose alone, be deleted when
+the recording stops, and remain empty whenever nobody has joined.
+
 The embeddings, chat messages, and entities are derived from transcript
 content you already chose to record; they are stored in the same
 Supabase database, in the same `eu-west-1` region, under the same per-user
 Row-Level Security. Cross-session "Ask Nod" conversations are saved as threads
 you can reopen — and delete, which removes their messages with them.
 
-We do **not** store raw audio. Audio exists only as transient memory inside
-the app and inside the Whisper request, for the duration of a single
-~5-second chunk. The bytes are released as soon as the transcript returns.
-There is no audio file, no waveform export, no cloud-stored recording.
+Nod does **not** create or retain a raw-audio recording. Audio exists only as
+transient memory inside the app and inside the Whisper request, for the duration
+of a single ~5-second chunk. Nod releases the bytes as soon as the transcript
+returns. There is no audio file or waveform export in Nod. Groq may retain
+transient error or abuse logs for up to 30 days unless Zero Data Retention is
+enabled; see the [Subprocessors list](./subprocessors.md).
+
+**A question you speak.** Holding the ask key opens your microphone for as
+long as you hold it; letting go sends that one clip — and only that clip — to
+the same speech-to-text provider, through the same proxy, under the same
+no-storage terms as a recording chunk. It carries no meeting: if you ask
+mid-recording, those seconds are taken out of the transcript rather than
+written into it. A clip is capped at sixty seconds and is released the moment
+its text returns. The words become a normal "Ask Nod" message, saved as one.
+The answer is then said back to you — first a few words that Nod is on it,
+then the answer in one to three spoken sentences. Two calls make each: the
+words are written by a language model reached through OpenRouter, the same
+way every other model call in Nod is, from the question you spoke and the
+written answer, nothing else. Reading them aloud is one call directly to
+OpenAI's text-to-speech API — the one part of this that is not routed
+through OpenRouter, because only OpenAI's own endpoint lets Nod ask for a
+natural, unhurried delivery rather than a flat read. It receives only the
+short line just written, never a transcript or a recording, and the audio is
+played once and not kept. If either step is unavailable, the voice built
+into macOS reads a plain version on your Mac instead.
+
+**A live conversation.** A quick tap of the ask key, instead of a hold, opens
+a continuous back-and-forth instead of one clip: your microphone stays open,
+and Nod's replies stream back as you talk, until you tap again, click the
+notch, press Escape, or fifteen minutes pass. That audio streams directly
+between your Mac and OpenAI's Realtime API over a short-lived key our server
+hands your Mac for the one session — no other model call in Nod works this
+way, and Nod's own server never sees the conversation. Nod knows nothing
+about your account inside that conversation on its own; when it needs to
+look something up, it asks — through the same no-recording, no-transcript
+path a typed question uses — and only the last five exchanges of that one
+live conversation are kept in view for a follow-up to make sense, in a
+thread of its own, separate from your other "Ask Nod" conversations.
 
 ### 3.3 Consent acknowledgement audit log
 
@@ -109,6 +152,14 @@ a row in `consent_acknowledgements` containing your user ID, the timestamp,
 the disclaimer version you saw, its language code, and the app version that
 wrote the row. This is a durable audit trail in case a meeting participant
 later disputes consent.
+
+The same table records your answer to the diagnostics question (§ 3.17): the
+version of the wording you saw, which way the two switches were set, and
+whether that was at the question or a later change in Settings, so that
+"were you asked, and what did you say" has an answer without reading your
+Mac. Every change is a new row with both switches as they then stood; an
+opt-out is a row that says so, never a row that is missing. The switch on
+your Mac is still what governs.
 
 Legal basis: legitimate interest in maintaining a legal-defence record
 (Art. 6(1)(f)), balanced by the fact that the row contains no meeting
@@ -122,6 +173,18 @@ transcription), the OpenRouter generation ID, the HTTP status, and the
 upstream cost in USD. We do **not** record the prompt content or the
 response content in this table.
 
+For each request our servers make to a product you connected (§ 3.16), through
+our integration provider, we add one to a daily count per product and purpose —
+an action you asked for, or a calendar read and the reason for it. The count is
+all that is kept: not the request, and nothing it returned. It is kept for
+thirteen months.
+
+When a read of a connected product is one you asked for in chat, we also write
+one row to `usage_events`: which product and action, the cost to us, and — if a
+workspace's plan covers you — which organization was paying. That row is what
+an integration credit is counted from (Terms § 7). It holds neither your
+question, nor the request, nor what came back.
+
 We use this to enforce per-account quotas, choose pricing, and detect
 abuse.
 
@@ -133,15 +196,35 @@ Legal basis: legitimate interest in operating a sustainable service
 Nod records a minimal first-party event log in `onboarding_events` and
 `product_events`. It covers setup steps, app opens, capture requests and
 outcomes, summary/transcript/action-item views, Ask completion, copy/export,
-paywall views, and successful checkout creation. Each row contains a random
+paywall views, successful checkout creation, connecting or disconnecting a
+third-party product, whether a question put to one of those products was
+answered, your decision on an approval card before Nod writes anything to them,
+the ambient-context switch being turned on, off, or paused, a commitment being
+ticked, reopened, delegated, asked about or filed, a beat being created,
+switched or removed and its report being opened, a change of recap mode, how a
+question was aimed (a pinned session, a project, a follow-up, or everything)
+and whether an answer had a session behind it, a source being opened from an
+answer, a session or project being shared and a share ending, an invitation
+sent or accepted, the Mac's calendar being allowed or refused, an answer to
+"record this one?" on Today, a failure you were shown (a recap that did not
+come, a save that did not sync, a product that did not answer, credits running
+out, a search that failed), the notch being opened, a hotkey being used, how
+long the app stayed open (in four coarse buckets), an update being installed
+from the sidebar, and a support tile being opened. Each row contains a random
 event ID, timestamp, app-session or capture ID where relevant, platform, app
 version, event name, and bounded categories such as session kind, entry point,
 stage, permission type (microphone or screen recording), failure reason,
-surface, content type, AI feature, outcome, plan, and billing cycle.
+surface, content type, AI feature, outcome, which product (from a fixed list of
+the integrations Nod supports), plan, billing cycle, and one further word from
+a fixed list (a beat's cadence, a preset mode's name, how a question was aimed,
+who a share went to, which hotkey, the length bucket, which support tile). A
+mode you named yourself is recorded only as "custom".
 
 The event log never contains meeting titles, transcript or summary text,
 questions, answers, arbitrary error messages, email, clipboard contents, share
-tokens, or other free-form app content. Completed meetings, persisted chats,
+tokens, or other free-form app content. Nothing read from your screen reaches
+it either: not the app a capture came from, not a window title, and not what is
+on your exclusion list — the ambient event records only that the switch moved. Completed meetings, persisted chats,
 action items, shares, and payments are measured from their domain records
 rather than trusting a client event.
 
@@ -197,7 +280,8 @@ customer portal for you.
 | Plan, status, billing-period dates, trial end date (`subscriptions`) | To grant the features and limits you paid for and know when access lapses | Contract (Art. 6(1)(b)) |
 | Paddle customer ID and subscription ID (`subscriptions`) | To match Paddle's billing events to your account and open your billing portal | Contract (Art. 6(1)(b)) |
 | Paddle event and transaction identifiers, first-payment history per Paddle customer, and refund/chargeback adjustments (`subscriptions`, `billing_payer_history`, `billing_adjustments`) | To apply each billing event exactly once, reject out-of-order updates, tell a first-ever payer from a returning one, and reconcile refunds | Contract (Art. 6(1)(b)); legitimate interest in accurate accounts and fraud prevention (Art. 6(1)(f)) |
-| Top-up purchase intent and purchased hours (`topup_checkout_intents`, `usage_topups`) | To credit an explicitly bought pack of hours to the billing period it was bought for, and to reverse an unused one on refund | Contract (Art. 6(1)(b)) |
+| Pack purchase intent and purchased packs — hours or integration credits — and the organization when a workspace bought it (`topup_checkout_intents`, `usage_topups`) | To credit an explicitly bought pack to the billing period and the person or workspace it was bought for, and to reverse an unused one on refund | Contract (Art. 6(1)(b)) |
+| Workspace plan: plan, status, seat count, billing-period dates, Paddle customer and subscription IDs, and who checked out (`org_subscriptions`) | To cover an organization's members with the plan it bought, pool their hours and credits, and let its owners and administrators open the billing portal | Contract (Art. 6(1)(b)) |
 | Referral code, referrer/referee link, qualifying transaction and subscription IDs, reward credits, payout state, and fraud blocks (`referral_codes`, `referrals`, `reward_credits`, `reward_payouts`, `advocacy_reward_claims`, `referral_fraud_blocks`) | To run the referral offer, verify the first renewal and its seven-day hold, apply the reward once, and prevent self-referral or duplicate redemption | Contract (Art. 6(1)(b)); legitimate interest in promotion integrity (Art. 6(1)(f)) |
 | Meeting-start lease: a recording ID, its expiry, and when it was last used (`meeting_start_leases`) | To check the monthly hour allowance once, before a recording starts, without ever interrupting one in progress | Contract (Art. 6(1)(b)) |
 
@@ -209,21 +293,31 @@ in the same `eu-west-1` region.
 ### 3.8 What we do **not** collect
 
 - The macOS app embeds **no** analytics SDKs (PostHog, Mixpanel, Amplitude,
-  Segment, Google Analytics, Sentry, etc.). The only in-app product telemetry
-  is first-party operational and funnel data stored in our own database. The
+  Segment, Google Analytics, etc.). The only in-app product telemetry is
+  first-party operational and funnel data stored in our own database. The
   marketing website analytics described in § 3.13 is optional and stays off
-  until you consent.
+  until you consent. The one third-party SDK in the app is the crash reporter
+  (§ 3.17), which sends nothing about you, and which you can switch off.
 - We do **not** collect arbitrary screen names, dwell time, typed questions,
   answers, errors, titles, clipboard contents, or meeting content in product
   telemetry. Only the bounded events and categories in § 3.5 are accepted.
 - We do **not** send meeting content, transcript text, account email, name, or
   Supabase user ID to website analytics or Google Ads.
 - We do **not** connect to Google, Microsoft, or any other account to read your
-  email, calendar, or files. A coming version will be able to read the calendar
-  **already set up on your own Mac** — on the device, and only if you switch it
-  on (§ 3.11). That is a macOS permission, not a connected account, and nothing
-  read from it is stored or sent anywhere.
+  email, calendar, or files — unless **you connect that account yourself** in
+  Settings → Integrations, which nothing does for you. A coming version will be
+  able to read the calendar **already set up on your own Mac** — on the device,
+  and only if you switch it on (§ 3.11) — and, separately, to reach the
+  accounts you choose to connect: a calendar (§ 3.11(a)), and the mail, files,
+  pages and records § 3.16 describes, each read in answer to a question you
+  asked and none of it stored.
 - We do **not** collect your contacts or address book.
+- We do **not** create or store a **voice print**. Nod separates a recording
+  into distinct voices so a transcript can say who said what within that one
+  meeting, and it does not keep anything that could recognise a voice in a
+  different one. Putting a name to a voice comes from the meeting's own
+  participant list, from what was said, or from you correcting it — never from
+  a biometric identifier.
 - We do **not** record video of your screen, and we do **not** save an image
   of it — ever. What Nod keeps from your screen is always **text**. With
   ambient context on, a window whose text macOS cannot describe is read from
@@ -317,17 +411,18 @@ the product:
 
 | | |
 |---|---|
-| **Default** | **Off.** You switch it on yourself — in Settings → Privacy, or from the **Ambient context** control at the bottom of Nod's sidebar, which states the same thing this row does before it turns anything on. It is never switched on by an app update. |
+| **Default** | **Off.** You switch it on yourself — on the setup card in the notch when you first set Nod up, in Settings → Privacy, or from the **Ambient context** control at the bottom of Nod's sidebar. Each of the three states the same thing this row does before it turns anything on, and skipping the setup card leaves it off. It is never switched on by an app update. |
 | **Turning it off** | The same sidebar control switches it off in one click, and always shows whether it is on, off, or paused. You never have to go looking for the off switch. |
 | **Pausing** | You can pause capture for 15 minutes, an hour, or the rest of the day without switching the feature off. Nothing is read while it is paused, and it resumes on its own when the time is up. A pause survives quitting Nod, and never outlives its own deadline. |
-| **What is stored** | The window's text, the app's identifier, the window title, and a timestamp, in `screen_observations`. No images, no keystrokes, no clipboard, no password-field contents. |
+| **What is stored** | The window's text, the app's identifier, the window title, and a timestamp, in `screen_observations` — and, for a browser tab, the page's address, so an answer can hand you back the link you were looking at. No images, no keystrokes, no clipboard, no password-field contents. |
 | **How often** | About every 5 seconds, and only for the window you are actually looking at — the focused one, never the app's other windows. An unchanged screen stays a **single row**, not one per sample; its timestamp is refreshed at most once a minute, so Nod can tell how long a window was up without storing it again. |
 | **How it reads** | The accessibility interface first. When a window tells macOS almost nothing — Slack, Figma and other Electron or canvas-drawn apps — Nod converts that window's pixels to text **on your Mac**, at most once every 20 seconds, and only for a window the accessibility read came up short on. This needs the **Screen Recording** permission you already granted for meeting audio; without it, the step is skipped. It also needs macOS 14 or later. |
 | **What happens to the image** | Nothing is saved. It exists in memory for the moment recognition takes, is never written to disk and never uploaded, and is released immediately. Only the recognised text is stored. |
 | **How long** | Every row carries an expiry — 14 days by default, and you choose. A scheduled job deletes expired rows server-side, so the index shrinks on its own even if you never open Nod again. |
-| **Exclusions** | Your blocklist is checked **before** anything is read — including before any pixel is read. An excluded app or window is never traversed and never recognised. |
-| **Excluded out of the box** | Two groups are on the blocklist before you touch it. **Personal messengers** — WhatsApp, Telegram, Messages, Messenger, Signal, Viber, Discord — so a private conversation is never the first thing captured. **Password managers and one-time-secret services** — 1Password, Bitwarden, LastPass, Dashlane, Keeper, NordPass, Proton Pass, Enpass, KeePassXC, Apple Passwords, and the matching websites plus pwpush, One-Time Secret, Privnote, Yopass, scrt.link and 1ty.me — because a vault window lists every account you own, and a one-time secret exists to be read once and destroyed. All of them are ordinary entries you can remove in Settings → Privacy if you want that app or site read; removing one is remembered and it is not added back. |
-| **Always include** | Category exclusions match keywords in a window title, so they are broad and will sometimes catch a site you want read — a supplier portal under "Shopping", a recruiting call under "Social media". You can list those sites as always-included, and they are captured despite the category. This cannot re-open a site you excluded by name: an explicit exclusion always wins. |
+| **Exclusions** | Your blocklist is checked **before** anything is read — including before any pixel is read. An excluded app or window is never traversed and never recognised. In a browser, the check runs against the page's **address** as well as the window title, so a site you excluded is skipped even when the tab calls itself something else. The check runs on your Mac before anything is read; a page that passes is stored with its address, under the same retention and the same exclusions as its text, and an excluded page's address is never stored. |
+| **Excluded out of the box** | Two groups are on the blocklist before you touch it. **Personal messengers** — WhatsApp, Telegram, Messages, Messenger, Signal, Viber, Discord — so a private conversation is never the first thing captured. **Password managers and one-time-secret services** — 1Password, Bitwarden, LastPass, Dashlane, Keeper, NordPass, Proton Pass, Enpass, KeePassXC, Apple Passwords, and the matching websites plus pwpush, One-Time Secret, Privnote, Yopass, scrt.link and 1ty.me — because a vault window lists every account you own, and a one-time secret exists to be read once and destroyed. All of them are ordinary entries you can remove in Settings → Privacy if you want that app or site read; removing one is remembered and it is not added back. Separately, and not as removable entries, Nod never reads the **lock screen, the macOS authorization prompt, or the screensaver** — the places you are most likely to be typing a password, and which carry nothing to answer from. |
+| **Always include** | Category exclusions match keywords in a window title or page address, so they are broad and will sometimes catch a site you want read — a supplier portal under "Shopping", a recruiting call under "Social media". You can list those sites as always-included, and they are captured despite the category. This cannot re-open a site you excluded by name: an explicit exclusion always wins. |
+| **Where it may appear** | Answering a question you ask is what capture is for, and the only use that comes with the switch. Two further uses are each their own opt-in in Settings → Screen, off until you turn them on: **private Today suggestions** — a line next to one of your own commitments saying you appear to have worked on it, naming the app and window, visible only to you and never shared; and **suggestions while drafting** — related work offered as a line you can add to a message you are writing. Nothing from your screen is added to a message, or leaves Nod, except by your own click into an editor you are reading. Beats and shared summaries never use it. |
 | **Deletion** | Yours to delete at any time, from the same sidebar control: the last 5 minutes, the last 15 minutes, the last hour, or everything Nod has ever read from your screen. Deletion is immediate and permanent, and it does not touch your sessions or transcripts. What it does not do is stop capture: if ambient context is still on and you are still looking at the same window, that window will be read again as a new observation — pause or switch it off first. Account deletion removes all of it. |
 
 Legal basis: Consent (Art. 6(1)(a)) — this one is opt-in, and you can
@@ -347,13 +442,18 @@ card you click, and clicking it takes you through the same consent and language
 steps as pressing Start yourself.
 
 - **What it reads.** Which apps are running, **which** app is using your
-  microphone (macOS names the app; Nod never hears what it is recording), and
-  the **window titles** of conferencing apps only — never the contents of any
-  window, in any app. It does not use the accessibility
+  microphone (macOS names the app; Nod never hears what it is recording) — for a
+  browser this is what notices a call in a tab you have moved away from, and it
+  has to hold the microphone for about a minute before Nod says anything — and
+  the **window titles** of conferencing apps only — including their windows on
+  other Spaces and minimized ones, so a call left running behind your work is
+  still noticed — never the contents of any window, in any app. It does not use the accessibility
   interface at all; window titles come from the same **Screen Recording**
   permission Nod already needs to hear a meeting.
 - **What it stores.** Nothing. A title is matched in memory and dropped when the
-  offer goes away. There is no row, no file, and nothing leaves your Mac.
+  offer goes away. There is no row, no file, and nothing leaves your Mac. (A
+  development build of Nod writes the titles it examined to the Mac's own
+  console log to diagnose detection; a released build never does.)
 - **What it is matched against.** The call-marker words above, and — on your Mac
   only — the titles of sessions you have already recorded, so the offer can tell
   you that you have had this conversation before and how much of it is still
@@ -372,9 +472,10 @@ steps as pressing Start yourself.
   become forty minutes of an empty room. A window title is never used to end a
   recording: it disappears when you switch tab or Space, not only when the call
   is over.
-- **Off in one click.** Settings → General turns detection off entirely, and
-  the card itself offers "Never for <app>" for a single app. An app on your
-  screen-reading blocklist is never detected either.
+- **Off in one switch.** Settings → General turns detection off entirely, and
+  the same card carries the list of conferencing apps to exclude — tick one and
+  Nod stops offering to record its calls. An app on your screen-reading
+  blocklist is never detected either.
 
 Legal basis: Legitimate interest (Art. 6(1)(f)) — offering to record the
 meeting you are in is the product's core purpose, and it is served by reading a
@@ -388,12 +489,11 @@ speakers is the feature you are using Nod for. Participants' names are read
 locally, used transiently, and travel no further than the summarising model
 already handling the transcript of the same conversation.
 
-### 3.11 Your calendar — only if you switch it on
+### 3.11 Your calendar — only if you connect or switch it on
 
 **Advance notice — not in the released app.** The released app does not read
-your calendar and does not ask macOS for the permission. Everything below
-describes how it will work in the version that introduces it, and it stays off
-until you switch it on.
+your calendar. Everything below describes how it will work in the version that
+introduces it, and none of it happens until you ask for it.
 
 A window title is a poor way to tell *which* meeting is starting: Microsoft
 Teams names it, Zoom usually says only "Zoom Meeting", and Google Meet often
@@ -401,25 +501,63 @@ shows nothing but a room code. Your calendar names it every time. With this on,
 the offer to record can tell you that you have had the same meeting before and
 how much of it is still open, instead of just that a call is happening.
 
+There are **two separate ways** to give Nod a calendar, and they differ in where
+the data goes. Neither is on by default and neither implies the other.
+
+#### (a) Connecting a calendar account
+
 | | |
 |---|---|
-| **Default** | **Off.** You switch it on yourself in Settings → General, and macOS then asks you separately. It is never switched on by an app update. |
-| **What it is not** | **Not a connected account.** There is no Google or Microsoft sign-in, no OAuth, no token, and no calendar API. Nod reads the calendar database already on your Mac — the same one the Calendar app shows you — through the macOS **Calendars** permission, exactly like the microphone permission you already granted. |
-| **When it reads** | On a timer while the switch is on — about every 20 seconds — so Nod can tell you a meeting is starting before you have opened anything. It also reads when a call is detected, and once more when a recording finishes: an invitation is often written minutes *after* the call started, so that last read is what finds it. The timer stops the moment you switch the feature off. |
-| **What it reads** | Events around the moment it asks — the title, the start and end times, whether you declined it, whether the entry contains a video-call link, and **who was invited**: each person's name (or, where the invitation carries no name, their address), and which of them is you. Rooms and equipment are skipped, as is anyone who declined. Nothing else about the event is looked at. |
-| **What it stores** | The **names of the people invited** go into the recording's own summary, the same way the participant list read from a conferencing app already does (§ 3.10(a)) — so a summary can say "Alina" instead of "Speaker 2". Nothing else is kept: the title is compared against your existing sessions on your Mac and dropped, and no separate record of the event or its invitees is ever written. |
-| **Why the names** | To count how many people other than you should be heard in the recording, which is what makes speaker separation accurate, to put a name to a voice, and to tell you who a meeting that is starting is with. This replaces reading the conferencing app's window for the same thing — the calendar is both more accurate and far less intrusive, since it needs no access to what is on your screen. |
-| **What it does with a meeting that is starting** | Shows you a card, with a sound. That is all it does: the card has a button, and recording begins only when you press it — the same rule as a detected call (§ 3.10(c)). Nod never starts a recording because a calendar said so. |
+| **Default** | **Off.** You connect it yourself, in onboarding or in Settings → Integrations. It is never connected by an app update. |
+| **What it is** | **A connected account.** Google's own authorization page opens in your browser and you grant Nod access to your calendar. Google's screen describes that access as managing your calendars — see **Writing** below for what Nod actually does with it. Your Google password never reaches Nod. The access and refresh tokens are held by **Pipedream**, our integration provider (see the Subprocessors list) — Nod never receives or stores them. |
+| **When it reads** | When Nod on your Mac asks for it, and it says why: when you open Nod or bring it forward, once an hour while it is running, every few minutes in the half hour before an entry on that calendar, and when a recording starts. Each of those has a floor on our servers — fifteen minutes, an hour, five minutes, two minutes — and a request sooner than its floor is refused without reading anything. We make at most about 3,000 such requests for one calendar in a month, whatever the app asks; only the read made when a recording starts is outside that budget, one per recording. On their own, our servers refresh a calendar once a day, and only one the app has not asked about since the day before. Reading a date range you ask about in chat (see **What it reads**) is separate, and happens only when you ask. |
+| **What it reads** | Your **primary** calendar only, and only a moving window around now: from two hours ago to seven days ahead. Within that window: the title, start and end times, the video-call link, the organizer's address, and **who is invited** — each attendee's email address and whether they accepted. Meeting rooms and equipment are skipped, and all-day entries are ignored entirely. Nothing else about an event is read, and no other calendar is read on the schedule. One exception, and only when you are scheduling: before a meeting you ask Nod to set up is sent, Nod asks Google whether the people you are inviting are **free or busy** at that time — the same free/busy answer their calendar shows any colleague, which carries no titles, no guests and no details, only the blocks. It is read for that one question, shown to you, and not stored. A calendar Google will not answer for is shown as "couldn't check", never as free. |
+| **What it stores** | This one **does** keep a record, which is the difference from (b). The fields listed above are stored on our servers so the app can answer "what is starting next" the moment it opens. An event leaves our database when it leaves the window, and in any case within **seven days** of the meeting ending. |
+| **Writing** | **Only when you confirm it, and only what you confirmed.** Nod can create a calendar event, it can change or cancel an existing one, and it can answer an invitation on your behalf (going, not going, maybe), when you ask it to in chat or press "Not going" on the Today screen. Each shows you a card or a confirmation first — what will be created, moved, cancelled, or answered, and who is invited — and nothing happens until you press the button on it. Google then emails the guests the invitation, the change, or the cancellation, or emails the organizer your answer, which is why the confirmation exists: none of them can be recalled. For a change or a cancellation, the card names the event by its title and start time, and our server refuses the request when they no longer match the event it points at — the event acted on is the one you read. Nod never touches your calendar on its own initiative. |
+| **Turning it off** | **Disconnect** in Settings → Integrations. That ends the authorization — the stored credential is deleted at our integration provider, so nothing can read your calendar afterwards — and every event we had already read is deleted at the same moment. You can also revoke Nod from your Google account directly: that stops the reading just as completely, though events already stored then age out on the schedule above rather than going immediately. |
+
+#### (b) The macOS Calendars permission
+
+| | |
+|---|---|
+| **Default** | **Off.** You switch it on yourself, in onboarding or in Settings → General, and macOS then asks you separately. It is never switched on by an app update. |
+| **What it is not** | **Not a connected account.** There is no sign-in, no OAuth, no token, and no calendar API. Nod reads the calendar database already on your Mac — the same one the Calendar app shows you — through the macOS **Calendars** permission, exactly like the microphone permission you already granted. This reaches whatever accounts you have added to your Mac, including iCloud calendars that no integration can see. |
+| **When it reads** | On a timer while the switch is on — about every 20 seconds — plus when a call is detected and once more when a recording finishes: an invitation is often written minutes *after* the call started, so that last read is what finds it. Switching the feature off stops Nod reading your Mac's calendar immediately. The timer itself keeps running only if you have also connected a calendar account under (a), and it then looks at that one alone. |
+| **What it reads** | Events around the moment it asks — the title, the start and end times, whether you declined it, whether the entry contains a video-call link, and **who was invited**: each person's name (or, where the invitation carries no name, their address), and which of them is you. Rooms and equipment are skipped, as is anyone who declined. |
+| **What it stores** | Nothing of its own. The **names of the people invited** go into the recording's own summary, the same way the participant list read from a conferencing app already does (§ 3.10(a)) — so a summary can say "Alina" instead of "Speaker 2". The title is compared against your existing sessions on your Mac and dropped, and no separate record of the event or its invitees is ever written. |
 | **Writing** | Never. Nod does not create, change, or delete anything in your calendar. |
 | **Turning it off** | The same switch in Settings → General. Nod stops reading immediately, whether or not macOS still shows the permission as granted — and you can revoke the permission itself in System Settings → Privacy & Security → Calendars. |
 
-Legal basis: Consent (Art. 6(1)(a)) — this one is opt-in, and you withdraw it by
-switching it off, which stops the reading immediately. Nothing was retained to
-delete.
+#### What a meeting that is starting does
+
+Shows you a card, with a sound. That is all it does: the card has a button, and
+recording begins only when you press it — the same rule as a detected call
+(§ 3.10(c)). Nod never starts a recording because a calendar said so. This is
+true of both sources.
+
+#### Recognising the same meeting inside an organisation
+
+If you are in an organisation, a recording can carry two identifiers
+derived from the meeting it belongs to: the invitation's own id, and the
+conferencing room from the join link. They exist so Nod can notice that a
+colleague in **your organisation** recorded the same meeting, and offer to treat
+the two recordings as one rather than leaving duplicates.
+
+What a colleague can learn this way is deliberately narrow: that you recorded a
+meeting they were also in, its title, your name and its start time. Never its
+transcript, its summary, or anything that sharing a folder with them would have
+had to grant. The comparison is scoped to your organisation before any identifier is
+compared, so two strangers in one public conferencing room never learn of each
+other. Outside an organisation nothing is compared at all.
+
+Legal basis: Consent (Art. 6(1)(a)) — both are opt-in, and you withdraw by
+disconnecting or switching off, which stops the reading immediately.
 
 ### 3.12 Official ChatGPT and Claude connectors
 
-You can authorize a supported AI client to read your Nod meetings. The consent
+The read-only connectors are built, but public installation is awaiting
+directory approval. After a public listing opens, you can authorize a supported
+AI client to read your Nod meetings. The consent
 screen identifies the client, redirect address, and single read-only permission
 before anything is shared. The connector can return meeting titles, dates,
 summaries, and transcript text for your account; it cannot create, edit, or
@@ -535,6 +673,152 @@ suppress a complaint or a bouncing address.
 
 ---
 
+### 3.15 Working in an organization (team context early access)
+
+Nod can be used alone or, for approved early-access teams, inside an organization.
+This is not a generally available self-service workspace. The current sharing
+contract is described here rather than left to product copy.
+
+**Nothing becomes visible because you joined.** Membership by itself shares
+nothing. Your meetings stay yours, exactly as they are for an account in no
+organization. Two deliberate team-sharing acts are available, and each is yours
+to take and reverse.
+
+| **Sharing a project** | You can hand a folder of meetings to a team, or to the whole organization. Everyone in that audience can then read the meetings filed there — summary, transcript, and action items. Filing a meeting into a shared folder is what shares it; removing the share ends the access immediately. |
+| **Sharing one meeting** | You can hand a single finished meeting to a team or to the organization, without filing it anywhere. Same contents, same immediate revocation. This is the one offered right after a recording ends. |
+
+A public share link is separate from team context. You can create a revocable
+link for one meeting's summary; it never exposes the transcript or another
+meeting.
+
+**Live listening is advance notice, not current.** A future version may let a
+colleague follow a live meeting they are also invited to, but that depends on
+the unreleased calendar access described in § 3.11. It is not part of the
+current early-access team workflow.
+
+**Your colleagues' names and addresses.** Inside an organization, Nod can see
+who else is in it — each active member's display name and the address they signed
+up with — so that a team-sharing or membership picker shows the right Dima
+without making you look the address up yourself. It is your organization only,
+active members only, and the two fields an invitation needs: no roles, no join
+dates, nothing about their meetings. An account that belongs to no organization
+has no such list. This is the one place membership makes something visible that
+was not visible before, and it is limited to what sending someone an invitation
+would tell you anyway.
+
+**What an organization's administrators can and cannot do.** They cannot open a
+session you kept to yourself. There is no administrative view of another
+member's recordings and no export of them. Current early access also has no
+setting that forces recordings to belong to the organization and no switch that
+lets an administrator read private meeting content.
+
+Those two organization controls — enforced organization ownership and
+administrator read access to organization-owned recordings — are future,
+unreleased design. If either ships, this policy and the in-product notice must
+change before it can alter the current private-by-default contract.
+
+What they do control is who is in a team, and that matters for anything you
+shared with a team: the audience of a team share is whoever is in that team at
+the time of reading, not a fixed list of people fixed when you shared. So an
+administrator who adds an account to a team can read what was shared with that
+team. They cannot reach what you never shared, and every membership change is
+written to the audit log. If that is not the boundary you want, share with named
+people or keep the session to yourself.
+
+**What we store for this.** Which organization and teams you belong to, your role
+in them, and a row for each share you make: what was shared, with which audience,
+by whom, and when. Membership and sharing actions are written to an audit log so
+an organization can answer "who gave whom access to what". None of it contains
+meeting content.
+
+**Legal basis.** Legitimate interests (Art. 6(1)(f)) — an employer needs to know
+who is in its workspace and what has been shared inside it. Sharing itself is
+always your own act.
+
+**When you leave.** Losing active membership ends every access that came through
+the organization, in both directions, at once: colleagues stop seeing what you
+shared with them, and you stop seeing what they shared with you. Your own
+meetings remain yours.
+
+### 3.16 Turning a meeting into work in your tools (advance notice — not in the released app)
+
+This section is **advance notice**. Nothing described here is in the released
+app, and none of it happens for anyone who has not connected a tool themselves.
+
+When you connect a tool that Nod can act in (§ 3.11 describes the calendar; the
+same mechanism covers a task tracker such as Linear, Jira, Asana, Google Tasks or GitHub, a
+team chat such as Slack, a wiki such as Notion, a CRM such as HubSpot, and your
+Gmail), a finished meeting — or a question you type — can offer to do something
+in it: file a task or an issue, comment on one, close one, open a channel, put
+a page of notes in the wiki, log a note on a CRM record, save a draft reply.
+Every one of those offers is **prepared and shown to you, and nothing leaves
+Nod until you approve it** — one by one, or a meeting's batch of tasks with one
+press after reading each of them. There is no setting that performs them
+automatically, and we have not built one.
+
+| **A calendar entry that is really a task** | On the Today screen you can turn an entry on your calendar into a task in **Google Tasks** — an errand that was put on the calendar but is not a meeting. Pressing it shows you the task that would be created — its title, its due day, and the note it carries (the entry's time and who was invited) — and creates it only when you confirm. The calendar entry itself is **not** changed, deleted or declined; Nod only stops treating it as a meeting on your Mac. A Google Tasks connection is used for this and for filing action items; when Nod looks a task up or searches for one, it reads your **default** task list only — the task's title, notes, due day and whether it is done. Nothing from a search is kept except the link to the task you chose to file into, and a filed item's done state follows what Google says about that task. |
+| **What a filed task carries** | A task filed from a meeting — whether from the "Ready to file" card the recap shows, or from the filing mark on one action item — carries, under its title and description, a short footer: the meeting's title and date, the **one sentence of the transcript** that produced the task (at most 200 characters), and a link that opens that meeting in Nod for someone who already has access to it. If the meeting named a colleague Nod could not match to anyone in your tools, that name as it was said is written in the description rather than guessed at. The card shows that sentence before you approve, so what you approve is what the tool receives. Everyone who can read that task in the tool can read the sentence; it is not shared through a public link. Only meetings that are yours can be filed — a meeting a colleague shared with you cannot be filed into your tools. |
+| **Taking it back** | "Undo" on a batch you just filed closes each ticket in the tool with a note saying it was undone from Nod, after asking you once more. Nothing in the tool is deleted. |
+| **What is stored** | For each offer: what it would do, in which tool, the parameters it would use, and the position in the transcript that caused it. If the meeting named a colleague as the person taking something on, the offer carries **who** — as a reference to their record in your organization, plus their name as it will appear in the tool. |
+| **Reading who is in your workspace** | When an **administrator** of your organization connects a tool, Nod reads that tool's member list once and records, for each member with an address, their name, that address, and the identifier the tool uses for them. This is what lets a meeting assign work to a colleague on the day you set Nod up, instead of after everyone has been invited to Nod and accepted. It happens for administrators only — a member connecting their own account does not import anything, because their workspace is not the company's. |
+| **Colleagues who do not use Nod** | Someone in that member list who has no Nod account still gets a record, marked as having come from a connected workspace. They can be named as the owner of a task, and nothing else: they cannot sign in, they are sent nothing, and they have no access to anything. If they later create a Nod account with the same address, the record becomes theirs rather than a second one being made. |
+| **Matching** | **By email address only.** We never match on names, because two colleagues share a first name far more often than an address, and an assignment made on a name is a ticket in the wrong person's queue. A name someone set in their own Nod profile is never replaced by the version a workspace shows. |
+| **Speaker attribution** | Which voice in a recording belongs to which person, with a note of how that was decided — the conferencing app's participant list, a reading of the transcript, or your own correction — and how far it can be trusted. A name Nod worked out on its own is **never** enough to assign work to somebody; only a person you confirmed can be named as an owner. |
+| **What is never guessed** | If a meeting says "someone should look at this", the offer is created with **no owner** and asks you who. We do not infer an owner from who usually does that kind of work. |
+| **Reading a team chat** | A connected team chat can also be **read**, so a question can be answered from what colleagues actually said rather than only from what a meeting recorded. Nod reads the channels **you are a member of**, private ones included, under your own authorization in that chat — the same channels you would open yourself. It can additionally join a **public** channel you are not in, which that channel sees, as the "Nod joined" line every member can read. Searching for a phrase, a person or a day covers those same channels and no others. Reading happens in answer to a question you asked. In the chat, each read is shown to you and runs only if you allow it; in the Ask box during a meeting a **read** runs without asking, because a question typed mid-conversation cannot wait on a dialog — anything that would **change** something in a connected tool is still shown to you in full, with what it would do, and runs only if you allow it. The messages are **not stored**: they go into that one answer, and what remains afterwards is the answer you can see. |
+| **Reading mail, documents and pages** | The same question-driven reading covers the other tools you connect: a Gmail search and one message's text, a Notion page's text, a Drive document's text. Each read happens in answer to a question you asked, under your own authorization in that tool, and is **not stored** — it goes into that one answer, and what remains afterwards is the answer you can see. |
+| **Mail is drafted, never sent** | When you ask for a follow-up email and approve it, Nod saves a **draft** in your own Drafts folder. It never sends mail — pressing send remains yours, in your own mail client. |
+| **Direct messages are never read** | This holds for one-to-one and group direct messages alike, and it is worth saying how. Slack's search permission is not divisible: it returns whatever your account can see, direct messages among it. So the exclusion is not a permission we declined — it is enforced in Nod, on every result, before anything reads it: a match from a direct or group message is discarded, and so is any conversation Nod cannot positively identify as a channel. Nothing you can type into Nod changes that, because the filter looks at what the conversation *is* and never at what was asked for. |
+| **Your organization's say** | An administrator can turn any tool off for the whole organization. With it off, Nod will not act in that tool for anybody in the organization, whoever connected it. |
+| **What is written down** | Approving, declining, performing and failing to perform an offer are each recorded in the organization's audit log, with who did it and when. The record names the tool and the object created; it does not contain meeting content. |
+| **Turning it off** | Disconnect the tool in Settings → Integrations. The authorization ends at our integration provider, no further offers for that tool are made, and the identifiers we recorded for colleagues in it are deleted — unless a colleague in the same organization still has it connected, in which case the mapping remains for them. Work already created in the tool stays there; it is yours, in your account. A person record created from a workspace is kept, because past meetings and the audit log refer to it; ask us and we will delete it. |
+
+**Legal basis.** Legitimate interests (Art. 6(1)(f)) — carrying out, on request,
+the follow-up work a meeting decided on. The offer itself is prepared for you;
+the act that reaches another system is always yours.
+
+### 3.17 App updates, crash reports and support requests
+
+**Checking for updates.** The app asks `hellonod.app` for its update feed every
+four hours while it is running, when you choose *Check for Updates…* in the
+menu-bar item, and when the version line at the bottom of Settings is on
+screen. That request carries what any web request carries — your IP address
+and a user-agent naming the app version and the update library (Sparkle) — and
+nothing else: no account identifier, no sign-in, and no description of your
+Mac. Which release channel you may see is decided on your Mac, not sent. When a
+newer build is offered, the app remembers its version number locally
+(`update.available`) so the *Update Nod* row in the sidebar can show it; that
+note is deleted once the build is installed, withdrawn, or skipped. Updates
+install when you quit the app. `hellonod.app` is hosted by Vercel (§ 5).
+
+**Crash reports.** When the app crashes or freezes, it sends a report to
+**Sentry** (Functional Software, Inc., § 5) so the fault can be fixed. A
+report holds the stack trace, the app version and channel, your macOS version
+and Mac model, and a random installation identifier the crash reporter keeps
+on your Mac. It holds **no** transcript, summary, question, answer, name,
+email address, account identifier or IP address: the reporter is configured
+not to send personal data, not to record network requests, screenshots or
+logs, and the app never attaches any. A small share of app launches also
+reports how long the launch took, with the same facts and nothing more.
+**Nothing is sent until you have been asked**: a new install asks during
+setup, and an install that updated into this version asks once in the main
+window, with the same two switches Settings → Privacy shows afterwards. The
+switch takes effect at once and holds across launches. Debug builds report
+nothing.
+
+**Request a feature / Report a bug.** Both buttons in Settings → General open
+a **draft** in whatever handles mail on your Mac, addressed to
+**dmytro@hellonod.app**. Below a space for your message, the draft is
+pre-filled with: the app version and build channel, your macOS version, your
+Mac's model and chip, how many screens it has, whether the app was in light or
+dark appearance, where in the app you pressed the button, and a random report
+ID that is not linked to your account. You see every line before anything
+leaves your Mac, you can delete any of it, and nothing is sent unless you send
+it. What you send is handled as correspondence with us (§ 7).
+
+**Legal basis.** Legitimate interests (Art. 6(1)(f)) — keeping the app you
+installed current, secure and working, and answering the question you sent.
+
 ## 4. Model training
 
 **We do not train any machine-learning model on your data.** We have also
@@ -624,7 +908,7 @@ We can provide our SCCs and transfer impact assessments on request to
 | Connector OAuth grants and refresh-token state | Until you revoke the authorized app, the grant expires, or you delete your account. |
 | Device bindings (`user_devices`)     | Until the device signs out, is evicted by the inactivity timeout, or you delete your account (cascade). |
 | Meetings (active)                    | Until you delete them.                                               |
-| Meetings (in trash)                  | 30 days. A nightly Postgres job permanently deletes anything older. |
+| Meetings (in trash)                  | 30 days at most. A nightly Postgres job permanently deletes anything older; choosing **Delete Forever** or **Empty Trash** removes them immediately. |
 | Meeting transcripts                  | Same as the parent meeting (cascade delete).                         |
 | Transcript embeddings, session chats, entity links | Same as the parent meeting (cascade delete). Extracted entities themselves are per-user and removed on account deletion. |
 | Unclaimed iOS onboarding progress (`onboarding_events`) | 30 days, then a scheduled job deletes it. Declining analytics sends no row. |
@@ -634,12 +918,15 @@ We can provide our SCCs and transfer impact assessments on request to
 | Screen observations (`screen_observations`) | The expiry set when captured — **14 days by default**, changeable in Settings. A scheduled job deletes expired rows. Empty unless you switched ambient context on; deletable at any time; removed on account deletion (cascade). |
 | Top-up, referral, reward, and payout rows | Until you delete your account. |
 | Meeting-start leases | Minutes: a lease is short-lived and renewed only while a recording is running. Expired rows are removed. |
+| Future live findings shared with a listener (`meeting_live_findings`) — **advance notice; not current** | If live listening is released, the proposed retention is the length of the recording: written only while a colleague is listening and deleted when recording ends, with cleanup for interrupted meetings. The released product does not write these rows. |
 | Optional email choices and suppression state | Until you change the choice or delete your account. A minimal suppression marker may outlive the account, because honouring an unsubscribe, complaint, or bounce requires remembering the address. |
 | Email send records and provider delivery events | 90 days once § 3.14 is active. The record that a specific message was already sent is kept beyond that, since it is what prevents sending it twice. |
 | Consent acknowledgements             | 6 years from the date of acknowledgement (legal-defence window).     |
 | Usage metadata                       | 24 months, then aggregated and anonymised.                           |
 | Encrypted database backups           | 7 days rolling.                                                      |
 | Server logs (OpenRouter calls, etc.) | 30 days.                                                             |
+| Support correspondence (§ 3.17)      | Kept in our mailbox while the request is open and for as long as a later request may need to refer to it; ask and we delete it. |
+| Crash reports (§ 3.17)               | 90 days at Sentry, then deleted by Sentry's retention. |
 
 When you delete your account from **Settings → Privacy**, we erase your
 auth profile, meetings (active and trashed), transcripts, summaries, chats,
@@ -680,10 +967,8 @@ you have the following rights. To exercise any of them, email
   it at any time (does not affect prior processing).
 - **Lodge a complaint** with your local data protection authority. EU
   residents may complain to the supervisory authority in their country
-  of residence. Nod is currently operated by an individual rather than a
-  registered company, so there is no designated lead
-  supervisory authority — your home-country authority is the right
-  contact.
+  of residence. Nod has no designated lead supervisory authority — your
+  home-country authority is the right contact.
 
 We do **not** make automated decisions with legal or similarly significant
 effects about you.
@@ -697,9 +982,9 @@ rejected), encryption at rest (AES-256), Row-Level Security on every
 table, secrets isolated server-side. Detail in our [Security page](./security.md).
 
 If you discover a vulnerability, please email **dmytro@hellonod.app**.
-Nod is built by one person right now, so there is no 24/7 on-call rotation
-— but every report goes straight to the founder and is acted on as quickly
-as possible. We're happy to publicly credit researchers.
+Nod is built and operated by its two co-founders, with no 24/7 on-call
+rotation — but every report goes straight to the founding team and is acted
+on as quickly as possible. We're happy to publicly credit researchers.
 
 In case of a personal data breach that's likely to result in a risk to
 your rights and freedoms, we will notify the relevant supervisory

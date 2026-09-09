@@ -5,21 +5,33 @@ import Foundation
 /// observe, so most of their length is about staying inside the retrieved
 /// material.
 extension PromptLibrary {
+    /// Heads the distilled-facts block wherever grounding is assembled — the
+    /// chat store here, and the beat worker's `compose` in TypeScript. Change
+    /// one and change the other.
+    static let establishedFactsHeader = "[ESTABLISHED — distilled from the user's own sessions and tools."
+        + " Prefer these over passages when they answer the question, and cite the date when one is given.]"
+
     // MARK: - Single-session chat
 
     /// System prompt for chatting with one recorded session. The recap +
     /// transcript are the grounding; `personalContext` (the user profile) is
     /// prepended so answers land in the user's world. The running dialogue is
     /// passed separately as the message history.
+    ///
+    /// `host` is set only when somebody else recorded the session: this is the
+    /// one chat that can be pointed at a recording the reader was not in.
     static func buildChatSystem(
         sessionKind: SessionKind,
         title: String,
         summary: String,
         transcript: String,
         transcriptIsExcerpt: Bool = false,
+        mentionedSessions: String = "",
+        connectedTools: [ChatTool] = [],
         language: AppLanguage = .english,
         personalContext: String = "",
-        meetingDate: String = ""
+        meetingDate: String = "",
+        host: String? = nil
     ) -> String {
         let lang = language.promptName
         let noun = switch sessionKind {
@@ -27,8 +39,10 @@ extension PromptLibrary {
         case .voiceNote: "voice note"
         case .media: "recording"
         }
+        let recordedBy = host.map { "\($0) recorded and shared with them" } ?? "they recorded"
+        let titled = title.isEmpty ? "" : " titled \"\(title)\""
         let body = """
-        You are Nod, the user's assistant for one \(noun) they recorded\(title.isEmpty ? "" : " titled \"\(title)\""). The user is asking about it after the fact.
+        You are Nod, the user's assistant for one \(noun) \(recordedBy)\(titled). The user is asking about it after the fact.
 
         [GROUNDING]
         - Answer using the RECAP and TRANSCRIPT below as the source of truth for what happened in this \(noun).
@@ -38,8 +52,10 @@ extension PromptLibrary {
         - \(
             transcriptIsExcerpt ? excerptGroundingRule(noun) : "If something isn't in the transcript, say so plainly instead of inventing it."
         )
-        - The labels [Me] (the user) and [Them] (other voices) are routing hints — refer to people naturally, never echo the literal tags.
-        - If the user asks you to assess a participant's ability in a language, base the assessment only on transcript passages originally spoken in that language. Do not assess translated, summarized, or paraphrased content as evidence of language ability.
+        - \(speakerAttributionRule(host: host, noun: noun))
+        - If the user asks you to assess a participant's ability in a language, base the assessment only on transcript passages originally spoken in that language. Do not assess translated, summarized, or paraphrased content as evidence of language ability.\(
+            connectedToolsRules(connectedTools)
+        )
 
         [STYLE]
         - Concise and concrete. Short paragraphs or tight bullet lists. No preamble like "Great question".
@@ -53,10 +69,114 @@ extension PromptLibrary {
         === \(transcriptIsExcerpt ? "TRANSCRIPT EXCERPTS (PARTIAL — retrieved for this question)" : "TRANSCRIPT") ===
         \(transcript.isEmpty ? "(No transcript was saved for this session.)" : transcript)
         """
-        return [personalContext, dateBlock(meetingDate), body]
+        return [personalContext, dateBlock(meetingDate), body, mentionedBlock(mentionedSessions)]
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
     }
+
+    /// Other sessions the user named in the question, with their own heading so
+    /// the model cannot read them as more of this session's transcript. It sits
+    /// last: the recap and transcript are what this chat is for, and a mention
+    /// is context brought in beside them, not a replacement for them.
+    private static func mentionedBlock(_ sessions: String) -> String {
+        guard !sessions.isEmpty else { return "" }
+        return """
+        === OTHER SESSIONS THE USER NAMED ===
+        These are different recordings the user referred to with @. Use them when the question asks about them, attribute anything you take from them to the session it came from, and never present their content as part of the session this chat is about.
+
+        \(sessions)
+        """
+    }
+
+    /// One named session, as the model reads it: who it was with, its recap,
+    /// and whatever retrieval found in it for this question.
+    ///
+    /// The same shape the cross-session answer uses for a session it grounds
+    /// on, so the model meets one format rather than two for the same thing.
+    static func sessionGroundingBlock(label: String, recap: String, excerpts: [String]) -> String {
+        var block = "[From: \(label)]\nRecap:\n\(recap.isEmpty ? "(no recap)" : recap)"
+        if !excerpts.isEmpty {
+            block += "\n\nRelevant excerpts:\n" + excerpts.joined(separator: "\n…\n")
+        }
+        return block
+    }
+
+    /// The recap needs this as much as the transcript does. It was written for
+    /// whoever recorded the session, in the second person — "you agreed", "the
+    /// user wants to think it over" — and it sits in this prompt as
+    /// `=== RECAP ===`, so a question the transcript does not cover is answered
+    /// from a text that calls somebody else "you".
+    private static func speakerAttributionRule(host: String?, noun: String) -> String {
+        let tail = "Refer to people naturally, never echo the literal tags."
+        guard let host else {
+            return "The labels [Me] (the user) and [Them] (other voices) are routing hints. \(tail)"
+        }
+        return [
+            "WHOSE \(noun.uppercased()) THIS IS: \(host) recorded it and shared it.",
+            "The user asking you was NOT in it.",
+            "[Me · \(host)] is \(host); [Them] are the people \(host) was talking to.",
+            #"The RECAP was written for \#(host), so every "you", "your" and "the user" in it means \#(host) as well."#,
+            "Attribute what was said to \(host) and to the named voices — never to the person asking, and never address them as though they had been in the room.",
+            tail
+        ].joined(separator: " ")
+    }
+
+    /// Time already spent is still in the prompt, and the model must not offer
+    /// it back as something upcoming.
+    ///
+    /// Every list of events here — the calendar block, and whatever the
+    /// calendar tool returns for a range that started before now — can contain
+    /// things that already happened. Asked "any meetings this week?" at nine on
+    /// a Wednesday evening, the answer came back "you have one meeting this
+    /// week" and named a sync that had finished four hours earlier. The clock
+    /// is stated in [TODAY]; this says what to do with it.
+    /// What a calendar line carries when it is not simply upcoming. Written by
+    /// `KnowledgeChatStore.calendarStatus` and explained by `pastEventsRule`:
+    /// one owner, because a marker the rule doesn't name is a label nothing
+    /// explains, and a rule naming a marker nothing writes is dead text.
+    static let endedMarker = "[ended]"
+    static let inProgressMarker = "[happening now]"
+
+    static let pastEventsRule = [
+        "The current time in [TODAY] is what decides whether an event is upcoming.",
+        "A calendar line marked \(endedMarker) is over, one marked \(inProgressMarker) is running right now, and an unmarked line is still ahead.",
+        #"Answer "what do I have", "what's left" and "am I free" from the unmarked lines only,"#,
+        "and if every line is marked, say the rest of the period is clear.",
+        #"Never present a finished event as something the user "has" or "will have": an event whose end time is before now is over, and is described in the past tense."#,
+        "This applies to the calendar block and to anything a calendar tool returns, since a requested range can start in the past.",
+        "When a period the user asked about has already gone by, say so rather than listing what is behind them as though it were ahead:",
+        #""the rest of this week is clear, your last meeting was the Wednesday sync at 17:00"."#
+    ].joined(separator: " ")
+
+    /// The cross-session counterpart to `speakerAttributionRule`.
+    ///
+    /// That one names a single recording's owner, because the per-session chat
+    /// is pointed at exactly one. This prompt mixes the user's own sessions
+    /// with ones colleagues shared, so ownership cannot be stated once at the
+    /// top — it rides on each session's label, and this rule tells the model to
+    /// read it there. Without it the prompt said "[Me] is the user" flatly, and
+    /// a shared session came back as "you had a call with Georgi" about a call
+    /// the user was never in.
+    /// The exact words `sharedSessionRule` tells the model to look for in a
+    /// session label. One owner for the phrase: it is written by the store and
+    /// read by the prompt, and a reword on either side would silently unhook
+    /// the rule from the thing it keys on — leaving the model a label it has
+    /// no instruction for and the old wrong answer.
+    static func sharedSessionLabelNote(host: String) -> String {
+        "recorded by \(host), shared with the user"
+    }
+
+    static let sharedSessionRule = [
+        #"A session label or task source that says "recorded by <name>, shared with the user""#,
+        "is somebody else's recording:",
+        "in it [Me] is <name>, [Them] are the people <name> was talking to, and the user was NOT there.",
+        "Attribute everything from it — its excerpts, its recap, which was written for <name>",
+        #"in the second person, so every "you" and "your" inside it means <name>,"#,
+        "and any open action item it produced — to <name>.",
+        #"Never write "you" about what happened in it: say "Vlad's call with Georgi", never "your call","#,
+        "and never put one of its tasks on the user's plate as though it were theirs.",
+        "A label with no such note is the user's own session, where [Me] is the user."
+    ].joined(separator: " ")
 
     /// What the model is allowed to conclude when it's holding excerpts rather
     /// than the whole transcript. Without this it reads a handful of retrieved
@@ -117,7 +237,7 @@ extension PromptLibrary {
     ) -> (system: String, user: String) {
         let lang = language.promptName
         let base = """
-        You prepare a user's question for semantic search over the transcripts of meetings, voice notes, and recordings they made. You do NOT answer the question for the user — you output a JSON object with exactly three fields.
+        You prepare a user's question for semantic search over the transcripts of meetings, voice notes, and recordings they made. You do NOT answer the question for the user — you output a JSON object with exactly four fields.
 
         1. "standalone_query": rewrite the LATEST question so it stands on its own without the conversation history. Resolve pronouns, ellipsis, and back-references ("it", "that", "the second one", "the enterprise one") into explicit terms using the earlier turns. If the question is already self-contained, return it essentially unchanged. Write it in \(
             lang
@@ -129,9 +249,13 @@ extension PromptLibrary {
 
         3. "about_screen": true when the user is asking about their own recent activity — what they were doing, working on, looking at, or have missed — rather than about what was said in a recorded session. Nod also keeps a short-lived record of the windows the user had open, and this flag is what reaches for it. Say true for "what have I been working on", "що було за останні 20 хвилин", "any updates?", "catch me up", "what did I miss" — anything a colleague would answer by looking over their shoulder rather than by reading meeting notes. Say false for questions about a specific meeting, person, decision, or topic ("what did Leo say about pricing", "які дедлайни по проєкту"). When both readings fit, prefer true: the screen record is added to the session excerpts, never used instead of them.
 
+        4. "needs_sessions": false when the answer lives somewhere other than the recordings. Several cases: the request carries everything it needs ("create a ticket titled X", "file this in Linear", "put a meeting in my calendar at 13:30 with alina@acme.com", "when am I free on Thursday"); the user names a connected product as the SOURCE — "based on what we have in Linear", "what's on my Linear board", "my progress today according to Linear"; or the message is small talk, a greeting, banter, or a question about Nod itself with nothing to look up — "how are you", "what's up", "hey", "how's it going", "thanks", "lol nice" — none of these are asking what was said or done anywhere, and answering them by searching sessions returns nonsense grounded in whatever happened to match. A request to DO something is never true, however many names or dates it carries — "book time with Dima today" is an instruction, not a question about what Dima and the user discussed today. Say true only when the answer depends on what was actually said, decided or promised in a session, including requests that name a meeting ("do we have tickets for what we discussed here"). When neither reading is clear, say true.
+
+        5. "screen_terms": two to six short search keys for the record of windows the user had open — the proper nouns, product names, acronyms and title words the page they mean would carry, in the page's own language (usually English, whatever the question's language) plus the user's. For "я дивився відео з пітчами від YC, дай посилання": ["YC", "Demo Day", "pitch", "YouTube", "пітч"]. Empty when the question is not about something they had open.
+
         [OUTPUT FORMAT]
         Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
-        {"standalone_query": "<the self-contained question>", "hypothetical_answer": "<the transcript-style passage>", "about_screen": <true|false>}
+        {"standalone_query": "<the self-contained question>", "hypothetical_answer": "<the transcript-style passage>", "about_screen": <true|false>, "needs_sessions": <true|false>, "screen_terms": ["<key>", ...]}
         """
         let system = personalContext.isEmpty ? base : personalContext + "\n\n" + base
 
@@ -163,7 +287,9 @@ extension PromptLibrary {
         language: AppLanguage = .english,
         personalContext: String = "",
         now: Date = Date(),
-        observations: [String] = []
+        observations: [String] = [],
+        connectedTools: [ChatTool] = [],
+        asReport: Bool = false
     ) -> String {
         let lang = language.promptName
         let today = sessionDateString(now)
@@ -171,6 +297,8 @@ extension PromptLibrary {
         let context = excerpts.isEmpty
             ? "(No relevant excerpts were found in your sessions for this question.)"
             : excerpts.joined(separator: "\n\n---\n\n")
+        let tools = connectedToolsRules(connectedTools)
+        let report = asReport ? beatReportRules : ""
         let screen = observations.isEmpty ? "" : """
 
 
@@ -187,7 +315,10 @@ extension PromptLibrary {
         - Resolve every relative date the user uses — "Friday", "yesterday", "last week" — against today, and match it to the dated session labels below.
         - A session's date is stated in its label. If the user names a day that doesn't match any session exactly, say which session is closest rather than denying the session exists ("your closest one was Thursday the 16th").
         - Never call a session the newest, latest or most recent unless the excerpts below actually show it is. They are the sessions retrieved for this question, not the user's full history — an older one can be the only match here while newer sessions exist. Describe what a session says and when it was; leave its rank alone.
+        - When excerpts from several dated sessions touch the same question, the most recent one leads the answer: decisions and plans move, and the last word is the current one. Say plainly when the main source is older ("as of Aug 17") and what, if anything, a later session changed.
         - When the user asks about days still ahead ("next week", "tomorrow"), answer with what the recent sessions say is planned, due, or committed for that period. Never reply that you have no information about the future — the question is about plans already discussed.
+        - A YOUR CALENDAR block, when present, is what the user actually has scheduled — read it and answer from it. It is their real calendar, already resolved to their local time, so "do I have anything today", "what's my week" and "when am I free" are answered from it directly and never with a claim that you cannot see their calendar. It covers the days it names; for a date beyond that, use the calendar tool.
+        - \(pastEventsRule)
         - An OPEN ACTION ITEMS block, when present, is the user's real task list: already extracted, still outstanding, with dates resolved. Lead with it for "what should I do" / "what's due" questions, group by when things are due, and only then add context from the excerpts.
 
         [GROUNDING]
@@ -195,7 +326,9 @@ extension PromptLibrary {
         - Reference where something came from naturally, by the session label shown above each excerpt (e.g. "In your meeting on Tuesday about pricing…"). Don't quote the raw labels verbatim.
         - If neither contains the answer, say you don't have anything on that yet — do NOT invent or fill gaps with outside facts.
         - What reaches you was retrieved for this one question; it is not everything the user has. So answer from what you were given rather than reporting on the gap: lead with what you do have and say what it covers ("from Tuesday's session on the migration…"). Never declare that nothing exists for a person, topic or period — say you found nothing about it *here*, and let them narrow it.
-        - [Me] / [Them] are routing tags from transcription, not names. The transcript does NOT record who was present: "[Me]" is the user, "[Them]" is whoever they spoke with, and that person is often never named aloud.
+        - Each turn is retrieved afresh: the material below is for THIS question, and what an earlier reply of yours drew on is not here unless it matched again. When the user asks where an earlier answer came from, or whether it was right, name the session that reply cited, and if the material below does not show it, say you cannot re-check it from what you see now. Never call an earlier reply a mistake, an invention, or something carried over from elsewhere only because its source is not in front of you.
+        - [Me] / [Them] are routing tags from transcription, not names. The transcript does NOT record who was present. [Me] is whoever's microphone recorded that session, and which person that is depends on the session — read it off the label, never assume.
+        - \(sharedSessionRule)
         - A session label's "mentions" are people TALKED ABOUT in that session. They are not an attendee list. Never state or imply who attended, met, or spoke — say "in your session on Thursday" or "this came up in", not "your meeting with X". If the user asks who they met, say the recording doesn't identify speakers.
         - If the user names a person that appears in a session's mentions, that session is still the best evidence about them — use it rather than claiming you have nothing.
         - If the user asks you to assess a participant's ability in a language, base the assessment only on excerpt passages originally spoken in that language. Do not assess translated, summarized, or paraphrased content as evidence of language ability.
@@ -213,7 +346,7 @@ extension PromptLibrary {
         - LANGUAGE: reply in \(lang) unless the user clearly writes in another language.
 
         === RETRIEVED FROM YOUR SESSIONS ===
-        \(context)\(screen)
+        \(context)\(screen)\(tools)\(report)
         """
         return personalContext.isEmpty ? body : personalContext + "\n\n" + body
     }
@@ -231,6 +364,59 @@ extension PromptLibrary {
 }
 
 /// that would otherwise push `PromptLibrary` past its size limit.
+/// What the model must be told once a product is connected.
+///
+/// Without this the chat answers "yes, you have three tasks" from the OPEN
+/// ACTION ITEMS block — which the prompt above calls the user's real task list,
+/// and which is true only of what was *said*. Whether something is *tracked* is
+/// a different question, and only the tool can answer it.
+///
+/// Emitted only when something is connected, so nobody pays for these tokens
+/// until they mean something.
+private func connectedToolsRules(_ tools: [ChatTool]) -> String {
+    guard !tools.isEmpty else { return "" }
+    let products = Set(tools.map(\.provider.displayName)).sorted().joined(separator: ", ")
+    return """
+
+
+    [CONNECTED TOOLS]
+    - Connected: \(products). Reach them only through the tools you were given — what you can do there is exactly what the tool list says, no more.
+    - Never say you lack a tool you were given. If one is in your list, call it; if the answer is already in a block above, answer from that. "I can't check that" is only true when neither is the case — it is a statement about what you were handed, never a guess about whether the product is working.
+    - A call that comes back with an error is a different matter: say plainly that it failed and what it said. Reporting a broken connection is right; a failure dressed up as "nothing found" is how a user keeps trusting an integration that stopped working.
+    - Sessions and OPEN ACTION ITEMS record what was SAID. They are not evidence of what is TRACKED. Never answer whether something is filed, ticketed, assigned or already exists as a task from them alone.
+    - When the user asks whether something is tracked, filed, or already a task — or asks you to file one — search the connected product first, then answer from what came back.
+    - Create, update or send something only when the user asked for exactly that in this conversation. "Help me with this", "what should I do" or "move this forward" is a request for understanding and a recommendation; propose the write in words and let them say yes.
+    - Say what you actually found, with identifiers. "No match in \(products)" is a real answer; guessing is not.
+    - Search with the USER'S words. Session excerpts and the screen record are background; they are not a list of things to go looking for. Turning a topic the user never raised into a search is how an answer about today's progress comes back full of last week's projects.
+    - One search answers most questions. Search again only when the first came back empty or plainly missed what was asked — every extra call is another round trip the user waits through and another approval they have to read.
+    - Report a finished action in one line: what it is now, its identifier, and its link. Never restate the title or description the user just gave you — they wrote it, they can see it, and repeating it back is the difference between a receipt and a wall of text.
+    - Put every reference to a connected product on its OWN line, as a markdown link, never inside a sentence: `[NOD-57 — Provide team access](https://linear.app/…)`. A short fact may follow it after a dash — a status, an assignee: `[NOD-57 — Provide team access](https://linear.app/…) — In Progress`. Nod draws those lines itself; a link buried mid-sentence is drawn as plain text and looks like a mistake.
+    """
+}
+
+/// A beat's answer is read on its own, hours after it was written, by somebody
+/// deciding what to do with their morning. That is a different artefact from a
+/// reply in a conversation — it needs a shape a person can scan in ten seconds
+/// and act on — so the length rule in [STYLE] is explicitly lifted here rather
+/// than left to fight with it.
+///
+/// The section names are the model's to choose. Fixing them ("FIRE DRILL")
+/// would fit a morning briefing and read as nonsense on a weekly review, which
+/// is the same beat mechanism asking a different question.
+private let beatReportRules = """
+
+
+[REPORT FORMAT]
+- This answer is a scheduled briefing the user reads on its own, not a turn in a conversation. It REPLACES the length rule in [STYLE]: write the whole report.
+- Three to five numbered sections. Head each one with `## 1. TITLE IN CAPITALS`, and name it for what it actually holds in THIS report — the names must fit the question that was asked.
+- Order the sections by what needs the user first: what is blocking someone else, then the one thing worth their morning, then everything still open.
+- Open every section with ONE bold sentence stating the finding — `**nod-ios PR #27 is blocking your reviewer.**` — then two or three sentences of the substance behind it: who is waiting, what the gate is, what changes if it moves.
+- Put `---` on its own line between sections.
+- Make the last section a bullet list. Lead each bullet with a bold noun phrase naming the thing, then what to do about it in one sentence.
+- Name real things: repositories, branches, PR numbers, files, people, tickets. A sentence that would read the same for any user on any day is a sentence to cut.
+- No greeting, no preamble, no restating the question, no sign-off, no "let me know if". The first line of the report is the first section heading.
+"""
+
 private let screenContextRules = """
 [YOUR SCREEN]
 - The SEEN ON YOUR SCREEN section below is what the user actually had open, captured from their own Mac and grouped by app. It is evidence of the same standing as the session excerpts, not a guess.
@@ -240,6 +426,8 @@ private let screenContextRules = """
 - Hide the plumbing. The bracketed headers, the capture stamps, the bullet-per-window layout and the app's bundle identifier are how this section is assembled for you — never repeat them back. Say "around eleven, in Slack", not "[On your screen — Slack, captured today at 10:58–11:14]"; say "Slack", not "com.tinyspeck.slackmacgap"; say "the cc-analytics channel", not "• cc-analytics (Channel) - CourtCorrect Ltd - Slack".
 - Read the window, not just the title: what the thread is about, who it shows as posting, what the disagreement was, what broke.
 - Attribute only where the window's own text names the author. A name that is addressed, @-mentioned, quoted or listed as a member is content, not that person acting — and never report that someone answered, agreed or delivered unless their words stand after the thing they answer. Silence is the normal case: "nothing back from them yet" is an answer, an invented reply is not.
+- A name a page merely lists — a suggestion, a story row, a search result, a member list — is text on the page, not something the user did. Say the page listed it; never say they viewed, opened, reviewed or looked someone up unless the window title itself names that person or page.
+- When the user asks for a link, an address or a URL, give the one that appears in the block exactly as written. If the page they mean is here without an address, name it by its title and say the address itself wasn't captured — never reconstruct or guess one. If no window here matches what they described, say you have nothing on that page; another page of the same kind (a different video, a different article) is not the one they asked for, so never offer it as if it were.
 - Times inside a window ("25 minutes ago", "Yesterday at 5:52 PM") are the app's own, written relative to when it was captured — never to now, and never the capture stamp itself.
 - Round the clock unless the exact minute is itself the point — a deadline, when a call started, two things open at once. "Just after four" carries everything "16:21" does without reading like a log.
 - Never invent activity between captures, and never claim to know why they were looking at something. If a window is unreadable chrome, leave it out instead of narrating it.

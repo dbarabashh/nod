@@ -20,6 +20,23 @@ struct NodApp: App {
                 }
             }
 
+            // ⌘Q hides; quitting is its own item. See `QuitPolicy`.
+            CommandGroup(replacing: .appTermination) {
+                Button {
+                    NotificationCenter.default.post(name: .nodHideAll, object: nil)
+                } label: {
+                    IconLabel(title: "Hide Nod", icon: "nc-eye-closed")
+                }
+                .keyboardShortcut("q", modifiers: .command)
+
+                Button {
+                    NSApp.terminate(nil)
+                } label: {
+                    IconLabel(title: "Quit Nod", icon: "nc-circle-xmark")
+                }
+                .keyboardShortcut("q", modifiers: [.command, .option])
+            }
+
             CommandGroup(replacing: .appSettings) {
                 Button {
                     NotificationCenter.default.post(name: .nodOpenSettings, object: nil)
@@ -56,6 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // the controller so the automatic check timer (SUScheduledCheckInterval)
     // keeps firing for the life of the app — and the delegate, which Sparkle
     // holds weakly, for the same reason.
+    // Built here rather than in `WindowCoordinator` because Sparkle holds its
+    // delegate weakly and this is the object that outlives everything.
     private let updaterChannelDelegate = UpdaterChannelDelegate()
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
@@ -64,6 +83,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Before anything else can crash, on the main thread as the SDK requires.
+        CrashReporting.start()
         let services = AppServices.make()
         let windows = WindowCoordinator(services: services)
         let statusBar = StatusItemController(
@@ -71,17 +92,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             windows: windows,
             updaterController: updaterController
         )
+        // The version footer reads the newest build the feed offers, and the
+        // feed is Sparkle's — so the delegate that already answers Sparkle's
+        // channel question is the one that reports it.
+        windows.feed = updaterChannelDelegate
+        updaterChannelDelegate.refresh = { [weak self] in
+            self?.updaterController.updater.checkForUpdateInformation()
+        }
         self.services = services
         self.windows = windows
         self.statusBar = statusBar
 
-        services.hotkeys.onTrigger = { [weak windows] action in
+        // Before any window is built, so the first one comes up already in the
+        // user's theme rather than flashing the system's.
+        services.appearance.apply()
+
+        services.hotkeys.onTrigger = { [weak windows, analytics = services.productAnalytics] action in
             switch action {
             case .togglePanel:
+                analytics.record(.hotkeyUsed, properties: .init(entryPoint: .hotkey, detail: .togglePanel))
                 windows?.toggleFloatingPanel()
-            case .openLauncher:
-                windows?.toggleLauncher()
+            case .askNod:
+                analytics.record(.hotkeyUsed, properties: .init(entryPoint: .hotkey, detail: .askNod))
+                windows?.askNod()
+            case .holdToAsk:
+                analytics.record(.hotkeyUsed, properties: .init(entryPoint: .hotkey, detail: .holdToAsk))
+                windows?.beginVoiceAsk()
             }
+        }
+        services.hotkeys.onRelease = { [weak windows] action in
+            guard action == .holdToAsk else { return }
+            windows?.endVoiceAsk()
         }
 
         NotificationCenter.default.addObserver(
@@ -111,10 +152,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         observeSettingsPane(.nodOpenSettings, .general)
         observeSettingsPane(.nodOpenPrivacySettings, .privacy)
-        observeSettingsPane(.nodOpenModes, .modes)
         observeSettingsPane(.nodOpenRewards, .rewards)
         // Posted by upsell buttons and the post-checkout deep link.
         observeSettingsPane(.nodOpenSubscription, .subscription)
+        observeSettingsPane(.nodOpenOrganization, .organization)
+        observeSettingsPane(.nodOpenOrganizationBilling, .organizationBilling)
+
+        NotificationCenter.default.addObserver(forName: .nodHideAll, object: nil, queue: nil) { [weak windows] _ in
+            Task { @MainActor in windows?.hideAll() }
+        }
 
         NotificationCenter.default.addObserver(forName: .nodOpenLibrary, object: nil, queue: nil) { [weak windows] _ in
             Task { @MainActor in
@@ -152,6 +198,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await services.emailPreferences.refresh()
                 await services.productAnalytics.flush()
                 await services.onboardingTelemetry.flush()
+                // A task filed in Linear is finished in Linear, and coming back
+                // to Nod is exactly when that has just happened. Without this
+                // the checkbox here only ever reflects work closed in Nod.
+                await services.actionItemStore.refresh()
+                // Membership and folder shares change on someone else's Mac —
+                // an invite accepted, a team joined, a project shared with you.
+                // Nothing in this app can be told about that, so coming back to
+                // it is the moment to ask, exactly as the entitlement above does.
+                await services.organizations.refresh()
+                await services.labelStore.refresh()
+                await services.beats.refresh()
+                await services.meetingGrants.refresh()
+                await services.remoteCalendar.sync(.open)
+                // Both, together. Access to a shared folder and access to the
+                // sessions inside it are revoked by the same act, so refreshing
+                // one without the other leaves the two disagreeing — a project
+                // in the sidebar whose contents have already gone.
+                await services.meetingStore.refresh(force: true)
+                let states = await services.integrations.remoteCompletions(
+                    among: services.actionItemStore.items
+                )
+                await services.actionItemStore.applyRemoteCompletions(states)
                 // Retry any meeting still stuck in the outbox now that the app
                 // (and likely the network) is active again — scoped to the
                 // signed-in user so a previous account's rows aren't re-pushed.
@@ -166,7 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await services.updateGate.check() }
         // Sparkle reads the cached channel synchronously inside its check, so
         // a channel that only just changed needs the cycle reset to be seen
-        // before the next 24h tick.
+        // before the next four-hour tick.
         Task { @MainActor in
             if await services.releaseChannel.refresh() {
                 updaterController.updater.resetUpdateCycle()
@@ -175,6 +243,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Ambient capture is opt-in: this starts it only if the user has
         // already turned it on, and is a no-op otherwise.
         services.screenContext.refresh()
+        services.beatRunner.start()
+        // One-time catch-up: sessions recorded before the distiller existed
+        // get their facts extracted now, so the knowledge layer doesn't start
+        // empty for everyone who upgrades into it.
+        Task { await services.knowledgeStore.backfillDistill() }
 
         panelSharingObserveTask = Task { @MainActor [weak windows] in
             // `@Published` fires in willSet, so use the yielded value rather
@@ -198,23 +271,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for await _ in services.auth.$session.values {
                 guard let self, let windows = self.windows else { return }
                 let isSignedIn = services.auth.session != nil
+                // Before `reconcile()` reads `isCompleted`: onboarding progress
+                // is per account, and which account it describes is decided
+                // here. Signing out adopts nil so the next person to arrive is
+                // not handed the last one's answers.
+                services.onboarding.adopt(userID: services.auth.currentSupabaseSession?.user.id)
                 if wasSignedIn, !isSignedIn {
                     // Sign-out: tear down the recording pipeline AND drop
                     // the per-user caches so the next signed-in user can't
                     // see the previous one's data through the in-memory
                     // store or a stale History window.
                     await stopRecordingServices()
-                    services.meetingStore.clear()
-                    services.profileStore.clear()
-                    services.chatStore.clear()
-                    services.actionItemStore.clear()
-                    services.labelStore.clear()
-                    services.entitlements.clear()
-                    services.emailPreferences.clear()
+                    await services.clearPerAccountState()
                     windows.closeMainWindow()
                 }
                 if isSignedIn {
                     if !wasSignedIn {
+                        Task { @MainActor in
+                            await services.organizations.refresh()
+                            await services.accessChannel.resubscribe(
+                                orgIDs: services.organizations.memberships.map(\.id),
+                                teamIDs: Array(services.organizations.myTeamIDs)
+                            )
+                        }
                         services.productAnalytics.record(
                             .appOpened,
                             properties: .init(entryPoint: .appLaunch),
@@ -259,6 +338,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // the first meeting ends. `load` no-ops once cached.
                     Task { await services.profileStore.load() }
                     Task { await services.labelStore.refresh() }
+                    Task {
+                        services.remoteCalendar.selfEmail = services.auth.currentSupabaseSession?.user.email
+                        await services.meetingGrants.refresh()
+                        await services.remoteCalendar.sync(.open)
+                    }
                     Task { await services.entitlements.refresh() }
                     Task { await services.billing.loadPrices() }
                 }
@@ -322,6 +406,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Opens Settings on the Subscription tab via the observer above.
                 NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
                 Task { @MainActor in await self.services?.entitlements.refresh() }
+            case let .invite(token):
+                // Held rather than acted on when signed out — accepting needs an
+                // identity, and the address it was sent to is the one that works.
+                Log.ui.info("received organization invite deep link")
+                OrganizationService.storePendingInvite(token)
+                NotificationCenter.default.post(name: .nodOpenOrganization, object: nil)
+                Task { @MainActor in await self.services?.organizations.redeemPendingInvite() }
             case let .referral(code):
                 // Attribution B (NOD-22): a `nod://referral?code=ABC123` link
                 // pre-fills the paywall's referral field. Best-effort — the code
@@ -329,6 +420,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.ui.info("received referral deep link")
                 ReferralService.storePendingCode(code)
                 NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+            case let .meeting(id):
+                NotificationCenter.default.post(
+                    name: .nodOpenMeetingDetail,
+                    object: nil,
+                    userInfo: [Notification.nodMeetingIDKey: id]
+                )
             case .record:
                 NotificationCenter.default.post(name: .nodShowPanel, object: nil)
             case .history:
@@ -350,8 +447,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.transcriptStore.clear()
     }
 
+    /// How long this run of the app lasted, in the coarse buckets the ledger
+    /// takes. Queued to disk here and sent on the next launch: the process is
+    /// leaving, and a request started now would not finish.
+    func applicationWillTerminate(_ notification: Notification) {
+        guard let services else { return }
+        let seconds = Date().timeIntervalSince(services.launchedAt)
+        let bucket: ProductAnalytics.Detail = switch seconds {
+        case ..<60: .under1m
+        case ..<600: .oneTo10m
+        case ..<3600: .tenTo60m
+        default: .over1h
+        }
+        services.productAnalytics.record(.appSessionEnded, properties: .init(detail: bucket))
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// Only an explicit Quit reaches here (⌘Q hides — see `NodApp.commands`).
+    /// A recording is ended first, never dropped: the transcript is already
+    /// in the outbox as it was captured, and the end flow lands the tail.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let session = windows?.meetingSession else { return .terminateNow }
+        switch QuitPolicy.decision(meeting: session.meeting) {
+        case .terminate:
+            return .terminateNow
+        case .askToEndRecording:
+            let alert = NSAlert()
+            alert.messageText = "Nod is recording"
+            alert.informativeText = "Quitting ends the session. What was captured so far is kept and its recap is written the next time Nod opens."
+            alert.addButton(withTitle: "End Session and Quit")
+            alert.addButton(withTitle: "Cancel")
+            NSApp.activate(ignoringOtherApps: true)
+            guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+            session.endMeeting()
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(QuitPolicy.endGraceSeconds * 1_000_000_000))
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
+        }
     }
 
     /// Fired when the user clicks the Dock icon (with no visible windows).
@@ -378,13 +515,18 @@ extension Notification.Name {
     static let nodOpenMeetingDetail = Notification.Name("nod.history.openMeetingDetail")
 
     static let nodOpenSettings = Notification.Name("nod.app.openSettings")
+    /// ⌘Q: every surface folds away, the process stays.
+    static let nodHideAll = Notification.Name("nod.app.hideAll")
+    /// Posted by the `nod://invite` deep link so Settings lands where the invite
+    /// is redeemed rather than wherever it was last left.
+    static let nodOpenOrganization = Notification.Name("nod.app.openOrganization")
+    /// Posted by the chat's credits notice for a member who cannot buy the
+    /// pack themselves: the page an owner or admin would use is the answer.
+    static let nodOpenOrganizationBilling = Notification.Name("nod.app.openOrganizationBilling")
     static let nodOpenLibrary = Notification.Name("nod.app.openLibrary")
     /// Switch the Meetings window to the saved cross-session chats — posted
     /// when the launcher hands its thread over.
     static let nodOpenKnowledgeChats = Notification.Name("nod.history.openKnowledgeChats")
-    /// Posted by the panel's mode chip ("Manage Modes…") to open Settings on the
-    /// Modes tab.
-    static let nodOpenModes = Notification.Name("nod.app.openModes")
     /// Posted by the sidebar's ambient row: switching ambient capture ON has to
     /// happen where the disclosure is, not behind a tooltip.
     static let nodOpenPrivacySettings = Notification.Name("nod.app.openPrivacySettings")

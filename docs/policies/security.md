@@ -1,23 +1,27 @@
 # Security & Privacy
 
-_Last updated: 2026-08-15_
+_Last updated: 2026-09-06_
 
-_[Calendar access](#calendar-access) and the email-delivery section under
-[How data flows](#how-data-flows) are **advance notice**: neither is in the
-released app, and the calendar one stays off until you switch it on. Where this
-page describes Nod as sitting in the notch, the released version still runs as a
+_[Calendar access](#calendar-access), organization-enforced recording ownership
+and administrator-read access under [Organizations](#organizations), and the
+email-delivery section under [How data flows](#how-data-flows) are **advance
+notice**: none is in the released app. Early-access team sharing is different:
+approved teams can deliberately share a finished conversation or folder today,
+and joining an organization shares nothing by default. Where this page
+describes Nod as sitting in the notch, the released version still runs as a
 floating panel on the left of your screen._
 
-> **Nod is built and operated by an individual** (Dima Barabash), not a
-> registered company. We've made the security and privacy decisions
-> documented below to be defensible for a production product — but we want
-> you to know exactly where we stand.
+> The security and privacy decisions documented below are made to be
+> defensible for a production product, and every claim on this page is
+> tied to code you can hold us to.
 
 Nod records your meetings on your Mac and turns them into notes. Capture and
 voice detection run on-device; transcription and summarization run on hosted
-inference providers under Zero Data Retention, with as little data leaving your
-machine as possible and no audio ever stored. Everything Nod keeps is stored in
-the EU. This page documents exactly how that works.
+inference providers with no model training, with as little data leaving your
+machine as possible. Nod does not create or retain an audio recording. Groq may
+retain transient error or abuse logs for up to 30 days unless Zero Data
+Retention is enabled; the precise provider boundary is documented below.
+Everything Nod keeps is stored in the EU.
 
 ---
 
@@ -27,14 +31,15 @@ the EU. This page documents exactly how that works.
   Ireland). Inference is the exception, documented under
   [Infrastructure](#infrastructure): transcription runs on providers hosted
   outside the EU, under EU-U.S. Data Privacy Framework adequacy or standard
-  contractual clauses, with Zero Data Retention and no training. No audio is
-  stored at either end.
+  contractual clauses and no training. OpenRouter routes use Zero Data
+  Retention; Groq may retain transient error or abuse logs for up to 30 days.
+  Nod itself stores no audio recording.
 - **Encrypted in transit and at rest.** TLS 1.2+ on the wire (TLS 1.3 by
   default; TLS 1.1 and below are rejected). AES-256 at rest in Postgres.
   Direct database connections also require SSL.
-- **We do not train any models on your data.** Neither do our subprocessors —
-  we route only through providers with Zero Data Retention and "may train on
-  request data" disabled.
+- **We do not train any models on your data.** Neither do our subprocessors.
+  OpenRouter routes have Zero Data Retention and "may train on request data"
+  disabled; Groq contractually prohibits training on inputs and outputs.
 - **Audio is never stored.** Chunks are transcribed in ~5-second windows and
   the bytes are released as soon as the transcript returns. Only the
   transcript and your notes are persisted.
@@ -49,13 +54,19 @@ the EU. This page documents exactly how that works.
   it about what you were working on. It ships **off**, you switch it on, you
   choose how long it is kept, and you can exclude any app, category, or site.
   Personal messengers are excluded before you configure anything.
-- **Private by default.** No team workspaces and no shared notes. Your
-  meetings are visible only to you, unless you create a share link yourself
-  (see [Access control](#access-control)).
+- **Private by default.** Your meetings are visible only to you unless you
+  deliberately create a summary-only public link or, in an approved
+  early-access team, share a finished conversation or folder (see [Access
+  control](#access-control)). Current team administrators can manage membership
+  but cannot read a meeting you kept private. Forced organization ownership and
+  administrator-read access are future, unreleased controls. Ambient screen text
+  and your private Ask threads are never included in a share (see
+  [Organizations](#organizations)).
 - **Connectors are read-only and resource-bound.** Official ChatGPT and Claude
   access uses OAuth 2.1 with PKCE, rotating refresh tokens, exact audience
   validation, and only `meetings:read`. Connector tokens cannot query database
-  tables directly.
+  tables directly. The connectors are built, but public installation is awaiting
+  directory approval.
 - **No SOC 2 yet.** It's planned, but the independent audit hasn't started, so
   there's no report to send. We'll publish progress here when that changes.
   GDPR DPA available on request.
@@ -79,17 +90,21 @@ Telling voices apart afterwards also happens on your Mac, on a speaker model
 first use and keeps on disk. That download sends nothing but the request itself
 — no audio, no transcript, no account — and every diarised meeting after it
 works offline.
-Each chunk is sent to Whisper in the cloud — routed through our own proxy under
-Zero Data Retention — and the audio bytes are discarded immediately after the
-transcript comes back. The proxy runs in the EU; the inference providers it
+Each chunk is sent to Whisper in the cloud through our own proxy, and Nod
+discards the audio bytes immediately after the transcript comes back. OpenRouter
+fallback routes use Zero Data Retention; Groq may retain transient error or abuse
+logs for up to 30 days unless Zero Data Retention is enabled. The proxy runs in
+the EU; the inference providers it
 forwards to do not (see [Infrastructure](#infrastructure)). Transcription and summarization are not on-device. The
 transcript and the AI-generated summary are saved to your private Nod account.
 
-Nod doesn't join meetings as a bot. No Zoom/Meet/Teams hook, no automated chat
-message, and no connected calendar account — a coming version will be able to
-read the calendar already on your Mac, on the device and only if you switch it on
-([Calendar access](#calendar-access)), but it never signs in to Google or
-Microsoft on your behalf. It works with any app that plays audio on your Mac.
+Nod doesn't join meetings as a bot. No Zoom/Meet/Teams hook and no automated
+chat message. A coming version will be able to reach a calendar in two ways,
+each off until you turn it on: reading the calendar already on your Mac, on the
+device ([Calendar access](#calendar-access)), or a Google Calendar account you
+connect yourself in Settings — where Nod can also act, one confirmed change at
+a time (privacy policy § 3.11(a)). It works with any app that plays audio on
+your Mac.
 
 ---
 
@@ -118,10 +133,12 @@ The LLM and fallback Whisper calls go through OpenRouter, where we have:
 
 ### Audio recordings
 
-Nod **does not store any audio**. Audio is held in memory only long enough to
-chunk it (~5 seconds), normalise it, and POST the chunk to Whisper through our
-proxy. As soon as the transcript returns, the audio bytes are released. There
-is no recording file, no waveform export, no cloud-stored audio — ever.
+Nod **does not create or retain an audio recording**. Audio is held in memory
+only long enough to chunk it (~5 seconds), normalise it, and POST the chunk to
+Whisper through our proxy. As soon as the transcript returns, Nod releases the
+audio bytes. There is no recording file or waveform export in Nod. The direct
+Groq provider may retain transient error or abuse logs for up to 30 days unless
+Zero Data Retention is enabled; see the [Subprocessors list](./subprocessors.md).
 
 ### Screen access
 
@@ -235,7 +252,7 @@ tell you what you already discussed and what was left open.
   participant list described under Screen access, and a replacement for it.
   Nothing else is kept: the title is compared against your own past sessions on
   the device and dropped, and no record of the event is ever written.
-- **Read-only, always.** Nod never creates, edits, or deletes a calendar entry.
+- **Read-only through this permission.** Nod never writes to your calendar through the macOS Calendars permission. Creating, moving, or cancelling an event — each shown to you and confirmed first — happens only through a calendar account you connect yourself (privacy policy § 3.11(a)).
 
 ### What we do store
 
@@ -290,12 +307,21 @@ tell you what you already discussed and what was left open.
   its status, billing-period and trial dates, and the Paddle customer and
   subscription identifiers we use to reconcile billing events. **No card data**
   — payment details stay with Paddle, our Merchant of Record.
-- **Allowance and top-ups.** Service-owned rows tie a bought pack of hours, and
-  the checkout that created it, to immutable Paddle transaction identifiers. You
-  can read your own top-ups and rewards; the payer history, provider adjustments,
-  and reward payout ledger have no client access at all. A purchase that cannot be
-  matched to its own checkout intent is parked for review instead of being
-  credited automatically.
+- **Allowances and packs.** Service-owned rows tie a bought pack — hours or
+  integration credits, for a person or for a workspace — and the checkout that
+  created it, to immutable Paddle transaction identifiers. You can read your own
+  packs and rewards; the payer history, provider adjustments, and reward payout
+  ledger have no client access at all. A purchase that cannot be matched to its
+  own checkout intent is parked for review instead of being credited
+  automatically. A workspace pack can be minted only by one of the
+  organization's owners or administrators, and is checked against the
+  workspace's own subscription and period when it is fulfilled.
+- **Integration credits.** Before a read you asked for reaches a connected
+  product, the same server-side entitlement that gates capture is asked whether
+  the plan's credit pool has anything left; at zero the request is refused
+  before it leaves our server, and nothing is charged. A credit is recorded only
+  once the request was actually sent to the integration provider — a refusal on
+  our side costs neither you nor us.
 - **Meeting-start leases.** Before a recording begins, a short-lived row binds
   that recording's ID to your account. Transcription accepts the ID only while the
   lease is valid, and the lease is renewed by the recording itself. That is how the
@@ -309,9 +335,11 @@ user's data.
 
 ### Access control
 
-- Your notes are **private by default**. There are no team workspaces and no
-  shared notes, and nothing is readable by anyone else until you explicitly
-  create a share link for one specific meeting.
+- Your notes are **private by default**. Someone else can read meeting content
+  only after a deliberate action by you: creating a public link for one
+  meeting's summary or, for an approved early-access team, sharing a finished
+  conversation or folder. Joining an organization shares nothing by itself;
+  the team boundary is set out under [Organizations](#organizations).
 - **Share links are opt-in, summary-only, and revocable.** Creating one mints
   an opaque random token; whoever holds the link can read *that meeting's
   summary* and nothing else, never the transcript and never your other
@@ -338,7 +366,50 @@ user's data.
   (YAML frontmatter + summary + transcript) from the app — your notes are
   yours to take out, in a plain-text format any editor (e.g. Obsidian) reads.
 
+### Organizations
+
+Team context is available only to approved early-access teams. It is not a
+general self-service workspace or an organization-wide admin library.
+
+**Current early-access contract:**
+
+- Joining an organization shares nothing. Meetings remain private unless the
+  person who recorded them deliberately shares one finished conversation or a
+  folder with a team or the organization.
+- A shared conversation or folder carries its summary, transcript, action items,
+  and the search index needed to ask across it. It never carries ambient screen
+  text or the recorder's private Ask threads.
+- Removing the share ends access. The audience of a team share is the team's
+  current membership, so an administrator can change who belongs to that
+  audience. Membership changes are written to the audit log.
+- Administrators cannot open, export, or search a meeting that the recorder kept
+  private. Current early access has no forced organization-ownership setting and
+  no administrator-read switch.
+
+Public links remain separate from team context. A public link exposes one
+meeting's summary only, never its transcript or other meetings, and can be
+revoked at any time.
+
+**Ambient screen text never leaves the person who captured it.** Not through a
+team share, public link, current administrator, or any future organization
+control. It is something you switch on for yourself, exclude apps from, and set
+the lifetime of ([Screen access](#screen-access)).
+
+#### Future organization controls — advance notice, not released
+
+The code and policy design anticipate two organization controls: requiring a
+recording to belong to an organization, and separately allowing an owner or
+administrator to read organization-owned meetings, transcripts, action items,
+and per-meeting chats. Neither control is available in the released app or the
+current early-access team workflow. If either ships, Nod must update this policy
+and tell affected users before it changes the current private-by-default
+contract.
+
 ### Official AI connectors
+
+The read-only ChatGPT and Claude connectors are built, but public installation
+is awaiting directory approval. The controls below describe the built
+authorization and retrieval path, not general availability.
 
 The hosted MCP server accepts OAuth Bearer tokens only after Supabase Auth
 confirms the token is active and its issuer, audience, expiry, subject,
@@ -402,6 +473,29 @@ sure you comply with the rules where you and your participants are located.
   (TLS 1.3 by default; TLS 1.1 and below are rejected).
 - Per-user Row-Level Security on every table in the `public` schema.
 
+### Crash reports
+
+When the app crashes or freezes it reports the stack trace, app version and
+channel, macOS version and Mac model to Sentry, and nothing else: the SDK runs
+with personal data, network breadcrumbs, screenshots and logs all switched off
+in code (`Nod/Core/Diagnostics/CrashReporting.swift`), and no report is ever
+attached to an account. Nothing is sent until the person has answered the
+question, asked once in setup or once after updating. Debug builds carry no
+reporting key and send nothing. Anyone can switch reporting off in
+Settings → Privacy.
+
+### Software updates
+
+The macOS app updates itself through Sparkle. Every release is code-signed
+with our Apple Developer ID and notarized by Apple, and every update is
+additionally signed with an EdDSA key whose public half is pinned inside the
+app (`SUPublicEDKey`), so a build that is not ours is rejected before it is
+installed even if the download host were compromised. The feed and the
+installers are served over HTTPS from `hellonod.app`. The app checks the feed
+every four hours and when you ask it to, tells you in the sidebar when a newer
+build is waiting, and installs it when you quit. An update check carries no
+account identifier (Privacy Policy § 3.17).
+
 ---
 
 ## How data flows
@@ -448,8 +542,10 @@ learning requires the current lifecycle consent; earlier lifecycle consent is
 accepted only for the earlier 14-day cadence.
 
 Preference links carry an opaque token in the URL fragment only; loading the page
-performs a read, and a change requires an explicit confirmation. Open tracking and
-click-tracking links are disabled.
+performs a read, and a change requires an explicit confirmation. Open tracking is
+disabled, so we cannot tell an email was opened. Click tracking is enabled: links
+are rewritten by the delivery provider, and following one records that the link
+in that message was followed, and nothing about where you went next.
 
 ## Subprocessors
 
@@ -515,9 +611,9 @@ the meantime we're happy to walk through our actual controls. Email
 **dmytro@hellonod.app**.
 
 **Where can I report a vulnerability?**
-**dmytro@hellonod.app**. Nod is built by one person right now, so there's
-no 24/7 on-call team — but every report goes straight to the founder and we
-act on it as quickly as we can. We're happy to credit researchers publicly.
+**dmytro@hellonod.app**. Nod is built and operated by its two co-founders, with
+no 24/7 on-call team — but every report goes straight to the founding team and
+we act on it as quickly as we can. We're happy to credit researchers publicly.
 
 **Can I use my own AI provider / private cloud?**
 Not in the consumer app. We're evaluating a "bring your own key" mode for

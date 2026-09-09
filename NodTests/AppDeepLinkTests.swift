@@ -13,6 +13,21 @@ final class AppDeepLinkTests: XCTestCase {
         )
     }
 
+    func testParsesOrganizationInvite() throws {
+        let token = UUID()
+        XCTAssertEqual(
+            try AppDeepLink(url: XCTUnwrap(URL(string: "nod://invite?token=\(token.uuidString)")), callbackHost: "auth-callback"),
+            .invite(token: token)
+        )
+    }
+
+    /// A token that isn't a UUID has nothing to redeem, so the link must not be
+    /// claimed — parsing it would open the organization pane on a dead invite.
+    func testRejectsInviteWithoutAUsableToken() throws {
+        XCTAssertNil(try AppDeepLink(url: XCTUnwrap(URL(string: "nod://invite?token=not-a-uuid")), callbackHost: "auth-callback"))
+        XCTAssertNil(try AppDeepLink(url: XCTUnwrap(URL(string: "nod://invite")), callbackHost: "auth-callback"))
+    }
+
     func testRejectsUnknownTarget() throws {
         XCTAssertNil(try AppDeepLink(url: XCTUnwrap(URL(string: "nod://unknown")), callbackHost: "auth-callback"))
     }

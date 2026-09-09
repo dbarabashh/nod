@@ -337,6 +337,6 @@ enum AmbientDeleteChoice: String, CaseIterable, Identifiable {
     return AmbientContextSidebarRow()
         .environmentObject(ScreenContextService(supabase: nil, exclusions: exclusions))
         .padding(10)
-        .frame(width: 232)
+        .frame(width: HomeSidebar.width)
         .background(Theme.Palette.bg)
 }

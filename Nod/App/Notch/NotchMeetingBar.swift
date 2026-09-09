@@ -11,6 +11,11 @@ import SwiftUI
 /// Header row first, always; `expansion` grows underneath it for Notes or
 /// Ask — never a second window, never a modal.
 struct NotchMeetingBar: View {
+    @ObservedObject var rooms: RoomListenerService
+    /// The one published answer to "what is being recorded right now" — the
+    /// session mirrors into it, and surfaces that hold no `MeetingSession` read
+    /// it too, so asking here keeps one question with one answer.
+    @EnvironmentObject private var meetingStore: MeetingStore
     let panel: MeetingBarPanel
     @ObservedObject var session: MeetingSession
     /// A plain reference: nothing in this bar reads it, only the mic and
@@ -28,6 +33,8 @@ struct NotchMeetingBar: View {
     let onToggleNotes: () -> Void
     let onSubmitAsk: (String) -> Void
     let onSummarize: () -> Void
+    let onApproveAsk: () -> Void
+    let onDenyAsk: () -> Void
     let onOpenLibrary: () -> Void
     /// The click-driven way to fold the bar away. The trackpad swipe over the
     /// cut-out is the same action, but it only exists on a notched display, so
@@ -51,8 +58,89 @@ struct NotchMeetingBar: View {
             // open state (offer, recap, consent…) keeps its own breathing
             // room untouched.
             .padding(.top, -4)
+            alsoRecording
             expansion
         }
+        // Asked once. Every later change arrives on the host's own realtime
+        // topic — `join_live_room` and `leave_live_room` both poke it — so a
+        // timer here would only be a slower copy of a signal we already get,
+        // and one that dies whenever this bar is tucked away.
+        .task(id: meetingStore.recordingMeetingID) {
+            guard let id = meetingStore.recordingMeetingID else { return rooms.clearListeners() }
+            await rooms.refreshListeners(hostMeetingID: id)
+            await rooms.refreshPendingListeners(hostMeetingID: id)
+        }
+    }
+
+    /// A colleague recording the same meeting. A line, not a prompt: there is
+    /// nothing to decide here, and interrupting somebody who has just started
+    /// recording to tell them their notes are redundant would be worse than not
+    /// telling them at all.
+    @ViewBuilder
+    private var alsoRecording: some View {
+        if let other = session.concurrentRecording {
+            MeetingBarStatusLine(icon: "nc-users", text: "\(other.ownerName) is recording this too")
+        }
+        if let names = listeningNames {
+            MeetingBarStatusLine(icon: "nc-volume-up", text: names, tint: Theme.Palette.cyan)
+        }
+        ForEach(rooms.pendingListeners) { asker in
+            listenRequest(asker)
+        }
+    }
+
+    /// Somebody asking to follow this recording, whom the server could not place
+    /// in the meeting on its own.
+    ///
+    /// The one prompt this bar carries, and it earns that: everything else here
+    /// is a fact already true, while this is a read of the conversation that
+    /// does not exist until the host says so. A calendar the server can see
+    /// answers for itself and never reaches this row, so what is left is only
+    /// the case where the host is the only one who knows who is in the room.
+    private func listenRequest(_ asker: PendingListener) -> some View {
+        HStack(spacing: 6) {
+            Image("nc-volume-up")
+                .icon(11)
+                .accessibilityHidden(true)
+            Text("\(asker.name) wants to listen")
+                .font(.system(size: 11))
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            requestButton("nc-check", "Let \(asker.name) listen", Theme.Palette.cyan) {
+                guard let id = meetingStore.recordingMeetingID else { return }
+                Task { await rooms.approve(asker, hostMeetingID: id) }
+            }
+            requestButton("nc-xmark", "Decline \(asker.name)", Theme.Palette.muted) {
+                guard let id = meetingStore.recordingMeetingID else { return }
+                Task { await rooms.deny(asker, hostMeetingID: id) }
+            }
+        }
+        .foregroundStyle(Theme.Palette.cyan)
+    }
+
+    private func requestButton(
+        _ icon: String,
+        _ label: String,
+        _ tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(icon)
+                .icon(11)
+                .foregroundStyle(tint)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    /// Who is following this recording, named. Being listened to without being
+    /// told is the one outcome the room feature must never produce, so this is
+    /// not a count and not a badge.
+    private var listeningNames: String? {
+        let names = rooms.listeners
+        let shown = names.count > 2 ? [names[0], "\(names.count - 1) others"] : names
+        guard let joined = TextList.prose(shown) else { return nil }
+        return "\(joined) \(names.count == 1 ? "is" : "are") listening"
     }
 
     /// Secondary, not-about-this-meeting controls — mic device, output
@@ -75,13 +163,7 @@ struct NotchMeetingBar: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            left
-            Spacer(minLength: 4)
-            center
-            Spacer(minLength: 4)
-            right
-        }
+        MeetingBarHeader { left } center: { center } right: { right }
     }
 
     // MARK: Left — what this is
@@ -118,10 +200,7 @@ struct NotchMeetingBar: View {
                     .monospacedDigit()
                     .fixedSize()
                 if let statusText {
-                    Text(statusText)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .lineLimit(1)
-                        .fixedSize()
+                    MeetingBarCaption(text: statusText)
                 }
             }
             .foregroundStyle(paused ? Theme.Palette.warning : Theme.Palette.ink)
@@ -135,8 +214,12 @@ struct NotchMeetingBar: View {
     /// and repeating "Listening…" next to it read as noise. Only surfaces
     /// when something actually deviates from that: paused, or the Ask box
     /// working on an answer.
+    ///
+    /// Reads the ask itself rather than the expanded panel: a question keeps
+    /// being answered after its box is folded away, and the header is then the
+    /// only thing left on screen that can say so.
     private var statusText: String? {
-        if case .ask(.loading) = panel { return "Thinking…" }
+        if panel.isAnswering { return "Thinking…" }
         if paused { return "Paused" }
         return nil
     }
@@ -145,36 +228,29 @@ struct NotchMeetingBar: View {
 
     private var right: some View {
         HStack(spacing: 4) {
-            MeetingBarButton(title: "Ask", isActive: isAskOpen, action: onToggleAsk)
-            MeetingBarButton(title: "Notes", isActive: panel == .notes, action: onToggleNotes)
+            MeetingBarButton(
+                title: "Ask",
+                isActive: panel.isAsk,
+                hasUnread: panel.isAnswerUnseen,
+                action: onToggleAsk
+            )
+            MeetingBarButton(title: "Notes", isActive: panel.isNotes, action: onToggleNotes)
             MeetingBarEndButton(action: session.endMeeting)
-            NotchGlyphButton(icon: "nc-chevron-up", help: tuckHelp, action: onCollapse)
+            NotchGlyphButton(icon: "nc-chevron-up", help: geometry.tuckLabel, action: onCollapse)
         }
     }
 
-    /// The cut-out is a place; the floating panel is not. Calling both "tuck
-    /// into the notch" would name a thing that is not on the user's screen.
-    private var tuckHelp: String {
-        geometry.hasCutout ? "Tuck into the notch" : "Minimize"
-    }
-
-    private var isAskOpen: Bool {
-        if case .ask = panel { return true }
-        return false
-    }
-
-    // MARK: Expansion — Ask or Notes, grown below the header
-
-    @ViewBuilder
     private var expansion: some View {
-        switch panel {
-        case .passive:
-            EmptyView()
-        case .notes:
-            MeetingNotesPanel(findings: session.analyst.findings)
-        case let .ask(phase):
-            MeetingAskPanel(phase: phase, onSubmit: onSubmitAsk, onSummarize: onSummarize)
-        }
+        MeetingBarExpansion(
+            panel: panel,
+            findings: session.analyst.findings,
+            loops: session.analyst.surfacedLoops,
+            canReachTools: true,
+            onSubmit: onSubmitAsk,
+            onSummarize: onSummarize,
+            onApprove: onApproveAsk,
+            onDeny: onDenyAsk
+        )
     }
 }
 
@@ -212,7 +288,7 @@ private struct MeetingActivityDot: View {
 /// window. Respects Reduce Motion: a title that doesn't fit still shows
 /// (leading-aligned, hard clipped) rather than never revealing its tail, but
 /// nothing moves on its own.
-private struct MarqueeText: View {
+struct MarqueeText: View {
     let text: String
     let font: Font
     let color: Color
@@ -284,9 +360,13 @@ private struct MarqueeText: View {
 /// Ask/Notes — small, equal-weight text buttons rather than icon glyphs: both
 /// are asks the user makes of Nod, not transport state, so they read better
 /// named than guessed at from a symbol.
-private struct MeetingBarButton: View {
+struct MeetingBarButton: View {
     let title: String
     let isActive: Bool
+    /// Something arrived behind this button while it was closed. Only Ask ever
+    /// sets it, but it lives here rather than on a bespoke Ask button so both
+    /// bars get the same mark from the one component they already share.
+    var hasUnread = false
     let action: () -> Void
 
     var body: some View {
@@ -301,8 +381,22 @@ private struct MeetingBarButton: View {
                     RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
                         .fill(isActive ? Theme.Palette.brand.opacity(0.16) : Theme.Palette.surfaceStrong)
                 )
+                .overlay(alignment: .topTrailing) { unreadMark }
         }
         .buttonStyle(.pressable)
+        .accessibilityLabel(hasUnread ? "\(title), answer ready" : title)
+    }
+
+    /// Sits half off the corner so the chip's own padding doesn't have to make
+    /// room for it — the row is already as tight as it goes.
+    @ViewBuilder
+    private var unreadMark: some View {
+        if hasUnread {
+            Circle()
+                .fill(Theme.Palette.brand)
+                .frame(width: 5, height: 5)
+                .offset(x: 2, y: -2)
+        }
     }
 }
 
@@ -311,20 +405,12 @@ private struct MeetingBarButton: View {
 /// this bar replaced it. A `Menu`, not a read-only chip: the pre-meeting
 /// confirm is the only other place to set this, so a wrong pick made there
 /// (or never asked about) has to be fixable without ending the meeting.
-private struct NotchLanguageMenuButton: View {
+struct NotchLanguageMenuButton: View {
     @ObservedObject var language: LanguagePreference
 
     var body: some View {
         Menu {
-            Picker("Nod language — summaries and answers", selection: Binding(
-                get: { language.current },
-                set: { language.current = $0 }
-            )) {
-                ForEach(AppLanguage.allCases, id: \.self) { option in
-                    Text(option.nativeName).tag(option)
-                }
-            }
-            .pickerStyle(.inline)
+            LanguageMenu(selected: language.current) { language.current = $0 }
         } label: {
             // A two-letter chip is wider than the glyphs it sits beside, so it
             // reads as the biggest thing in the row at the same nominal size.
@@ -369,8 +455,14 @@ private struct MeetingBarEndButton: View {
 /// The live findings-so-far, surfaced rather than re-derived: `findings` is
 /// the same standing memory `LiveMeetingAnalyst` already grounds the recap on,
 /// just read here instead of only at the end of the meeting.
-private struct MeetingNotesPanel: View {
+struct MeetingNotesPanel: View {
     let findings: [LiveFinding]
+    /// What this room stood on that was already owed. Kept apart from the
+    /// findings above and below them on purpose: those are things this
+    /// conversation produced, and these are things it walked into. Merging the
+    /// two would make a promise from three weeks ago read as something just
+    /// said, which is the one thing that would make both halves untrustworthy.
+    let loops: [LiveRecall]
 
     private var standing: [LiveFinding] {
         findings.filter { $0.state == .standing }
@@ -386,10 +478,7 @@ private struct MeetingNotesPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("LIVE NOTES")
-                .font(.system(size: 9.5, weight: .bold))
-                .kerning(0.6)
-                .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+            SectionLabel("Live notes", size: .compact)
 
             if standing.isEmpty {
                 Text("Nothing flagged yet.")
@@ -423,123 +512,41 @@ private struct MeetingNotesPanel: View {
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(Theme.Palette.muted)
             }
-        }
-    }
-}
 
-// MARK: - Ask
-
-/// The free-text box plus whatever it's showing — a fresh field, a spinner,
-/// an answer, or a failure. The field itself never goes away once Ask is
-/// open, so answering one question and asking the next reads as one
-/// conversation rather than a result screen you have to back out of.
-private struct MeetingAskPanel: View {
-    let phase: AskPhase
-    let onSubmit: (String) -> Void
-    let onSummarize: () -> Void
-
-    @State private var draft = ""
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            result
-            inputRow
-            if case .composing = phase {
-                suggestions
+            if !loops.isEmpty {
+                alreadyOpen
             }
         }
-        .onAppear { focused = true }
     }
 
-    @ViewBuilder
-    private var result: some View {
-        switch phase {
-        case .composing:
-            EmptyView()
-        case .loading:
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                    .progressViewStyle(.circular)
-                    .tint(Theme.Palette.muted)
-                Text("Thinking…")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Theme.Palette.muted)
+    /// The loops this conversation touched, in the order they came up.
+    ///
+    /// Each keeps its age, which is the whole reason it is worth showing: "you
+    /// promised this" is a note, and "you promised this twenty-three days ago"
+    /// is a decision to make before the call ends.
+    private var alreadyOpen: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+                .overlay(Theme.Palette.border)
+            SectionLabel("Already open", size: .compact)
+            ForEach(loops) { loop in
+                HStack(alignment: .top, spacing: 7) {
+                    Image("nc-arrow-dotted-rotate-anticlockwise")
+                        .icon(9)
+                        .foregroundStyle(Theme.Palette.brand)
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(loop.text)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(Theme.Palette.graphite)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text([loop.ageLabel, loop.sourceLabel].compactMap { $0 }.joined(separator: " · "))
+                            .font(.system(size: 10.5, weight: .regular))
+                            .foregroundStyle(Theme.Palette.muted)
+                            .lineLimit(1)
+                    }
+                }
             }
-        case let .answered(question, answer):
-            VStack(alignment: .leading, spacing: 4) {
-                Text(question)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.Palette.muted)
-                Text(answer)
-                    .font(.system(size: 12.5, weight: .regular))
-                    .foregroundStyle(Theme.Palette.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        case let .failed(question):
-            Text("Couldn't answer \u{201C}\(question)\u{201D} — try again.")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Theme.Palette.muted)
         }
-    }
-
-    private var inputRow: some View {
-        HStack(spacing: 8) {
-            TextField("Ask anything about this meeting…", text: $draft)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5, weight: .regular))
-                .foregroundStyle(Theme.Palette.ink)
-                .focused($focused)
-                .onSubmit(submit)
-            Button(action: submit) {
-                Image("nc-paper-plane-2")
-                    .icon(11)
-                    .foregroundStyle(canSubmit ? Theme.Palette.brand : Theme.Palette.muted.opacity(0.5))
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSubmit)
-            .accessibilityLabel("Send question")
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                .fill(Theme.Palette.surfaceStrong)
-        )
-    }
-
-    private var suggestions: some View {
-        HStack(spacing: 8) {
-            chip("What did we decide?")
-            chip("Who owns this?")
-            Button(action: onSummarize) {
-                Text("Summarize")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.Palette.muted)
-            }
-            .buttonStyle(.pressable)
-        }
-    }
-
-    private func chip(_ text: String) -> some View {
-        Button { onSubmit(text) } label: {
-            Text(text)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Theme.Palette.muted)
-                .lineLimit(1)
-        }
-        .buttonStyle(.pressable)
-    }
-
-    private var canSubmit: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private func submit() {
-        guard canSubmit else { return }
-        let question = draft
-        draft = ""
-        onSubmit(question)
     }
 }

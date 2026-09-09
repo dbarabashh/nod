@@ -97,8 +97,12 @@ final class AuthSessionStorage: AuthLocalStorage {
             return nil
         }
         try write(data, for: key)
+        // Only once the copy is somewhere else. Without the entitlement the
+        // write falls back to the legacy keychain, so deleting "the old one"
+        // deletes the only one — which signed the user out on every launch.
+        guard state.withLock({ !$0.legacyOnly }) else { return data }
         SecItemDelete(baseQuery(key, dataProtection: false) as CFDictionary)
-        Log.auth.info("session storage: adopted session from the legacy keychain")
+        Log.auth.info("session storage: adopted session into the data-protection keychain")
         return data
     }
 

@@ -13,3 +13,27 @@ extension Binding {
         )
     }
 }
+
+extension View {
+    /// Closes a popover when whatever it is anchored to moves.
+    ///
+    /// A macOS popover keeps its screen position, so scrolling the page behind
+    /// one leaves it floating over unrelated content, still pointing at a chip
+    /// that is no longer there. AppKit's own menus dismiss on scroll for the
+    /// same reason.
+    ///
+    /// Watches the anchor rather than the scroll view: there is no reference to
+    /// the enclosing `NSScrollView` from here, and a live-scroll notification
+    /// cannot tell the page's scrolling from the popover's own list scrolling.
+    /// The anchor only moves for the first.
+    func dismissWhenMoved(_ isPresented: Binding<Bool>) -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onChange(of: proxy.frame(in: .global).origin.y) { _ in
+                        if isPresented.wrappedValue { isPresented.wrappedValue = false }
+                    }
+            }
+        )
+    }
+}

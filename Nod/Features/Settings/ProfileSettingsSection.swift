@@ -17,10 +17,7 @@ struct ProfileSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("WHAT NOD REMEMBERS ABOUT YOU")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(Theme.Palette.muted)
+            SectionLabel("What Nod remembers about you")
 
             Text("Stored privately to your account; nothing here is shared.")
                 .font(.system(size: 12))
@@ -88,10 +85,7 @@ struct ProfileSettingsSection: View {
 
     private func field(label: String, placeholder: String, text: Binding<String>, helper: String? = nil, multiline: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(label.uppercased())
-                .font(.system(size: 9.5, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(Theme.Palette.muted)
+            SectionLabel(label, size: .compact)
             if let helper {
                 Text(helper)
                     .font(.system(size: 11.5))
@@ -138,5 +132,54 @@ struct ProfileSettingsSection: View {
                 withAnimation { saveState = .failed(error.localizedDescription) }
             }
         }
+    }
+}
+
+/// Who you are signed in as, above the fields that say what Nod remembers.
+///
+/// The address is stated, not offered as a field. It is the identity the
+/// account was created with and there is no flow in the app to change it, so a
+/// text box — even a disabled one — would invite an edit that cannot happen.
+struct ProfileIdentityCard: View {
+    @ObservedObject var store: ProfileStore
+    @ObservedObject var auth: AuthService
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image("nc-user")
+                .icon(18)
+                .foregroundStyle(Theme.Palette.muted)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Theme.Palette.surfaceStrong))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(displayName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                    .lineLimit(1)
+                if let email {
+                    Text(email)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .lineLimit(1)
+                        .textSelection(.enabled)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surfaceCard()
+    }
+
+    /// The saved name, not the one being typed in the field below — this states
+    /// the account as it stands.
+    private var displayName: String {
+        let name = store.profile?.displayName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? "Your account" : name
+    }
+
+    private var email: String? {
+        let address = auth.session?.user.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return address.isEmpty ? nil : address
     }
 }

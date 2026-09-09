@@ -216,7 +216,7 @@ func writeIcon(_ bitmap: NSBitmapImageRep, stem: String) throws {
 
     var payload = Data()
     for (type, pixels) in iconRepresentations {
-        payload.append(try icnsChunk(type: type, bitmap: resized(bitmap, pixels: pixels)))
+        try payload.append(icnsChunk(type: type, bitmap: resized(bitmap, pixels: pixels)))
     }
     var icns = Data("icns".utf8)
     icns.append(bigEndianBytes(payload.count + 8))
@@ -245,9 +245,11 @@ func resized(_ bitmap: NSBitmapImageRep, pixels: Int) throws -> NSBitmapImageRep
 for source in [skyURL, glyphURL] where !FileManager.default.fileExists(atPath: source.path) {
     throw VolumeIconError.missingSource(source)
 }
+
 guard let sky = NSImage(contentsOf: skyURL) else {
     throw VolumeIconError.missingSource(skyURL)
 }
+
 guard let glyph = NSImage(contentsOf: glyphURL) else {
     throw VolumeIconError.missingSource(glyphURL)
 }

@@ -39,27 +39,30 @@ stages as (
     select 3, 'saw welcome',
            (select count(distinct user_id) from ev where event = 'step_shown' and step = 'welcome')
     union all
-    select 4, 'saw profile',
-           (select count(distinct user_id) from ev where event = 'step_shown' and step = 'profile')
+    -- Order follows the shipped flow: welcome → calendar → permissions →
+    -- profile → consent. It changed in 1.4, and cohorts that straddle the
+    -- release mix both orders — read `lost_here` across that boundary with care.
+    select 4, 'saw calendar',
+           (select count(distinct user_id) from ev where event = 'step_shown' and step = 'calendar')
     union all
-    -- Pressed Continue, which the step allows with every field blank. For who
-    -- actually answered, see query 4's "— unanswered" bucket.
-    select 5, 'passed profile',
-           (select count(distinct user_id) from ev where event = 'profile_completed')
-    union all
-    select 6, 'saw permissions',
+    select 5, 'saw permissions',
            (select count(distinct user_id) from ev where event = 'step_shown' and step = 'permissions')
     union all
-    select 7, 'granted microphone',
+    select 6, 'granted microphone',
            (select count(distinct user_id) from ev where event = 'permission_granted' and detail = 'microphone')
     union all
-    select 8, 'answered screen recording',
+    select 7, 'answered screen recording',
            (select count(distinct user_id) from ev
              where detail = 'screen_recording'
                and event in ('permission_granted', 'permission_pending_relaunch'))
     union all
-    select 9, 'saw tutorial',
-           (select count(distinct user_id) from ev where event = 'step_shown' and step = 'tutorial')
+    select 8, 'saw profile',
+           (select count(distinct user_id) from ev where event = 'step_shown' and step = 'profile')
+    union all
+    -- Pressed Continue, which the step allows with every field blank. For who
+    -- actually answered, see query 4's "— unanswered" bucket.
+    select 9, 'passed profile',
+           (select count(distinct user_id) from ev where event = 'profile_completed')
     union all
     select 10, 'finished onboarding',
            (select count(distinct user_id) from ev where event = 'onboarding_completed')

@@ -49,49 +49,6 @@ extension PromptLibrary {
         let summary: String
     }
 
-    /// "What should I ask next?" — read the recent turns and suggest 2-4
-    /// concrete questions the user could put to the other side. Distinct from
-    /// what the live pass extracts: that reports what the room already said;
-    /// this proposes what the user hasn't asked yet.
-    static func buildFollowUps(
-        window: String,
-        known: [String],
-        language: AppLanguage = .english
-    ) -> (system: String, user: String) {
-        let lang = language.promptName
-        let system = """
-        You are helping the user, mid-conversation, think of good questions to ask the other side next.
-
-        Read the recent turns and suggest 2 to 4 short, specific questions the user could ask right now to move the conversation forward: probe an unstated assumption, ask for a number that was implied but not given, or follow a thread that was raised and dropped.
-
-        \(humanProseStyle)
-
-        - Every question has to follow from something actually said in the window — not a generic question that would fit any conversation.
-        - Do NOT suggest a question that [ALREADY KNOWN] shows was already answered or decided.
-        - Each question is one sentence, phrased as the user would say it out loud (second person, direct).
-        - If the window has nothing worth following up on (pure small talk, nothing concrete raised), return an empty list — that is the correct answer, not a reason to invent a generic one.
-        - LANGUAGE: write in \(lang) unless the transcript is clearly in another language, in which case match the transcript.
-
-        [OUTPUT] Respond with ONLY this JSON object, no prose, no code fence:
-        {"questions": []}
-        """
-
-        let memory = numberedMemoryBlock(header: "[ALREADY KNOWN]", empty: "Nothing flagged yet.", known: known)
-
-        let user = """
-        \(memory)[WINDOW — the last few minutes]
-
-        \(window)
-
-        Suggest what to ask next. An empty list is a correct answer.
-        """
-        return (system, user)
-    }
-
-    struct FollowUpsResult: Decodable {
-        let questions: [String]
-    }
-
     /// The live "Ask" box — a free-form question the user typed mid-recording,
     /// for whatever the fixed catch-up/follow-ups cards don't cover. A one-off,
     /// ephemeral Q&A grounded in the transcript so far; it does not persist and
@@ -100,11 +57,15 @@ extension PromptLibrary {
         question: String,
         transcript: String,
         known: [String],
+        thread: AskThread = AskThread(),
+        now: Date = Date(),
         language: AppLanguage = .english
     ) -> (system: String, user: String) {
         let lang = language.promptName
         let system = """
         You are answering a question the user typed while still in a meeting, about that meeting so far.
+
+        \(nowBlock(now))
 
         Answer in 1-3 short sentences, plain prose. Get to the answer first; skip any preamble like "Based on the transcript".
 
@@ -112,6 +73,10 @@ extension PromptLibrary {
 
         - Ground the answer only in the transcript or [ALREADY KNOWN]. Never invent a name, number, or decision that isn't there.
         - If the transcript doesn't say, say so plainly in one sentence rather than guessing.
+        - [EARLIER IN THIS ASK BOX] is your own conversation with this user, in order. Read the question as the next turn in it.
+        - A follow-up like "and the previous one?" refers to what you were just asked and just answered, not to the meeting.
+        - Never say what you can or cannot reach: you are given this meeting's words, not the list of tools the user connected.
+        - "I don't have access to Slack" is therefore a claim you cannot check, and it has been wrong. Say what the transcript says, or that it doesn't cover this.
         - LANGUAGE: write in \(lang) unless the transcript is clearly in another language, in which case match the transcript.
 
         [OUTPUT] Respond with ONLY this JSON object, no prose, no code fence:
@@ -121,7 +86,7 @@ extension PromptLibrary {
         let memory = numberedMemoryBlock(header: "[ALREADY KNOWN]", empty: "Nothing flagged yet.", known: known)
 
         let user = """
-        \(memory)[TRANSCRIPT SO FAR]
+        \(thread.block)\(memory)[TRANSCRIPT SO FAR]
 
         \(transcript)
 

@@ -27,72 +27,53 @@ final class MemoryBriefTests: XCTestCase {
         )
     }
 
-    func testOpenCommitmentsAreReportedAsGiven() {
-        let brief = MemoryBrief.build(
-            meetings: [meeting(title: "Standup", hoursAgo: 2)],
-            openCommitments: 3,
-            now: now
-        )
-
-        XCTAssertEqual(brief.openCommitments, 3)
-        XCTAssertTrue(brief.summary.contains("3 open commitments"))
-    }
-
     func testFallsBackToTheWeekWhenTodayIsEmpty() {
-        let brief = MemoryBrief.build(
-            meetings: [meeting(title: "Monday sync", hoursAgo: 48)],
-            openCommitments: 0,
-            now: now
-        )
+        let brief = MemoryBrief.build(meetings: [meeting(title: "Monday sync", hoursAgo: 48)], now: now)
 
         XCTAssertEqual(brief.captured, 1)
         XCTAssertTrue(brief.capturedSpansWeek)
-        XCTAssertTrue(brief.summary.contains("1 session this week"))
+        XCTAssertEqual(brief.contextSummary, "1 session this week")
     }
 
     func testTodayWinsOverTheWeek() {
         let brief = MemoryBrief.build(
             meetings: [meeting(title: "Now", hoursAgo: 1), meeting(title: "Older", hoursAgo: 72)],
-            openCommitments: 0,
             now: now
         )
 
         XCTAssertEqual(brief.captured, 1)
         XCTAssertFalse(brief.capturedSpansWeek)
-        XCTAssertTrue(brief.summary.contains("1 session today"))
+        XCTAssertEqual(brief.contextSummary, "1 session today")
     }
 
     func testMostActiveContextIsTheNewestTitledSession() {
         let brief = MemoryBrief.build(
             meetings: [meeting(title: "Older", hoursAgo: 30), meeting(title: "Newest", hoursAgo: 1)],
-            openCommitments: 0,
             now: now
         )
 
         XCTAssertEqual(brief.mostActiveContext, "Newest")
     }
 
-    func testUnresolvedComesFromOpenRecapSections() {
+    func testDecisionsThisWeekAreCounted() {
         let planning = meeting(
             title: "Planning",
             hoursAgo: 5,
             sections: [
-                MeetingRecap.Section(title: "Open questions", bullets: [
-                    MeetingRecap.Bullet(text: "Annual discount?"),
-                    MeetingRecap.Bullet(text: "Who owns the migration?")
-                ]),
-                MeetingRecap.Section(title: "Decisions made", bullets: [MeetingRecap.Bullet(text: "Two tiers")])
+                MeetingRecap.Section(title: "Decisions made", bullets: [
+                    MeetingRecap.Bullet(text: "Two tiers"),
+                    MeetingRecap.Bullet(text: "Ship on the 14th")
+                ])
             ]
         )
-        let brief = MemoryBrief.build(meetings: [planning], openCommitments: 0, now: now)
+        let brief = MemoryBrief.build(meetings: [planning], now: now)
 
-        XCTAssertEqual(brief.unresolved, 2)
+        XCTAssertEqual(brief.decisions, 2)
     }
 
+    /// Nothing captured is nothing to say — the card renders no line at all
+    /// rather than an empty one.
     func testEmptyMemoryProducesNothingToShow() {
-        let brief = MemoryBrief.build(meetings: [], openCommitments: 0, now: now)
-
-        XCTAssertTrue(brief.isEmpty)
-        XCTAssertTrue(brief.summary.isEmpty)
+        XCTAssertNil(MemoryBrief.build(meetings: [], now: now).contextSummary)
     }
 }

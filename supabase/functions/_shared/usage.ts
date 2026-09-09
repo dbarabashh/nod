@@ -7,7 +7,7 @@ import type { FailoverAttempt } from "./stt-providers.ts";
 
 export interface UsageRow {
     user_id: string;
-    kind: "chat" | "transcribe" | "embed";
+    kind: "chat" | "transcribe" | "embed" | "speak" | "integration";
     model: string;
     status: number;
     prompt_tokens?: number | null;
@@ -29,6 +29,12 @@ export interface UsageRow {
     // echo one back).
     requested_model?: string | null;
     resolved_model?: string | null;
+    // Which organization was paying when this call was made, from the resolved
+    // entitlement; null on a personal plan. The pooled allowance sums by this
+    // rather than by who holds a seat at read time. Set by the two writers
+    // whose rows a pool reads — transcribe and integration — which are the
+    // ones with the entitlement in hand.
+    org_id?: string | null;
 }
 
 export async function recordUsage(row: UsageRow): Promise<void> {

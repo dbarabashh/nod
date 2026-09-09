@@ -18,6 +18,8 @@
 //   { "token": "<uuid>", "question": "...", "history": [{role, content}, ...] }
 // Response: { "answer": "..." }
 
+import { modelFor } from "../_shared/models.ts";
+import { withProviderFloor } from "../_shared/model-policy.ts";
 import { adminClient } from "../_shared/supabase.ts";
 import { json as jsonBase } from "../_shared/http.ts";
 
@@ -26,7 +28,7 @@ const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
-const CHAT_MODEL          = "openai/gpt-4o-mini";
+const CHAT_MODEL          = modelFor("shareAsk");
 const CHAT_TIMEOUT_MS     = 30_000;
 
 // Keep the prompt bounded — a multi-hour transcript can dwarf the context
@@ -215,7 +217,7 @@ async function callOpenRouter(payload: unknown): Promise<string | null> {
                 "HTTP-Referer": "https://github.com/dbarabashh/Nod",
                 "X-Title": "Nod Share",
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(withProviderFloor(payload as Record<string, unknown>)),
             signal: controller.signal,
         });
         const text = await upstream.text();

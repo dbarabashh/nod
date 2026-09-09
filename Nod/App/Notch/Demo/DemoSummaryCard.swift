@@ -90,10 +90,7 @@ struct DemoSummaryCard: View {
 
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title.uppercased())
-                .font(.system(size: 9.5, weight: .bold))
-                .kerning(0.6)
-                .foregroundStyle(Theme.Palette.muted.opacity(0.9))
+            SectionLabel(title, size: .compact)
             content()
         }
     }

@@ -56,7 +56,6 @@ actor MeetingOutbox {
     private let dir: URL
     private var entries: [UUID: OutboxEntry] = [:]
     private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
 
     /// Serialises flushes: each `flush` chains behind the previous one and
     /// awaits its turn, so a caller always observes a real attempt at its own
@@ -71,6 +70,13 @@ actor MeetingOutbox {
 
     /// `directory` is injectable so tests run against a temp dir, not the real
     /// Application Support location.
+    /// Counts a save that stayed on disk. Set by the composition root.
+    private var analytics: ProductAnalytics?
+
+    func attach(_ analytics: ProductAnalytics) {
+        self.analytics = analytics
+    }
+
     init(directory: URL? = nil) {
         // `AppSupport` creates what it hands back; an injected test directory is
         // ours to create. Note the fallback there lands the WAL in the temp
@@ -196,6 +202,15 @@ actor MeetingOutbox {
             }
             var recovered = entry
             recovered.meeting.summary = Meeting.recoveredPlaceholder
+            // The draft on disk carries `endedAt` seeded to `startedAt` — the
+            // real end is written at End, which is the step that did not run.
+            // Left alone, an hour of conversation is filed as a meeting of zero
+            // length: the list sorts it wrong, the duration reads "0:00", and
+            // every window query that asks what overlapped this time finds
+            // nothing. The last thing anybody said is the honest end.
+            if let lastHeard = recovered.transcripts.map(\.ts).max() {
+                recovered.meeting.endedAt = max(recovered.meeting.startedAt, lastHeard)
+            }
             recovered.state = .completed
             recovered.meetingSynced = false // force a re-push so the placeholder lands
             entries[id] = recovered
@@ -262,6 +277,12 @@ actor MeetingOutbox {
                 // Leave the entry on disk for the next flush (launch, focus,
                 // manual retry). Durability is the whole point — never drop it.
                 Log.ui.error("MeetingOutbox.flush kept \(id.uuidString) on disk — \(error.localizedDescription)")
+                if let analytics {
+                    let key = id.uuidString
+                    await MainActor.run {
+                        analytics.record(.errorShown, properties: .init(stage: .persistence, reasonCode: .syncFailed), oncePerSession: key)
+                    }
+                }
             }
         }
     }

@@ -1,0 +1,48 @@
+{
+  "display_information": {
+    "name": "Nod",
+    "description": "Turns what a meeting decided into work in Slack, and answers questions from what the team said.",
+    "background_color": "#1b2733"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Nod",
+      "always_online": false
+    }
+  },
+  "oauth_config": {
+    "redirect_urls": [
+      "https://api.pipedream.com/connect/oauth/callback",
+      "https://api.pipedream.com/connect/oauth/oa_mLiBb2/callback"
+    ],
+    "scopes": {
+      "bot": [
+        "channels:read",
+        "channels:history",
+        "channels:join",
+        "groups:read",
+        "groups:history",
+        "channels:manage",
+        "channels:write.invites",
+        "groups:write",
+        "groups:write.invites",
+        "users:read",
+        "users:read.email",
+        "chat:write",
+        "im:write"
+      ],
+      "user": [
+        "channels:read",
+        "channels:history",
+        "groups:read",
+        "groups:history",
+        "search:read"
+      ]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": true,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

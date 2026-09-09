@@ -1,47 +1,35 @@
 import SwiftUI
 
-/// The brief under the chat's openers: what is in memory right now, and the
-/// context the user was last in. Without it the home screen is a title, four
-/// chips and a lot of nothing — it reads as a product that doesn't yet know
-/// what to put here.
+/// The quiet line under the home's focus block: what was captured, what got
+/// settled, and where you were last.
+///
+/// Nothing here is actionable, and that is the division of labour — Today owns
+/// every number that leads somewhere, this owns the ones that are simply true.
+/// When both carried counts the home told you about your work twice.
 struct MemoryBriefCard: View {
-    let onOpenAttention: () -> Void
-
     @EnvironmentObject private var meetingStore: MeetingStore
-    @EnvironmentObject private var actionItemStore: ActionItemStore
-    @EnvironmentObject private var entitlements: EntitlementService
 
     @State private var brief: MemoryBrief?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var canUseActionItems: Bool {
-        entitlements.mayUse(.actionItems)
-    }
-
     var body: some View {
-        Group {
-            if let brief, !brief.isEmpty {
-                card(brief)
-                    .transition(.answerArrival(reduceMotion: reduceMotion))
-            }
-        }
-        .animation(.standard(reduceMotion: reduceMotion), value: brief)
-        .task { await actionItemStore.refresh() }
-        // Follows task edits too: ticking one off has to change the number.
-        .onChange(of: actionItemStore.revision) { _ in rebuild() }
-        .onChange(of: meetingStore.digestKey) { _ in rebuild() }
-        .onAppear(perform: rebuild)
+        content
+            .animation(.standard(reduceMotion: reduceMotion), value: brief)
+            // A real zero-height view on the empty branch, not nothing: SwiftUI
+            // does not run `.task` on a branch that renders no content, so the
+            // work that fills `brief` would hang off a view that only exists
+            // once `brief` is set.
+            .task { rebuild() }
+            .onChange(of: meetingStore.meetings) { _ in rebuild() }
     }
 
-    private func card(_ brief: MemoryBrief) -> some View {
-        Button(action: onOpenAttention) {
-            VStack(alignment: .leading, spacing: 6) {
-                SectionLabel("In your memory")
-                Text(brief.summary)
-                    .font(.system(size: 13.5, weight: .medium))
-                    .foregroundStyle(Theme.Palette.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let context = brief.mostActiveContext {
+    @ViewBuilder private var content: some View {
+        if let line = brief?.contextSummary {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(line)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.muted)
+                if let context = brief?.mostActiveContext {
                     HStack(spacing: 5) {
                         Image("nc-refresh-2")
                             .icon(9.5)
@@ -53,25 +41,12 @@ struct MemoryBriefCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
-                    .fill(Theme.Palette.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radii.surface, style: .continuous)
-                            .stroke(Theme.Palette.border, lineWidth: 0.5)
-                    )
-            )
-            .contentShape(Rectangle())
+        } else {
+            Color.clear.frame(height: 0)
         }
-        .buttonStyle(.plain)
-        .linkCursor()
-        .help("See what needs your attention")
     }
 
     private func rebuild() {
-        let open = canUseActionItems ? actionItemStore.openItems.count : 0
-        brief = MemoryBrief.build(meetings: meetingStore.meetings, openCommitments: open)
+        brief = MemoryBrief.build(meetings: meetingStore.meetings)
     }
 }

@@ -43,7 +43,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .capturing: (dotColor, label, toolTip) = (.systemRed, "Transcribing", "Nod — transcribing this call")
         case .paused: (dotColor, label, toolTip) = (.systemOrange, "Paused", "Nod — transcription paused")
         }
-        button.image = Self.statusItemImage(dotColor: dotColor)
+        button.image = Self.statusItemImage(dotColor: dotColor, appearance: button.effectiveAppearance)
         button.imagePosition = label == nil ? .imageOnly : .imageLeading
         button.attributedTitle = Self.title(label)
         button.toolTip = toolTip
@@ -81,7 +81,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         return icon
     }()
 
-    private static func statusItemImage(dotColor: NSColor?) -> NSImage? {
+    private static func statusItemImage(dotColor: NSColor?, appearance: NSAppearance) -> NSImage? {
         guard let glyph = NSImage(named: "NTemplate") else { return nil }
         let size = NSSize(width: 18, height: 18)
 
@@ -98,17 +98,31 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // can't be a template (template tinting would flatten the dot to one
         // colour). Draw the glyph in the menu-bar foreground colour ourselves,
         // then the dot on top.
+        //
+        // That colour comes from the BUTTON's appearance, not `NSApp`'s: the
+        // menu bar follows the Mac's own Light/Dark and the wallpaper behind
+        // it, so this is the one surface that must ignore Nod's Appearance
+        // setting. Hardcoded white, it vanished on a light menu bar.
+        // Flattened to a concrete colour inside the block, not carried out as
+        // a dynamic one: `lockFocus` below draws under whatever appearance is
+        // current then, which is Nod's, not the menu bar's.
+        var menuBarInk = NSColor.labelColor
+        appearance.performAsCurrentDrawingAppearance {
+            menuBarInk = NSColor.labelColor.usingColorSpace(.sRGB) ?? .labelColor
+        }
+        let glyphInk = menuBarInk.withAlphaComponent(0.92)
+        let dotEdge = menuBarInk.withAlphaComponent(0.9)
         let composed = NSImage(size: size)
         composed.lockFocus()
         let rect = NSRect(origin: .zero, size: size)
         glyph.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
-        NSColor.white.withAlphaComponent(0.92).set()
+        glyphInk.set()
         rect.fill(using: .sourceAtop)
         let diameter: CGFloat = 8
         let dot = NSBezierPath(ovalIn: NSRect(x: size.width - diameter, y: 0, width: diameter, height: diameter).insetBy(dx: 1, dy: 1))
         dotColor.setFill()
         dot.fill()
-        NSColor.white.withAlphaComponent(0.9).setStroke()
+        dotEdge.setStroke()
         dot.lineWidth = 1
         dot.stroke()
         composed.unlockFocus()
@@ -183,6 +197,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
 
             if signedIn {
+                let history = NSMenuItem(
+                    title: "Open Nod…",
+                    action: #selector(showHistoryAction),
+                    // No keyEquivalent — `"h"` defaults to ⌘H which the
+                    // system reserves for "Hide Application".
+                    keyEquivalent: ""
+                )
+                history.target = self
+                menu.addItem(history)
+
                 let toggle = NSMenuItem(
                     title: "Open Capture",
                     action: #selector(toggleFloatingPanel),
@@ -195,16 +219,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                     toggle.keyEquivalentModifierMask = mask
                 }
                 menu.addItem(toggle)
-
-                let history = NSMenuItem(
-                    title: "Open Nod…",
-                    action: #selector(showHistoryAction),
-                    // No keyEquivalent — `"h"` defaults to ⌘H which the
-                    // system reserves for "Hide Application".
-                    keyEquivalent: ""
-                )
-                history.target = self
-                menu.addItem(history)
 
                 let settings = NSMenuItem(
                     title: "Settings…",
@@ -255,11 +269,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(checkForUpdates)
             menu.addItem(.separator())
 
+            // ⌥⌘Q here as in the app menu: ⌘Q alone hides (see `QuitPolicy`).
             let quit = NSMenuItem(
                 title: "Quit Nod",
                 action: #selector(NSApplication.terminate(_:)),
                 keyEquivalent: "q"
             )
+            quit.keyEquivalentModifierMask = [.command, .option]
             menu.addItem(quit)
         }
     }

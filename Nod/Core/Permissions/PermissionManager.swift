@@ -2,7 +2,6 @@ import AppKit
 import AVFoundation
 import Combine
 import Foundation
-import ScreenCaptureKit
 
 enum PermissionStatus: String, Codable {
     case notDetermined
@@ -37,6 +36,12 @@ final class PermissionManager: ObservableObject {
         "Relaunch failed: \(error). Quit and reopen Nod yourself."
     }
 
+    /// The line under a Screen Recording ask once it has been made: why
+    /// nothing changed yet, or why the relaunch that would change it failed.
+    var relaunchMessage: String {
+        lastRelaunchError.map(Self.relaunchFailureMessage) ?? Self.relaunchHint
+    }
+
     init() {
         refresh()
         NotificationCenter.default.addObserver(
@@ -48,9 +53,22 @@ final class PermissionManager: ObservableObject {
         }
     }
 
+    /// Both grants Nod needs to hear a conversation: the microphone for the
+    /// user's own side, screen recording for everything else the Mac plays.
+    /// Asked by the onboarding step, the settings card and the setup checklist
+    /// — three places that were each spelling the conjunction themselves.
+    var canCaptureBothSides: Bool {
+        microphone == .authorized && screenRecording == .authorized
+    }
+
     func refresh() {
-        microphone = currentMicrophoneStatus()
-        screenRecording = currentScreenRecordingStatus()
+        // Assigned only on a change: this runs on every app activation, and an
+        // unchanged grant would still invalidate the body of everything
+        // observing — which now includes surfaces that redraw a whole list.
+        let mic = currentMicrophoneStatus()
+        if mic != microphone { microphone = mic }
+        let screen = currentScreenRecordingStatus()
+        if screen != screenRecording { screenRecording = screen }
     }
 
     // MARK: - Microphone
@@ -130,12 +148,30 @@ final class PermissionManager: ObservableObject {
         SystemSettings.open(privacyPane: "Privacy_ScreenCapture")
     }
 
-    #if DEBUG
-        /// Forgets that we ever prompted for Screen Recording, so the row reads
-        /// `notDetermined` again. Pair it with `tccutil reset ScreenCapture
-        /// com.example.nod` — this clears our synthesized flag, not the OS grant.
-        static func resetPersistedScreenPrompt() {
+    #if DEBUG || NOD_SANDBOX
+        /// The next launch is a genuine first run rather than a replay over
+        /// green ticks: our own prompted flag goes, and macOS is asked to
+        /// forget the grants. `tccutil reset` on the app's own bundle needs
+        /// no privilege and has to land before the relaunch, so it is waited
+        /// for; a grant it could not clear is logged, not fatal.
+        static func resetPersistedGrants() {
             UserDefaults.standard.removeObject(forKey: screenPromptedKey)
+            guard let bundleID = Bundle.main.bundleIdentifier else { return }
+            for service in ["Microphone", "ScreenCapture", "Accessibility"] {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+                process.arguments = ["reset", service, bundleID]
+                process.standardOutput = FileHandle.nullDevice
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    if process.terminationStatus != 0 {
+                        Log.ui.error("first-run reset: tccutil reset \(service) exited \(process.terminationStatus)")
+                    }
+                } catch {
+                    Log.ui.error("first-run reset: tccutil reset \(service) failed — \(error.localizedDescription)")
+                }
+            }
         }
     #endif
 

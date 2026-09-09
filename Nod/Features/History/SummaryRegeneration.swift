@@ -28,6 +28,8 @@ final class SummaryRegeneration: ObservableObject {
     private let profileStore: ProfileStore
     private let modeStore: ModeStore
     private let entitlements: EntitlementService
+    /// Where a repaired meeting recovers who was in the room.
+    private let calendar: RemoteCalendar?
 
     /// Bounds on the launch retry — it spends metered hours nobody asked it to
     /// spend, so it takes a few of the newest failures and leaves the rest to
@@ -42,7 +44,8 @@ final class SummaryRegeneration: ObservableObject {
         knowledgeStore: KnowledgeStore,
         profileStore: ProfileStore,
         modeStore: ModeStore,
-        entitlements: EntitlementService
+        entitlements: EntitlementService,
+        calendar: RemoteCalendar? = nil
     ) {
         self.llm = llm
         self.meetingStore = meetingStore
@@ -51,6 +54,7 @@ final class SummaryRegeneration: ObservableObject {
         self.profileStore = profileStore
         self.modeStore = modeStore
         self.entitlements = entitlements
+        self.calendar = calendar
     }
 
     func state(for meetingID: UUID) -> State {
@@ -148,10 +152,17 @@ final class SummaryRegeneration: ObservableObject {
         guard !transcript.isEmpty else { throw Failure.noTranscript }
 
         // The meeting's own output language, not today's preference — a repaired
-        // meeting should read like the one the user recorded. The roster isn't
-        // persisted, so `participants` is the one input the finalize has and
-        // this can't recover.
+        // meeting should read like the one the user recorded.
         let language = AppLanguage(rawValue: meeting.language) ?? .english
+        // Who was in the room, recovered from the invitation the recording was
+        // matched to. The conferencing roster is session-scoped by policy and is
+        // long gone by now; the invitation is the one record that survives, and
+        // without it a repaired meeting can name nobody.
+        var invitation: CalendarOccurrence?
+        if let uid = meeting.icalUID {
+            invitation = await calendar?.occurrence(forICalUID: uid)
+        }
+        let people = MeetingParticipants.resolve(calendar: invitation, roster: nil)
         let framing = MeetingFraming.active(for: meeting.kind, mode: modeStore.selected)
         let (system, user) = PromptLibrary.build(
             transcript: transcript,
@@ -160,7 +171,8 @@ final class SummaryRegeneration: ObservableObject {
             sessionKind: meeting.kind,
             summaryTemplate: framing.summary,
             modeFocus: framing.focus,
-            meetingDate: PromptLibrary.sessionDateString(meeting.startedAt)
+            meetingDate: PromptLibrary.sessionDateString(meeting.startedAt),
+            participants: people.names
         )
 
         let generator = RecapGenerator(llm: llm)
@@ -179,13 +191,29 @@ final class SummaryRegeneration: ObservableObject {
 
         let text = recap.toMarkdown()
         // A title the user already typed wins; a repaired meeting only gets a
-        // generated one when it never had any.
+        // generated one when it never had any, and falls back to what the
+        // invitation called it rather than to a bare date.
         var title = meeting.title
         if title == nil {
-            title = await generator.title(from: text, language: language)
+            title = await generator.title(from: text, language: language) ?? invitation?.title
         }
 
-        let updated = meeting.updating(title: title, summary: text, recap: recap)
+        // One remote voice and one other guest is not a guess, it is arithmetic:
+        // `closingTheGap` names the last cluster by elimination and declines the
+        // moment the counts stop matching. Only when the finalize left none —
+        // a repair must never overwrite names that were resolved properly.
+        var speakerNames = meeting.speakerNames
+        if speakerNames?.isEmpty ?? true {
+            let clusters = Array(Set(records.compactMap(\.speaker)))
+            let closed = MeetingParticipants.closingTheGap([:], clusters: clusters, people: people)
+            if !closed.isEmpty {
+                speakerNames = closed
+                Log.stt.info("repair: named \(closed.count) cluster(s) from the invitation")
+            }
+        }
+
+        var updated = meeting.updating(title: title, summary: text, recap: recap)
+        updated.speakerNames = speakerNames
         try await meetingStore.update(updated)
         // The same enrichment the finalize runs once a recap lands, minus the
         // entity extraction it keeps private: without these the repaired meeting
@@ -200,7 +228,7 @@ final class SummaryRegeneration: ObservableObject {
 
         var errorDescription: String? {
             switch self {
-            case .noTranscript: "No transcript saved for this meeting."
+            case .noTranscript: "No transcript saved for this session."
             }
         }
     }

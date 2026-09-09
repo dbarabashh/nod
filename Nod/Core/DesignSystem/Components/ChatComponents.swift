@@ -12,7 +12,7 @@ extension View {
     func chatBubbleBackground(isUser: Bool) -> some View {
         background(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(isUser ? Color.white.opacity(0.14) : Theme.Palette.surface)
+                .fill(isUser ? Theme.Palette.userTurn : Theme.Palette.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
                         .stroke(isUser ? Color.clear : Theme.Palette.border, lineWidth: 0.5)
@@ -53,50 +53,45 @@ extension View {
 
 /// The chat composer input shared by both threads. Grows with its content up
 /// to roughly five lines, then scrolls internally instead of clipping.
-///
-/// A bare `TextField(axis: .vertical)` with `.lineLimit(1 ... 5)` caps the
-/// height but gives no scroll on macOS, so a long paste left everything below
-/// the fifth line clipped and unreachable. Wrapping the field in a height-
-/// bounded `ScrollView` keeps the native editing (paste, undo, IME, mentions)
-/// while making the overflow scrollable.
 struct ChatComposerField: View {
     let prompt: String
     @Binding var text: String
     var isEnabled: Bool = true
-    var focus: FocusState<Bool>.Binding
+    @Binding var isFocused: Bool
+    /// Names to draw as pills. Empty is the ordinary case — a question with no
+    /// mention in it looks exactly as it did.
+    var mentions: [MentionMark] = []
+    /// Offered the steering keys before the field takes them.
+    var keys: (ComposerKey) -> Bool = { _ in false }
     let onSend: () -> Void
 
-    @State private var contentHeight: CGFloat = ChatComposerField.minHeight
-
-    private static let fontSize: CGFloat = 13.5
-    private static let lineHeight: CGFloat = 19 // one line at `fontSize`
     private static let maxLines: CGFloat = 5
-    private static let minHeight = lineHeight
-    private static let maxHeight = lineHeight * maxLines // grow to five lines, then scroll
+    private static let maxHeight = MentionText.rowHeight + (maxLines - 1) * MentionText.lineHeight
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            TextField(prompt, text: $text, axis: .vertical)
-                .textFieldStyle(.plain)
-                // A vertical ScrollView can propose an unspecified width, and a
-                // vertical-axis TextField's *ideal* width is a few characters
-                // wide — without this the field collapses and every fifth
-                // character wraps to a new line.
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .font(.system(size: Self.fontSize))
-                .foregroundStyle(Theme.Palette.ink)
-                .focused(focus)
-                .disabled(!isEnabled)
-                .chatSubmit(text: $text, onSend: onSend)
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: ComposerHeightKey.self, value: geo.size.height)
-                    }
-                )
+        MentionTextView(
+            text: $text,
+            isFocused: $isFocused,
+            mentions: mentions,
+            maxHeight: Self.maxHeight,
+            isEnabled: isEnabled,
+            keys: keys,
+            onSend: onSend
+        )
+        // `NSTextView` has no placeholder, and the one it does expose is not
+        // public API — so the prompt is drawn behind it and hidden on the first
+        // character. Centred rather than offset by the text view's inset: the
+        // field is exactly one row tall whenever the prompt is showing, so the
+        // centre is where the caret is, and it stays there whatever the two
+        // font stacks make of the same point size.
+        .overlay(alignment: .leading) {
+            if text.isEmpty {
+                Text(prompt)
+                    .font(.system(size: MentionText.font.pointSize))
+                    .foregroundStyle(Theme.Palette.muted)
+                    .allowsHitTesting(false)
+            }
         }
-        .frame(height: min(max(contentHeight, Self.minHeight), Self.maxHeight))
-        .scrollDisabled(contentHeight <= Self.maxHeight)
-        .onPreferenceChange(ComposerHeightKey.self) { contentHeight = $0 }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .background(
@@ -110,33 +105,43 @@ struct ChatComposerField: View {
     }
 }
 
-private struct ComposerHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 /// A tappable example-prompt chip shown in a chat's empty state.
 struct ChatSuggestionChip: View {
     let text: String
+    /// A connected product's own mark, in place of the sparkle. The home screen
+    /// stacks two rows of these — questions to ask, and tools to connect — and
+    /// a second hand-built capsule 22pt below the first drifted by half a point
+    /// and six per cent opacity before anybody looked.
+    var provider: IntegrationProvider?
+    /// Draws in the accent rather than the surface. One chip in a list at most:
+    /// a row where everything leads has nothing leading.
+    var isFeatured = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image("nc-sparkle-3")
-                    .icon(10)
+                if let provider {
+                    ProviderMark(provider: provider, size: 12)
+                } else {
+                    Image("nc-sparkle-3")
+                        .icon(10)
+                }
                 Text(text)
-                    .font(.system(size: 12.5))
+                    .font(.system(size: 12.5, weight: isFeatured ? .medium : .regular))
             }
-            .foregroundStyle(Theme.Palette.ink.opacity(0.78))
+            .foregroundStyle(isFeatured ? Theme.Palette.brand : Theme.Palette.ink.opacity(0.78))
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Theme.Palette.surface)
-                    .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
+                    .fill(isFeatured ? Theme.Palette.brand.opacity(0.10) : Theme.Palette.surface)
+                    .overlay(
+                        Capsule().stroke(
+                            isFeatured ? Theme.Palette.brand.opacity(0.35) : Theme.Palette.border,
+                            lineWidth: 0.5
+                        )
+                    )
             )
         }
         .buttonStyle(.plain)
@@ -150,24 +155,34 @@ struct ChatSuggestionChip: View {
 /// supply the trailing layout (gutter spacer, any sources row).
 struct AssistantTextBubble: View {
     private let content: String
-    private let rendered: AttributedString
+    private let rendered: [AnswerPiece]
     private let showsBubble: Bool
     private let isStreaming: Bool
     @State private var isHovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Set on the newest answer only. Regenerating an older one would orphan
+    /// every turn after it, which was written against the answer being
+    /// replaced — so the affordance simply isn't offered there.
+    private let onRegenerate: (() -> Void)?
+
     /// `showsBubble: false` is the same answer without the chat chrome — used
     /// where the surface itself is already the container (the launcher panel),
     /// so the markdown rendering and the copy affordance stay shared instead of
     /// being written a second time.
-    init(content: String, showsBubble: Bool = true, isStreaming: Bool = false) {
+    init(content: String, showsBubble: Bool = true, isStreaming: Bool = false, onRegenerate: (() -> Void)? = nil) {
         self.content = content
         self.showsBubble = showsBubble
         self.isStreaming = isStreaming
+        self.onRegenerate = onRegenerate
         // Rendered once here, not in `body`: re-parsing the whole markdown on
         // every body pass is quadratic in the answer's length. While streaming,
         // `StreamingAnswer` parses per block instead — also once each.
-        rendered = isStreaming ? AttributedString() : renderRecapMarkdown(content)
+        rendered = isStreaming
+            ? []
+            : AnswerBlocks.complete(in: content, isFinished: true)
+            .enumerated()
+            .flatMap { AnswerPiece.pieces(from: $0.element, at: $0.offset) }
     }
 
     /// Nothing to show yet: the turn exists but no paragraph has finished. The
@@ -186,7 +201,7 @@ struct AssistantTextBubble: View {
                     if isStreaming {
                         StreamingAnswer(content: content)
                     } else {
-                        Text(rendered)
+                        AnswerPieces(pieces: rendered)
                     }
                 }
                 .font(.system(size: 13.5))
@@ -197,9 +212,18 @@ struct AssistantTextBubble: View {
                 .modifier(ChatBubbleFill(isEnabled: showsBubble))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if !isStreaming {
-                    ChatCopyButton(text: content)
-                        .padding(.leading, 2)
-                        .revealOnHover(isHovering, reduceMotion: reduceMotion, anchor: .leading)
+                    // One row of actions on hover rather than a button that
+                    // only appears once something has gone wrong: asking for
+                    // the answer again is an ordinary thing to want, and a
+                    // pointer is already here to reveal it.
+                    HStack(spacing: 10) {
+                        ChatCopyButton(text: content)
+                        if let onRegenerate {
+                            ChatActionButton(icon: "nc-refresh-2", label: "Regenerate", action: onRegenerate)
+                        }
+                    }
+                    .padding(.leading, 2)
+                    .revealOnHover(isHovering, reduceMotion: reduceMotion, anchor: .leading)
                 }
             }
             .contentShape(Rectangle())
@@ -230,12 +254,15 @@ private struct StreamingAnswer: View {
     /// so re-parsing the ones already on screen — twenty times a second, for the
     /// length of the answer — is the quadratic cost the non-streaming path
     /// avoids by parsing in `init`.
-    @State private var rendered: [AttributedString] = []
+    @State private var rendered: [AnswerPiece] = []
+    /// How many blocks those pieces came from. Counting pieces stopped
+    /// answering that the moment one block could produce several.
+    @State private var absorbed = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(rendered.enumerated()), id: \.offset) { _, block in
-                Text(block)
+            ForEach(rendered) { piece in
+                AnswerPieceView(piece: piece)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.answerArrival(reduceMotion: reduceMotion))
             }
@@ -249,8 +276,194 @@ private struct StreamingAnswer: View {
     /// answer streams, so everything already rendered is left alone.
     private func absorb(_ text: String) {
         let blocks = AnswerBlocks.complete(in: text, isFinished: false)
-        guard blocks.count > rendered.count else { return }
-        rendered += blocks[rendered.count...].map(renderRecapMarkdown)
+        guard blocks.count > absorbed else { return }
+        let first = absorbed
+        absorbed = blocks.count
+        rendered += blocks[first...].enumerated().flatMap { AnswerPiece.pieces(from: $0.element, at: first + $0.offset) }
+    }
+}
+
+/// One rendered piece of an answer.
+struct AnswerPiece: Identifiable {
+    enum Content {
+        case prose(AttributedString)
+        case links([ProviderLinkItem])
+        /// A `#`–`####` line. `renderRecapMarkdown` parses inline-only — block
+        /// syntax would collapse the line breaks the answers rely on — so a
+        /// heading reaches it as literal hashes unless it is split off here.
+        case heading(String)
+        /// A `---` line on its own, drawn as a rule rather than three dashes.
+        case rule
+        /// A run of list items. Inline-only parsing leaves `- ` as a literal
+        /// dash and flattens the indent that carries nesting, so the marker and
+        /// the depth are read off here and drawn as a hanging bullet.
+        case list([ListItem])
+    }
+
+    struct ListItem: Equatable {
+        /// `0` is the outer list; each two-space (or tab) indent is one deeper.
+        let level: Int
+        /// What is drawn before the text: a bullet, or the number the model wrote.
+        let marker: String
+        let text: AttributedString
+    }
+
+    /// Position, not text: blocks are append-only while an answer streams, so
+    /// where a piece sits is its identity — and reading it must not cost a copy
+    /// of the paragraph, in a list SwiftUI re-diffs at every stream flush. A
+    /// block can now yield more than one piece, so the run within it is the
+    /// second half of the address.
+    let id: String
+    let content: Content
+
+    /// Splits a paragraph into what it actually holds: runs of reference lines,
+    /// drawn as rows, and everything else, drawn as markdown.
+    ///
+    /// This used to ask whether the *whole* block was references, and a block
+    /// that mixed a sentence with the ticket it named — which is how the model
+    /// writes almost every one of them — fell through to markdown. The
+    /// reference then rendered as blue `Text`, with no mark, no pointer cursor
+    /// and nothing to click.
+    static func pieces(from block: String, at index: Int) -> [AnswerPiece] {
+        var pieces: [AnswerPiece] = []
+        var prose: [String] = []
+        var links: [ProviderLinkItem] = []
+        var items: [(level: Int, marker: String, lines: [String])] = []
+
+        func flushProse() {
+            guard !prose.isEmpty else { return }
+            let text = prose.joined(separator: "\n")
+            prose = []
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .prose(renderRecapMarkdown(text))))
+        }
+
+        func flushLinks() {
+            guard !links.isEmpty else { return }
+            let list = links
+            links = []
+            pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .links(list)))
+        }
+
+        func flushItems() {
+            guard !items.isEmpty else { return }
+            let rendered = items.map { item in
+                ListItem(level: item.level, marker: item.marker, text: renderRecapMarkdown(item.lines.joined(separator: " ")))
+            }
+            items = []
+            pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .list(rendered)))
+        }
+
+        for line in block.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let item = ProviderLinkItem.item(in: line) {
+                flushProse()
+                flushItems()
+                links.append(item)
+            } else if let title = headingTitle(of: trimmed) {
+                flushProse()
+                flushLinks()
+                flushItems()
+                pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .heading(title)))
+            } else if trimmed == "---" || trimmed == "***" {
+                flushProse()
+                flushLinks()
+                flushItems()
+                pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .rule))
+            } else if let item = listItem(of: line) {
+                flushProse()
+                flushLinks()
+                items.append((item.level, item.marker, [item.text]))
+            } else if !items.isEmpty, !trimmed.isEmpty, line.first?.isWhitespace == true {
+                // A wrapped line under the item it continues.
+                items[items.count - 1].lines.append(trimmed)
+            } else {
+                flushLinks()
+                flushItems()
+                prose.append(line)
+            }
+        }
+        flushProse()
+        flushLinks()
+        flushItems()
+        return pieces
+    }
+
+    /// `#` through `####`; every level draws the same, because an answer has
+    /// one kind of section and the model picks the count by mood.
+    private static func headingTitle(of trimmed: String) -> String? {
+        let hashes = trimmed.prefix { $0 == "#" }
+        guard (1 ... 4).contains(hashes.count), trimmed.dropFirst(hashes.count).first == " " else { return nil }
+        let title = trimmed.dropFirst(hashes.count).trimmingCharacters(in: .whitespaces)
+        return title.isEmpty ? nil : title
+    }
+
+    private static func listItem(of line: String) -> (level: Int, marker: String, text: String)? {
+        let indent = line.prefix { $0 == " " || $0 == "\t" }
+        let rest = line.dropFirst(indent.count)
+        let level = indent.reduce(0) { $0 + ($1 == "\t" ? 2 : 1) } / 2
+        if let first = rest.first, "-*+".contains(first), rest.dropFirst().first == " " {
+            return (level, "•", String(rest.dropFirst(2)))
+        }
+        let digits = rest.prefix { $0.isNumber }
+        guard !digits.isEmpty, digits.count <= 3 else { return nil }
+        let afterDigits = rest.dropFirst(digits.count)
+        guard let punctuation = afterDigits.first, punctuation == "." || punctuation == ")",
+              afterDigits.dropFirst().first == " " else { return nil }
+        return (level, "\(digits).", String(afterDigits.dropFirst(2)))
+    }
+}
+
+/// Draws a sequence of answer pieces with the paragraph spacing of a reply.
+struct AnswerPieces: View {
+    let pieces: [AnswerPiece]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(pieces) { AnswerPieceView(piece: $0) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct AnswerPieceView: View {
+    let piece: AnswerPiece
+
+    var body: some View {
+        switch piece.content {
+        case let .prose(block):
+            ReferenceProse(block)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case let .links(items):
+            ProviderLinkList(items: items)
+        case let .heading(title):
+            Text(title)
+                .font(.system(size: 12, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(Theme.Palette.ink)
+                .textCase(.uppercase)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
+        case .rule:
+            Rectangle()
+                .fill(Theme.Palette.border)
+                .frame(height: 1)
+                .padding(.vertical, 2)
+        case let .list(items):
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(item.marker)
+                            .foregroundStyle(Theme.Palette.muted)
+                            .frame(minWidth: 10, alignment: .trailing)
+                        ReferenceProse(item.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.leading, CGFloat(item.level) * 16)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
@@ -283,8 +496,25 @@ enum AnswerBlocks {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         guard !isFinished else { return blocks }
-        return blocks.count <= 1 ? [] : Array(blocks.dropLast())
+        guard blocks.count <= 1 else { return Array(blocks.dropLast()) }
+        // A single paragraph has no successor to prove it finished, so holding
+        // it back means holding back the *whole* answer — and a short answer,
+        // which is most of what the launcher gets, showed nothing at all until
+        // the stream ended. A sentence that has reached its full stop is not
+        // half-written, so it can be read while the rest is still coming.
+        return blocks.first.flatMap(finishedSentences).map { [$0] } ?? []
     }
+
+    /// The part of a paragraph up to its last sentence ending, or nil while it
+    /// has not reached one. Never returns a clause mid-flight: the point is to
+    /// show sooner, not to show something unfinished.
+    static func finishedSentences(in block: String) -> String? {
+        guard let end = block.lastIndex(where: { sentenceEndings.contains($0) }) else { return nil }
+        let sentence = block[...end].trimmingCharacters(in: .whitespacesAndNewlines)
+        return sentence.isEmpty ? nil : sentence
+    }
+
+    private static let sentenceEndings: Set<Character> = [".", "!", "?", "…", "。", "！", "？"]
 }
 
 /// Applies the assistant bubble only when the surface isn't already one.
@@ -300,21 +530,44 @@ private struct ChatBubbleFill: ViewModifier {
     }
 }
 
-/// A user chat turn: the right-aligned violet bubble. The `.tint(.white)` keeps
-/// inline links (e.g. @-mentions) legible on the violet fill.
+/// A user chat turn: the right-aligned bubble. A turn that named something is
+/// drawn by `MentionTextLabel`, so its pills match the ones the composer showed
+/// while the question was being written.
 struct UserTextBubble: View {
-    let text: AttributedString
+    let text: String
+    /// Present when the turn named something. Empty keeps the plain `Text`
+    /// path, which is most messages in both chats.
+    var marks: [MentionMark] = []
+
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 13.5))
-            .tint(.white)
-            .foregroundStyle(Color.white)
-            .textSelection(.enabled)
+        VStack(alignment: .trailing, spacing: 4) {
+            Group {
+                if marks.isEmpty {
+                    Text(text)
+                        .font(.system(size: MentionText.font.pointSize))
+                        .foregroundStyle(Theme.Palette.ink)
+                        .textSelection(.enabled)
+                } else {
+                    MentionTextLabel(text: text, marks: marks)
+                }
+            }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .chatBubbleBackground(isUser: true)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            // Copying your own turn is how a question gets reused — reworded in
+            // a new thread, or pasted somewhere else. The affordance mirrors the
+            // assistant's, flipped to the side this bubble sits on.
+            ChatCopyButton(text: text)
+                .padding(.trailing, 2)
+                .revealOnHover(isHovering, reduceMotion: reduceMotion, anchor: .trailing)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .animation(.hoverReveal(reduceMotion: reduceMotion), value: isHovering)
     }
 }
 
@@ -348,6 +601,30 @@ struct ChatCopyButton: View {
     }
 }
 
+/// A small labelled action in a chat turn's hover row. Shares the copy
+/// button's weight and colour so the row reads as one strip rather than as a
+/// button that arrived from somewhere else.
+struct ChatActionButton: View {
+    let icon: String
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(icon)
+                    .icon(10)
+                Text(label)
+                    .font(.system(size: 10.5, weight: .medium))
+            }
+            .foregroundStyle(Theme.Palette.muted)
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .linkCursor()
+    }
+}
+
 /// The row shown while a reply is in flight: bouncing dots beside a label that
 /// evolves as the work progresses, so the wait reads as activity rather than a
 /// frozen spinner.
@@ -360,9 +637,14 @@ struct ChatCopyButton: View {
 struct ThinkingIndicator: View {
     private let phrases: [String]
     private let interval: Double
+    private let icon: String?
 
-    init(script: [String], interval: Double = 1.6) {
+    /// `icon` marks work that left Nod: while the chat is calling a connected
+    /// product, its mark stands next to the dots so the wait is attributable
+    /// rather than anonymous.
+    init(script: [String], icon: String? = nil, interval: Double = 1.6) {
         phrases = script.isEmpty ? [""] : script
+        self.icon = icon
         self.interval = interval
     }
 
@@ -371,6 +653,12 @@ struct ThinkingIndicator: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            if let icon {
+                Image(icon)
+                    .icon(13)
+                    .foregroundStyle(Theme.Palette.ink.opacity(0.85))
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
             BouncingDots()
             ZStack(alignment: .leading) {
                 Text(displayed)
@@ -390,6 +678,7 @@ struct ThinkingIndicator: View {
             .animation(.standard(reduceMotion: reduceMotion), value: displayed)
             Spacer(minLength: 0)
         }
+        .animation(.standard(reduceMotion: reduceMotion), value: icon)
         // Keyed on the script, so handing over a new stage's phrases restarts
         // the walk instead of leaving the previous stage's timer running.
         .task(id: phrases) {

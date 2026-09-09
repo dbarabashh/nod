@@ -33,7 +33,7 @@ struct ModesSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(
-                "Modes apply to meetings. Each mode sets the recap layout, the reply framing, and a focus — pick one from the panel when you start a meeting instead of changing settings each time."
+                "A mode sets the sections a meeting recap has, plus an optional focus that Nod keeps in mind when writing the recap and answering questions about it. One mode is active at a time and stays active until you choose another. Voice notes are not affected."
             )
             .font(.system(size: 12.5))
             .foregroundStyle(Theme.Palette.muted)
@@ -44,11 +44,9 @@ struct ModesSettingsSection: View {
             if let mode = store.modes.first(where: { $0.id == editingID }) {
                 ModeEditorForm(
                     mode: mode,
-                    isActive: mode.id == store.selectedID,
                     iconChoices: Self.iconChoices,
                     canDelete: store.modes.count > 1,
                     onChange: { store.update($0) },
-                    onUse: { store.select(mode.id) },
                     onDelete: {
                         store.delete(mode.id)
                         editingID = store.modes.first?.id ?? mode.id
@@ -113,8 +111,11 @@ struct ModesSettingsSection: View {
     private func chip(_ mode: MeetingMode) -> some View {
         let isEditing = mode.id == editingID
         let isActive = mode.id == store.selectedID
+        // One click does both: the chip is the mode, so choosing it is choosing
+        // it. Editing without activating was a second step nobody found.
         return Button {
             editingID = mode.id
+            store.select(mode.id)
         } label: {
             HStack(spacing: 6) {
                 Image(mode.icon)
@@ -132,10 +133,10 @@ struct ModesSettingsSection: View {
             .padding(.vertical, 7)
             .background(
                 Capsule(style: .continuous)
-                    .fill(isEditing ? Color.white.opacity(0.12) : Color.white.opacity(0.04))
+                    .fill(Theme.Palette.overlay.opacity(isEditing ? 0.12 : 0.04))
                     .overlay(
                         Capsule(style: .continuous)
-                            .stroke(isEditing ? Color.white.opacity(0.18) : .clear, lineWidth: 0.5)
+                            .stroke(isEditing ? Theme.Palette.overlay.opacity(0.18) : .clear, lineWidth: 0.5)
                     )
             )
             .contentShape(Capsule(style: .continuous))
@@ -148,28 +149,22 @@ struct ModesSettingsSection: View {
 /// through `onChange` so the store (and the live panel chip) stay in sync.
 private struct ModeEditorForm: View {
     @State private var draft: MeetingMode
-    let isActive: Bool
     let iconChoices: [String]
     let canDelete: Bool
     let onChange: (MeetingMode) -> Void
-    let onUse: () -> Void
     let onDelete: () -> Void
 
     init(
         mode: MeetingMode,
-        isActive: Bool,
         iconChoices: [String],
         canDelete: Bool,
         onChange: @escaping (MeetingMode) -> Void,
-        onUse: @escaping () -> Void,
         onDelete: @escaping () -> Void
     ) {
         _draft = State(initialValue: mode)
-        self.isActive = isActive
         self.iconChoices = iconChoices
         self.canDelete = canDelete
         self.onChange = onChange
-        self.onUse = onUse
         self.onDelete = onDelete
     }
 
@@ -219,7 +214,7 @@ private struct ModeEditorForm: View {
                         .padding(2)
                         .background(
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.white.opacity(0.04))
+                                .fill(Theme.Palette.surface)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 6)
                                         .stroke(Theme.Palette.border, lineWidth: 1)
@@ -227,18 +222,14 @@ private struct ModeEditorForm: View {
                         )
                 }
                 hint(
-                    "Added to the prompt for meeting summaries and replies, so Nod prioritizes what matters to you — it never invents facts to fit it."
+                    "Added to the prompt for summaries and replies, so Nod prioritizes what matters to you — it never invents facts to fit it."
                 )
             }
 
             HStack(spacing: 12) {
-                if isActive {
-                    IconLabel(title: "Active mode", icon: "nc-circle-check", size: 12)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Theme.Palette.muted)
-                } else {
-                    Button("Use this mode", action: onUse)
-                }
+                IconLabel(title: "Active mode", icon: "nc-circle-check", size: 12)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.Palette.muted)
                 Spacer(minLength: 0)
                 if canDelete {
                     Button(role: .destructive, action: onDelete) {
@@ -251,7 +242,7 @@ private struct ModeEditorForm: View {
         .padding(18)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.03))
+                .fill(Theme.Palette.overlay.opacity(0.03))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(Theme.Palette.border, lineWidth: 0.5)
@@ -267,11 +258,11 @@ private struct ModeEditorForm: View {
         } label: {
             Image(icon)
                 .icon(13)
-                .foregroundStyle(selected ? Color.white : Theme.Palette.muted)
+                .foregroundStyle(selected ? Theme.Palette.onAccent : Theme.Palette.muted)
                 .frame(width: 34, height: 30)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(selected ? Theme.Palette.violet.opacity(0.8) : Color.white.opacity(0.05))
+                        .fill(selected ? Theme.Palette.violet.opacity(0.8) : Theme.Palette.overlay.opacity(0.05))
                 )
         }
         .buttonStyle(.plain)

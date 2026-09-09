@@ -1,104 +1,166 @@
 import SwiftUI
 
-/// The in-app upgrade surface. Reads the current entitlement (to show what the
-/// user has now) and the price catalog, and hands a chosen `price_id` to
-/// `BillingService` to open a Paddle checkout. Plan bullet lists mirror
-/// `docs/pricing.md` — this is a marketing surface, so the copy lives here
-/// rather than being derived from the server feature flags.
+/// One purchasable plan as the paywall talks about it. The features live in
+/// `PlanComparison`; this is only what a column header needs to say.
+struct PaywallPlan: Identifiable {
+    let id: String
+    let name: String
+    let highlighted: Bool
+    let badge: String?
+    /// A workspace plan is priced per seat and bought by the seat, so its column
+    /// prints "per seat" and asks how many before it offers to charge anything.
+    var isPerSeat = false
+    /// Paddle enforces this on the price itself; the client refuses to go below
+    /// it so nobody reaches checkout only to be turned back.
+    var minimumSeats = 1
+}
+
+enum PaywallFormat {
+    /// Yearly rows carry the monthly equivalent, so both cycles print the same
+    /// shape and the "billed yearly" line underneath carries the difference.
+    static func currency(_ price: PlanPrice?) -> String? {
+        guard let price else { return nil }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = price.currency
+        if price.displayAmount.truncatingRemainder(dividingBy: 1) == 0 {
+            formatter.maximumFractionDigits = 0
+        }
+        return formatter.string(from: NSNumber(value: price.displayAmount))
+            ?? "\(price.currency) \(price.displayAmount)"
+    }
+
+    static func perMonth(_ price: PlanPrice?) -> String {
+        guard let amount = currency(price) else { return "—" }
+        return "\(amount)/mo"
+    }
+
+    static func perSeat(_ price: PlanPrice?) -> String {
+        guard let amount = currency(price) else { return "—" }
+        return "\(amount)/mo per seat"
+    }
+
+    /// A whole number with its thousands separator: seats, credits, hours.
+    static func count(_ value: Double) -> String {
+        countFormatter.string(from: NSNumber(value: value)) ?? String(Int(value))
+    }
+
+    /// `Aug 12` — a date inside the period at hand.
+    static func day(_ date: Date) -> String {
+        dayFormatter.string(from: date)
+    }
+
+    /// `Aug 12, 2027` — a date that may be a year away.
+    static func fullDay(_ date: Date) -> String {
+        fullDayFormatter.string(from: date)
+    }
+
+    private static let countFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 0
+        return formatter
+    }()
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
+    private static let fullDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter
+    }()
+}
+
+/// The in-app subscription surface, in the order somebody actually asks about
+/// it: what am I on, what have I used, what else is there.
 ///
-/// Styling follows the Library window: `WindowBackdrop` vibrancy, the same pill
-/// segmented control, `Theme.Palette` surfaces/borders, and the brand-gradient
-/// CTA — so the paywall reads as the same product, not a system-styled bolt-on.
+/// It reads the current entitlement and the price catalog, and hands a chosen
+/// `price_id` to `BillingService` to open a Paddle checkout. The comparison
+/// copy mirrors `docs/pricing.md` — this is a marketing surface, so it lives
+/// here rather than being derived from the server feature flags. The two values
+/// the server owns, hours and devices, are the exception and are read from
+/// `public.plans`.
 struct PaywallView: View {
     @ObservedObject var billing: BillingService
     @ObservedObject var entitlements: EntitlementService
+    /// Absent in previews and for someone in no organization. Decides only
+    /// whether the credits card offers a workspace pack — buying for the
+    /// workspace is an owner's or admin's act, and the server refuses the rest.
+    var organizations: OrganizationService?
     @EnvironmentObject private var analytics: ProductAnalytics
 
     @State private var cycle = "yearly"
     @State private var referralCode = ""
     @State private var showReferralField = false
     @State private var hasWinbackOffer = false
+    /// Starts at the workspace plan's minimum and is re-seeded from the seats the
+    /// organization already holds, so an admin of a twelve-seat workspace is not
+    /// offered a button that silently drops them to three.
+    @State private var seats = PaywallView.workspacePlan.minimumSeats
+    /// Once somebody has chosen a number, it is theirs. A background entitlement
+    /// refresh must not walk a typed 20 back down to the 5 seats they are
+    /// replacing.
+    @State private var hasChosenSeats = false
 
-    private struct PlanCopy {
-        let id: String
-        let name: String
-        let tagline: String
-        let highlighted: Bool
-        let badge: String?
-        let features: [String]
-    }
-
-    private static let plans: [PlanCopy] = [
-        PlanCopy(
-            id: "starter", name: "Starter",
-            tagline: "Your AI notetaker, fully unlocked.",
-            highlighted: false, badge: nil,
-            features: [
-                "1 device",
-                "Records you and the other side",
-                "Live transcription, summaries & action items",
-                "Ask Nod about a single meeting",
-                "Unlimited history, folders & search",
-                "Audio is never stored"
-            ]
-        ),
-        PlanCopy(
-            id: "pro", name: "Pro",
-            tagline: "For people who live in meetings.",
-            highlighted: true, badge: "Most popular",
-            features: [
-                "Up to 3 devices",
-                "Everything in Starter, plus:",
-                "Ask Nod live during a meeting",
-                "Ask Nod across all meetings — your knowledge base",
-                "Folder-scoped questions",
-                "Screen context — ask about what's in front of you",
-                "Early access + priority support"
-            ]
+    static let plans: [PaywallPlan] = [
+        PaywallPlan(id: "starter", name: "Starter", highlighted: false, badge: nil),
+        PaywallPlan(id: "pro", name: "Pro", highlighted: true, badge: "Most popular"),
+        PaywallPlan(
+            id: "teams", name: "Teams", highlighted: false, badge: nil,
+            isPerSeat: true, minimumSeats: 3
         )
     ]
+
+    /// Named, not indexed: the rail's button buys this, and a reordering of
+    /// `plans` must not quietly change what somebody is charged for.
+    private static let upgradeTarget = plans.first { $0.id == "pro" } ?? plans[0]
+
+    /// The page stops widening past this. A subscription page is read, not
+    /// scanned across a monitor: left unbounded, the comparison's labels and its
+    /// columns drift a screen apart and the plan card's rail floats away from
+    /// the prose it belongs to.
+    private static let contentWidth: CGFloat = 900
 
     // Embeddable content — lives inside the Settings → Subscription pane, which
     // supplies its own ScrollView, title, and window chrome.
     var body: some View {
-        VStack(spacing: 20) {
-            header
-            BillingCycleToggle(cycle: $cycle, annualDiscountPercent: annualDiscountPercent)
-                .frame(width: 240)
-            if hasWinbackOffer {
-                Text(
-                    "Your email offer applies 15% to the first monthly Starter or Pro billing period and expires 14 days after it was issued."
+        VStack(alignment: .leading, spacing: 24) {
+            section("Active plan") {
+                ActivePlanCard(
+                    billing: billing,
+                    entitlements: entitlements,
+                    cycle: cycle,
+                    upgradeTarget: Self.upgradeTarget,
+                    hasWinbackOffer: hasWinbackOffer,
+                    referralCode: $referralCode,
+                    showReferralField: $showReferralField,
+                    onChoose: choose,
+                    onManage: manage
                 )
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.Palette.muted)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 520)
             }
-            HStack(alignment: .top, spacing: 14) {
-                ForEach(Self.plans, id: \.id) { plan in
-                    planCard(plan)
-                }
+            section("This period") {
+                SubscriptionPeriodTiles(billing: billing, entitlements: entitlements)
+                EntitlementCreditsCard(entitlements: entitlements, billing: billing, organizations: organizations)
             }
-            if isPaid {
-                manageButton
-            } else {
-                referralField
-            }
+            comparison
             if let error = billing.lastError {
                 Text(error)
-                    .font(.system(size: 12, weight: .regular))
+                    .textStyle(Theme.Typography.secondary)
                     .foregroundStyle(Theme.Palette.danger)
-                    .multilineTextAlignment(.center)
             }
+            TeamsContactCard()
             Text(
                 "Checkout opens in your browser. Your plan updates here automatically once payment completes — billed via our Merchant of Record, taxes included, cancel anytime."
             )
-            .font(.system(size: 11.5, weight: .regular))
+            .textStyle(Theme.Typography.meta)
             .foregroundStyle(Theme.Palette.muted)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: 520)
+            .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: Self.contentWidth, alignment: .leading)
         .task {
             analytics.record(
                 .paywallViewed,
@@ -111,6 +173,11 @@ struct PaywallView: View {
             )
             await billing.loadPrices()
             await entitlements.refresh()
+        }
+        // `@Published` emits in `willSet`, so the new value arrives here and not
+        // from re-reading the service.
+        .onReceive(entitlements.$entitlement) { entitlement in
+            syncSeats(with: entitlement)
         }
         .onAppear {
             hasWinbackOffer = BillingService.hasPendingWinbackOffer
@@ -127,78 +194,67 @@ struct PaywallView: View {
         }
     }
 
-    // MARK: - Referral code (attribution A)
+    static let workspacePlan = plans.first { $0.isPerSeat } ?? plans[0]
 
-    @ViewBuilder
-    private var referralField: some View {
-        if showReferralField {
-            VStack(spacing: 6) {
-                TextField("Referral code", text: $referralCode)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12.5, design: .monospaced))
-                    .frame(maxWidth: 220)
-                    .onChange(of: referralCode) { newValue in
-                        let upper = newValue.uppercased()
-                        if upper != referralCode { referralCode = upper }
-                    }
-                Text("Applies −50% off your first month (monthly billing).")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(Theme.Palette.muted)
-            }
-        } else {
-            Button("Have a referral code?") { showReferralField = true }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.Palette.graphite)
+    /// Never below the plan's minimum, and never below what the workspace is
+    /// already paying for — reducing seats is a deliberate act, not the default
+    /// state of a screen somebody opened.
+    private func syncSeats(with entitlement: Entitlement?) {
+        guard !hasChosenSeats else { return }
+        seats = max(Self.workspacePlan.minimumSeats, entitlement?.seats ?? 0)
+    }
+
+    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionLabel(title)
+            content()
         }
     }
 
-    // MARK: - Header
-
-    private var header: some View {
-        VStack(spacing: 6) {
-            Text(statusHeadline)
-                .font(.system(size: 19, weight: .bold))
-                .foregroundStyle(Theme.Palette.ink)
-            if let sub = statusSubline {
-                Text(sub)
-                    .font(.system(size: 12.5, weight: .regular))
-                    .foregroundStyle(Theme.Palette.muted)
+    private var comparison: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                Text("Compare all plans")
+                    .textStyle(Theme.Typography.cardTitle)
+                    .foregroundStyle(Theme.Palette.ink)
+                Spacer(minLength: 0)
+                BillingCycleToggle(cycle: $cycle, annualDiscountPercent: annualDiscountPercent)
+                    .frame(width: 210)
             }
+            PlanComparisonTable(
+                billing: billing,
+                plans: Self.plans,
+                seats: $seats,
+                onSeatsEdited: { hasChosenSeats = true },
+                cycle: cycle,
+                currentPlan: entitlements.entitlement?.plan,
+                currentPriceID: entitlements.entitlement?.priceID,
+                currentCycle: entitlements.entitlement?.billingCycle,
+                isPaid: isPaid,
+                isBusy: billing.isStartingCheckout,
+                onChoose: choose
+            )
         }
     }
 
-    private var statusHeadline: String {
-        guard let ent = entitlements.entitlement else { return "Choose your plan" }
-        switch ent.status {
-        case .trialing: return "You're on the free trial"
-        case .active: return "You're on \(ent.plan.capitalized)"
-        case .pastDue: return "Your payment needs attention"
-        case .canceled, .expired, .none: return "Pick a plan to keep Nod"
+    // MARK: - Actions
+
+    private func choose(_ priceID: String) {
+        let isPerSeat = billing.prices.first { $0.paddlePriceID == priceID }
+            .map { price in Self.plans.contains { $0.id == price.plan && $0.isPerSeat } } ?? false
+        Task {
+            let outcome = await billing.startCheckout(
+                priceID: priceID,
+                referralCode: (hasWinbackOffer || isPerSeat) ? nil : referralCode,
+                offer: hasWinbackOffer && !isPerSeat ? "winback" : nil,
+                seats: isPerSeat ? seats : nil
+            )
+            if outcome == .planChanged { await entitlements.refresh() }
         }
     }
 
-    private var statusSubline: String? {
-        guard let ent = entitlements.entitlement else { return nil }
-        if ent.status == .trialing, let ends = ent.trialEndsAt {
-            let days = max(0, Calendar.current.dateComponents([.day], from: Date(), to: ends).day ?? 0)
-            return "\(days) day\(days == 1 ? "" : "s") left · full Pro access"
-        }
-        if ent.isActive {
-            // On an unlimited plan the ceiling is the fair-use threshold, not an
-            // allowance — printing "of 40" would hand the user the one number
-            // the pricing page says doesn't exist.
-            if billing.hoursAreUnlimited(plan: ent.plan) {
-                return String(format: "%.1f hours recorded this period", ent.hoursUsed)
-            }
-            let used = ent.consumedSeconds / 3_600
-            let total = (ent.includedSeconds + ent.topUpSeconds) / 3_600
-            if ent.hasPurchasedTopUp {
-                return String(format: "%.1f of %.0f hours used this period (includes bought hours)", used, total)
-            }
-            return String(format: "%.1f of %.0f hours used this period", used, total)
-        }
-        return nil
+    private func manage() {
+        Task { await billing.openCustomerPortal() }
     }
 
     /// Percentage saved by paying yearly, computed from the catalogue: the number
@@ -246,231 +302,18 @@ struct PaywallView: View {
         return currentCycle == selectedCycle
     }
 
-    /// A paid (not trial) subscription has a Paddle customer to manage. Includes
-    /// `past_due` so a subscriber whose card failed can still reach the portal to
-    /// fix it. Trial users have nothing to cancel, so the button stays hidden.
-    private var isPaid: Bool {
-        let status = entitlements.entitlement?.status
-        return status == .active || status == .pastDue
-    }
-
-    private var manageButton: some View {
-        Button {
-            Task { await billing.openCustomerPortal() }
-        } label: {
-            HStack(spacing: 6) {
-                if billing.isOpeningPortal {
-                    ProgressView().controlSize(.small).tint(Theme.Palette.muted)
-                }
-                Text("Manage subscription")
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(Theme.Palette.graphite)
-                    .underline()
-            }
-        }
-        .buttonStyle(.plain)
-        .disabled(billing.isOpeningPortal)
-        .help("Cancel, change plan, update your card, or view invoices")
-    }
-
-    // MARK: - Plan card
-
-    /// The hours line comes from `public.plans`, not from `PlanCopy`: it is the
-    /// one bullet the server can change under us, and a stale number here sold
-    /// Pro on 50 hours while the same pane reported a used-of-16 figure below.
-    /// Omitted rather than guessed when the catalog hasn't loaded.
-    private func features(for plan: PlanCopy) -> [String] {
-        if billing.hoursAreUnlimited(plan: plan.id) {
-            return ["Unlimited meeting hours"] + plan.features
-        }
-        guard let hours = billing.hoursPerMonth(plan: plan.id) else { return plan.features }
-        return ["\(Self.hoursText(hours)) meeting hours / month"] + plan.features
-    }
-
     /// Whole numbers read as plan limits ("8"), fractions keep one decimal so a
     /// limit set to 7.5 doesn't render as "8".
     static func hoursText(_ hours: Double) -> String {
         hours == hours.rounded() ? String(Int(hours)) : String(format: "%.1f", hours)
     }
 
-    private func planCard(_ plan: PlanCopy) -> some View {
-        let price = billing.subscriptionPrice(plan: plan.id, cycle: cycle)
-        let entitlement = entitlements.entitlement
-        // Two different questions. The PLAN they hold is always knowable, and it
-        // drives the badge — that's what tells someone what they're paying for.
-        // The plan AND cycle is what locks the button, and it needs the cycle.
-        let isCurrentPlan = isPaid && entitlement?.plan == plan.id
-        let isCurrent = Self.isCurrentSelection(
-            isPaid: isPaid,
-            currentPlan: entitlement?.plan,
-            currentPriceID: entitlement?.priceID,
-            currentCycle: entitlement?.billingCycle,
-            visiblePriceIDs: Set(billing.prices.map(\.paddlePriceID)),
-            selectedPlan: plan.id,
-            selectedPriceID: price?.paddlePriceID,
-            selectedCycle: cycle
-        )
-
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Text(plan.name)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                Spacer(minLength: 0)
-                if isCurrentPlan {
-                    planChip("Your plan", promotional: false)
-                } else if let badge = plan.badge {
-                    planChip(badge, promotional: true)
-                }
-            }
-            Text(plan.tagline)
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Theme.Palette.graphite)
-                .lineLimit(2, reservesSpace: true)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(priceLabel(price))
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .foregroundStyle(Theme.Palette.ink)
-                Text("/mo")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(Theme.Palette.muted)
-            }
-            Text(cycle == "yearly" ? "billed yearly" : "billed monthly")
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(Theme.Palette.muted)
-
-            ctaButton(plan: plan, price: price, isCurrent: isCurrent, isSamePlan: isCurrentPlan)
-                .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(features(for: plan), id: \.self) { feature in
-                    featureRow(feature)
-                }
-            }
-            .padding(.top, 4)
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
-                .fill(Theme.Palette.surfaceStrong)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
-                .stroke(
-                    plan.highlighted || isCurrentPlan ? Theme.GlassButton.border : Theme.Palette.border,
-                    lineWidth: plan.highlighted || isCurrentPlan ? 1 : 0.5
-                )
-        )
-    }
-
-    /// The promotional badge ("Most popular") sells; the status badge ("Your plan")
-    /// informs. Same shape, different weight, and the status one wins the slot —
-    /// what someone already pays for matters more than what we'd like them to buy.
-    @ViewBuilder
-    private func planChip(_ text: String, promotional: Bool) -> some View {
-        let label = Text(text.uppercased())
-            .font(.system(size: 9.5, weight: .bold, design: .rounded))
-            .tracking(0.5)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-
-        if promotional {
-            label
-                .foregroundStyle(Theme.GlassButton.text)
-                .background(Capsule(style: .continuous).fill(Theme.GlassButton.fill))
-        } else {
-            label
-                .foregroundStyle(Theme.Palette.graphite)
-                .background(Capsule(style: .continuous).fill(Theme.Palette.surface))
-                .overlay(Capsule(style: .continuous).stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
-        }
-    }
-
-    private func ctaButton(plan: PlanCopy, price: PlanPrice?, isCurrent: Bool, isSamePlan: Bool) -> some View {
-        // Already subscribed → switching plans updates the one subscription in
-        // place (no second checkout). Not subscribed → a fresh checkout.
-        let label = ctaLabel(plan: plan, isCurrent: isCurrent, isSamePlan: isSamePlan)
-        return Button {
-            guard let id = price?.paddlePriceID else { return }
-            Task {
-                let outcome = await billing.startCheckout(
-                    priceID: id,
-                    referralCode: hasWinbackOffer ? nil : referralCode,
-                    offer: hasWinbackOffer ? "winback" : nil
-                )
-                if outcome == .planChanged { await entitlements.refresh() }
-            }
-        } label: {
-            HStack(spacing: 7) {
-                if billing.isStartingCheckout {
-                    ProgressView().controlSize(.small).tint(plan.highlighted ? Theme.GlassButton.text : Theme.Palette.ink)
-                }
-                Text(label)
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            .foregroundStyle(isCurrent ? Theme.Palette.muted : (plan.highlighted ? Theme.GlassButton.text : Theme.Palette.ink))
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
-            .background(ctaBackground(highlighted: plan.highlighted, isCurrent: isCurrent))
-        }
-        .buttonStyle(.plain)
-        .disabled(isCurrent || price == nil || billing.isStartingCheckout)
-    }
-
-    /// "Switch to Pro" on the plan they already hold reads as a no-op, so when only
-    /// the billing cycle differs the button names the cycle instead.
-    private func ctaLabel(plan: PlanCopy, isCurrent: Bool, isSamePlan: Bool) -> String {
-        if isCurrent { return "Current plan" }
-        guard isPaid else { return "Choose \(plan.name)" }
-        guard isSamePlan else { return "Switch to \(plan.name)" }
-        return cycle == "yearly" ? "Switch to yearly billing" : "Switch to monthly billing"
-    }
-
-    @ViewBuilder
-    private func ctaBackground(highlighted: Bool, isCurrent: Bool) -> some View {
-        let shape = RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-        if isCurrent {
-            shape.fill(Theme.Palette.surface)
-                .overlay(shape.stroke(Theme.Palette.border, lineWidth: 0.5))
-        } else if highlighted {
-            shape.fill(Theme.GlassButton.fill)
-                .overlay(shape.stroke(Theme.GlassButton.border, lineWidth: Theme.GlassButton.borderWidth))
-        } else {
-            shape.fill(Theme.Palette.surfaceStrong)
-                .overlay(shape.stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
-        }
-    }
-
-    private func featureRow(_ feature: String) -> some View {
-        let isHeader = feature.hasSuffix("plus:")
-        return HStack(alignment: .top, spacing: 8) {
-            if !isHeader {
-                Image("nc-check")
-                    .icon(10)
-                    .foregroundStyle(Theme.Palette.ink)
-                    .frame(width: 14)
-            }
-            Text(feature)
-                .font(.system(size: isHeader ? 10.5 : 12.5, weight: isHeader ? .semibold : .regular))
-                .tracking(isHeader ? 0.4 : 0)
-                .textCase(isHeader ? .uppercase : nil)
-                .foregroundStyle(isHeader ? Theme.Palette.muted : Theme.Palette.graphite)
-        }
-    }
-
-    private func priceLabel(_ price: PlanPrice?) -> String {
-        guard let price else { return "—" }
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = price.currency
-        if price.displayAmount.truncatingRemainder(dividingBy: 1) == 0 {
-            formatter.maximumFractionDigits = 0
-        }
-        return formatter.string(from: NSNumber(value: price.displayAmount))
-            ?? "\(price.currency) \(price.displayAmount)"
+    /// A paid (not trial) subscription has a Paddle customer to manage. Includes
+    /// `past_due` so a subscriber whose card failed can still reach the portal to
+    /// fix it. Trial users have nothing to cancel, so the button stays hidden.
+    private var isPaid: Bool {
+        let status = entitlements.entitlement?.status
+        return status == .active || status == .pastDue
     }
 }
 
@@ -548,4 +391,18 @@ enum PaywallPriceMath {
         guard !discounts.isEmpty, values.count == discounts.count, Set(values).count == 1 else { return nil }
         return values.first
     }
+}
+
+#Preview("Teams contact") {
+    VStack(alignment: .leading, spacing: 16) {
+        HStack(spacing: 8) {
+            PlanChip(text: "Your plan", promotional: false)
+            PlanChip(text: "Most popular", promotional: true)
+            StatusChip(text: "On free trial until Oct 5, 2026")
+        }
+        TeamsContactCard()
+    }
+    .padding(24)
+    .frame(width: 620)
+    .background(Theme.Palette.bg)
 }

@@ -1,109 +1,173 @@
 import SwiftUI
 
+/// What the welcome step settled: the language, the name to use, and the two
+/// diagnostics switches — the only things worth asking before Nod has done
+/// anything for the person.
+struct WelcomeAnswers {
+    let language: AppLanguage
+    let name: String
+    let sendsCrashReports: Bool
+    let sharesUsage: Bool
+}
+
+/// The first thing a new account sees: Nod introducing itself by name, and
+/// the few settings that cannot wait — what language to answer in, what to
+/// call the person, and whether diagnostics may leave the Mac. One screen and
+/// one button; the permissions and the calendar wait for the notch, where the
+/// person will actually meet them.
 struct WelcomeStep: View {
     let strings: OnboardingStrings
-    let currentLanguage: AppLanguage
-    /// Receives the user's final language pick — committed only when they tap
-    /// Continue, so an exploratory menu tap doesn't persist if they abandon
-    /// onboarding.
-    let onContinue: (AppLanguage) -> Void
+    /// Who is being greeted, when the account carries a name. Without one the
+    /// greeting drops rather than saying "Hi there": a stand-in is worse than
+    /// nothing on the one line that proves this was meant for them.
+    let firstName: String?
+    /// Receives everything picked — committed only when they tap Continue, so
+    /// an exploratory menu tap doesn't persist if they abandon onboarding.
+    let onContinue: (WelcomeAnswers) -> Void
 
     @State private var selection: AppLanguage
+    @State private var name: String
+    @State private var sendsCrashReports: Bool
+    @State private var sharesUsage: Bool
 
+    /// `initialName` is seeded from the account so Continue never blanks a
+    /// name the person already has.
     init(
         strings: OnboardingStrings,
+        firstName: String?,
         currentLanguage: AppLanguage,
-        onContinue: @escaping (AppLanguage) -> Void
+        initialName: String,
+        initialSendsCrashReports: Bool,
+        initialSharesUsage: Bool,
+        onContinue: @escaping (WelcomeAnswers) -> Void
     ) {
         self.strings = strings
-        self.currentLanguage = currentLanguage
+        self.firstName = firstName
         self.onContinue = onContinue
         _selection = State(initialValue: currentLanguage)
+        _name = State(initialValue: initialName)
+        _sendsCrashReports = State(initialValue: initialSendsCrashReports)
+        _sharesUsage = State(initialValue: initialSharesUsage)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            Image("NodGlyphInk")
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-                .frame(width: 72, height: 72)
-                .shadow(color: Color.black.opacity(0.12), radius: 16, x: 0, y: 8)
-                .padding(.bottom, 18)
+            Spacer(minLength: 0)
 
-            Text(strings.welcomeTitle)
-                .font(.system(size: 30, weight: .semibold, design: .default))
-                .foregroundStyle(Theme.GlassButton.text)
-                .padding(.bottom, 8)
+            NotchCollector(size: 88)
+                .padding(.bottom, 26)
+
+            Text(greeting)
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(Theme.Palette.ink)
+                .padding(.bottom, 6)
 
             Text(strings.welcomeTagline)
                 .multilineTextAlignment(.center)
-                .font(.system(size: 13.5, weight: .regular))
-                .foregroundStyle(Theme.Palette.muted)
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.Palette.inkSecondary)
                 .frame(maxWidth: 380)
-                .padding(.bottom, 20)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 26)
 
-            VStack(spacing: 14) {
-                ForEach(Array(strings.welcomeBullets.enumerated()), id: \.offset) { _, bullet in
-                    FeatureRow(icon: bullet.icon, text: bullet.text)
+            VStack(alignment: .leading, spacing: 14) {
+                SettingRow(icon: "nc-user", label: "Your name") {
+                    TextField("Alex", text: $name)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Theme.Palette.ink.opacity(0.95))
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 160)
                 }
-            }
-            .frame(maxWidth: 380)
-            .padding(.bottom, 18)
-
-            VStack(alignment: .leading, spacing: 6) {
-                LanguageRow(
-                    label: strings.welcomeLanguageLabel,
-                    selection: $selection
-                )
-                Text(strings.welcomeLanguageHint)
-                    .font(.system(size: 11.5, weight: .regular))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    LanguageRow(label: strings.welcomeLanguageLabel, selection: $selection)
+                    Text(strings.welcomeLanguageHint)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.Palette.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    SwitchRow(icon: "nc-triangle-warning", label: "Send crash reports", isOn: $sendsCrashReports)
+                    SwitchRow(icon: "nc-window-chart-line", label: "Share usage events", isOn: $sharesUsage)
+                    Text("Neither ever includes what you say or write. Both can be changed any time in Settings → Privacy.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.Palette.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .frame(maxWidth: 380)
             .padding(.bottom, 30)
 
-            Button(action: { onContinue(selection) }) {
-                Text(strings.welcomeContinue)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
-                    .frame(width: 220)
-                    .padding(.vertical, 12)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
+            OnboardingPrimaryButton(strings.welcomeContinue, action: submit)
+                .keyboardShortcut(.defaultAction)
+
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 40)
         .padding(.vertical, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    private var greeting: String {
+        guard let firstName else { return strings.welcomeTitle }
+        return "Hi, \(firstName)."
+    }
+
+    private func submit() {
+        onContinue(
+            WelcomeAnswers(
+                language: selection,
+                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                sendsCrashReports: sendsCrashReports,
+                sharesUsage: sharesUsage
+            )
+        )
+    }
 }
 
-private struct FeatureRow: View {
+/// One row of the screen: a glyph, what the row is, and its control on the
+/// trailing edge.
+private struct SettingRow<Control: View>: View {
     let icon: String
-    let text: String
+    let label: String
+    @ViewBuilder let control: Control
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(icon)
-                .icon(13)
-                .foregroundStyle(Theme.Palette.cyan)
-                .frame(width: 22, height: 22)
-                .background(
-                    Circle()
-                        .fill(Theme.Palette.cyan.opacity(0.10))
-                        .overlay(Circle().stroke(Theme.Palette.cyan.opacity(0.25), lineWidth: 0.5))
-                )
-
-            Text(text)
+            RowGlyph(icon: icon)
+            Text(label)
                 .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(Theme.GlassButton.text.opacity(0.85))
-                .fixedSize(horizontal: false, vertical: true)
-
+                .foregroundStyle(Theme.Palette.ink.opacity(0.85))
             Spacer(minLength: 0)
+            control
         }
+    }
+}
+
+private struct SwitchRow: View {
+    let icon: String
+    let label: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        SettingRow(icon: icon, label: label) {
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .nodSwitch()
+                .accessibilityLabel(label)
+        }
+    }
+}
+
+private struct RowGlyph: View {
+    let icon: String
+
+    var body: some View {
+        Image(icon)
+            .icon(13)
+            .foregroundStyle(Theme.Palette.ink)
+            .frame(width: 22, height: 22)
+            .skySurface(Circle())
     }
 }
 
@@ -112,39 +176,49 @@ private struct LanguageRow: View {
     @Binding var selection: AppLanguage
 
     var body: some View {
-        HStack(spacing: 14) {
-            Image("nc-earth")
-                .icon(13)
-                .foregroundStyle(Theme.Palette.cyan)
-                .frame(width: 22, height: 22)
-                .background(
-                    Circle()
-                        .fill(Theme.Palette.cyan.opacity(0.10))
-                        .overlay(Circle().stroke(Theme.Palette.cyan.opacity(0.25), lineWidth: 0.5))
-                )
-
-            Text(label)
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(Theme.GlassButton.text.opacity(0.85))
-
-            Spacer(minLength: 0)
-
-            // Picker with .menu style handles selection-state semantics,
-            // VoiceOver "selected" announcements, and keyboard interaction
-            // correctly — including the Return-key conflict with the
-            // Continue button's `.keyboardShortcut(.defaultAction)`. The
-            // raw `Menu` previously here had to fake all of that.
-            Picker("Nod language", selection: $selection) {
-                ForEach(AppLanguage.allCases, id: \.self) { lang in
-                    Text(lang.nativeName).tag(lang)
+        SettingRow(icon: "nc-earth", label: label) {
+            // A `Menu` over `LanguageMenu`, not a flat `Picker`. A `Picker`
+            // renders one list of every language, which at thirty-five runs off
+            // the bottom of the screen; only a menu can hold the submenus that
+            // keep it short. The two things the `Picker` was here for both
+            // survive: `LanguageMenu` marks the selection with a `Toggle`, so
+            // AppKit draws the checked item VoiceOver announces, and an open
+            // menu tracks its own key events — Return picks the highlighted
+            // language rather than falling through to Continue's
+            // `.keyboardShortcut(.defaultAction)`.
+            Menu {
+                LanguageMenu(selected: selection) { selection = $0 }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selection.nativeName)
+                        .font(.system(size: 13, weight: .medium))
+                    Image("nc-chevron-expand-y")
+                        .icon(8)
                 }
+                .foregroundStyle(Theme.Palette.ink.opacity(0.95))
             }
-            .pickerStyle(.menu)
-            .labelsHidden()
+            .plainMenuChrome()
+            .accessibilityLabel("Nod language")
+            .accessibilityValue(selection.nativeName)
             // Stable trigger width so the row doesn't jitter as the
             // user steps through native names with wildly different
             // glyph widths (中文 vs Українська).
             .frame(minWidth: 130, alignment: .trailing)
         }
     }
+}
+
+#Preview {
+    WelcomeBackdrop {
+        WelcomeStep(
+            strings: .english,
+            firstName: "Dima",
+            currentLanguage: .english,
+            initialName: "Dima Barabash",
+            initialSendsCrashReports: true,
+            initialSharesUsage: true,
+            onContinue: { _ in }
+        )
+    }
+    .frame(width: 720, height: 660)
 }

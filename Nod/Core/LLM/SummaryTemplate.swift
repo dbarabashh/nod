@@ -22,12 +22,7 @@ enum SummaryTemplate: String, Codable, CaseIterable, Identifiable {
         rawValue
     }
 
-    /// The persisted default, read at recap time. Unknown/missing values fall
-    /// back to `.auto`.
     static let defaultsKey = "summary.template"
-    static var current: SummaryTemplate {
-        UserDefaults.standard.string(forKey: defaultsKey).flatMap(SummaryTemplate.init) ?? .auto
-    }
 
     var displayName: String {
         switch self {

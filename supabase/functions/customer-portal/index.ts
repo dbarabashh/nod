@@ -11,6 +11,11 @@
 // (written by the webhook on subscription.created), then ask Paddle for a portal
 // session scoped to their subscription.
 //
+// A workspace subscription is somebody else's row. `{"scope":"organization"}`
+// asks for the portal of the caller's active organization instead — refused
+// unless they are an owner or admin of it, because the portal cancels the plan
+// every one of their colleagues is working on.
+//
 // Deployed per-branch via git: develop (sandbox) and main (live) each from theirs.
 
 import { adminClient, authenticate } from "../_shared/supabase.ts";
@@ -34,12 +39,45 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (auth instanceof Response) return auth;
     const { user } = auth;
 
+    const body = await req.json().catch(() => ({}));
+    const wantsOrganization = isObject(body) && body.scope === "organization";
+
     const admin = adminClient();
-    const { data: sub } = await admin
-        .from("subscriptions")
-        .select("paddle_customer_id, paddle_subscription_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
+    let sub: { paddle_customer_id?: string | null; paddle_subscription_id?: string | null } | null = null;
+
+    if (wantsOrganization) {
+        const { data: profile } = await admin
+            .from("profiles")
+            .select("active_org_id")
+            .eq("user_id", user.id)
+            .maybeSingle();
+        const orgId = profile?.active_org_id as string | null | undefined;
+        if (!orgId) return json({ error: "no_active_workspace" }, 404);
+
+        const { data: member } = await admin
+            .from("org_members")
+            .select("role, status")
+            .eq("org_id", orgId)
+            .eq("user_id", user.id)
+            .maybeSingle();
+        if (!member || member.status !== "active" || !["owner", "admin"].includes(member.role as string)) {
+            return json({ error: "not_a_workspace_admin" }, 403);
+        }
+
+        const { data: orgSub } = await admin
+            .from("org_subscriptions")
+            .select("paddle_customer_id, paddle_subscription_id")
+            .eq("org_id", orgId)
+            .maybeSingle();
+        sub = orgSub;
+    } else {
+        const { data: personal } = await admin
+            .from("subscriptions")
+            .select("paddle_customer_id, paddle_subscription_id")
+            .eq("user_id", user.id)
+            .maybeSingle();
+        sub = personal;
+    }
 
     const customerId = sub?.paddle_customer_id;
     if (!customerId) {
@@ -47,14 +85,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "no_paddle_customer" }, 404);
     }
 
-    const body = sub?.paddle_subscription_id
+    const portalBody = sub?.paddle_subscription_id
         ? { subscription_ids: [sub.paddle_subscription_id] }
         : {};
 
     const res = await fetch(`${PADDLE_API_BASE}/customers/${customerId}/portal-sessions`, {
         method: "POST",
         headers: PADDLE_HEADERS,
-        body: JSON.stringify(body),
+        body: JSON.stringify(portalBody),
     });
     const text = await res.text();
     if (!res.ok) {
@@ -76,3 +114,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     console.log(`portal user=${user.id} customer=${customerId}`);
     return json({ url }, 200);
 });
+
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}

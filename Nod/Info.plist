@@ -38,11 +38,15 @@
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Nod needs access to your microphone to capture meeting audio.</string>
+	<string>Nod needs your microphone to capture your side of a conversation — a call, or a voice note.</string>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>Nod needs screen recording permission to capture system audio during meetings.</string>
+	<string>Nod needs screen recording permission to capture your Mac's own audio — the other side of a call. The screen itself is never recorded.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Nod uses speech recognition to transcribe what is said during meetings.</string>
+	<string>Nod uses speech recognition to transcribe what is said in the sessions you capture.</string>
+	<key>NodSentryDSN</key>
+	<string>$(NOD_SENTRY_DSN)</string>
+	<key>NodSentryEnvironment</key>
+	<string>$(NOD_SENTRY_ENVIRONMENT)</string>
 	<key>SUAutomaticallyUpdate</key>
 	<true/>
 	<key>SUEnableAutomaticChecks</key>
@@ -52,6 +56,6 @@
 	<key>SUPublicEDKey</key>
 	<string>/uu8USNElUMN+Bbw/SPdJywlJq2XfEVI/Rf+W7XzFBw=</string>
 	<key>SUScheduledCheckInterval</key>
-	<integer>86400</integer>
+	<integer>14400</integer>
 </dict>
 </plist>

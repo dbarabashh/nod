@@ -4,22 +4,19 @@ import SwiftUI
 /// list (filtering), and the cross-session chat (scoping). A label always
 /// reads as a coloured pill — keep that look in one place.
 
-/// A pill naming something, with a trailing ✕ that takes it off whatever list
-/// it is on. `swatch` tints the pill for a folder; without one it reads as
-/// neutral chrome, which is what a plain named entry (an excluded app) wants.
+/// A pill naming a folder, tinted with its colour, and a trailing ✕ that takes
+/// it off whatever list it is on.
 struct RemovablePill: View {
     let title: String
-    var swatch: Color?
+    let swatch: Color
     var removeHelp: String
     var onRemove: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 5) {
-            if let swatch {
-                Circle()
-                    .fill(swatch)
-                    .frame(width: 7, height: 7)
-            }
+            Circle()
+                .fill(swatch)
+                .frame(width: 7, height: 7)
             Text(title)
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
@@ -32,13 +29,13 @@ struct RemovablePill: View {
                 .help(removeHelp)
             }
         }
-        .foregroundStyle(Theme.Palette.ink.opacity(swatch == nil ? 0.7 : 0.85))
+        .foregroundStyle(Theme.Palette.ink.opacity(0.85))
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
             Capsule(style: .continuous)
-                .fill(swatch?.opacity(0.16) ?? Theme.Palette.surface)
-                .overlay(Capsule().stroke(swatch?.opacity(0.4) ?? Theme.Palette.border, lineWidth: 0.5))
+                .fill(swatch.opacity(0.16))
+                .overlay(Capsule().stroke(swatch.opacity(0.4), lineWidth: 0.5))
         )
     }
 }
@@ -53,40 +50,9 @@ struct LabelChip: View {
         RemovablePill(
             title: label.name,
             swatch: label.swatchColor,
-            removeHelp: "Remove folder",
+            removeHelp: "Remove project",
             onRemove: onRemove
         )
-    }
-}
-
-/// A selectable label pill for the History filter strip and the chat scope
-/// picker. Filled with the label's colour when selected.
-struct LabelFilterChip: View {
-    let title: String
-    let color: Color
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(color)
-                    .frame(width: 7, height: 7)
-                Text(title)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(isSelected ? Color.white : Theme.Palette.ink.opacity(0.8))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(isSelected ? color.opacity(0.85) : Theme.Palette.surface)
-                    .overlay(Capsule().stroke(isSelected ? Color.clear : Theme.Palette.border, lineWidth: 0.5))
-            )
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -101,7 +67,7 @@ struct LabelSwatchRow: View {
                 Circle()
                     .fill(SessionLabel.color(fromHex: hex) ?? Theme.Palette.violet)
                     .frame(width: 18, height: 18)
-                    .overlay(Circle().stroke(Color.white, lineWidth: selection == hex ? 2 : 0))
+                    .overlay(Circle().stroke(Theme.Palette.ink, lineWidth: selection == hex ? 2 : 0))
                     .overlay(Circle().stroke(Theme.Palette.border, lineWidth: 0.5))
                     .contentShape(Circle())
                     .onTapGesture { selection = hex }
@@ -130,7 +96,7 @@ struct LabelEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("Folder name", text: $name)
+            TextField("Project name", text: $name)
                 .textFieldStyle(.roundedBorder)
             LabelSwatchRow(selection: $color)
             HStack(spacing: 8) {
@@ -140,7 +106,7 @@ struct LabelEditor: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.Palette.danger)
-                .help("Delete folder")
+                .help("Delete project")
                 Spacer(minLength: 0)
                 Button("Cancel", action: onFinish)
                     .keyboardShortcut(.cancelAction)
@@ -203,7 +169,7 @@ struct LabelPickerPopover: View {
                 Divider()
                 LabelEditor(label: editing) { self.editing = nil }
             } else {
-                TextField("Find or create a folder", text: $query)
+                TextField("Find or create a project", text: $query)
                     .textFieldStyle(.roundedBorder)
                     .padding(8)
                 Divider()
@@ -212,7 +178,7 @@ struct LabelPickerPopover: View {
                         ForEach(filtered) { row($0) }
                         if canCreate { createSection }
                         if filtered.isEmpty, !canCreate {
-                            Text("No folders yet")
+                            Text("No projects yet")
                                 .font(.system(size: 12))
                                 .foregroundStyle(Theme.Palette.muted)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -235,7 +201,7 @@ struct LabelPickerPopover: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(Theme.Palette.muted)
-            Text("Edit folder")
+            Text("Edit project")
                 .font(.system(size: 12.5, weight: .medium))
             Spacer(minLength: 0)
         }
@@ -249,7 +215,7 @@ struct LabelPickerPopover: View {
             Circle()
                 .fill(label.swatchColor)
                 .frame(width: 9, height: 9)
-            Text(confirming ? "Delete folder?" : label.name)
+            Text(confirming ? "Delete project?" : label.name)
                 .font(.system(size: 12.5, weight: confirming ? .medium : .regular))
                 .foregroundStyle(confirming ? Theme.Palette.danger : Theme.Palette.ink)
                 .lineLimit(1)
@@ -257,8 +223,8 @@ struct LabelPickerPopover: View {
             if confirming {
                 InlineConfirmButtons(
                     confirmIcon: "nc-trash",
-                    confirmHelp: "Delete folder",
-                    cancelHelp: "Keep folder",
+                    confirmHelp: "Delete project",
+                    cancelHelp: "Keep project",
                     onConfirm: { confirmDelete(label) },
                     onCancel: { confirmingDelete = nil }
                 )
@@ -276,7 +242,7 @@ struct LabelPickerPopover: View {
                 }
                 .buttonStyle(.plain)
                 .revealOnHover(hovering == label.id, reduceMotion: reduceMotion)
-                .help("Delete folder")
+                .help("Delete project")
                 .linkCursor()
             }
         }
@@ -288,7 +254,7 @@ struct LabelPickerPopover: View {
         .onHover { if $0 { hovering = label.id } else if hovering == label.id { hovering = nil } }
         .animation(.hoverReveal(reduceMotion: reduceMotion), value: hovering)
         .contextMenu {
-            Button("Edit folder…") { editing = label }
+            Button("Edit project…") { editing = label }
             Button("Delete", role: .destructive) { confirmingDelete = label.id }
         }
     }

@@ -26,6 +26,8 @@ struct NotchStateContent: View {
             .transaction { $0.animation = nil }
             .id(model.presentation.contentID)
             .transition(.notchContent(reduceMotion: reduceMotion))
+            // The SwiftUI half of the pin in `NotchPanel`. Both are required:
+            // tokens read the scheme, `NSVisualEffectView` reads the window.
             .environment(\.colorScheme, .dark)
             .overlay(alignment: .top) { gestureZone }
     }
@@ -35,6 +37,16 @@ struct NotchStateContent: View {
     /// on a display that has one. See `NotchGestureZone`.
     @ViewBuilder
     private var gestureZone: some View {
+        // Escape while the voice speaks, wherever it speaks from. The Ask card
+        // has its own cancel button, so this one stands down there.
+        if model.speakingWords != nil, model.presentation != .ask {
+            Button("", action: model.escapeAsk)
+                .keyboardShortcut(.cancelAction)
+                .buttonStyle(.plain)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
         if model.geometry.hasCutout, showsGestureZone {
             NotchGestureZone(onSwipeUp: model.hideMeetingBar, onSwipeDown: model.revealMeetingBar)
                 .frame(width: model.geometry.cutoutWidth, height: model.geometry.cutoutHeight)
@@ -43,8 +55,10 @@ struct NotchStateContent: View {
 
     private var showsGestureZone: Bool {
         switch model.presentation {
+        // The swipe folds a listening bar away exactly as it folds a recording
+        // one — same gesture, same flag, same resting shape.
         case .tucked, .meetingBar: true
-        case .updateRequired, .dormant, .offer, .noticed, .recap, .launch,
+        case .updateRequired, .dormant, .voice, .offer, .liveRoom, .noticed, .recalled, .recap, .launch, .ask, .setup,
              .languageConfirm, .consent, .systemAudioAccess, .alert, .demo: false
         }
     }
@@ -60,40 +74,82 @@ struct NotchStateContent: View {
             // to pin the width against it filled the entire canvas and painted
             // an empty black slab under the menu bar.
             Color.clear.frame(width: 0, height: 0)
-        case .tucked:
-            NotchTucked(
-                session: model.session,
-                audioCapture: model.audioCapture,
-                geometry: model.geometry
+        case let .voice(phase):
+            NotchVoicePill(phase: phase, geometry: model.geometry)
+                .transition(.opacity)
+        case let .tucked(role):
+            if let room = role.room {
+                NotchListeningTucked(room: room, geometry: model.geometry)
+            } else {
+                NotchTucked(
+                    session: model.session,
+                    audioCapture: model.audioCapture,
+                    geometry: model.geometry
+                )
+            }
+        case let .liveRoom(room, alsoOffered):
+            LiveRoomCard(
+                room: room,
+                isJoining: model.rooms.isJoining,
+                onJoin: model.joinLiveRoom,
+                onDismiss: model.rooms.declineRoom,
+                onRecordInstead: alsoOffered ? { model.acceptOffer() } : (nil as (() -> Void)?)
             )
         case let .noticed(finding):
             NotchNotice(finding: finding, onDismiss: model.rejectNotice)
+        case let .recalled(recall):
+            NotchRecall(
+                recall: recall,
+                onOpenSource: { model.openRecallSource(recall) },
+                onDismiss: model.dismissRecall,
+                onReplace: recall.offersReplacement ? { model.confirmReplacement(recall) } : nil
+            )
         case let .offer(offer):
             NotchOffer(
                 offer: offer,
                 userName: model.userName,
                 context: model.callContext,
-                mutableApp: model.offers.mutableApp,
                 onStart: model.acceptOffer,
                 onDismiss: model.declineOffer,
-                onMute: model.muteOffer
+                onOpenSettings: model.openDetectionSettings
             )
-        case let .meetingBar(panel):
-            NotchMeetingBar(
-                panel: panel,
-                session: model.session,
-                audioCapture: model.audioCapture,
-                permissions: model.permissions,
-                language: model.language,
-                onToggleAsk: model.toggleAsk,
-                onToggleNotes: model.toggleNotes,
-                onSubmitAsk: model.submitAsk,
-                onSummarize: model.askSummarize,
-                onOpenLibrary: model.openLibrary,
-                onCollapse: { model.hideMeetingBar() },
-                panelSharing: model.panelSharing,
-                geometry: model.geometry
-            )
+        case let .meetingBar(role, panel):
+            // The one place the two sides genuinely differ, and so the only
+            // place that asks which is which.
+            if let room = role.room {
+                NotchListeningBar(
+                    rooms: model.rooms,
+                    room: room,
+                    panel: panel,
+                    language: model.language,
+                    onToggleAsk: model.toggleAsk,
+                    onToggleNotes: model.toggleNotes,
+                    onSubmitAsk: model.submitAsk,
+                    onSummarize: model.askSummarize,
+                    onCollapse: model.hideMeetingBar,
+                    onOpenLibrary: model.openLibrary,
+                    geometry: model.geometry
+                )
+            } else {
+                NotchMeetingBar(
+                    rooms: model.rooms,
+                    panel: panel,
+                    session: model.session,
+                    audioCapture: model.audioCapture,
+                    permissions: model.permissions,
+                    language: model.language,
+                    onToggleAsk: model.toggleAsk,
+                    onToggleNotes: model.toggleNotes,
+                    onSubmitAsk: model.submitAsk,
+                    onSummarize: model.askSummarize,
+                    onApproveAsk: model.approveAskTool,
+                    onDenyAsk: model.denyAskTool,
+                    onOpenLibrary: model.openLibrary,
+                    onCollapse: { model.hideMeetingBar() },
+                    panelSharing: model.panelSharing,
+                    geometry: model.geometry
+                )
+            }
         case let .recap(state):
             NotchRecapCard(
                 state: state,
@@ -106,8 +162,23 @@ struct NotchStateContent: View {
                 session: model.session,
                 isLoading: model.isRequestingRecording,
                 error: model.recordingStartError,
-                onStart: model.requestStart
+                onStart: model.requestStart,
+                onAsk: model.openAsk
             )
+        case .ask:
+            NotchAskCard(
+                chat: model.knowledgeChat,
+                baseline: model.askBaseline,
+                canAskAcrossSessions: model.canAskAcrossSessions,
+                voice: model.voiceAsk,
+                onSubmit: model.submitIdleAsk,
+                onOpenMeeting: model.openMeetingFromAsk,
+                onOpenLibrary: model.openLibraryFromAsk,
+                onClose: model.closeAsk,
+                onEscape: model.escapeAsk
+            )
+        case let .setup(stage):
+            NotchSetupContent(model: model, stage: stage)
         case .languageConfirm:
             languageConfirm
         case .consent:
@@ -163,23 +234,40 @@ struct NotchStateContent: View {
                 onDismiss: model.session.dismissSaveError
             )
         case .allowance:
-            StarterAllowanceGate(
+            AllowanceGate(
                 billing: model.billing,
-                recommendPro: model.shouldRecommendProUpgrade,
+                plan: model.allowancePlan,
+                canUpgrade: model.canUpgradeFromAllowanceGate,
+                recommendUpgrade: model.shouldRecommendProUpgrade,
+                isWorkspace: model.isWorkspaceAllowance,
                 onDismiss: model.dismissAllowanceGate,
                 onUpgrade: model.openSubscriptionFromAllowanceGate,
-                onTopUp: model.buyStarterTopUp
+                onTopUp: model.buyTopUp
             )
         }
     }
 }
 
-/// Shown when a healthy Starter plan has spent this period's hours. It sells the
-/// two honest ways forward and says out loud that a meeting in progress is never
-/// interrupted — because that is the promise the enforcement is built around.
-private struct StarterAllowanceGate: View {
+/// Shown when a healthy paid plan has spent this period's hours. It sells the
+/// honest ways forward — buy the pack, move up a plan — and says out loud that a
+/// meeting in progress is never interrupted, because that is the promise the
+/// enforcement is built around.
+///
+/// Both doors are conditional. The pack exists only where the catalogue sells
+/// one, and there is nothing above the top plan, so a Pro subscriber who has run
+/// out is offered the pack alone rather than an upgrade to what they already pay
+/// for.
+private struct AllowanceGate: View {
     @ObservedObject var billing: BillingService
-    let recommendPro: Bool
+    /// The plan, not a resolved offer: the catalogue can arrive after the gate is
+    /// on screen, and only a value read from the observed `billing` re-renders
+    /// when it does.
+    let plan: String?
+    let canUpgrade: Bool
+    let recommendUpgrade: Bool
+    /// A pool somebody's employer bought, not their own hours — which changes
+    /// both whose it is and who can make it bigger.
+    let isWorkspace: Bool
     let onDismiss: () -> Void
     let onUpgrade: () -> Void
     let onTopUp: () -> Void
@@ -190,7 +278,7 @@ private struct StarterAllowanceGate: View {
                 Image("nc-hourglass")
                     .icon(17)
                     .foregroundStyle(Theme.Palette.warning)
-                Text("You've used this period's hours")
+                Text("You've used this period's capture hours")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
             }
@@ -216,25 +304,64 @@ private struct StarterAllowanceGate: View {
 
                 Spacer(minLength: 0)
 
-                Button("Upgrade to Pro", action: onUpgrade)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.ink)
-                    .linkCursor()
+                if canUpgrade {
+                    Button("Upgrade to Pro", action: onUpgrade)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.ink)
+                        .linkCursor()
+                }
 
-                NotchActionButton(
-                    title: "Buy 5 hours · $12",
-                    isLoading: billing.isStartingTopUp,
-                    action: onTopUp
-                )
+                if let packLabel {
+                    NotchActionButton(
+                        title: packLabel,
+                        isLoading: billing.isStartingTopUp,
+                        action: onTopUp
+                    )
+                }
             }
         }
     }
 
+    private var offer: PlanPrice? {
+        plan.flatMap { billing.topUpOffer(plan: $0) }
+    }
+
+    private var pack: (hours: String, amount: String)? {
+        guard let offer, let hours = offer.topUpHours, let amount = PaywallFormat.currency(offer) else {
+            return nil
+        }
+        return (PaywallView.hoursText(hours), amount)
+    }
+
+    private var packLabel: String? {
+        pack.map { "Buy \($0.hours) hours · \($0.amount)" }
+    }
+
+    /// Whether Pro is still worth naming as "more room" is the catalogue's
+    /// answer, not a sentence baked into the app: the same build ships against a
+    /// branch where Pro is metered and one where it is not.
+    private var proRoom: String {
+        billing.hoursAreUnlimited(plan: "pro") ? "Pro's unlimited hours" : "the room Pro gives you"
+    }
+
     private var detail: String {
-        recommendPro
-            ? "You've already topped up this period, so Pro's unlimited hours are probably the cheaper answer. A meeting already in progress is never stopped."
-            : "Add 5 meeting hours for $12, or move to Pro for unlimited hours. A meeting already in progress is never stopped."
+        let close = "A session already in progress is never stopped."
+        if recommendUpgrade, canUpgrade {
+            return "You've already topped up this period, so \(proRoom) is probably the cheaper answer. \(close)"
+        }
+        switch (pack, canUpgrade) {
+        case let (pack?, true):
+            return "Add \(pack.hours) capture hours for \(pack.amount), or move to Pro for \(proRoom). \(close)"
+        case let (pack?, false):
+            return "Add \(pack.hours) capture hours for \(pack.amount) to finish this period. \(close)"
+        case (nil, true):
+            return "Move to Pro for \(proRoom). \(close)"
+        case (nil, false):
+            return isWorkspace
+                ? "The workspace pool is spent. It refills when the workspace's next period starts, and an owner can add seats. \(close)"
+                : "Your capture hours reset when the next period starts. \(close)"
+        }
     }
 }
 
@@ -253,6 +380,88 @@ private struct StarterAllowanceGate: View {
 /// wrong object and sit frozen at 00:00. `audioCapture` is a plain reference:
 /// the only thing read off it is `inputLevel`, which `NotchLevelMeter` observes
 /// on its own.
+/// The resting pill while a question is spoken and answered: the microphone
+/// on one side of the cut-out, one word on the other. It never opens by
+/// itself — the answer does that, once there is one to show.
+private struct NotchVoicePill: View {
+    let phase: VoiceAskPhase
+    let geometry: NotchGeometry
+
+    var body: some View {
+        HStack(spacing: geometry.hasCutout ? 0 : 8) {
+            indicator
+                .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .leading)
+
+            if geometry.hasCutout {
+                Color.clear.frame(width: geometry.cutoutWidth)
+            }
+
+            Text(phase.restingLabel)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(isFailure ? Theme.Palette.muted : Theme.Palette.ink)
+                .lineLimit(1)
+                .fixedSize()
+                .contentTransition(.opacity)
+                .frame(maxWidth: geometry.hasCutout ? .infinity : nil, alignment: .trailing)
+        }
+        .padding(.horizontal, geometry.flare + 12)
+        // The word and the mark cross-fade rather than swap: the width already
+        // springs between "Listening…" and "Thinking…", and a label that snaps
+        // inside a surface that glides reads as two different things moving.
+        .animation(.easeInOut(duration: 0.22), value: phase)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var indicator: some View {
+        indicatorBody
+            .id(indicatorKey)
+            .transition(.opacity)
+    }
+
+    private var indicatorKey: String {
+        switch phase {
+        case .idle, .listening: "listening"
+        case .transcribing, .thinking: "thinking"
+        case .speaking: "speaking"
+        case .failed: "failed"
+        }
+    }
+
+    @ViewBuilder
+    private var indicatorBody: some View {
+        switch phase {
+        case .idle, .listening:
+            HStack(spacing: 6) {
+                Image("nc-mic")
+                    .icon(12)
+                    .foregroundStyle(Theme.Palette.brand)
+                ListeningPulse()
+            }
+        case .transcribing, .thinking:
+            ProgressView()
+                .controlSize(.small)
+                .progressViewStyle(.circular)
+                .tint(Theme.Palette.muted)
+        case .speaking:
+            HStack(spacing: 6) {
+                Image("nc-volume-up")
+                    .icon(12)
+                    .foregroundStyle(Theme.Palette.brand)
+                ListeningPulse()
+            }
+        case .failed:
+            Image("nc-mic-slash")
+                .icon(12)
+                .foregroundStyle(Theme.Palette.muted)
+        }
+    }
+
+    private var isFailure: Bool {
+        if case .failed = phase { return true }
+        return false
+    }
+}
+
 private struct NotchTucked: View {
     @ObservedObject var session: MeetingSession
     let audioCapture: AudioCaptureService

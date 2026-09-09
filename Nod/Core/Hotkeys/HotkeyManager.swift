@@ -8,7 +8,13 @@ import Foundation
 /// handler — differentiated by id — instead of one manager per hotkey.
 enum HotkeyAction: String, CaseIterable, Identifiable {
     case togglePanel
-    case openLauncher
+    /// Ask Nod from anywhere. Persisted under the quick panel's old slug and
+    /// id, which this replaced, so a custom binding survives the rename.
+    case askNod
+    /// Speak a question while the key is held; the notch answers when it is
+    /// let go. Press and release both matter, which is why it is its own
+    /// action rather than a mode of `askNod`.
+    case holdToAsk
 
     var id: String {
         rawValue
@@ -24,7 +30,8 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
     var hotKeyID: UInt32 {
         switch self {
         case .togglePanel: 2
-        case .openLauncher: 3
+        case .askNod: 3
+        case .holdToAsk: 4
         }
     }
 
@@ -33,7 +40,8 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
     private var slug: String {
         switch self {
         case .togglePanel: "togglePanel"
-        case .openLauncher: "launcher"
+        case .askNod: "launcher"
+        case .holdToAsk: "holdToAsk"
         }
     }
 
@@ -52,14 +60,20 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         case .togglePanel: .init(keyCode: UInt32(kVK_ANSI_H), modifiers: UInt32(cmdKey | shiftKey))
         // ⌘Space is Spotlight and ⌥Space is Raycast's own; ⌘⇧K stays clear of
         // both and matches the ⌘K command-bar convention.
-        case .openLauncher: .init(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(cmdKey | shiftKey))
+        case .askNod: .init(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(cmdKey | shiftKey))
+        // One hand, one key, held. ⌘T was the first choice and it is "new
+        // tab" in every browser: a person asking about a Jira page got a blank
+        // tab instead. ⌥ with a letter is bound by almost nothing, and ⌥Space
+        // — the other voice apps' default — is Raycast's and Alfred's.
+        case .holdToAsk: .init(keyCode: UInt32(kVK_ANSI_T), modifiers: UInt32(optionKey))
         }
     }
 
     var settingsLabel: String {
         switch self {
         case .togglePanel: "Show / hide panel"
-        case .openLauncher: "Search & ask"
+        case .askNod: "Ask Nod"
+        case .holdToAsk: "Hold to ask by voice"
         }
     }
 }
@@ -88,6 +102,9 @@ final class HotkeyManager: ObservableObject {
 
     /// Fired on the main actor when a registered hotkey is pressed.
     var onTrigger: ((HotkeyAction) -> Void)?
+    /// Fired on the main actor when a registered hotkey is let go. Every
+    /// action reports it; only the held ones listen.
+    var onRelease: ((HotkeyAction) -> Void)?
 
     // 'Snod' fourCC — unique signature so our handler ignores other apps'
     // hotkey events that might be routed to the dispatcher target.
@@ -177,10 +194,10 @@ final class HotkeyManager: ObservableObject {
     }
 
     private func installEventHandler() {
-        var spec = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
+        var specs = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+        ]
         let pointer = Unmanaged.passUnretained(self).toOpaque()
         var ref: EventHandlerRef?
         let handler: EventHandlerUPP = { _, eventRef, userData in
@@ -198,16 +215,21 @@ final class HotkeyManager: ObservableObject {
             guard result == noErr, hkID.signature == HotkeyManager.signature else { return result }
             guard let action = HotkeyAction(hotKeyID: hkID.id) else { return noErr }
             let manager = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
+            let released = GetEventKind(eventRef) == UInt32(kEventHotKeyReleased)
             DispatchQueue.main.async {
-                manager.onTrigger?(action)
+                if released {
+                    manager.onRelease?(action)
+                } else {
+                    manager.onTrigger?(action)
+                }
             }
             return noErr
         }
         let status = InstallEventHandler(
             GetEventDispatcherTarget(),
             handler,
-            1,
-            &spec,
+            specs.count,
+            &specs,
             pointer,
             &ref
         )
@@ -222,15 +244,21 @@ final class HotkeyManager: ObservableObject {
 // MARK: - Display
 
 extension HotkeyManager.Combo {
+    /// One cap per key, drawn where the combo is taught rather than named:
+    /// the modifier glyph with its word under it, then the key itself.
+    var keyCaps: [(symbol: String, name: String?)] {
+        var caps: [(symbol: String, name: String?)] = []
+        if modifiers & UInt32(controlKey) != 0 { caps.append(("⌃", "control")) }
+        if modifiers & UInt32(optionKey) != 0 { caps.append(("⌥", "option")) }
+        if modifiers & UInt32(shiftKey) != 0 { caps.append(("⇧", "shift")) }
+        if modifiers & UInt32(cmdKey) != 0 { caps.append(("⌘", "command")) }
+        caps.append((keyName(keyCode), nil))
+        return caps
+    }
+
     /// User-facing glyph string e.g. "⌘⇧S".
     var displayString: String {
-        var s = ""
-        if modifiers & UInt32(controlKey) != 0 { s += "⌃" }
-        if modifiers & UInt32(optionKey) != 0 { s += "⌥" }
-        if modifiers & UInt32(shiftKey) != 0 { s += "⇧" }
-        if modifiers & UInt32(cmdKey) != 0 { s += "⌘" }
-        s += keyName(keyCode)
-        return s
+        keyCaps.map(\.symbol).joined()
     }
 
     /// `(keyEquivalent, modifierMask)` for displaying this combo on an

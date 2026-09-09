@@ -7,6 +7,28 @@ import SwiftUI
 ///
 /// Built once per signed-in session and torn down with it, so a mid-recording
 /// sign-out can't leave the next user looking at the previous one's capture.
+/// What the notch's cards need beyond the model, purely so a control drawn
+/// there is the same one drawn everywhere else.
+@MainActor
+struct NotchCardEnvironment {
+    let integrations: IntegrationService
+    /// Where a connected product's mark comes from when no asset ships for it,
+    /// which is every product outside the adapted few — see `ProviderMark`.
+    let integrationCatalogue: IntegrationCatalogue
+    let actionItems: ActionItemStore
+    let drafts: TaskDraftComposer
+    let meetingGrants: MeetingGrantStore
+    let organizations: OrganizationService
+    let meetings: MeetingStore
+    /// The recap card's knowledge line reads the distillation outcome from the
+    /// same store the main window searches with.
+    let knowledge: KnowledgeStore
+    /// The recap card's pattern offer, and the agents it creates.
+    let agents: AgentStore
+    /// What the recap offers to file, and where it landed.
+    let proposals: ActionProposalStore
+}
+
 @MainActor
 final class NotchController {
     private(set) var model: NotchModel?
@@ -21,11 +43,29 @@ final class NotchController {
 
     /// The model arrives already built: assembling it needs the whole service
     /// graph, which lives with the coordinator. This owns the window.
-    func build(model: NotchModel, sharing: NSWindow.SharingType) {
+    ///
+    /// `cards` is the one thing the model doesn't carry: the recap card reuses
+    /// `ActionItemFilingButton` and `MeetingShareButton`, which read their
+    /// stores from the environment exactly as they do in the main window, so
+    /// those surfaces behave the same in both places instead of growing a
+    /// second implementation.
+    func build(model: NotchModel, cards: NotchCardEnvironment, sharing: NSWindow.SharingType) {
         guard panel == nil else { return }
         self.model = model
+        model.onWantsKeyboard = { [weak self] in self?.takeKeyboard() }
 
-        let panel = NotchPanel(content: NotchView(model: model), sharing: sharing)
+        let content = NotchView(model: model)
+            .environmentObject(cards.integrations)
+            .environmentObject(cards.integrationCatalogue)
+            .environmentObject(cards.actionItems)
+            .environmentObject(cards.drafts)
+            .environmentObject(cards.meetingGrants)
+            .environmentObject(cards.organizations)
+            .environmentObject(cards.meetings)
+            .environmentObject(cards.knowledge)
+            .environmentObject(cards.agents)
+            .environmentObject(cards.proposals)
+        let panel = NotchPanel(content: content, sharing: sharing)
         self.panel = panel
         anchor()
         panel.orderFrontRegardless()
@@ -54,6 +94,29 @@ final class NotchController {
 
     func open() {
         model?.open()
+    }
+
+    func askNod() {
+        model?.askNod()
+    }
+
+    func beginVoiceAsk() {
+        model?.beginVoiceAsk()
+    }
+
+    func endVoiceAsk() {
+        model?.endVoiceAsk()
+    }
+
+    /// The notch's half of onboarding, once the window has handed off.
+    func beginSetup() {
+        model?.beginSetup()
+    }
+
+    /// Key without activating: the panel is non-activating, so the person's
+    /// app stays in front while the field takes the caret.
+    private func takeKeyboard() {
+        panel?.makeKeyAndOrderFront(nil)
     }
 
     func setSharing(_ sharing: NSWindow.SharingType) {

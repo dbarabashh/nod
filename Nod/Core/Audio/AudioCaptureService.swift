@@ -62,6 +62,13 @@ final class AudioCaptureService: NSObject, ObservableObject {
     /// for. Callers ask this rather than reading both: a voice note captures no
     /// system audio, so a stale `systemAudioError` says nothing about whether
     /// it started.
+    /// Whether a microphone tap is delivering right now — the only state a
+    /// held question can borrow the meeting's microphone in. A media session
+    /// captures no mic, and a paused engine delivers nothing.
+    var isCapturingMicrophone: Bool {
+        state == .capturing && captureMic
+    }
+
     var activeCaptureError: String? {
         (captureMic ? micError : nil) ?? (captureSystem ? systemAudioError?.message : nil)
     }
@@ -103,6 +110,11 @@ final class AudioCaptureService: NSObject, ObservableObject {
     /// Same one-frame tolerance on toggle as before; only the unsynchronized
     /// access is gone.
     private let micGate = OSAllocatedUnfairLock(initialState: true)
+    /// Where microphone buffers go instead of `onMicBuffer` while somebody
+    /// holds the ask key mid-recording: the question is for Nod, and a
+    /// transcript that quoted it would put the person's aside into the
+    /// meeting. Read on the tap thread, so it sits behind a lock like the gate.
+    private let micDiversion = OSAllocatedUnfairLock<((AVAudioPCMBuffer) -> Void)?>(uncheckedState: nil)
     private var audioEngine: AVAudioEngine?
     private var scStream: SCStream?
     /// Which streams the active session uses — set on `start`, reused by
@@ -188,6 +200,9 @@ final class AudioCaptureService: NSObject, ObservableObject {
         systemAudioError = nil
         self.captureMic = captureMic
         self.captureSystem = captureSystem
+        // A diversion left over from a hold whose release never came must not
+        // carry into a new recording's transcript.
+        micDiversion.withLockUnchecked { $0 = nil }
         state = .capturing
 
         Log.audio.info("starting capture (mic=\(captureMic) system=\(captureSystem))")
@@ -240,8 +255,16 @@ final class AudioCaptureService: NSObject, ObservableObject {
         stopSystemWatchdog()
         stopMicrophone()
         await stopSystemAudio()
+        micDiversion.withLockUnchecked { $0 = nil }
         inputLevel.reset()
         state = .idle
+    }
+
+    /// Sends every microphone buffer to `sink` instead of the meeting until
+    /// called again with nil. Only meaningful while capturing; a sink set on an
+    /// idle service receives nothing.
+    func divertMicrophone(to sink: ((AVAudioPCMBuffer) -> Void)?) {
+        micDiversion.withLockUnchecked { $0 = sink }
     }
 
     func setMicMuted(_ muted: Bool) {
@@ -312,7 +335,9 @@ final class AudioCaptureService: NSObject, ObservableObject {
             // MainActor hop (which would defer the gate past this buffer)
             // and no unsynchronized cross-thread read.
             let enabledNow = micGate.withLock { $0 }
-            if enabledNow {
+            if let divert = micDiversion.withLockUnchecked({ $0 }) {
+                divert(buffer)
+            } else if enabledNow {
                 // Forward synchronously while the buffer is still valid.
                 onMicBuffer?(buffer)
             } else if tapCallCounter % 50 == 0 {

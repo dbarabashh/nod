@@ -19,10 +19,10 @@ struct EmailConsentChoiceList: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(topic.title)
                                 .font(.system(size: 12.5, weight: .semibold))
-                                .foregroundStyle(Theme.Palette.muted)
+                                .foregroundStyle(Theme.Palette.ink)
                             Text(topic.detail)
                                 .font(.system(size: 11.5))
-                                .foregroundStyle(Theme.Palette.muted)
+                                .foregroundStyle(Theme.Palette.inkSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -69,23 +69,26 @@ struct EmailConsentPromptHost<Content: View>: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        // The upgrade card is a corner toast rather than a modal, so it takes
+        // *itself* to the corner: as the host's alignment the exception
+        // governed both, and the full prompt was pinned to the top-right with
+        // its 520pt hanging off the window edge.
+        PromptHost(isDue: preferences.shouldPresentFullPrompt, isDismissed: $isDismissedForSession) {
             content
-
-            if preferences.shouldPresentFullPrompt, !isDismissedForSession {
-                Color.black.opacity(0.28)
-                    .ignoresSafeArea()
-                EmailConsentPromptView(
-                    preferences: preferences,
-                    onFinish: { isDismissedForSession = true }
-                )
-            } else if preferences.shouldPresentUpgradePrompt, !isDismissedForSession {
-                LifecycleConsentUpgradeCard(
-                    preferences: preferences,
-                    onFinish: { isDismissedForSession = true }
-                )
-                .padding(18)
-            }
+                .overlay(alignment: .topTrailing) {
+                    if !preferences.shouldPresentFullPrompt, preferences.shouldPresentUpgradePrompt, !isDismissedForSession {
+                        LifecycleConsentUpgradeCard(
+                            preferences: preferences,
+                            onFinish: { isDismissedForSession = true }
+                        )
+                        .padding(18)
+                    }
+                }
+        } prompt: {
+            EmailConsentPromptView(
+                preferences: preferences,
+                onFinish: { isDismissedForSession = true }
+            )
         }
         .task { await preferences.refresh() }
     }
@@ -116,20 +119,11 @@ struct LifecycleConsentUpgradeCard: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.Palette.muted)
                 Spacer(minLength: 8)
-                Button("Turn on trial learning") { save(subscribed: true) }
-                    .buttonStyle(.borderedProminent)
+                GlassPillButton("Turn on trial learning", size: .compact, tint: .brand) { save(subscribed: true) }
             }
             .font(.system(size: 11.5, weight: .medium))
         }
-        .padding(16)
-        .frame(width: 370)
-        .background(WindowBackdrop())
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
-                .stroke(Theme.Palette.borderStrong, lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.2), radius: 16, y: 6)
+        .promptCard(width: 370, padding: 16, elevation: .toast)
     }
 
     private func save(subscribed: Bool) {
@@ -169,46 +163,13 @@ struct EmailConsentPromptView: View {
                     .foregroundStyle(Theme.Palette.danger)
             }
 
-            HStack(spacing: 12) {
-                Link("Privacy policy", destination: EmailConsentLinks.privacy)
-                    .font(.system(size: 11.5, weight: .medium))
-
-                Spacer(minLength: 12)
-
-                Button("Not now") { save(nothing: true) }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .disabled(preferences.isBusy)
-                    .linkCursor()
-
-                Button { save(nothing: false) } label: {
-                    Text(preferences.isSavingPrompt ? "Saving…" : "Save choices")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(Theme.GlassButton.text)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .glassButtonSurface(Capsule(style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.defaultAction)
-                .disabled(preferences.isBusy)
-                .linkCursor()
-            }
+            PolicyFooter(
+                primary: TitledAction(preferences.isSavingPrompt ? "Saving…" : "Save choices") { save(nothing: false) },
+                secondary: TitledAction("Not now") { save(nothing: true) },
+                isBusy: preferences.isBusy
+            )
         }
-        .padding(22)
-        .frame(width: 520)
-        // The window's own ground, not a palette colour: `surfaceCard()` let the
-        // content read through, and a flat fill (`bgSoft`) reads navy against the
-        // window's neutral material. `WindowBackdrop` blends behind the WINDOW,
-        // so sibling views stay hidden while the card matches its surroundings.
-        .background(WindowBackdrop())
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
-                .stroke(Theme.Palette.borderStrong, lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+        .promptCard(width: 520)
     }
 
     private func save(nothing: Bool) {
@@ -218,13 +179,6 @@ struct EmailConsentPromptView: View {
             }
         }
     }
-}
-
-enum EmailConsentLinks {
-    /// `nod-landing` serves every policy under `/policies/…`; a bare `/privacy`
-    /// is not a route.
-    static let privacy = URL(string: "https://hellonod.app/policies/privacy")
-        ?? URL(fileURLWithPath: "/")
 }
 
 #Preview("Existing-user consent prompt") {

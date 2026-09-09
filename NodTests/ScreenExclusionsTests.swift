@@ -639,4 +639,48 @@ final class ScreenAlwaysIncludeTests: XCTestCase {
         XCTAssertTrue(seeded.alwaysIncluded.contains("1password.com"))
         XCTAssertTrue(seeded.websites.contains("bitwarden.com"), "the rest of the list still seeds")
     }
+
+    func testAnExcludedDomainIsCaughtByTheURLWhenTheTitleHidesIt() {
+        let rules = ScreenExclusionRules(appBundleIDs: [], websites: ["bank.com"])
+
+        XCTAssertFalse(rules.excludesWindow(title: "Dashboard"), "the title alone names nothing")
+        XCTAssertTrue(rules.excludesWindow(title: "Dashboard", url: "https://www.bank.com/accounts"))
+    }
+
+    func testTheAllowlistStillOverridesACategoryMatchedOnTheURL() {
+        let rules = ScreenExclusionRules(
+            appBundleIDs: [],
+            websites: [],
+            categoryKeywords: ["linkedin"],
+            alwaysIncluded: ["linkedin.com"]
+        )
+
+        XCTAssertFalse(rules.excludesWindow(title: "Feed", url: "https://linkedin.com/feed"))
+    }
+
+    func testANamedExclusionOnTheURLOutranksAnAllowlistedTitle() {
+        let rules = ScreenExclusionRules(
+            appBundleIDs: [],
+            websites: ["bank.com"],
+            categoryKeywords: [],
+            alwaysIncluded: ["notes"]
+        )
+
+        XCTAssertTrue(rules.excludesWindow(title: "notes", url: "https://bank.com/transfer"))
+    }
+
+    func testAWindowWithNoURLBehavesAsBefore() {
+        let rules = ScreenExclusionRules(appBundleIDs: [], websites: ["bank.com"])
+
+        XCTAssertTrue(rules.excludesWindow(title: "bank.com — Transfers"))
+        XCTAssertFalse(rules.excludesWindow(title: "Untitled"))
+    }
+
+    func testTheLockScreenAndAuthorizationPromptAreNeverRead() {
+        let rules = ScreenExclusionRules(appBundleIDs: [], websites: [])
+
+        XCTAssertTrue(rules.excludesApp(bundleID: "com.apple.loginwindow"))
+        XCTAssertTrue(rules.excludesApp(bundleID: "com.apple.SecurityAgent"))
+        XCTAssertFalse(rules.excludesApp(bundleID: "com.tinyspeck.slackmacgap"))
+    }
 }

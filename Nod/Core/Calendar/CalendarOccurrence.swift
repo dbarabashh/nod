@@ -13,6 +13,16 @@ struct CalendarOccurrence: Equatable {
     let host: ConferencingHost?
     /// Everyone invited who has not declined, the user included.
     let attendees: [CalendarAttendee]
+    /// The calendar server's own identifier for this event — the same string in
+    /// every attendee's copy of one invitation, which is what makes it the only
+    /// field here that can say two people are in the same meeting. Absent for a
+    /// local-only event, and unreliable for Exchange, which issues a different
+    /// one per device.
+    var externalID: String?
+    /// The join link exactly as the invitation carries it. Never normalized on
+    /// this side — the server owns that, so both calendar sources reduce a link
+    /// to a room the same way.
+    var conferenceURL: URL?
 
     /// The people other than the user — who the meeting is *with*, and how many
     /// voices other than the user's the recording should contain.
@@ -180,4 +190,13 @@ extension CalendarOccurrence {
     /// entry says the meeting ended.
     private static let joinsEarly: TimeInterval = 10 * 60
     private static let longestCall: TimeInterval = 4 * 60 * 60
+}
+
+/// How a meeting names itself to the server: the invitation id every attendee's
+/// copy shares, and the join link the room key is derived from. At least one is
+/// always present — a value that could name nothing would be a request the
+/// server can only answer with silence.
+struct RoomIdentity: Equatable {
+    let icalUID: String?
+    let conferenceURL: URL?
 }

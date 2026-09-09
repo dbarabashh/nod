@@ -1,0 +1,458 @@
+// Linear, over its GraphQL API.
+//
+// Every result here is trimmed to what a model needs to answer or to cite, and
+// nothing more. Tool *results* — not tool definitions — are where an agent loop
+// actually spends its tokens: definitions are sent once into a cached prefix,
+// while every result is fresh input on every subsequent turn.
+import { ActionError, type Connection, proxy } from "./pipedream.ts";
+import type { ActionHandlers } from "./registry.ts";
+import { requireBoolean, requireList, requireString } from "./params.ts";
+
+const SEARCH_LIMIT = 10;
+const STATUS_LIMIT = 50;
+const COMMENT_LIMIT = 8;
+
+/// `NOD-31` — a team key and a number, which is all Linear's API can filter on.
+/// There is no lookup by identifier, so every read has to be taken apart.
+const IDENTIFIER = /^([A-Za-z][A-Za-z0-9]*)-(\d+)$/;
+
+async function graphql(
+    connection: Connection,
+    query: string,
+    variables: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+    const payload = await proxy(connection, "graphql", { query, variables }) as {
+        data?: Record<string, unknown>;
+        errors?: { message?: string }[];
+    } | null;
+
+    if (payload?.errors?.length) {
+        const detail = payload.errors[0]?.message ?? "unknown error";
+        throw new ActionError("provider_error", `Linear rejected the request: ${detail}`, 502);
+    }
+    if (!payload?.data) {
+        throw new ActionError("provider_error", "Linear returned no data.", 502);
+    }
+    return payload.data;
+}
+
+function parseIdentifier(key: string): { team: string; number: number } {
+    const parts = IDENTIFIER.exec(key);
+    if (!parts) {
+        throw new ActionError("invalid_params", `"${key}" is not a Linear identifier.`);
+    }
+    return { team: parts[1].toUpperCase(), number: Number(parts[2]) };
+}
+
+function isClosed(state: { type?: string } | null | undefined): boolean {
+    return state?.type === "completed" || state?.type === "canceled";
+}
+
+/// The issue behind a `NOD-31`, with what an update needs to know about it.
+async function resolveIssue(connection: Connection, key: string) {
+    const data = await graphql(
+        connection,
+        `query($team: String!, $number: Float!) {
+            issues(filter: { team: { key: { eq: $team } }, number: { eq: $number } }, first: 1) {
+                nodes { id description state { type } team { id } }
+            }
+        }`,
+        parseIdentifier(key),
+    );
+    const issue = (data.issues as {
+        nodes?: { id: string; description?: string; state?: { type?: string }; team?: { id?: string } }[];
+    } | undefined)?.nodes?.[0];
+    if (!issue?.team?.id) {
+        throw new ActionError("not_found", `${key} no longer exists in Linear.`, 404);
+    }
+    return {
+        id: issue.id,
+        teamID: issue.team.id,
+        description: issue.description ?? "",
+        closed: isClosed(issue.state),
+    };
+}
+
+/// A team's own column of the given kind. Which one an issue lands in is the
+/// workspace's business — Nod knows "finished" and "not finished" and nothing
+/// finer, so it asks for a type and takes whatever that team calls it.
+async function stateOfType(connection: Connection, teamID: string, type: string): Promise<string> {
+    const data = await graphql(
+        connection,
+        `query($team: ID!, $type: String!) {
+            workflowStates(
+                filter: { team: { id: { eq: $team } }, type: { eq: $type } }
+                first: 10
+            ) { nodes { id position } }
+        }`,
+        { team: teamID, type },
+    );
+    // The leftmost column of that type, not whichever Linear listed first: a
+    // team with "In Progress" and "In Review" both typed `started` should land
+    // work in the one people mean by "started".
+    const state = ((data.workflowStates as { nodes?: { id: string; position?: number }[] } | undefined)?.nodes ?? [])
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
+    if (!state) {
+        throw new ActionError("no_state", `This Linear team has no "${type}" column.`);
+    }
+    return state.id;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/// Turns whatever the model offered into a team UUID.
+///
+/// A model knows a team the way a person does — as "NOD", or as "Nod" — because
+/// that is what Linear shows. It has no way to learn a UUID, so it passes the
+/// key and Linear answers "teamId must be a UUID". Resolving here is the
+/// difference between a tool that works and one that is technically correct.
+async function resolveTeamID(connection: Connection, hint: unknown): Promise<string> {
+    const wanted = typeof hint === "string" ? hint.trim() : "";
+    if (UUID.test(wanted)) return wanted;
+
+    const data = await graphql(connection, "{ teams(first: 50) { nodes { id key name } } }", {});
+    const teams = (data.teams as { nodes?: { id: string; key: string; name: string }[] } | undefined)?.nodes ?? [];
+    if (teams.length === 0) {
+        throw new ActionError("no_team", "This Linear workspace has no team to file issues in.");
+    }
+
+    if (wanted) {
+        const match = teams.find((team) =>
+            team.key.toLowerCase() === wanted.toLowerCase() ||
+            team.name.toLowerCase() === wanted.toLowerCase()
+        );
+        if (match) return match.id;
+        const known = teams.map((team) => team.key).join(", ");
+        throw new ActionError("unknown_team", `No Linear team matches "${wanted}". Teams: ${known}.`);
+    }
+
+    if (teams.length > 1) {
+        const known = teams.map((team) => team.key).join(", ");
+        throw new ActionError("team_required", `Ask the user which team, then pass its key. Teams: ${known}.`);
+    }
+    return teams[0].id;
+}
+
+export const LINEAR_ACTIONS: ActionHandlers = {
+    /// Whether issues Nod filed have since been finished, for the reconciliation
+    /// that lets a checkbox in Nod follow work closed in Linear.
+    ///
+    /// Answers only `closed`, deliberately: Nod has no workflow of its own to
+    /// map "In Review" onto, and a state name it can't act on would be a string
+    /// rendered somewhere and meaning nothing. Keys absent from the reply — an
+    /// issue deleted, or moved out of reach — are simply not reported, so an
+    /// item Nod can no longer see is left as the user last had it.
+    read_issues: async (connection, params) => {
+        const keys = requireList(params, "keys", STATUS_LIMIT, {
+            tooMany: `At most ${STATUS_LIMIT} keys per call.`,
+        });
+        const or = keys.map((key) => {
+            const parts = IDENTIFIER.exec(key);
+            if (!parts) {
+                throw new ActionError("invalid_params", `"${key}" is not a Linear identifier.`);
+            }
+            return { team: { key: { eq: parts[1].toUpperCase() } }, number: { eq: Number(parts[2]) } };
+        });
+
+        const data = await graphql(
+            connection,
+            `query($filter: IssueFilter!, $first: Int!) {
+                issues(filter: $filter, first: $first) {
+                    nodes { identifier state { type } }
+                }
+            }`,
+            { filter: { or }, first: keys.length },
+        );
+        const nodes = (data.issues as {
+            nodes?: { identifier: string; state?: { type?: string } }[];
+        } | undefined)?.nodes ?? [];
+
+        // `state.type` rather than `state.name`: the name is whatever the
+        // workspace renamed its column to, the type is Linear's own vocabulary.
+        return {
+            tasks: nodes.map((issue) => ({
+                key: issue.identifier,
+                closed: isClosed(issue.state),
+            })),
+        };
+    },
+
+    /// Moves an issue between finished and not, so ticking a filed action item
+    /// in Nod closes the ticket rather than only hiding it here.
+    ///
+    /// Carries `closed` and nothing else. Reopening lands in the team's first
+    /// unstarted column, which is a real loss of fidelity — an issue that was
+    /// "In Review" comes back as "Todo", because Nod never knew which column it
+    /// left. That beats the alternative: with no way to reopen, an item unticked
+    /// in Nod would be re-ticked by the next status read, and the checkbox would
+    /// argue with the person using it.
+    update_issue: async (connection, params) => {
+        const key = requireString(params, "key");
+        const note = typeof params.note === "string" ? params.note.trim() : "";
+        const hasClosed = params.closed !== undefined;
+        const closed = hasClosed ? requireBoolean(params, "closed") : false;
+        if (!note && !hasClosed) {
+            throw new ActionError("invalid_params", "Nothing to update — pass `note`, `closed`, or both.");
+        }
+
+        const issue = await resolveIssue(connection, key);
+        const input: Record<string, unknown> = {};
+
+        // Appended, never replaced. A ticket description is somebody's writing,
+        // possibly a whole spec; a meeting adds to it and does not get to
+        // overwrite it. The heading is what makes the addition legible as an
+        // addition three weeks later.
+        if (note) {
+            input.description = issue.description
+                ? `${issue.description}\n\n---\n\n${note}`
+                : note;
+        }
+        if (hasClosed && issue.closed !== closed) {
+            input.stateId = await stateOfType(connection, issue.teamID, closed ? "completed" : "unstarted");
+        }
+        if (Object.keys(input).length === 0) return { key, closed: issue.closed };
+
+        const data = await graphql(
+            connection,
+            `mutation($id: String!, $input: IssueUpdateInput!) {
+                issueUpdate(id: $id, input: $input) { success issue { identifier title url } }
+            }`,
+            { id: issue.id, input },
+        );
+        const result = data.issueUpdate as {
+            success?: boolean;
+            issue?: { identifier: string; title: string; url: string };
+        } | undefined;
+        if (!result?.success || !result.issue) {
+            throw new ActionError("provider_error", `Linear did not update ${key}.`, 502);
+        }
+        // The same three words `create_issue` answers with, so a client that
+        // just filed and a client that just updated read the result the same.
+        return {
+            key: result.issue.identifier,
+            title: result.issue.title,
+            url: result.issue.url,
+            closed: hasClosed ? closed : issue.closed,
+        };
+    },
+
+    /// One issue in full, with the tail of its discussion.
+    ///
+    /// `search_issues` is deliberately a list of titles: a model deciding which
+    /// ticket somebody meant needs ten names, not ten essays. This is the second
+    /// step — the description and the last few comments of the one it chose —
+    /// and the last few rather than all, because the question is almost always
+    /// "where did this get to" and the answer is at the end.
+    read_issue: async (connection, params) => {
+        const key = requireString(params, "key");
+        const data = await graphql(
+            connection,
+            `query($team: String!, $number: Float!, $comments: Int!) {
+                issues(filter: { team: { key: { eq: $team } }, number: { eq: $number } }, first: 1) {
+                    nodes {
+                        identifier title description url priorityLabel dueDate updatedAt
+                        state { name type }
+                        assignee { name }
+                        creator { name }
+                        project { name }
+                        labels { nodes { name } }
+                        comments(last: $comments) {
+                            nodes { body createdAt user { name } }
+                        }
+                    }
+                }
+            }`,
+            { ...parseIdentifier(key), comments: COMMENT_LIMIT },
+        );
+        const issue = (data.issues as {
+            nodes?: {
+                identifier: string;
+                title: string;
+                description?: string | null;
+                url: string;
+                priorityLabel?: string;
+                dueDate?: string | null;
+                updatedAt?: string;
+                state?: { name?: string; type?: string };
+                assignee?: { name?: string } | null;
+                creator?: { name?: string } | null;
+                project?: { name?: string } | null;
+                labels?: { nodes?: { name?: string }[] };
+                comments?: { nodes?: { body?: string; createdAt?: string; user?: { name?: string } | null }[] };
+            }[];
+        } | undefined)?.nodes?.[0];
+        if (!issue) {
+            throw new ActionError("not_found", `${key.toUpperCase()} is not visible to this account.`, 404);
+        }
+        return {
+            key: issue.identifier,
+            title: issue.title,
+            url: issue.url,
+            state: issue.state?.name,
+            closed: isClosed(issue.state),
+            assignee: issue.assignee?.name ?? null,
+            author: issue.creator?.name ?? null,
+            project: issue.project?.name ?? null,
+            priority: issue.priorityLabel ?? null,
+            labels: (issue.labels?.nodes ?? []).map((label) => label.name).filter(Boolean),
+            due: issue.dueDate ?? null,
+            updated: issue.updatedAt,
+            description: issue.description ?? "",
+            latest_comments: (issue.comments?.nodes ?? []).map((comment) => ({
+                author: comment.user?.name ?? null,
+                at: comment.createdAt,
+                text: comment.body ?? "",
+            })),
+        };
+    },
+
+    /// The issues a person or a column holds, for "what's on me" and "what's
+    /// in progress" — questions a keyword search cannot answer, because the
+    /// answer is a filter, not a phrase. `assignee` is `me` for the connected
+    /// account or a name for a colleague; `state` is a column name as the
+    /// workspace spells it. Open issues only unless `closed` says otherwise.
+    list_issues: async (connection, params) => {
+        const filter: Record<string, unknown> = {};
+        const assignee = typeof params.assignee === "string" ? params.assignee.trim() : "";
+        if (assignee.toLowerCase() === "me") {
+            filter.assignee = { isMe: { eq: true } };
+        } else if (assignee) {
+            filter.assignee = { name: { containsIgnoreCase: assignee } };
+        }
+        const state = typeof params.state === "string" ? params.state.trim() : "";
+        if (state) {
+            filter.state = { name: { eqIgnoreCase: state } };
+        } else if (params.closed !== true && params.closed !== "true") {
+            filter.state = { type: { nin: ["completed", "canceled"] } };
+        }
+        const data = await graphql(
+            connection,
+            `query($filter: IssueFilter!, $first: Int!) {
+                issues(filter: $filter, first: $first, orderBy: updatedAt) {
+                    nodes { identifier title url updatedAt state { name type } assignee { name } }
+                }
+            }`,
+            { filter, first: STATUS_LIMIT },
+        );
+        const nodes = (data.issues as {
+            nodes?: {
+                identifier: string;
+                title: string;
+                url: string;
+                updatedAt?: string;
+                state?: { name?: string; type?: string };
+                assignee?: { name?: string };
+            }[];
+        } | undefined)?.nodes ?? [];
+        return {
+            tasks: nodes.map((issue) => ({
+                key: issue.identifier,
+                title: issue.title,
+                url: issue.url,
+                closed: isClosed(issue.state),
+                state: issue.state?.name,
+                assignee: issue.assignee?.name,
+                updatedAt: issue.updatedAt,
+            })),
+        };
+    },
+
+    search_issues: async (connection, params) => {
+        const term = requireString(params, "query");
+        const data = await graphql(
+            connection,
+            `query($term: String!, $first: Int!) {
+                searchIssues(term: $term, first: $first) {
+                    nodes { identifier title url state { name type } assignee { name } }
+                }
+            }`,
+            { term, first: SEARCH_LIMIT },
+        );
+        const nodes = (data.searchIssues as {
+            nodes?: {
+                identifier: string;
+                title: string;
+                url: string;
+                state?: { name?: string; type?: string };
+                assignee?: { name?: string };
+            }[];
+        } | undefined)?.nodes ?? [];
+
+        // Same `{ key, closed }` core as `create_issue` and `read_issues`, so the
+        // duplicate check before filing reads a search result without knowing
+        // which product answered. `state` and `assignee` ride along for the
+        // model, which is the other reader and wants words, not a boolean.
+        return {
+            tasks: nodes.map((issue) => ({
+                key: issue.identifier,
+                title: issue.title,
+                url: issue.url,
+                closed: isClosed(issue.state),
+                state: issue.state?.name,
+                assignee: issue.assignee?.name,
+            })),
+        };
+    },
+
+    /// The workspace's members, so a person Nod knows can be matched to the
+    /// account Linear knows.
+    ///
+    /// Read-only and email-keyed, because the address is the one field both
+    /// systems agree on — a display name is whatever somebody typed, and Linear
+    /// ids mean nothing outside Linear. Callers that cannot see an address get
+    /// no match, which is the correct outcome rather than a guessed one.
+    list_users: async (connection) => {
+        const data = await graphql(
+            connection,
+            "{ users(first: 250, filter: { active: { eq: true } }) { nodes { id name email } } }",
+            {},
+        );
+        const nodes = (data.users as { nodes?: { id: string; name: string; email?: string }[] } | undefined)
+            ?.nodes ?? [];
+        return { users: nodes.filter((user) => user.email) };
+    },
+
+    create_issue: async (connection, params) => {
+        const title = requireString(params, "title");
+        const description = typeof params.description === "string" ? params.description : undefined;
+        const teamId = await resolveTeamID(connection, params.teamId);
+        // Already a Linear user id by the time it reaches here — resolving a
+        // person to their account is the executor's job, and doing it again from
+        // a name would be a second place that could name the wrong colleague.
+        const assigneeId = typeof params.assigneeId === "string" && params.assigneeId.trim()
+            ? params.assigneeId.trim()
+            : undefined;
+        // Optional starting column, named by workflow *type* — the one
+        // vocabulary every Linear team shares. Absent means the team's default,
+        // exactly as before this parameter existed.
+        const stateType = typeof params.state === "string" && params.state.trim()
+            ? params.state.trim().toLowerCase()
+            : undefined;
+        if (stateType && !["backlog", "unstarted", "started", "completed"].includes(stateType)) {
+            throw new ActionError("invalid_params", "`state` must be backlog, unstarted, started or completed.");
+        }
+        const stateId = stateType ? await stateOfType(connection, teamId, stateType) : undefined;
+
+        const data = await graphql(
+            connection,
+            `mutation($input: IssueCreateInput!) {
+                issueCreate(input: $input) {
+                    success
+                    issue { identifier title url }
+                }
+            }`,
+            { input: { title, description, teamId, assigneeId, stateId } },
+        );
+        const result = data.issueCreate as {
+            success?: boolean;
+            issue?: { identifier: string; title: string; url: string };
+        } | undefined;
+        if (!result?.success || !result.issue) {
+            throw new ActionError("provider_error", "Linear did not create the issue.", 502);
+        }
+        // `key`, not `identifier`: what a task action returns is the same three
+        // words whichever product answered, so a client can read the result
+        // without knowing which one it asked.
+        return { key: result.issue.identifier, title: result.issue.title, url: result.issue.url };
+    },
+};

@@ -46,6 +46,27 @@ Deno.test("an unsubscribed contact the provider never had stays absent", async (
     assertEquals(calls, [{ path: "/contacts/no-consent%40example.invalid/topics", method: "PATCH" }]);
 });
 
+Deno.test("a topic patch sends the bare array the provider validates", async () => {
+    const bodies: string[] = [];
+    const record = (_path: string, init: RequestInit) => {
+        bodies.push(String(init.body ?? ""));
+        return Promise.resolve(new Response("{}", { status: 200 }));
+    };
+
+    await syncContactTopic(record, "out@example.invalid", "topic-id", "opt_out");
+    assertEquals(JSON.parse(bodies[0]), [{ id: "topic-id", subscription: "opt_out" }]);
+
+    bodies.length = 0;
+    await syncContactTopic(
+        (path, init) =>
+            path === "/contacts" ? Promise.resolve(new Response("exists", { status: 409 })) : record(path, init),
+        "in@example.invalid",
+        "topic-id",
+        "opt_in",
+    );
+    assertEquals(JSON.parse(bodies[0]), [{ id: "topic-id", subscription: "opt_in" }]);
+});
+
 Deno.test("a consented contact is created with an explicit topic state", async () => {
     const bodies: string[] = [];
     const result = await syncContactTopic(

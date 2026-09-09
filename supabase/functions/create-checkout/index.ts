@@ -9,8 +9,16 @@
 //
 // Request shape (POST /functions/v1/create-checkout):
 //   Authorization: Bearer <supabase-access-token>
-//   Body:          { "price_id": "pri_…" }
+//   Body:          { "price_id": "pri_…" }            personal plan
+//                  { "price_id": "pri_…", "seats": 5 } workspace plan
 // Response:        { "url": "https://…/?_ptxn=txn_…" }
+//
+// Workspace plans (`plan_prices.plan = 'teams'`) buy seats for the caller's
+// active organization rather than for the caller. The organization is read from
+// the server (`profiles.active_org_id`), never from the request, and only an
+// owner or admin of it may pay. Seats become the Paddle item quantity and the
+// webhook routes the subscription to `org_subscriptions` via
+// `custom_data.org_id`.
 //
 // Referral (NOD-22): the body may carry an optional `ref` — the referrer's
 // stable code. We always stamp it into `custom_data` (so the webhook can credit
@@ -32,10 +40,12 @@
 
 import { adminClient, authenticate } from "../_shared/supabase.ts";
 import { json } from "../_shared/http.ts";
+import { eventPlan } from "../_shared/product-events.ts";
 import { PADDLE_API_BASE, PADDLE_HEADERS } from "../_shared/paddle.ts";
 
 const PADDLE_API_KEY              = Deno.env.get("PADDLE_API_KEY");
 const PADDLE_REFERRAL_DISCOUNT_ID = Deno.env.get("PADDLE_REFERRAL_DISCOUNT_ID");
+const REFERRAL_CODE_PATTERN = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/;
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_ANON_KEY         = Deno.env.get("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -44,6 +54,8 @@ interface CheckoutRequest {
     price_id: string;
     ref?: string;
     offer?: "winback";
+    /** Workspace plans only: how many seats the organization is buying. */
+    seats?: number;
 }
 
 interface PriceRow {
@@ -79,6 +91,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const ref = typeof body.ref === "string"
         ? body.ref.trim().toUpperCase() || undefined
         : undefined;
+    // A Paddle coupon or a typo is not a referral. Refusing it here spares two
+    // Paddle preflight calls and keeps the reason honest: the code, not the plan.
+    if (ref && !REFERRAL_CODE_PATTERN.test(ref)) return json({ error: "invalid_referral" }, 422);
     const offer = body.offer === "winback" ? body.offer : undefined;
     if (body.offer !== undefined && !offer) return json({ error: "offer_not_eligible" }, 422);
     if (ref && offer) return json({ error: "offer_not_eligible" }, 422);
@@ -107,11 +122,64 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "offer_not_eligible" }, 422);
     }
 
-    const { data: sub } = await admin
-        .from("subscriptions")
-        .select("paddle_subscription_id, paddle_customer_id, status")
-        .eq("user_id", user.id)
-        .maybeSingle();
+    // A workspace plan is bought for an organization, so who is paying and what
+    // is already subscribed are both different questions from the personal case.
+    const isWorkspacePlan = price.plan === "teams";
+    let orgId: string | null = null;
+    let seats = 1;
+    if (isWorkspacePlan) {
+        // Referral and win-back are first-payer offers on a personal plan. Neither
+        // has a defined meaning against a seat count, so neither is accepted.
+        if (ref || offer) return json({ error: "offer_not_eligible" }, 422);
+
+        seats = typeof body.seats === "number" ? body.seats : NaN;
+        if (!Number.isInteger(seats) || seats < 1 || seats > 500) {
+            return json({ error: "seats_invalid" }, 422);
+        }
+
+        const { data: profile } = await admin
+            .from("profiles")
+            .select("active_org_id")
+            .eq("user_id", user.id)
+            .maybeSingle();
+        orgId = (profile?.active_org_id as string | null) ?? null;
+        if (!orgId) return json({ error: "no_active_workspace" }, 422);
+
+        const { data: member } = await admin
+            .from("org_members")
+            .select("role, status")
+            .eq("org_id", orgId)
+            .eq("user_id", user.id)
+            .maybeSingle();
+        if (!member || member.status !== "active" || !["owner", "admin"].includes(member.role as string)) {
+            return json({ error: "not_a_workspace_admin" }, 403);
+        }
+
+        // Buying fewer seats than there are people would silently uncover
+        // colleagues who are working today, so it is refused rather than applied.
+        const { count, error: countError } = await admin
+            .from("org_members")
+            .select("id", { count: "exact", head: true })
+            .eq("org_id", orgId)
+            .eq("status", "active");
+        if (countError) {
+            console.error(`workspace member count failed org=${orgId}: ${countError.message}`);
+            return json({ error: "Checkout creation failed" }, 502);
+        }
+        if ((count ?? 0) > seats) return json({ error: "seats_below_members" }, 422);
+    }
+
+    const { data: sub } = isWorkspacePlan
+        ? await admin
+            .from("org_subscriptions")
+            .select("paddle_subscription_id, paddle_customer_id, status")
+            .eq("org_id", orgId)
+            .maybeSingle()
+        : await admin
+            .from("subscriptions")
+            .select("paddle_subscription_id, paddle_customer_id, status")
+            .eq("user_id", user.id)
+            .maybeSingle();
 
     // Any non-terminal Paddle subscription is changed IN PLACE — keying on the
     // subscription id (not a status whitelist) so a `trialing` or `paused`
@@ -127,7 +195,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
             method: "PATCH",
             headers: PADDLE_HEADERS,
             body: JSON.stringify({
-                items: [{ price_id: body.price_id, quantity: 1 }],
+                items: [{ price_id: body.price_id, quantity: seats }],
                 proration_billing_mode: "prorated_immediately",
             }),
         });
@@ -140,6 +208,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
         // No checkout needed — Paddle charges the card on file and fires
         // subscription.updated, which the webhook applies to our DB.
         return json({ updated: true }, 200);
+    }
+
+    // Somebody a workspace already covers gains nothing from a NEW personal plan —
+    // `resolve_entitlement` keeps resolving them to the organization — so selling
+    // them one takes money for nothing. Refused here rather than in the paywall,
+    // because every already-released client still offers it. Changing a personal
+    // subscription they are already being charged for is a different act and is
+    // handled above, so this sits after the in-place path deliberately.
+    if (!isWorkspacePlan) {
+        const { data: entitlement, error: entitlementError } = await admin
+            .rpc("resolve_entitlement", { p_user_id: user.id });
+        if (entitlementError) {
+            console.error(`entitlement lookup failed user=${user.id}: ${entitlementError.message}`);
+            return json({ error: "Checkout creation failed" }, 502);
+        }
+        if (isObject(entitlement) && entitlement.payer === "organization") {
+            return json({ error: "covered_by_workspace" }, 422);
+        }
     }
 
     // New subscription. Reuse the stored Paddle customer if we have one;
@@ -207,13 +293,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const customData: Record<string, unknown> = { user_id: user.id };
+    // The webhook routes on this: an event carrying an org_id belongs to the
+    // organization's subscription, not to the person who happened to pay.
+    if (orgId) {
+        customData.org_id = orgId;
+        customData.purchased_by = user.id;
+    }
     // The reservation id, not the raw code: the webhook resolves the referral
     // from our own row, so nothing about the reward depends on client input.
     if (referralId) customData.referral_id = referralId;
     if (offerClaimId) customData.offer_claim_id = offerClaimId;
 
     const payload: Record<string, unknown> = {
-        items: [{ price_id: body.price_id, quantity: 1 }],
+        items: [{ price_id: body.price_id, quantity: seats }],
         custom_data: customData,
         collection_mode: "automatic",
     };
@@ -296,7 +388,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }
     }
 
-    const plan = price.plan === "starter" || price.plan === "pro" ? price.plan : "unknown";
+    const plan = eventPlan(price.plan);
     const billing = price.billing_cycle === "monthly" || price.billing_cycle === "yearly"
         ? price.billing_cycle
         : "unknown";

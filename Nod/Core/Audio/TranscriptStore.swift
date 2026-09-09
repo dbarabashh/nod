@@ -5,19 +5,25 @@ import Foundation
 enum TranscriptSource: String {
     case me
     case them
+    /// The iOS companion's single microphone. Unlike `me` and `them` it is not
+    /// a routed stream: everyone in the room arrives on it, the person holding
+    /// the phone included, so the tag says nothing about who spoke — only
+    /// diarization does, and `Meeting.selfSpeaker` says which cluster is theirs.
+    case room
 
     var label: String {
         switch self {
         case .me: "Me"
         case .them: "Them"
+        case .room: "Speaker"
         }
     }
 
-    var emoji: String {
-        switch self {
-        case .me: "🎙"
-        case .them: "🔊"
-        }
+    /// Whether a line from this stream can carry a diarized cluster. A routed
+    /// mic is one known voice and is never clustered; a room is nothing but
+    /// clusters.
+    var isClustered: Bool {
+        self != .me
     }
 }
 
@@ -43,7 +49,6 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     @Published private(set) var entries: [TranscriptEntry] = []
     @Published private(set) var liveMe: String = ""
     @Published private(set) var liveThem: String = ""
-    @Published private(set) var lastSource: TranscriptSource?
     /// Speech-onset time of the most recent confirmed utterance on either
     /// stream. Stamped from the chunk's audio-clock timestamp (not `Date()`) so
     /// Whisper latency doesn't skew it. Drives trailing-silence trimming and the
@@ -127,7 +132,6 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             self.entries = []
             self.liveMe = ""
             self.liveThem = ""
-            self.lastSource = nil
             self.lastSpeechAt = nil
             self.lastError = nil
         }
@@ -181,9 +185,9 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
     }
 
     /// Force-flush both transcribers and append the results synchronously
-    /// on MainActor so `fullContext` is fresh by the time this returns.
+    /// on MainActor so `recentContext` is fresh by the time this returns.
     func flushPending() async {
-        // Drain both transcribers' in-flight work so `fullContext` is complete
+        // Drain both transcribers' in-flight work so `recentContext` is complete
         // and in order by the time this returns. The VAD owns segmentation now,
         // so there's no forced-out partial text to append here.
         async let me: Void = mic.flushPending()
@@ -192,15 +196,11 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
         await MainActor.run { self.lastError = nil }
     }
 
-    var fullContext: String {
-        recentContext(maxEntries: .max)
-    }
-
     /// Last `maxEntries` finalised entries plus live partials, joined into the
     /// same `[Me]:` / `[Them]:` text the LLM expects. For anything that runs
     /// during the meeting and only needs the recent window — sending the entire
     /// transcript on a long call balloons input tokens without improving the
-    /// answer. `maxEntries: .max` degrades to the full history (`fullContext`).
+    /// answer. `maxEntries: .max` degrades to the full history.
     func recentContext(maxEntries: Int) -> String {
         let included = Array(entries.suffix(maxEntries))
         var lines: [String] = []
@@ -220,13 +220,6 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
 
     var hasContent: Bool {
         !entries.isEmpty || !liveMe.isEmpty || !liveThem.isEmpty
-    }
-
-    var bubbleSnapshot: (source: TranscriptSource, text: String, isLive: Bool)? {
-        if !liveMe.isEmpty { return (.me, liveMe, true) }
-        if !liveThem.isEmpty { return (.them, liveThem, true) }
-        if let entry = entries.last { return (entry.source, entry.text, false) }
-        return nil
     }
 
     // MARK: - Callbacks from WhisperTranscriber
@@ -280,7 +273,6 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             case (.them, .me):
                 Log.stt.sensitive("dedup: replaced ME bleed with cleaner THEM ('\(text.prefix(48))…')")
                 entries[idx] = TranscriptEntry(source: .them, text: text, timestamp: timestamp, segmentID: chunk.segmentID)
-                lastSource = .them
             case (.me, .them):
                 Log.stt.sensitive("dedup: dropped ME bleed of existing THEM ('\(text.prefix(48))…')")
             default:
@@ -314,11 +306,6 @@ final class TranscriptStore: ObservableObject, @unchecked Sendable {
             horizon: Self.reorderHorizon
         )
         entries.insert(entry, at: idx)
-        // Only the newest entry drives the current-speaker bubble; a late insert
-        // in the middle must not claim it.
-        if idx == entries.count - 1 {
-            lastSource = entry.source
-        }
     }
 
     /// The index at which to insert an entry timestamped `inserting` so `entries`

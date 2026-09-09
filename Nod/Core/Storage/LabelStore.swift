@@ -11,8 +11,17 @@ final class LabelStore: ObservableObject {
     @Published private(set) var labels: [SessionLabel] = []
     /// meetingID → the labels attached to it.
     @Published private(set) var assignments: [UUID: Set<UUID>] = [:]
+    /// Which folders are shared, and with whom. Keyed by folder so a row can ask
+    /// without scanning.
+    @Published private(set) var shares: [UUID: [FolderShare]] = [:]
+    /// The last refusal, in the words the database used. Sharing happens from a
+    /// context menu with nowhere to put a spinner or a result, so a failure that
+    /// only reached the log looked exactly like a click that did nothing.
+    @Published var lastError: String?
 
     private let supabase: SupabaseClient
+    /// Counts shares and their ends. Set by the composition root.
+    var analytics: ProductAnalytics?
     private let auth: AuthService
     private static let labelsTable = "labels"
     private static let linksTable = "meeting_labels"
@@ -33,12 +42,15 @@ final class LabelStore: ObservableObject {
                 return
             }
         #endif
-        guard let userID = auth.currentSupabaseSession?.user.id else { return }
+        guard auth.currentSupabaseSession != nil else { return }
         do {
+            // No `user_id` filter: row-level security already returns your folders
+            // plus the ones shared with a team you are in, and filtering here
+            // would throw the shared ones away before they were ever seen. Which
+            // are yours is answered by `isOwn`, not by the query.
             let labels: [SessionLabel] = try await supabase
                 .from(Self.labelsTable)
                 .select()
-                .eq("user_id", value: userID.uuidString)
                 .order("name", ascending: true)
                 .execute()
                 .value
@@ -47,7 +59,6 @@ final class LabelStore: ObservableObject {
             let links: [Link] = try await supabase
                 .from(Self.linksTable)
                 .select("meeting_id, label_id")
-                .eq("user_id", value: userID.uuidString)
                 .execute()
                 .value
 
@@ -60,6 +71,7 @@ final class LabelStore: ObservableObject {
         } catch {
             Log.ui.error("LabelStore.refresh failed: \(error.localizedDescription)")
         }
+        await refreshShares()
     }
 
     /// Labels attached to one session, in display order.
@@ -172,6 +184,12 @@ final class LabelStore: ObservableObject {
 
     /// Sets the exact set of labels on a session, inserting/deleting only the
     /// links that changed.
+    ///
+    /// Applied locally first, and put back on failure. Unfiling a session from a
+    /// shared project is the moment somebody is deciding a colleague should stop
+    /// seeing it, and a chip that lingers for the length of a round trip reads as
+    /// a click that did not land — which is how a second, redundant unfile gets
+    /// attempted while the first is still in flight.
     func setLabels(_ desired: Set<UUID>, for meetingID: UUID) async throws {
         #if DEBUG
             if DemoMode.isEnabled {
@@ -185,6 +203,26 @@ final class LabelStore: ObservableObject {
         let removed = current.subtracting(desired)
         guard !added.isEmpty || !removed.isEmpty else { return }
 
+        assignments[meetingID] = desired.isEmpty ? nil : desired
+        do {
+            try await applyLinkChanges(added: added, removed: removed, meetingID: meetingID, userID: userID)
+        } catch {
+            // The inverse of what was applied, not the set captured before it: a
+            // second `setLabels` for the same session can land during the await,
+            // and restoring the old set outright would discard its work.
+            let now = assignments[meetingID] ?? []
+            let reverted = now.subtracting(added).union(removed)
+            assignments[meetingID] = reverted.isEmpty ? nil : reverted
+            throw error
+        }
+    }
+
+    private func applyLinkChanges(
+        added: Set<UUID>,
+        removed: Set<UUID>,
+        meetingID: UUID,
+        userID: UUID
+    ) async throws {
         if !added.isEmpty {
             struct LinkInsert: Encodable {
                 let meeting_id: UUID
@@ -205,10 +243,89 @@ final class LabelStore: ObservableObject {
                 .in("label_id", values: removed.map(\.uuidString))
                 .execute()
         }
-        assignments[meetingID] = desired.isEmpty ? nil : desired
+    }
+
+    // ── Sharing ─────────────────────────────────────────────────────────────
+
+    func refreshShares() async {
+        do {
+            let rows: [FolderShare] = try await supabase
+                .from("folder_shares")
+                .select("id, label_id, team_id, org_id")
+                .execute()
+                .value
+            shares = Dictionary(grouping: rows, by: \.labelID)
+        } catch {
+            Log.ui.error("LabelStore.refreshShares failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Whether this folder is yours. Someone else's folder can be read once they
+    /// share it, and read is all — renaming, deleting or re-sharing it belongs to
+    /// the person who made it, and the server refuses the rest anyway.
+    func isOwn(_ label: SessionLabel) -> Bool {
+        label.userID == auth.currentSupabaseSession?.user.id
+    }
+
+    func isShared(_ labelID: UUID) -> Bool {
+        !(shares[labelID]?.isEmpty ?? true)
+    }
+
+    /// Hands a folder to a team, or to the whole organization. The server checks
+    /// that the folder is yours and that you belong to the audience — sharing
+    /// into a team you are not in would be publishing to strangers.
+    func share(_ labelID: UUID, withTeam teamID: UUID?, org orgID: UUID?) async {
+        do {
+            struct Params: Encodable {
+                let p_label: UUID
+                let p_team: UUID?
+                let p_org: UUID?
+            }
+            _ = try await supabase
+                .rpc("share_folder", params: Params(p_label: labelID, p_team: teamID, p_org: orgID))
+                .execute()
+            await refreshShares()
+            lastError = nil
+            Log.ui.info("folder shared")
+            analytics?.record(.meetingShared, properties: .init(surface: .share, detail: teamID != nil ? .team : .organization))
+        } catch {
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't share that project."
+            Log.ui.error("LabelStore.share failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Dropped from the local map before the call, and restored if the server
+    /// refuses. Revoking is the half of sharing that has to look immediate: the
+    /// person doing it is watching to confirm the colleague lost the folder.
+    func unshare(_ share: FolderShare) async {
+        let wasAt = shares[share.labelID]?.firstIndex { $0.id == share.id }
+        shares[share.labelID] = (shares[share.labelID] ?? []).filter { $0.id != share.id }
+        do {
+            struct Params: Encodable {
+                let p_share: UUID
+            }
+            _ = try await supabase.rpc("unshare_folder", params: Params(p_share: share.id)).execute()
+            await refreshShares()
+            lastError = nil
+            Log.ui.info("folder unshared")
+            analytics?.record(.shareRevoked, properties: .init(surface: .share, detail: share.teamID != nil ? .team : .organization))
+        } catch {
+            // Only this share back, never the list as it was: a refresh can land
+            // during the await, and replacing the key wholesale would resurrect
+            // shares somebody else legitimately removed.
+            if let wasAt, !(shares[share.labelID]?.contains { $0.id == share.id } ?? false) {
+                var rows = shares[share.labelID] ?? []
+                rows.insert(share, at: min(wasAt, rows.count))
+                shares[share.labelID] = rows
+            }
+            lastError = ServerError.rpcMessage(error) ?? "Couldn't stop sharing that project."
+            Log.ui.error("LabelStore.unshare failed: \(error.localizedDescription)")
+        }
     }
 
     func clear() {
+        lastError = nil
+        shares = [:]
         labels = []
         assignments = [:]
     }

@@ -87,7 +87,11 @@ final class MeetingOffers: ObservableObject {
         Publishers.MergeMany(
             detector.$candidate.map { _ in () }.eraseToAnyPublisher(),
             schedule.$candidate.map { _ in () }.eraseToAnyPublisher(),
-            session.$meeting.map { _ in () }.eraseToAnyPublisher()
+            session.$meeting.map { _ in () }.eraseToAnyPublisher(),
+            // Excluding an app has to take the card down now, not whenever the
+            // detector next samples — the setting is edited while the card is
+            // on screen.
+            preference.$mutedBundleIDs.map { _ in () }.eraseToAnyPublisher()
         )
         // `@Published` fires in `willSet`, so the new value is not readable
         // until the next turn of the runloop — and this reads all three.
@@ -112,24 +116,6 @@ final class MeetingOffers: ObservableObject {
     func decline() {
         guard current != nil else { return }
         answer()
-    }
-
-    /// "Never for Zoom". Only a detected call can say which app it is; a
-    /// calendar entry linking to Zoom is muted by the same list, but through
-    /// `ConferencingHost`.
-    func mute(_ app: ConferencingApp) {
-        preference.setMuted(true, bundleID: app.rawValue)
-        answer()
-    }
-
-    /// The app to offer muting, when the offer names one. A meeting whose
-    /// invitation links to a web-only product has no app to mute.
-    var mutableApp: ConferencingApp? {
-        switch current {
-        case let .detected(call): call.app
-        case let .scheduled(meeting): meeting.host.flatMap(ConferencingHost.nativeApp)
-        case nil: nil
-        }
     }
 
     private func answer() {

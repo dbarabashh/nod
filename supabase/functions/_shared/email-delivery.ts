@@ -27,6 +27,12 @@ const ALLOWED_TEMPLATE_VARIABLES = new Set([
     "REWARD_LABEL",
     "EXPIRES_AT",
     "NEXT_BILLING_DATE",
+    // Usage counts, never meeting content. LAST_SESSION_TITLE is absent on
+    // purpose: a meeting title is content, and privacy.md § 3.14 promises the
+    // provider never receives any.
+    "SESSION_COUNT",
+    "OPEN_COMMITMENTS",
+    "DAYS_LEFT",
 ]);
 
 export function templateVariables(payload: unknown): Record<string, string | number> {

@@ -1,8 +1,8 @@
 # Refund Policy
 
-_Last updated: 2026-08-11_
+_Last updated: 2026-09-06_
 
-_The top-up and reward-credit provisions in § 6 are advance notice and apply only
+_The pack and reward-credit provisions in § 6 are advance notice and apply only
 once those offers are switched on._
 
 This Refund Policy explains how refunds work for paid Nod subscriptions.
@@ -67,12 +67,15 @@ partial refund for:
 - **Service problems** — a sustained outage or a case where we've
   materially reduced functionality you were promised.
 
-## 6. Extra hours and reward credit
+## 6. Packs and reward credit
 
-A Starter top-up is a separate, one-off purchase. If Paddle refunds it, Nod
-removes the **unused** part of that pack. If some of those hours were already
-used, we review the request by hand alongside your statutory rights — we never
-create a negative balance and never interrupt a meeting in progress.
+A pack — extra capture hours or extra integration credits — is a separate,
+one-off purchase. If Paddle refunds it, Nod removes the **unused** part of that
+pack, measured in the unit it granted. If some of those hours or credits were
+already used, we review the request by hand alongside your statutory rights — we
+never create a negative balance and never interrupt a meeting in progress. A
+pack an organization bought for its workspace is refunded to the organization's
+payment method and comes out of the workspace's pool.
 
 Referral and advocacy rewards are plan time, not a cash balance. They cannot be
 refunded, transferred, or exchanged for money. Refunding or charging back a

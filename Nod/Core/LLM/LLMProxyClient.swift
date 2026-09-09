@@ -46,7 +46,7 @@ final class LLMProxyClient: ObservableObject {
             case .entitlementRequired:
                 "Your plan doesn't cover this. Please choose a plan to continue."
             case .meetingLimitReached:
-                "You've used this period's meeting hours."
+                "You've used this period's capture hours."
             case let .meetingBlocked(reason):
                 reason
             case let .requestFailed(status, body):
@@ -153,16 +153,23 @@ final class LLMProxyClient: ObservableObject {
         return !withoutSampling.contains { model.contains($0) }
     }
 
-    /// Which routing category a resolved primary model belongs to, for the
-    /// proxy's `task` telemetry. Matched against the four model properties
-    /// rather than passed explicitly by each call site — every call already
-    /// resolves to exactly one of them, so this reuses that instead of
-    /// threading a parallel `task:` argument through `complete`/`chat`/
+    /// Which routing category a call belongs to, for the proxy's `task` field —
+    /// which is what `model-policy.ts` routes on. Matched against the three
+    /// explicit model properties rather than passed by each call site — every
+    /// call already resolves to exactly one of them, so this reuses that instead
+    /// of threading a parallel `task:` argument through `complete`/`chat`/
     /// `completeJSON`/`streamChat` and every one of their callers.
-    /// `"summary"` is the fallback: it's what a bare `model` resolves to
-    /// (summary/recap/title before `titleModel` existed, entities, etc.).
-    private func taskLabel(for primaryModel: String) -> String {
-        switch primaryModel {
+    ///
+    /// Takes the caller's OPTIONAL `primaryModel`, not the resolved one, and
+    /// that is the whole point: `titleModel` and `model` share a default id, so
+    /// matching on the resolved value labelled every summary, recap, entity and
+    /// speaker-naming call `title` — the first case that happened to match —
+    /// and routed all of them by `TITLE_MODEL`, leaving `SUMMARY_MODEL` dead.
+    /// Only the title call passes `titleModel` explicitly; a nil primary is a
+    /// summary-class call by construction and can never be mistaken for one.
+    private func taskLabel(for primaryModel: String?) -> String {
+        guard let primaryModel else { return "summary" }
+        return switch primaryModel {
         case chatModel: "chat"
         case utilityModel: "utility"
         case titleModel: "title"
@@ -228,6 +235,26 @@ final class LLMProxyClient: ObservableObject {
         return URLSession(configuration: config)
     }()
 
+    /// Generating a recap is not an interactive request and must not be held to
+    /// an interactive ceiling.
+    ///
+    /// A 1h19m meeting reached the model as a 31k-token prompt and took 185
+    /// seconds to answer. The server finished and returned 200; the chat session
+    /// had already given up, so the recap was paid for and thrown away, and the
+    /// meeting was left with "a summary couldn't be generated". Long meetings
+    /// are exactly the ones a recap is worth most for.
+    ///
+    /// `timeoutIntervalForRequest` still guards a stalled model — it measures the
+    /// gap between packets, not the whole answer — so a stream that stops
+    /// producing fails in three minutes rather than hanging on the resource
+    /// ceiling.
+    private let generationSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 180
+        config.timeoutIntervalForResource = 900
+        return URLSession(configuration: config)
+    }()
+
     /// Dedicated session for audio transcription. `waitsForConnectivity` lets the
     /// OS park a chunk upload while the link is down and fire it the moment
     /// connectivity returns — so a Wi-Fi drop at the *start* of an upload no
@@ -257,16 +284,31 @@ final class LLMProxyClient: ObservableObject {
     /// One turn in a multi-message conversation. `system` is supplied
     /// separately to `chat`; these are the alternating user/assistant turns.
     struct ChatTurn: Equatable {
-        enum Role: String { case user, assistant }
+        enum Role: String { case user, assistant, tool }
         let role: Role
         let content: String
+        /// Set on the assistant turn that asked for tools. The provider rejects
+        /// a `tool` result whose originating call isn't in the history, so the
+        /// request has to replay the call verbatim.
+        var toolCalls: [ChatToolCall] = []
+        /// Set on a `tool` turn: which call this answers.
+        var toolCallID: String?
+    }
+
+    /// One thing a streamed turn produced. Tool calls can't be streamed to the
+    /// user — they arrive in fragments and mean nothing until whole — so they
+    /// surface once, at the end, as a single event.
+    enum ChatStreamEvent: Equatable {
+        case delta(String)
+        case toolCalls([ChatToolCall])
     }
 
     func complete(
         system: String,
         user: String,
         jsonMode: Bool = false,
-        primaryModel: String? = nil
+        primaryModel: String? = nil,
+        longRunning: Bool = false
     ) async throws -> String {
         Log.llm.info(
             "→ chat via proxy model=\(primaryModel ?? model) fallback=\(fallbackModel) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)"
@@ -279,7 +321,8 @@ final class LLMProxyClient: ObservableObject {
                 .init(role: "user", content: user)
             ],
             jsonMode: jsonMode,
-            primaryModel: primaryModel
+            primaryModel: primaryModel,
+            longRunning: longRunning
         )
     }
 
@@ -300,15 +343,24 @@ final class LLMProxyClient: ObservableObject {
         cachePrompt: Bool = true
     ) async throws -> String {
         Log.llm.info("→ multi-turn chat via proxy model=\(chatModel) system.len=\(system.count) turns=\(history.count)")
-        var messages: [ChatRequest.Message] = [.init(role: "system", content: system)]
-        messages += history.map { .init(role: $0.role.rawValue, content: $0.content) }
         return try await send(
-            messages: messages,
+            messages: Self.messages(system: system, history: history),
             jsonMode: false,
             temperature: temperature,
             primaryModel: chatModel,
             cachePrompt: cachePrompt
         )
+    }
+
+    /// The primary model followed by the other configured ones, deduped and
+    /// order-preserving. OpenRouter walks this list when a model fails for any
+    /// reason, so a chat that leads with the cheap model still escalates.
+    private func fallbackChain(from primary: String) -> [String] {
+        var chain: [String] = []
+        for candidate in [primary, model, fallbackModel] where !chain.contains(candidate) {
+            chain.append(candidate)
+        }
+        return chain
     }
 
     /// Shared transport for every chat call. Applies the same provider
@@ -319,7 +371,8 @@ final class LLMProxyClient: ObservableObject {
         jsonMode: Bool,
         temperature: Double? = nil,
         primaryModel: String? = nil,
-        cachePrompt: Bool = false
+        cachePrompt: Bool = false,
+        longRunning: Bool = false
     ) async throws -> String {
         // `primaryModel` overrides the default for a specific call purpose (the
         // Q&A chat runs on the cheaper `chatModel`); summary/recap generation
@@ -328,10 +381,7 @@ final class LLMProxyClient: ObservableObject {
         // preserving — so a chat that leads with Haiku still escalates to Sonnet
         // on failure, while a summary call keeps its original [model, fallback].
         let primary = primaryModel ?? model
-        var chain: [String] = []
-        for m in [primary, model, fallbackModel] where !chain.contains(m) {
-            chain.append(m)
-        }
+        let chain = fallbackChain(from: primary)
         // Routing strategy:
         //
         // `provider.order = ["google-vertex"]` + `ignore = ["google-ai-studio"]`
@@ -358,12 +408,15 @@ final class LLMProxyClient: ObservableObject {
             stream: nil,
             cache_prompt: cachePrompt ? true : nil,
             reasoning: reasoning(for: primary),
-            task: taskLabel(for: primary)
+            task: taskLabel(for: primaryModel)
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
 
         do {
-            let data = try await postToProxyWithRetry(body: body)
+            let data = try await postToProxyWithRetry(
+                body: body,
+                using: longRunning ? generationSession : nil
+            )
             let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
             guard let text = decoded.choices.first?.message.content, !text.isEmpty else {
                 Log.llm.error("empty content")
@@ -391,9 +444,16 @@ final class LLMProxyClient: ObservableObject {
         system: String,
         user: String,
         as type: T.Type,
-        primaryModel: String? = nil
+        primaryModel: String? = nil,
+        longRunning: Bool = false
     ) async throws -> T {
-        let raw = try await complete(system: system, user: user, jsonMode: true, primaryModel: primaryModel)
+        let raw = try await complete(
+            system: system,
+            user: user,
+            jsonMode: true,
+            primaryModel: primaryModel,
+            longRunning: longRunning
+        )
         let cleaned = Self.extractJSON(raw)
         guard let data = cleaned.data(using: .utf8) else {
             throw ClientError.decodingFailed("non-utf8 LLM response")
@@ -422,35 +482,118 @@ final class LLMProxyClient: ObservableObject {
     /// resilience here is the server-side `models = [primary, fallback]` chain.
     /// The caller falls back to the one-shot `complete()` path if the stream
     /// fails before producing any token.
-    func streamComplete(system: String, user: String, jsonMode: Bool = false) -> AsyncThrowingStream<String, Error> {
-        stream(
+    func streamComplete(
+        system: String,
+        user: String,
+        jsonMode: Bool = false,
+        longRunning: Bool = false
+    ) -> AsyncThrowingStream<String, Error> {
+        Self.textOnly(stream(
             messages: [
                 .init(role: "system", content: system),
                 .init(role: "user", content: user)
             ],
-            jsonMode: jsonMode
-        )
+            jsonMode: jsonMode,
+            longRunning: longRunning
+        ))
     }
 
-    /// Streaming counterpart to `chat` — same grounding + running history, but
-    /// the answer arrives token by token. A cross-session answer takes seconds
-    /// to generate; streaming doesn't make it faster, it makes the user stop
-    /// waiting on a spinner for all of it.
+    /// The error behind a non-2xx streaming response. Error bodies aren't SSE,
+    /// so the stream is drained as plain text — newlines preserved, or a
+    /// multi-line JSON/HTML error is mangled before it can be parsed.
+    private func streamFailure(status: Int, bytes: URLSession.AsyncBytes) async -> ClientError {
+        var lines: [String] = []
+        if let collected = try? await bytes.lines.reduce(into: [String]()) { $0.append($1) } {
+            lines = collected
+        }
+        let raw = lines.joined(separator: "\n")
+        if status == 403, Self.isEntitlementError(Data(raw.utf8)) {
+            // Same plan/feature gate as postToProxy: route to the paywall with a
+            // human message instead of surfacing a raw "HTTP 403" in the chat.
+            Log.llm.error("stream 403 entitlement — opening paywall")
+            NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
+            return .entitlementRequired
+        }
+        return .requestFailed(status: status, body: Self.sanitizeErrorBody(raw))
+    }
+
+    /// One line of the upstream SSE body. Splitting this out keeps the read loop
+    /// readable — the wire format has three outcomes and only one of them is a
+    /// payload.
+    private enum ServerSentLine {
+        case ignored
+        case done
+        case delta(StreamChunk.Choice.Delta)
+    }
+
+    private static func parseServerSentLine(_ line: String) -> ServerSentLine {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        // Skip SSE comments (": OPENROUTER PROCESSING" keepalives) and blanks.
+        guard trimmed.hasPrefix("data:") else { return .ignored }
+        let data = trimmed.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
+        if data == "[DONE]" { return .done }
+        guard let chunkData = data.data(using: .utf8),
+              let chunk = try? JSONDecoder().decode(StreamChunk.self, from: chunkData),
+              let delta = chunk.choices.first?.delta
+        else { return .ignored }
+        return .delta(delta)
+    }
+
+    /// Drops tool-call events so a caller that only wants prose keeps the plain
+    /// `String` stream it has always had.
+    private static func textOnly(
+        _ events: AsyncThrowingStream<ChatStreamEvent, Error>
+    ) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await event in events {
+                        if case let .delta(text) = event { continuation.yield(text) }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// The wire messages for a system prompt and a history.
     ///
-    /// Runs on `chatModel` with the same fallback chain and prompt caching as
-    /// `chat`, so switching a caller to the stream doesn't change which model
-    /// answers or what the grounding costs.
+    /// One mapping for the streamed and the one-shot path alike. They had two,
+    /// and the one-shot copy dropped `tool_calls` and `tool_call_id` and sent
+    /// `""` where the assistant turn needs no content at all — so replaying a
+    /// finished tool round through it produced `tool` results answering nothing,
+    /// which every provider rejects. It only ran when a question exhausted its
+    /// tool rounds, which is why it survived.
+    private static func messages(system: String, history: [ChatTurn]) -> [ChatRequest.Message] {
+        var messages: [ChatRequest.Message] = [.init(role: "system", content: system)]
+        messages += history.map { turn in
+            ChatRequest.Message(
+                role: turn.role.rawValue,
+                content: turn.content.isEmpty ? nil : turn.content,
+                tool_calls: turn.toolCalls.isEmpty ? nil : turn.toolCalls,
+                tool_call_id: turn.toolCallID
+            )
+        }
+        return messages
+    }
+
+    /// Streaming turn that may end in tool calls instead of prose. Content
+    /// arrives as it always did; if the model asked for tools, a single
+    /// `.toolCalls` event lands last and no text was produced.
     func streamChat(
         system: String,
         history: [ChatTurn],
+        tools: [ChatTool],
         temperature: Double? = nil,
         cachePrompt: Bool = true
-    ) -> AsyncThrowingStream<String, Error> {
-        Log.llm.info("→ streaming chat via proxy model=\(chatModel) system.len=\(system.count) turns=\(history.count)")
-        var messages: [ChatRequest.Message] = [.init(role: "system", content: system)]
-        messages += history.map { .init(role: $0.role.rawValue, content: $0.content) }
+    ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        Log.llm.info("→ streaming chat model=\(chatModel) turns=\(history.count) tools=\(tools.count)")
         return stream(
-            messages: messages,
+            messages: Self.messages(system: system, history: history),
+            tools: tools.map(ChatToolPayload.init),
             jsonMode: false,
             temperature: temperature,
             primaryModel: chatModel,
@@ -460,11 +603,13 @@ final class LLMProxyClient: ObservableObject {
 
     private func stream(
         messages: [ChatRequest.Message],
+        tools: [ChatToolPayload] = [],
         jsonMode: Bool = false,
         temperature: Double? = nil,
         primaryModel: String? = nil,
-        cachePrompt: Bool = false
-    ) -> AsyncThrowingStream<String, Error> {
+        cachePrompt: Bool = false,
+        longRunning: Bool = false
+    ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -472,11 +617,8 @@ final class LLMProxyClient: ObservableObject {
                     // call escalates on provider failure exactly like a
                     // one-shot one.
                     let primary = primaryModel ?? model
-                    var chain: [String] = []
-                    for candidate in [primary, model, fallbackModel] where !chain.contains(candidate) {
-                        chain.append(candidate)
-                    }
-                    let payload = ChatRequest(
+                    let chain = fallbackChain(from: primary)
+                    var payload = ChatRequest(
                         model: primary,
                         models: chain,
                         messages: messages,
@@ -486,51 +628,45 @@ final class LLMProxyClient: ObservableObject {
                         stream: true,
                         cache_prompt: cachePrompt ? true : nil,
                         reasoning: reasoning(for: primary),
-                        task: taskLabel(for: primary)
+                        task: taskLabel(for: primaryModel)
                     )
+                    payload.tools = tools.isEmpty ? nil : tools
                     let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
                     let request = try await makeProxyRequest(body: body)
 
-                    let (bytes, response) = try await session.bytes(for: request)
+                    let transport = longRunning ? generationSession : session
+                    let (bytes, response) = try await transport.bytes(for: request)
                     guard let http = response as? HTTPURLResponse else {
                         throw ClientError.decodingFailed("Non-HTTP response")
                     }
                     logRoutedModel(http)
                     try throwIfGatedStatus(http)
                     if http.statusCode >= 400 {
-                        // Error responses aren't SSE — reassemble the body,
-                        // preserving newlines so a multi-line JSON / HTML error
-                        // isn't mangled before `sanitizeErrorBody` parses it.
-                        var lines: [String] = []
-                        for try await line in bytes.lines {
-                            lines.append(line)
-                        }
-                        let raw = lines.joined(separator: "\n")
-                        if http.statusCode == 403, Self.isEntitlementError(Data(raw.utf8)) {
-                            // Same plan/feature gate as postToProxy: route to the
-                            // paywall with a human message instead of surfacing a
-                            // raw "LLM proxy HTTP 403" string in the chat.
-                            Log.llm.error("stream 403 entitlement — opening paywall")
-                            NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
-                            throw ClientError.entitlementRequired
-                        }
-                        throw ClientError.requestFailed(status: http.statusCode, body: Self.sanitizeErrorBody(raw))
+                        throw await streamFailure(status: http.statusCode, bytes: bytes)
                     }
 
                     var produced = 0
-                    for try await line in bytes.lines {
+                    var toolCalls = ToolCallAccumulator()
+                    readLoop: for try await line in bytes.lines {
                         try Task.checkCancellation()
-                        let trimmed = line.trimmingCharacters(in: .whitespaces)
-                        // Skip SSE comments (": OPENROUTER PROCESSING" keepalives) and blanks.
-                        guard trimmed.hasPrefix("data:") else { continue }
-                        let data = trimmed.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
-                        if data == "[DONE]" { break }
-                        guard let chunkData = data.data(using: .utf8),
-                              let chunk = try? JSONDecoder().decode(StreamChunk.self, from: chunkData),
-                              let delta = chunk.choices.first?.delta.content,
-                              !delta.isEmpty else { continue }
-                        produced += delta.count
-                        continuation.yield(delta)
+                        switch Self.parseServerSentLine(line) {
+                        case .ignored:
+                            continue
+                        case .done:
+                            break readLoop
+                        case let .delta(delta):
+                            if let fragments = delta.tool_calls, !fragments.isEmpty {
+                                toolCalls.absorb(fragments)
+                            }
+                            guard let text = delta.content, !text.isEmpty else { continue }
+                            produced += text.count
+                            continuation.yield(.delta(text))
+                        }
+                    }
+                    let calls = toolCalls.calls()
+                    if !calls.isEmpty {
+                        Log.llm.info("← stream tool calls=\(calls.map(\.function.name).joined(separator: ","))")
+                        continuation.yield(.toolCalls(calls))
                     }
                     Log.llm.info("← stream done chars=\(produced)")
                     continuation.finish()
@@ -688,6 +824,32 @@ final class LLMProxyClient: ObservableObject {
         }
     }
 
+    /// A held-key question, spoken: one short clip with no meeting behind it,
+    /// transcribed the same way a chunk is. The proxy's `dictate` kind takes no
+    /// lease and caps the clip, so a question is never mistaken for a recording.
+    func dictate(audio: Data) async throws -> Transcription {
+        let inner = DictationRequest(
+            model: whisperModel,
+            input_audio: .init(data: audio.base64EncodedString(), format: "wav"),
+            temperature: 0,
+            response_format: whisperResponseFormat
+        )
+        Log.llm.info("→ dictate via proxy model=\(whisperModel) audio_bytes=\(audio.count)")
+        let data = try await postToProxyWithRetry(
+            body: JSONEncoder().encode(ProxyEnvelope(kind: "dictate", payload: inner)),
+            using: transcribeSession
+        )
+        do {
+            let decoded = try JSONDecoder().decode(WhisperResponse.self, from: data)
+            let text = decoded.text ?? ""
+            Log.llm.info("← dictate OK len=\(text.count) lang=\(decoded.language ?? "?")")
+            return Transcription(text: text, segments: [], language: decoded.language)
+        } catch {
+            Log.llm.error("dictate decode failed: \(error.localizedDescription)")
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+
     // MARK: - Cross-session knowledge (step 5)
 
     /// Embedding ~1200-char chunks is CPU-heavy server-side; gte-small runs
@@ -777,10 +939,15 @@ final class LLMProxyClient: ObservableObject {
         query: String,
         language: AppLanguage = .english,
         personalContext: String = ""
-    ) async -> (standalone: String, hyde: String?, aboutScreen: Bool) {
+    ) async -> (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool, screenTerms: [String]) {
         struct HyDEResult: Decodable {
             let standalone_query: String
             let hypothetical_answer: String
+            let screen_terms: [String]?
+            /// Absent on an older response; true then, because answering from
+            /// the recordings when they weren't needed is a wasted search, and
+            /// skipping them when they were needed is a wrong answer.
+            let needs_sessions: Bool?
             /// Absent on older responses and on a model that ignores the field;
             /// false then, which is the safe default — no screen context rather
             /// than screen context on a question that didn't ask for it.
@@ -804,11 +971,13 @@ final class LLMProxyClient: ObservableObject {
             return (
                 standalone.isEmpty ? query : standalone,
                 hyde.isEmpty ? nil : hyde,
-                result.about_screen ?? false
+                result.about_screen ?? false,
+                result.needs_sessions ?? true,
+                (result.screen_terms ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
             )
         } catch {
             Log.llm.error("query prep failed (using raw query): \(error.localizedDescription)")
-            return (query, nil, false)
+            return (query, nil, false, true, [])
         }
     }
 
@@ -823,7 +992,7 @@ final class LLMProxyClient: ObservableObject {
         meetingID: UUID? = nil,
         meetingIDs: [UUID]? = nil,
         embedText: String? = nil
-    ) async throws -> [RetrievedChunk] {
+    ) async throws -> KnowledgeHits {
         struct Payload: Encodable {
             let query: String
             let match_count: Int
@@ -843,9 +1012,33 @@ final class LLMProxyClient: ObservableObject {
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "search", payload: payload))
         let data = try await postToProxyWithRetry(body: body)
-        struct Wrapper: Decodable { let matches: [RetrievedChunk] }
+        // `concepts` is absent from a proxy that predates the knowledge layer
+        // and empty while reading ships dark — both decode to the same nothing.
+        struct Wrapper: Decodable {
+            let matches: [RetrievedChunk]
+            let concepts: [RetrievedConcept]?
+        }
         do {
-            return try JSONDecoder().decode(Wrapper.self, from: data).matches
+            let decoded = try JSONDecoder().decode(Wrapper.self, from: data)
+            return KnowledgeHits(chunks: decoded.matches, concepts: decoded.concepts ?? [])
+        } catch {
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+
+    /// Asks the proxy to distill a finished session into concepts. Server-side
+    /// end to end: the function reads the transcript and the session's
+    /// entities itself, so the call carries nothing but the id.
+    func distill(meetingID: UUID) async throws -> DistillCounts {
+        struct Payload: Encodable {
+            let meeting_id: String
+        }
+        let body = try JSONEncoder().encode(
+            ProxyEnvelope(kind: "distill", payload: Payload(meeting_id: meetingID.uuidString))
+        )
+        let data = try await postToProxyWithRetry(body: body)
+        do {
+            return try JSONDecoder().decode(DistillCounts.self, from: data)
         } catch {
             throw ClientError.decodingFailed(error.localizedDescription)
         }
@@ -1185,6 +1378,163 @@ extension Notification.Name {
     static let nodDeviceConflict = Notification.Name("nod.auth.deviceConflict")
 }
 
+private struct SpeakRequest: Encodable {
+    let text: String
+    let question: String
+    let language: String
+    let purpose: String
+    let verbatim: Bool
+    let stream: Bool
+}
+
+private struct SpeakClipLine: Decodable {
+    let index: Int?
+    let audio: String?
+    let transcript: String?
+    let error: String?
+}
+
+/// One line of a clip-by-clip speak: what will be said, a piece of it as
+/// audio, or a piece the proxy could not make.
+enum SpeakEvent {
+    case transcript(String)
+    case clip(Data)
+    case missing
+}
+
+/// The spoken side of the proxy: a line as one file, or as clips.
+extension LLMProxyClient {
+    /// A line said by the proxy's voice model: MP3 bytes and the words it
+    /// chose. `purpose` picks the model — an acknowledgement has to land fast,
+    /// an answer has to sound like somebody — and `question` gives the answer
+    /// its context.
+    /// `verbatim` says the text is already the line to say — no rewrite on
+    /// the proxy — for the lines the client keeps ready itself.
+    func speak(text: String, question: String, language: String, purpose: String, verbatim: Bool = false) async throws -> SpokenLine {
+        Log.llm.info("→ speak via proxy chars=\(text.count) lang=\(language) purpose=\(purpose)")
+        let request = SpeakRequest(text: text, question: question, language: language, purpose: purpose, verbatim: verbatim, stream: false)
+        let data = try await postToProxyWithRetry(body: JSONEncoder().encode(ProxyEnvelope(kind: "speak", payload: request)))
+        do {
+            let answer = try JSONDecoder().decode(SpeakAnswer.self, from: data)
+            guard let audio = Data(base64Encoded: answer.audio), !audio.isEmpty else {
+                throw ClientError.decodingFailed("speak returned no audio")
+            }
+            Log.llm.info("← speak OK bytes=\(audio.count) words=\(answer.transcript.count)")
+            return SpokenLine(audio: audio, transcript: answer.transcript)
+        } catch let error as ClientError {
+            throw error
+        } catch {
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+
+    /// The same line, a clip at a time: the transcript first, then the
+    /// opening sentence's audio as soon as it exists, then the rest. The
+    /// voice starts on the first clip while the proxy is still making the
+    /// second, instead of waiting for one file of the whole answer.
+    func speakInClips(text: String, question: String, language: String, purpose: String) -> AsyncThrowingStream<SpeakEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    Log.llm.info("→ speak (clips) via proxy chars=\(text.count) lang=\(language) purpose=\(purpose)")
+                    let request = SpeakRequest(
+                        text: text,
+                        question: question,
+                        language: language,
+                        purpose: purpose,
+                        verbatim: false,
+                        stream: true
+                    )
+                    let body = try JSONEncoder().encode(ProxyEnvelope(kind: "speak", payload: request))
+                    let (bytes, response) = try await session.bytes(for: makeProxyRequest(body: body))
+                    guard let http = response as? HTTPURLResponse else {
+                        throw ClientError.decodingFailed("Non-HTTP response")
+                    }
+                    try throwIfGatedStatus(http)
+                    if http.statusCode >= 400 {
+                        throw await streamFailure(status: http.statusCode, bytes: bytes)
+                    }
+                    var clips = 0
+                    // Split on the newline byte only: `bytes.lines` also
+                    // breaks on U+2028/U+2029, which the proxy's JSON carries
+                    // raw when the script has one.
+                    var pending = Data()
+                    for try await byte in bytes {
+                        try Task.checkCancellation()
+                        guard byte == UInt8(ascii: "\n") else {
+                            pending.append(byte)
+                            continue
+                        }
+                        let data = pending
+                        pending = Data()
+                        guard !data.isEmpty else { continue }
+                        let event = try JSONDecoder().decode(SpeakClipLine.self, from: data)
+                        if let transcript = event.transcript, event.index == nil {
+                            continuation.yield(.transcript(transcript))
+                        } else if let audio = event.audio.flatMap({ Data(base64Encoded: $0) }), !audio.isEmpty {
+                            clips += 1
+                            continuation.yield(.clip(audio))
+                        } else {
+                            continuation.yield(.missing)
+                        }
+                    }
+                    Log.llm.info("← speak (clips) done clips=\(clips)")
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+private struct SpeakAnswer: Decodable {
+    let audio: String
+    let transcript: String
+}
+
+extension LLMProxyClient {
+    /// A short-lived credential for a live voice session: the client holds a
+    /// WebSocket to OpenAI's Realtime API directly with this, never the real
+    /// key — the one call in this file that hands the caller something it
+    /// then uses without the proxy in the loop for the rest of the exchange.
+    func mintRealtimeToken(language: String?, name: String? = nil) async throws -> RealtimeCredentials {
+        let bodyData = try JSONEncoder().encode(
+            ProxyEnvelope(kind: "realtime_token", payload: RealtimeTokenRequest(language: language, name: name))
+        )
+        Log.llm.info("→ realtime_token via proxy lang=\(language ?? "auto")")
+        let data = try await postToProxyWithRetry(body: bodyData)
+        do {
+            let answer = try JSONDecoder().decode(RealtimeTokenAnswer.self, from: data)
+            Log.llm.info("← realtime_token OK model=\(answer.model) voice=\(answer.voice)")
+            return RealtimeCredentials(clientSecret: answer.client_secret, model: answer.model, voice: answer.voice)
+        } catch let error as ClientError {
+            throw error
+        } catch {
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+}
+
+private struct RealtimeTokenRequest: Encodable {
+    let language: String?
+    let name: String?
+}
+
+private struct RealtimeTokenAnswer: Decodable {
+    let client_secret: String
+    let model: String
+    let voice: String
+}
+
+private struct DictationRequest: Encodable {
+    let model: String
+    let input_audio: TranscriptionRequest.InputAudio
+    let temperature: Double?
+    let response_format: String?
+}
+
 private struct TranscriptionRequest: Encodable {
     struct InputAudio: Encodable {
         let data: String
@@ -1263,6 +1613,17 @@ struct Transcription {
     let language: String?
 }
 
+struct SpokenLine {
+    let audio: Data
+    let transcript: String
+}
+
+struct RealtimeCredentials {
+    let clientSecret: String
+    let model: String
+    let voice: String
+}
+
 struct TranscriptionSegment {
     let text: String
     let avgLogprob: Double?
@@ -1285,12 +1646,24 @@ struct TranscriptionSegment {
 private struct ChatRequest: Encodable {
     struct Message: Encodable {
         let role: String
-        let content: String
+        /// nil on an assistant turn that only requested tools — the provider
+        /// rejects `""` there but accepts an absent field.
+        let content: String?
+        var tool_calls: [ChatToolCall]?
+        var tool_call_id: String?
+
+        init(role: String, content: String?, tool_calls: [ChatToolCall]? = nil, tool_call_id: String? = nil) {
+            self.role = role
+            self.content = content
+            self.tool_calls = tool_calls
+            self.tool_call_id = tool_call_id
+        }
     }
 
     let model: String
     let models: [String]?
     let messages: [Message]
+    var tools: [ChatToolPayload]?
     let provider: ProviderPreference?
     let response_format: ResponseFormat?
     let temperature: Double?
@@ -1332,7 +1705,10 @@ private struct ProviderPreference: Encodable {
 
 private struct ChatResponse: Decodable {
     struct Choice: Decodable {
-        struct Message: Decodable { let content: String }
+        struct Message: Decodable {
+            let content: String?
+        }
+
         let message: Message
     }
 
@@ -1343,10 +1719,65 @@ private struct ChatResponse: Decodable {
 /// terminal usage-only chunk and `delta.content` is nil on the role-priming
 /// first chunk — both decode cleanly and yield nothing.
 private struct StreamChunk: Decodable {
+    /// A tool call arrives split across chunks: the first carries `id` and the
+    /// function name, later ones append to `arguments` a few characters at a
+    /// time. `index` is what ties the fragments together when the model asks for
+    /// several at once.
+    struct ToolCallDelta: Decodable {
+        struct Function: Decodable {
+            let name: String?
+            let arguments: String?
+        }
+
+        let index: Int
+        let id: String?
+        let function: Function?
+    }
+
     struct Choice: Decodable {
-        struct Delta: Decodable { let content: String? }
+        struct Delta: Decodable {
+            let content: String?
+            let tool_calls: [ToolCallDelta]?
+        }
+
         let delta: Delta
     }
 
     let choices: [Choice]
+}
+
+/// Reassembles streamed tool-call fragments into whole calls.
+private struct ToolCallAccumulator {
+    private struct Partial {
+        var id = ""
+        var name = ""
+        var arguments = ""
+    }
+
+    private var byIndex: [Int: Partial] = [:]
+
+    mutating func absorb(_ deltas: [StreamChunk.ToolCallDelta]) {
+        for delta in deltas {
+            var partial = byIndex[delta.index] ?? Partial()
+            if let id = delta.id { partial.id = id }
+            if let name = delta.function?.name { partial.name = name }
+            if let arguments = delta.function?.arguments { partial.arguments += arguments }
+            byIndex[delta.index] = partial
+        }
+    }
+
+    /// Only calls that named a function survive — a fragment with arguments but
+    /// no name is a truncated stream, not a request we can honour.
+    func calls() -> [ChatToolCall] {
+        byIndex
+            .sorted { $0.key < $1.key }
+            .compactMap { _, partial in
+                guard !partial.name.isEmpty else { return nil }
+                return ChatToolCall(
+                    id: partial.id,
+                    type: "function",
+                    function: .init(name: partial.name, arguments: partial.arguments)
+                )
+            }
+    }
 }

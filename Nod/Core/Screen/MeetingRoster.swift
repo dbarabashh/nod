@@ -69,14 +69,24 @@ enum ConferencingApp: String, CaseIterable, Equatable {
         }
     }
 
+    /// One row per product. Teams ships two bundle ids for one client, and a
+    /// list that shows "Microsoft Teams" twice is a list nobody trusts.
+    static let products: [ConferencingApp] = {
+        var seen: Set<String> = []
+        return allCases.filter { seen.insert($0.displayName).inserted }
+    }()
+
+    /// Every bundle id this product ships under, so a choice made about the
+    /// product reaches all of them.
+    var bundleIDs: [String] {
+        Self.allCases.filter { $0.displayName == displayName }.map(\.rawValue)
+    }
+
     /// A browser is not a meeting — it merely contains one. Its other windows
     /// are the user's private browsing and must never be walked, so a browser
     /// is only ever read through a window whose title names a call.
     var isBrowser: Bool {
-        switch self {
-        case .chrome, .safari, .arc, .edge, .firefox, .brave: true
-        case .zoom, .teams, .teamsClassic, .webex, .slack, .discord: false
-        }
+        AccessibilityReader.isBrowser(bundleID: rawValue)
     }
 
     /// Bundle identifiers of helper processes that exist *only* while a call is
@@ -178,7 +188,7 @@ struct MeetingRosterReader {
             // A native app's window *is* the meeting. A browser's is a page
             // wrapped in a toolbar, a tab strip and the user's bookmarks, and
             // all three read as participants.
-            descendingInto: app.isBrowser ? "AXWebArea" : nil
+            descendingInto: app.isBrowser ? AccessibilityReader.webAreaRole : nil
         )
         let names = Self.participantNames(in: texts)
         guard !names.isEmpty else { return nil }

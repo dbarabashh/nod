@@ -3,7 +3,7 @@ import Supabase
 
 @MainActor
 final class ProductAnalytics: ObservableObject {
-    enum Event: String, Codable {
+    enum Event: String, Codable, CaseIterable {
         case appOpened = "app_opened"
         case captureStartRequested = "capture_start_requested"
         case captureStarted = "capture_started"
@@ -21,6 +21,54 @@ final class ProductAnalytics: ObservableObject {
         case allowanceGateAction = "allowance_gate_action"
         case referralLinkShared = "referral_link_shared"
         case emailConsentSaved = "email_consent_saved"
+        /// A product was linked or unlinked. Adoption of the thing a meeting is
+        /// no longer the only input to.
+        case integrationConnected = "integration_connected"
+        case integrationRevoked = "integration_revoked"
+        /// A live question was pointed at a connected product. Says whether the
+        /// integrations *answer*, which linking alone never showed.
+        case lookupRouted = "lookup_routed"
+        /// Somebody was shown what a write would do and said yes or no. The one
+        /// number that says whether the approval gate protects more than it
+        /// interrupts.
+        case toolCallReviewed = "tool_call_reviewed"
+        /// The screen-reading switch moved. Absence of `screen_observations` is
+        /// ambiguous — off, paused, blocklisted, or the Mac simply shut — and
+        /// only the transition tells them apart.
+        case ambientContextToggled = "ambient_context_toggled"
+        /// A commitment moved by a hand or a rule. The product after the
+        /// recording is this loop, and nothing else counts whether it turns.
+        case actionItemActed = "action_item_acted"
+        /// A beat was made, switched or removed; a report of one was read.
+        case beatChanged = "beat_changed"
+        case beatReportOpened = "beat_report_opened"
+        /// The recap's framing was changed by hand.
+        case modeChanged = "mode_changed"
+        /// A question went to memory, and how it was aimed: at a pinned
+        /// session, a project, the thread it continues, or everything.
+        case questionAsked = "question_asked"
+        /// An answer's source was opened — the one sign the excerpts were
+        /// worth reading, which the answer's length never says.
+        case answerSourceOpened = "answer_source_opened"
+        /// Something left the account for somebody else, or stopped.
+        case meetingShared = "meeting_shared"
+        case shareRevoked = "share_revoked"
+        case teamMemberInvited = "team_member_invited"
+        case inviteAccepted = "invite_accepted"
+        /// The Mac's own calendar was allowed or refused.
+        case calendarConnected = "calendar_connected"
+        /// "Record this one?" answered on Today, the cheapest way in.
+        case meetingAttendanceAnswered = "meeting_attendance_answered"
+        /// A failure the person saw. Sentry sees crashes; this sees the quiet
+        /// kind — a recap that never came, a sync that did not land.
+        case errorShown = "error_shown"
+        /// How the app is reached and for how long, beyond the fact of a launch.
+        case notchOpened = "notch_opened"
+        case hotkeyUsed = "hotkey_used"
+        case appSessionEnded = "app_session_ended"
+        /// The update row was taken up; a support tile was opened.
+        case updateInstallClicked = "update_install_clicked"
+        case supportOpened = "support_opened"
     }
 
     enum EntryPoint: String, Codable {
@@ -33,8 +81,6 @@ final class ProductAnalytics: ObservableObject {
         case notch
         case home
         case library
-        case quickCapture = "quick_capture"
-        case liveActivity = "live_activity"
         case meetingDetail = "meeting_detail"
         case ask
         case settings
@@ -44,7 +90,6 @@ final class ProductAnalytics: ObservableObject {
         case welcome
         case profile
         case permissions
-        case tutorial
         case consent
         case authentication
         case entitlement
@@ -56,22 +101,23 @@ final class ProductAnalytics: ObservableObject {
         case finalization
     }
 
-    enum ReasonCode: String, Codable {
+    enum ReasonCode: String, Codable, CaseIterable {
         case permissionDenied = "permission_denied"
         case entitlementRequired = "entitlement_required"
         case hoursExhausted = "hours_exhausted"
-        case vadUnavailable = "vad_unavailable"
         case audioStartFailed = "audio_start_failed"
         case interrupted
-        case routeChanged = "route_changed"
-        case transcriptionFailed = "transcription_failed"
-        case persistenceFailed = "persistence_failed"
         case userCancelled = "user_cancelled"
         case authenticationFailed = "authentication_failed"
+        case summaryFailed = "summary_failed"
+        case syncFailed = "sync_failed"
+        case integrationFailed = "integration_failed"
+        case creditsExhausted = "credits_exhausted"
+        case searchFailed = "search_failed"
         case unknown
     }
 
-    enum Surface: String, Codable {
+    enum Surface: String, Codable, CaseIterable {
         case onboarding
         case capture
         case home
@@ -81,6 +127,32 @@ final class ProductAnalytics: ObservableObject {
         case paywall
         case settings
         case share
+        case beats
+    }
+
+    /// The one bounded word an event may carry beyond its outcome: a beat's
+    /// cadence, a preset mode, how a question was aimed, who a share went to,
+    /// which hotkey, how long the app stayed open, which support tile. One
+    /// key rather than seven, so the validator and the dashboard read one
+    /// column; every value is a product word, never a person's.
+    enum Detail: String, Codable, CaseIterable {
+        case daily, weekdays, weekly, monthly
+        case general, interview
+        case salesCall = "sales_call"
+        case oneOnOne = "one_on_one"
+        case standup, custom
+        case pinned, project
+        case followUp = "follow_up"
+        case open
+        case link, team, organization
+        case togglePanel = "toggle_panel"
+        case askNod = "ask_nod"
+        case holdToAsk = "hold_to_ask"
+        case under1m = "under_1m"
+        case oneTo10m = "1_10m"
+        case tenTo60m = "10_60m"
+        case over1h = "over_1h"
+        case bug, feature
     }
 
     enum ContentType: String, Codable {
@@ -104,13 +176,26 @@ final class ProductAnalytics: ObservableObject {
         case summaryRegeneration = "summary_regeneration"
     }
 
-    enum Outcome: String, Codable {
+    enum Outcome: String, Codable, CaseIterable {
         case granted
         case declined
         case success
         case failure
         case cancelled
         case viewed
+        /// The product answered and had nothing. Distinct from `failure` on
+        /// purpose: "your Linear is quiet" and "your Linear is unreachable" are
+        /// opposite pieces of news, and a funnel that flattens them measures the
+        /// wrong thing to go and fix.
+        case empty
+        /// Never attempted — somebody in the room is not a colleague.
+        case refused
+        case enabled
+        case disabled
+        case paused
+        case done, reopened, delegated, asked, filed
+        case autoClosed = "auto_closed"
+        case created, deleted
     }
 
     struct Properties: Codable {
@@ -126,6 +211,11 @@ final class ProductAnalytics: ObservableObject {
         var outcome: Outcome?
         var plan: String?
         var billing: String?
+        /// Which connected product, as `IntegrationProvider.rawValue`. Bounded
+        /// by that enum and nothing else — never a URL, an account name, or a
+        /// workspace.
+        var provider: String?
+        var detail: Detail?
 
         init(
             sessionKind: String? = nil,
@@ -137,7 +227,9 @@ final class ProductAnalytics: ObservableObject {
             aiFeature: AIFeature? = nil,
             outcome: Outcome? = nil,
             plan: String? = nil,
-            billing: String? = nil
+            billing: String? = nil,
+            provider: String? = nil,
+            detail: Detail? = nil
         ) {
             self.sessionKind = sessionKind
             self.entryPoint = entryPoint
@@ -149,6 +241,8 @@ final class ProductAnalytics: ObservableObject {
             self.outcome = outcome
             self.plan = plan
             self.billing = billing
+            self.provider = provider
+            self.detail = detail
         }
 
         enum CodingKeys: String, CodingKey {
@@ -164,6 +258,8 @@ final class ProductAnalytics: ObservableObject {
             case outcome
             case plan
             case billing
+            case provider
+            case detail
         }
     }
 
@@ -196,6 +292,16 @@ final class ProductAnalytics: ObservableObject {
     private var deduplicationKeys: Set<String> = []
     private var isFlushing = false
     private var optOutHandler: (() -> Void)?
+
+    /// One for previews: no session, so nothing it records ever leaves.
+    static var preview: ProductAnalytics {
+        let client = SupabaseClient(supabaseURL: SupabaseConfig.url, supabaseKey: SupabaseConfig.anonKey)
+        return ProductAnalytics(
+            supabase: client,
+            auth: AuthService(client: client),
+            defaults: UserDefaults(suiteName: "preview") ?? .standard
+        )
+    }
 
     init(supabase: SupabaseClient, auth: AuthService, defaults: UserDefaults = .standard) {
         self.supabase = supabase

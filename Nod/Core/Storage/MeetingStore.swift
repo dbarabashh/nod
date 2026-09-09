@@ -27,12 +27,24 @@ final class MeetingStore: ObservableObject {
         case failed(String)
     }
 
+    /// Whether this launch has already put the welcome-session question to the
+    /// server. The server is the authority on whether one is owed; this only
+    /// keeps an empty account from asking on every silent refresh.
+    private var hasAskedForWelcomeSession = false
+
     @Published private(set) var meetings: [Meeting] = [] {
         didSet {
             byID = Dictionary(meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             digestKey = DigestKey(count: meetings.count, newest: meetings.first?.id)
+            hasSharedSessions = meetings.contains(where: isSharedWithMe)
         }
     }
+
+    /// Whether anybody else's session is in the loaded list, so the owner filter
+    /// can stay out of the way of an account working alone. Derived with the
+    /// list rather than in a `body`: for that solo account the scan never
+    /// short-circuits, and it would run on every keystroke of the search field.
+    @Published private(set) var hasSharedSessions = false
 
     /// Cheap identity of the loaded set, for the surfaces that re-derive when
     /// sessions are added or removed. They used to join every id into a string
@@ -112,6 +124,13 @@ final class MeetingStore: ObservableObject {
     ///      detached main-window retry toast.
     @Published private(set) var unsyncedMeetingIDs: Set<UUID> = []
 
+    /// Whether the server has this meeting yet. Anything that asks the backend
+    /// about a meeting — sharing it with a team, say — has to wait for the row
+    /// to exist, and the two sets below are what "not yet" looks like.
+    func isPersisted(_ meetingID: UUID) -> Bool {
+        !finalizingMeetingIDs.contains(meetingID) && !unsyncedMeetingIDs.contains(meetingID)
+    }
+
     /// The meeting currently being recorded, if any — `nil` once it ends.
     /// Mirrored from `MeetingSession.recordingDraft` so surfaces that only
     /// have `MeetingStore` in their environment (Sessions list) can tell a
@@ -130,8 +149,94 @@ final class MeetingStore: ObservableObject {
     @Published private(set) var streamingSummaries: [UUID: String] = [:]
 
     private let supabase: SupabaseClient
+    /// Counts links minted. Set by the composition root.
+    var analytics: ProductAnalytics?
     private static let tableName = "meetings"
+    private static let speakersTableName = "meeting_speakers"
+
+    /// Sessions this person has taken out of their own list. Somebody else's
+    /// work, still where its owner left it and still readable — just not here.
+    @Published private(set) var hiddenMeetingIDs: Set<UUID> = []
+
+    private static let hidesTableName = "meeting_hides"
+
+    /// Takes a shared session out of this account's list, on every device.
+    ///
+    /// Applied locally first: the row is the subject of the gesture. The server
+    /// refuses this for a session of your own — Trash is the mechanism for those,
+    /// and it is the one with a way back.
+    func hide(_ meeting: Meeting) async throws {
+        guard isSharedWithMe(meeting), let me = supabase.auth.currentUser?.id else { return }
+        struct Row: Encodable {
+            let user_id: UUID
+            let meeting_id: UUID
+        }
+        let wasHidden = hiddenMeetingIDs.contains(meeting.id)
+        hiddenMeetingIDs.insert(meeting.id)
+        do {
+            try await supabase
+                .from(Self.hidesTableName)
+                .upsert(Row(user_id: me, meeting_id: meeting.id), onConflict: "user_id,meeting_id")
+                .execute()
+        } catch {
+            if !wasHidden { hiddenMeetingIDs.remove(meeting.id) }
+            throw error
+        }
+        Log.ui.info("MeetingStore.hide id=\(meeting.id.uuidString)")
+    }
+
+    func unhide(_ meetingID: UUID) async throws {
+        guard let me = supabase.auth.currentUser?.id else { return }
+        let wasHidden = hiddenMeetingIDs.contains(meetingID)
+        hiddenMeetingIDs.remove(meetingID)
+        do {
+            try await supabase
+                .from(Self.hidesTableName)
+                .delete()
+                .eq("user_id", value: me.uuidString)
+                .eq("meeting_id", value: meetingID.uuidString)
+                .execute()
+        } catch {
+            if wasHidden { hiddenMeetingIDs.insert(meetingID) }
+            throw error
+        }
+        Log.ui.info("MeetingStore.unhide id=\(meetingID.uuidString)")
+    }
+
+    func isHidden(_ meeting: Meeting) -> Bool {
+        hiddenMeetingIDs.contains(meeting.id)
+    }
+
+    /// Re-read on every access poke: hiding on one device is a change the others
+    /// have to hear about, and it travels on the same `user:` topic.
+    func refreshHidden() async {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+        struct Row: Decodable { let meeting_id: UUID }
+        do {
+            let rows: [Row] = try await supabase
+                .from(Self.hidesTableName)
+                .select("meeting_id")
+                .execute()
+                .value
+            hiddenMeetingIDs = Set(rows.map(\.meeting_id))
+        } catch {
+            Log.ui.error("MeetingStore.refreshHidden failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Whether a session reached this list through a folder somebody shared,
+    /// rather than by being recorded here. Row-level security started returning
+    /// other people's sessions the moment sharing existed, and a list that mixes
+    /// them in silently is a list that misleads about who was in the room.
+    func isSharedWithMe(_ meeting: Meeting) -> Bool {
+        guard let me = supabase.auth.currentUser?.id else { return false }
+        return meeting.userID != me
+    }
+
     private static let transcriptsTableName = "meeting_transcripts"
+    private static let liveFindingsTableName = "meeting_live_findings"
 
     /// In-flight guard for `refresh()`. Set unconditionally at entry so
     /// concurrent silent refreshes (when `loadState` stays `.loaded`)
@@ -139,6 +244,10 @@ final class MeetingStore: ObservableObject {
     /// fired for the first non-cached fetch, letting subsequent silent
     /// refreshes race each other on every NavigationStack pop.
     private var isFetching: Bool = false
+    private var refetchRequested: Bool = false
+    private var isFetchingTrash: Bool = false
+    private var refetchTrashRequested: Bool = false
+    private var queuedTrashIsSilent: Bool = true
 
     /// Timestamp of the last successful server fetch. Used by `refresh()`
     /// to throttle silent refreshes: `.task` re-fires on every
@@ -372,6 +481,46 @@ final class MeetingStore: ObservableObject {
     /// exist by the time the row is written. This is the other case: clustering
     /// overran, the row landed unnamed minutes ago, and the names can only be
     /// patched in.
+    /// Point a session at a calendar entry, by hand.
+    ///
+    /// The automatic path is the server's: `_stamp_lease_identity` derives the
+    /// identity from a device lease and its value always beats a client's. This
+    /// writes the one case that leaves — a session the lease never identified,
+    /// which is exactly the session a person is looking at when they reach for
+    /// a picker. Where the server knows better it keeps knowing better, and the
+    /// pick is quietly ignored rather than fought over.
+    func link(_ meetingID: UUID, toCalendarEvent externalID: String?) async throws {
+        Log.ui.info("MeetingStore.link id=\(meetingID.uuidString) event=\(externalID != nil)")
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+        struct Patch: Encodable {
+            let icalUID: String?
+
+            enum CodingKeys: String, CodingKey {
+                case icalUID = "ical_uid"
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                if let icalUID {
+                    try container.encode(icalUID, forKey: .icalUID)
+                } else {
+                    try container.encodeNil(forKey: .icalUID)
+                }
+            }
+        }
+        try await supabase
+            .from(Self.tableName)
+            .update(Patch(icalUID: externalID))
+            .eq("id", value: meetingID.uuidString)
+            .execute()
+
+        if let index = meetings.firstIndex(where: { $0.id == meetingID }) {
+            meetings[index].icalUID = externalID
+        }
+    }
+
     func updateSpeakerNames(_ names: [String: String], for meetingID: UUID) async throws {
         guard !names.isEmpty else { return }
         Log.ui.info("MeetingStore.updateSpeakerNames id=\(meetingID.uuidString) count=\(names.count)")
@@ -397,6 +546,124 @@ final class MeetingStore: ObservableObject {
         }
     }
 
+    /// Records which voice was whose, beside the names the transcript draws.
+    ///
+    /// Best-effort and never in anybody's way: the meeting, its transcript and
+    /// its names are already saved by the time this runs, and a failure costs
+    /// the ability to assign work to a speaker later — not anything the user is
+    /// currently looking at. Throwing here would turn a bookkeeping problem into
+    /// a visible one.
+    func recordSpeakers(_ speakers: [MeetingSpeaker], for meetingID: UUID) async {
+        guard !speakers.isEmpty else { return }
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+
+        struct Row: Encodable {
+            let meetingID: UUID
+            let cluster: Int
+            let personID: UUID?
+            let displayName: String?
+            let confidence: Double
+            let decidedBy: String
+
+            enum CodingKeys: String, CodingKey {
+                case meetingID = "meeting_id"
+                case cluster
+                case personID = "person_id"
+                case displayName = "display_name"
+                case confidence
+                case decidedBy = "decided_by"
+            }
+        }
+
+        do {
+            try await supabase
+                .from(Self.speakersTableName)
+                .upsert(
+                    speakers.map {
+                        Row(
+                            meetingID: meetingID,
+                            cluster: $0.cluster,
+                            personID: $0.personID,
+                            displayName: $0.displayName,
+                            confidence: $0.confidence,
+                            decidedBy: $0.decidedBy.rawValue
+                        )
+                    },
+                    onConflict: "meeting_id,cluster"
+                )
+                .execute()
+            Log.stt.info("diarization: recorded \(speakers.count) speaker attribution(s)")
+        } catch {
+            Log.stt.error("diarization: recording speakers failed — \(error.localizedDescription)")
+        }
+    }
+
+    func speakers(forMeeting meetingID: UUID) async -> [MeetingSpeaker] {
+        #if DEBUG
+            if DemoMode.isEnabled { return [] }
+        #endif
+        do {
+            return try await supabase
+                .from(Self.speakersTableName)
+                .select("cluster, person_id, display_name, confidence, decided_by")
+                .eq("meeting_id", value: meetingID.uuidString)
+                .execute()
+                .value
+        } catch {
+            Log.ui.error("MeetingStore.speakers failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    /// The user answering "who was that".
+    ///
+    /// Goes through `confirm_speaker` rather than two writes, because the
+    /// structured row and the `speaker_names` map the transcript reads have to
+    /// move together — the server does both or neither. Passing no person
+    /// clears the naming entirely.
+    func confirmSpeaker(
+        cluster: Int,
+        personID: UUID?,
+        name: String?,
+        for meetingID: UUID
+    ) async -> Bool {
+        #if DEBUG
+            if DemoMode.isEnabled { return false }
+        #endif
+        struct Params: Encodable {
+            let p_meeting: UUID
+            let p_cluster: Int
+            let p_person: UUID?
+            let p_name: String?
+        }
+        do {
+            _ = try await supabase
+                .rpc(
+                    "confirm_speaker",
+                    params: Params(p_meeting: meetingID, p_cluster: cluster, p_person: personID, p_name: name)
+                )
+                .execute()
+            // Mirrors what the function just did to the row, so the transcript
+            // relabels without a refetch.
+            if let idx = meetings.firstIndex(where: { $0.id == meetingID }) {
+                var names = meetings[idx].speakerNames ?? [:]
+                if let name, !name.isEmpty {
+                    names["\(cluster)"] = name
+                } else {
+                    names.removeValue(forKey: "\(cluster)")
+                }
+                meetings[idx].speakerNames = names.isEmpty ? nil : names
+            }
+            Log.ui.info("speaker confirmed cluster=\(cluster) meeting=\(meetingID.uuidString)")
+            return true
+        } catch {
+            Log.ui.error("MeetingStore.confirmSpeaker failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     /// Recently-ended meetings whose recap never landed, for the launch retry.
     /// `recap_json IS NULL` narrows the scan server-side; the caller still has
     /// to match the placeholder summaries, because a meeting streamed
@@ -410,6 +677,7 @@ final class MeetingStore: ObservableObject {
             .select()
             .is("recap_json", value: nil)
             .is("deleted_at", value: nil)
+            .is("merged_into", value: nil)
             .gte("ended_at", value: ISO8601DateFormatter().string(from: since))
             .order("ended_at", ascending: false)
             .limit(limit)
@@ -449,6 +717,43 @@ final class MeetingStore: ObservableObject {
                 .from(Self.transcriptsTableName)
                 .upsert(deduped.map { $0.droppingSpeaker() }, onConflict: "meeting_id,idx")
                 .execute()
+        }
+    }
+
+    /// What a listener's Notes read while this meeting is being recorded.
+    ///
+    /// Unconditional rather than gated on somebody actually listening, for the
+    /// same reason `upsertTranscript` is: the transcript already streams up
+    /// during the call whether or not anyone reads it, so a finding is not a new
+    /// category of thing to be holding. Gating would mean this object knowing
+    /// about `RoomListenerService`, and a race the first listener always loses.
+    ///
+    /// Every finding, not just the one that changed. The cost is a few kilobytes
+    /// an hour, and it buys the property that matters here: because this call
+    /// swallows its own failures, each successful write repairs every write that
+    /// silently failed before it. A delta would leave a dropped finding missing
+    /// from the listener's Notes for the rest of the meeting.
+    ///
+    /// Best-effort, and silent on failure by design. A listener's Notes going
+    /// blank is a worse outcome than nothing only for the listener; the person
+    /// recording must not lose so much as a log line's worth of attention over
+    /// it, and an environment without the table — it arrives with
+    /// `20260816260000` — simply has nothing to show.
+    func mirrorLiveFindings(_ findings: [LiveFinding]) async {
+        guard let meetingID = recordingMeetingID, !findings.isEmpty else { return }
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+        do {
+            try await supabase
+                .from(Self.liveFindingsTableName)
+                .upsert(
+                    findings.map { LiveFindingRow($0, meetingID: meetingID) },
+                    onConflict: "meeting_id,id"
+                )
+                .execute()
+        } catch {
+            Log.ui.error("MeetingStore.mirrorLiveFindings failed: \(error.localizedDescription)")
         }
     }
 
@@ -522,6 +827,79 @@ final class MeetingStore: ObservableObject {
     /// opaque token (reusing the meeting's existing live share if there is
     /// one — so the same meeting always yields a stable link), and the viewer
     /// reads only the summary back through that token. The link is revocable.
+    /// Tells the server this recording is still running.
+    ///
+    /// On the session's own clock rather than on the transcript's: chunks only
+    /// exist while somebody is speaking, and a meeting is no less live for a
+    /// quiet stretch. See `touch_meeting_lease`.
+    func touchLease(meetingID: UUID) async {
+        struct Params: Encodable { let p_meeting: UUID }
+        do {
+            _ = try await supabase
+                .rpc("touch_meeting_lease", params: Params(p_meeting: meetingID))
+                .execute()
+        } catch {
+            // Best-effort: a missed beat costs the room a moment of visibility,
+            // never the recording.
+            Log.ui.error("lease heartbeat failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Somebody else in the organization recorded the same meeting.
+    ///
+    /// Both sides keep their own recording — two microphones hear different
+    /// halves of a room, and neither copy is the canonical one. This only asks
+    /// the question; `merge(_:into:)` is what a person answering it calls.
+    func sameMeetingCandidates(for meetingID: UUID) async -> [SameMeeting] {
+        guard !isSomebodyElses(meetingID) else { return [] }
+        async let mine = matches(from: "my_earlier_recording", for: meetingID)
+        async let others = matches(from: "same_meeting_in_org", for: meetingID)
+        // Your own first: rejoining a call is the commoner event and the more
+        // confusing one to find filed as two meetings.
+        return await mine.map { var match = $0; match.isMine = true; return match } + others
+    }
+
+    /// Whether this session is known to belong to somebody else.
+    ///
+    /// Both matchers anchor on a recording of the caller's own — they answer
+    /// "is anyone else holding the meeting *I* recorded" — and raise `that
+    /// meeting is not yours` for anything else. A session shared by a colleague
+    /// therefore logged two authorization errors every time it was opened, for
+    /// a question that could not have applied to it.
+    ///
+    /// Only when we positively know. A meeting missing from the local list is
+    /// asked about as before and the server decides; guessing "not mine" from
+    /// an incomplete list would switch the feature off on real sessions.
+    private func isSomebodyElses(_ meetingID: UUID) -> Bool {
+        guard let owner = meetings.first(where: { $0.id == meetingID })?.userID,
+              let me = supabase.auth.currentSession?.user.id
+        else { return false }
+        return owner != me
+    }
+
+    private func matches(from rpc: String, for meetingID: UUID) async -> [SameMeeting] {
+        struct Params: Encodable { let p_meeting: UUID }
+        do {
+            return try await supabase
+                .rpc(rpc, params: Params(p_meeting: meetingID))
+                .execute()
+                .value
+        } catch {
+            Log.ui.error("\(rpc) failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    func merge(_ source: UUID, into target: UUID) async throws {
+        struct Params: Encodable {
+            let p_source: UUID
+            let p_target: UUID
+        }
+        try await supabase
+            .rpc("merge_meeting", params: Params(p_source: source, p_target: target))
+            .execute()
+    }
+
     func createShareURL(for meeting: Meeting) async throws -> URL {
         Log.ui.info("MeetingStore.createShareURL meeting=\(meeting.id.uuidString)")
         #if DEBUG
@@ -544,6 +922,7 @@ final class MeetingStore: ObservableObject {
         guard let url = URL(string: "\(Self.shareViewerBaseURL)/share/\(token.uuidString.lowercased())") else {
             throw URLError(.badURL)
         }
+        analytics?.record(.meetingShared, properties: .init(surface: .share, detail: .link))
         return url
     }
 
@@ -573,10 +952,21 @@ final class MeetingStore: ObservableObject {
         struct Params: Encodable {
             let meeting_id: UUID
         }
-        try await supabase
-            .rpc("soft_delete_meeting", params: Params(meeting_id: meeting.id))
-            .execute()
+        // Refused here as well as by the server. `soft_delete_meeting` now says
+        // so rather than reporting success on zero rows, but the optimistic
+        // removal below would still take the row off screen for the length of a
+        // round trip — a flinch on a session that was never going to move.
+        guard !isSharedWithMe(meeting) else { throw DeleteError.notYours }
 
+        // Off the list before the call, and back on it if the call fails. The
+        // row is the subject of the gesture, so the round trip is the one delay
+        // there is no hiding.
+        //
+        // One row each way, never a snapshot of the whole array: an access poke
+        // can complete a full `refresh` during the await, and restoring a list
+        // captured before it would revert every unrelated row that arrived or
+        // left in the meantime.
+        let wasListed = meetings.contains { $0.id == meeting.id }
         meetings.removeAll { $0.id == meeting.id }
         if case .loaded = trashState {
             // The trash-list copy carries a client-side `deletedAt` for
@@ -584,6 +974,19 @@ final class MeetingStore: ObservableObject {
             // overwrites with the server-stamped value.
             trashedMeetings.insert(trashed(meeting), at: 0)
         }
+        do {
+            try await supabase
+                .rpc("soft_delete_meeting", params: Params(meeting_id: meeting.id))
+                .execute()
+        } catch {
+            trashedMeetings.removeAll { $0.id == meeting.id }
+            if wasListed, !meetings.contains(where: { $0.id == meeting.id }) {
+                meetings.append(meeting)
+                meetings.sort { $0.startedAt > $1.startedAt }
+            }
+            throw error
+        }
+
         pendingUndo = meeting
         onTrashChange.fire()
     }
@@ -625,6 +1028,17 @@ final class MeetingStore: ObservableObject {
         onTrashChange.fire()
     }
 
+    /// Somebody else's session, reached through a folder they shared. Readable,
+    /// never writable — the row-level policies on `meetings` scope both UPDATE
+    /// and DELETE to the owner, so every write path here refuses the same way.
+    enum DeleteError: LocalizedError {
+        case notYours
+
+        var errorDescription: String? {
+            "This session belongs to whoever recorded it. Only they can delete it."
+        }
+    }
+
     enum HardDeleteError: Error {
         /// Refused because `id` is the meeting `recordingMeetingID` currently
         /// points at. Enforced here, not only by the UI that disables "Delete
@@ -639,6 +1053,10 @@ final class MeetingStore: ObservableObject {
     /// "Delete Forever" + the nightly pg_cron purge.
     func hardDelete(_ id: UUID) async throws {
         guard id != recordingMeetingID else { throw HardDeleteError.recordingInProgress }
+        if let meeting = meetings.first(where: { $0.id == id }) ?? trashedMeetings.first(where: { $0.id == id }),
+           isSharedWithMe(meeting) {
+            throw DeleteError.notYours
+        }
         Log.ui.info("MeetingStore.hardDelete id=\(id.uuidString)")
         #if DEBUG
             if DemoMode.isEnabled {
@@ -661,6 +1079,36 @@ final class MeetingStore: ObservableObject {
         onTrashChange.fire()
     }
 
+    /// The nightly purge, run now, for this account only. The server filters
+    /// by `deleted_at` rather than by the rows this client happens to have
+    /// loaded, so a session trashed on another device goes with the rest.
+    func emptyTrash() async throws {
+        Log.ui.info("MeetingStore.emptyTrash loaded=\(trashedMeetings.count)")
+        #if DEBUG
+            if DemoMode.isEnabled {
+                trashedMeetings.removeAll { $0.id != recordingMeetingID }
+                if pendingUndo?.id != recordingMeetingID { pendingUndo = nil }
+                onTrashChange.fire()
+                return
+            }
+        #endif
+        var query = supabase
+            .from(Self.tableName)
+            .delete(returning: .minimal)
+            .not("deleted_at", operator: .is, value: "null")
+        if let recordingMeetingID {
+            query = query.neq("id", value: recordingMeetingID.uuidString)
+        }
+        try await query.execute()
+
+        trashedMeetings.removeAll { $0.id != recordingMeetingID }
+        if pendingUndo?.id != recordingMeetingID { pendingUndo = nil }
+        onTrashChange.fire()
+        // A silent fetch started before the delete can land after it and put
+        // the rows back; queueing behind it reads the post-delete state.
+        await refreshTrash(silent: true)
+    }
+
     /// Dismiss the Undo toast without acting on it (user clicked the X
     /// or the 5s window elapsed). The meeting stays in Trash.
     func dismissUndo() {
@@ -669,19 +1117,47 @@ final class MeetingStore: ObservableObject {
 
     /// Fetches the user's soft-deleted meetings, newest-trashed first.
     /// Lazy — only runs when the Trash segment is opened.
-    func refreshTrash() async {
+    ///
+    /// `silent` is for the refreshes nobody asked for: an access poke saying
+    /// another device trashed something. Those must not flip to `.loading`,
+    /// which would swap the list somebody is reading for a spinner, and must not
+    /// flip to `.failed`, which would replace it with an error screen over a
+    /// dropped packet. A refresh the user pressed a button for keeps both.
+    func refreshTrash(silent: Bool = false) async {
         #if DEBUG
             if DemoMode.isEnabled {
                 trashState = .loaded
                 return
             }
         #endif
-        if case .loading = trashState {
-            Log.ui.info("MeetingStore.refreshTrash skipped — already in flight")
+        // Its own flag rather than `trashState`: a silent refresh leaves the
+        // state on `.loaded` for its whole duration, so a state-based guard
+        // would let every concurrent call through and let the slowest response
+        // win over a newer one.
+        if isFetchingTrash {
+            refetchTrashRequested = true
+            // The queued run takes the *loudest* intent of everyone waiting: a
+            // reload somebody pressed, queued behind a poke's silent refresh,
+            // has to be allowed to show them that it failed.
+            queuedTrashIsSilent = queuedTrashIsSilent && silent
+            Log.ui.info("MeetingStore.refreshTrash queued behind the one in flight")
             return
         }
-        Log.ui.info("MeetingStore.refreshTrash starting")
-        trashState = .loading
+        isFetchingTrash = true
+        defer { isFetchingTrash = false }
+        var quietRun = silent
+        repeat {
+            refetchTrashRequested = false
+            queuedTrashIsSilent = true
+            await fetchTrash(silent: quietRun)
+            quietRun = queuedTrashIsSilent
+        } while refetchTrashRequested
+    }
+
+    private func fetchTrash(silent: Bool) async {
+        let quiet = silent && { if case .loaded = trashState { true } else { false } }()
+        Log.ui.info("MeetingStore.refreshTrash starting (silent=\(quiet))")
+        if !quiet { trashState = .loading }
         do {
             let rows: [Meeting] = try await supabase
                 .from(Self.tableName)
@@ -696,8 +1172,50 @@ final class MeetingStore: ObservableObject {
             Log.ui.info("MeetingStore.refreshTrash loaded \(rows.count) trashed meetings")
         } catch {
             Log.ui.error("MeetingStore.refreshTrash failed: \(error.localizedDescription)")
-            trashState = .failed(error.localizedDescription)
+            if !quiet { trashState = .failed(error.localizedDescription) }
         }
+    }
+
+    /// The trash, but only for somebody who is looking at it.
+    ///
+    /// A session trashed on another device lands here rather than in `meetings`,
+    /// so the access poke has to re-ask for both — and re-asking for a pane
+    /// nobody has opened would spend a round trip to fill a cache that
+    /// `refreshTrash` fills on arrival anyway.
+    /// Gives a brand-new account one session to open.
+    ///
+    /// Asked of the server, which is the only thing that can answer it: it
+    /// seeds only into an account that has never had a session — deleted ones
+    /// included — so two Macs signing in the same morning produce one sample,
+    /// and somebody who cleared their list is not handed it back.
+    ///
+    /// Once per launch. The guard is the server's, and this one only stops an
+    /// account that genuinely has nothing from spending a round trip on every
+    /// silent refresh.
+    private func seedWelcomeSessionIfNeeded() async {
+        guard meetings.isEmpty, !hasAskedForWelcomeSession else { return }
+        hasAskedForWelcomeSession = true
+        do {
+            let seeded: UUID? = try await supabase
+                .rpc("seed_welcome_session")
+                .execute()
+                .value
+            guard let seeded else { return }
+            Log.ui.info("MeetingStore seeded welcome session \(seeded.uuidString)")
+            // Re-read rather than composing the row here: what the server wrote
+            // is what every other surface will read, and a client-built copy of
+            // it would be a second answer to the same question.
+            await refresh(force: true)
+        } catch {
+            // A first launch with no sample is a worse empty state, not a
+            // broken one — and the next launch asks again.
+            Log.ui.error("MeetingStore.seedWelcomeSession failed: \(error.localizedDescription)")
+        }
+    }
+
+    func refreshTrashIfLoaded() async {
+        guard case .loaded = trashState else { return }
+        await refreshTrash(silent: true)
     }
 
     /// Server rows plus any local drafts still mid-generation — they aren't
@@ -761,6 +1279,7 @@ final class MeetingStore: ObservableObject {
         generatingSummaryIDs = []
         finalizingMeetingIDs = []
         unsyncedMeetingIDs = []
+        hiddenMeetingIDs = []
         streamingSummaries = [:]
     }
 
@@ -773,6 +1292,9 @@ final class MeetingStore: ObservableObject {
     /// Use `force: true` for explicit user-initiated retries (toolbar
     /// reload button, "Couldn't sync" warning chip); leave the default
     /// for `.task`-driven auto-refreshes that should be throttled.
+    ///
+    /// A call arriving mid-fetch is queued rather than dropped — the query
+    /// already running was issued before whatever the new call needs to see.
     func refresh(force: Bool = false) async {
         #if DEBUG
             if DemoMode.isEnabled {
@@ -789,12 +1311,20 @@ final class MeetingStore: ObservableObject {
         // those) AND silent refresh (loadState stays .loaded and the
         // old check would have let concurrent calls through).
         if isFetching {
-            Log.ui.info("MeetingStore.refresh skipped — already in flight")
+            // Remembered, not dropped — but only when the caller asked for it.
+            // The query already running was issued before the change a `force`
+            // caller is here to see (an access poke, a manual retry), so
+            // answering it with "a fetch is in flight" leaves the deleted row on
+            // screen until something else happens to ask again. A `.task`
+            // re-firing on a navigation pop wants no such thing; it is the
+            // caller the 30-second throttle exists for, and queueing it would
+            // spend a second 500-row round trip to learn nothing.
+            if force { refetchRequested = true }
+            Log.ui.info("MeetingStore.refresh in flight (queued=\(force))")
             return
         }
 
         let hadLoadedCache = if case .loaded = loadState { true } else { false }
-
         // Throttle silent refreshes. `.task` re-fires on every
         // NavigationStack pop; if the cache is < 30s old it's basically
         // fresh and the 500-row round trip is wasteful. Initial fetch
@@ -809,6 +1339,14 @@ final class MeetingStore: ObservableObject {
 
         isFetching = true
         defer { isFetching = false }
+        repeat {
+            refetchRequested = false
+            await fetchMeetings()
+        } while refetchRequested
+    }
+
+    private func fetchMeetings() async {
+        let hadLoadedCache = if case .loaded = loadState { true } else { false }
 
         // Silent refresh when we already have a loaded cache: don't flip
         // to .loading (which would show the spinner and blank the list
@@ -836,6 +1374,10 @@ final class MeetingStore: ObservableObject {
                 .from(Self.tableName)
                 .select()
                 .is("deleted_at", value: nil)
+                // A recording filed into another one is no longer a meeting of
+                // its own. The transcript stays readable under the row it was
+                // captured in; the list shows the meeting, not the recordings.
+                .is("merged_into", value: nil)
                 .order("started_at", ascending: false)
                 .limit(500)
                 .execute()
@@ -846,11 +1388,20 @@ final class MeetingStore: ObservableObject {
                 meetings.filter { unsyncedMeetingIDs.contains($0.id) }.map { ($0.id, $0) },
                 uniquingKeysWith: { current, _ in current }
             )
+            let previousIDs = Set(meetings.map(\.id))
             meetings = Self.merging(rows: rows, drafts: drafts, localAuthoritative: authoritative)
+            // A session that vanished between two refreshes was trashed or
+            // unshared somewhere else, and the retrieval cache is keyed only on
+            // query text — it cannot notice that by itself, and would go on
+            // answering out of a session this account can no longer read.
+            if !previousIDs.isSubset(of: Set(meetings.map(\.id))) {
+                onTrashChange.fire()
+            }
             loadState = .loaded
             lastSuccessfulFetchAt = Date()
             lastRefreshFailed = false
             Log.ui.info("MeetingStore.refresh loaded \(rows.count) meetings (+ \(drafts.count) drafts)")
+            await seedWelcomeSessionIfNeeded()
         } catch {
             if hadLoadedCache {
                 Log.ui.error("MeetingStore.refresh failed (keeping cache): \(error.localizedDescription)")
@@ -864,6 +1415,72 @@ final class MeetingStore: ObservableObject {
                 loadState = .failed(error.localizedDescription)
                 lastRefreshFailed = true
             }
+        }
+    }
+}
+
+/// A colleague recording the meeting you just started recording.
+///
+/// Reported, never enforced. Two people wanting their own notes from one
+/// conversation is a legitimate thing to want, and the only thing Nod is in a
+/// position to add is that they know about each other.
+struct ConcurrentRecording: Equatable, Decodable {
+    let ownerName: String
+    let startedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case ownerName = "owner_name"
+        case startedAt = "started_at"
+    }
+}
+
+extension MeetingStore {
+    /// Whether somebody in the same organization is already recording this
+    /// meeting, as the server sees it.
+    ///
+    /// Answers nil for everyone the question cannot apply to — no organization,
+    /// no calendar connected, nothing identifying the meeting — which is most
+    /// recordings, so this stays quiet rather than explaining itself.
+    func concurrentRecording(for meetingID: UUID) async -> ConcurrentRecording? {
+        struct Params: Encodable {
+            let p_meeting: UUID
+        }
+        do {
+            let rows: [ConcurrentRecording] = try await supabase
+                .rpc("concurrent_recording", params: Params(p_meeting: meetingID))
+                .execute()
+                .value
+            return rows.first
+        } catch {
+            // A question nobody asked for. Failing it is not worth a toast.
+            Log.ui.error("MeetingStore.concurrentRecording failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Offers the on-device calendar's view of which meeting this is.
+    ///
+    /// Sends the invitation's own identifier and its join link as written; the
+    /// server derives the room key, so the two calendar sources cannot reduce
+    /// one Zoom link to two different rooms. Ignored when the server already
+    /// identified the meeting from a connected calendar.
+    func offerLeaseIdentity(meetingID: UUID, externalID: String?, conferenceURL: URL?) async {
+        guard externalID != nil || conferenceURL != nil else { return }
+        struct Params: Encodable {
+            let p_meeting: UUID
+            let p_ical_uid: String?
+            let p_conference_url: String?
+        }
+        do {
+            _ = try await supabase
+                .rpc("set_lease_identity", params: Params(
+                    p_meeting: meetingID,
+                    p_ical_uid: externalID,
+                    p_conference_url: conferenceURL?.absoluteString
+                ))
+                .execute()
+        } catch {
+            Log.ui.error("MeetingStore.offerLeaseIdentity failed: \(error.localizedDescription)")
         }
     }
 }

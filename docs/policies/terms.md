@@ -1,19 +1,19 @@
 # Terms of Service
 
-_Last updated: 2026-08-11_
+_Last updated: 2026-09-06_
 
-_The Starter top-up and referral/advocacy provisions below are advance notice.
-They take effect only when those offers are switched on for new purchases; the
-prices and plans described on the pricing page remain the ones in force._
+_The provisions below on included allowances and packs, integration credits,
+the Teams plan, and referral/advocacy rewards are **advance notice**. They take
+effect only when that catalogue is switched on for new purchases; until then the
+prices and plans described on the pricing page remain the ones in force, and a
+subscription bought before the change keeps the hours it was sold with._
 
-> **Nod is operated by Dima Barabash**, an individual, not an incorporated
-> company. Paid subscriptions are sold through **Paddle**, which acts as
-> our Merchant of Record. These Terms describe how Nod works today; we'll
+> Paid subscriptions are sold through **Paddle**, which acts as our
+> Merchant of Record. These Terms describe how Nod works today; we'll
 > re-notify you of any material change.
 
 Welcome to Nod. These Terms of Service ("Terms") are the agreement between
-you ("you", "your") and **Dima Barabash**, the individual
-operating Nod ("Nod", "we", "us") that governs your
+you ("you", "your") and **Nod** ("Nod", "we", "us") that governs your
 use of the Nod macOS app, the related services hosted at `hellonod.app`, and
 anything else we offer (the "Service").
 
@@ -47,6 +47,13 @@ for the full picture.
 
 We can change, suspend, or discontinue features at any time. We'll give
 reasonable notice for material reductions in functionality.
+
+The macOS app checks for updates automatically and installs them when you
+quit it. You can also check from the menu-bar item, and a build that is
+waiting is shown in the app's sidebar. Some updates are required: our servers
+publish a minimum build, and a version below it cannot start a recording or
+reach the AI features until it is updated. What an update check sends is
+described in the [Privacy Policy](./privacy.md) § 3.17.
 
 ## 3. Your responsibility to obtain consent
 
@@ -118,12 +125,13 @@ fit for any particular purpose. The output is provided "as is".
 
 ## 7. Pricing, billing, refunds
 
-Nod offers paid subscriptions (Starter and Pro) alongside a 14-day free
-trial. Pricing, the billing cycle, and the features included are shown in
-the app and at `hellonod.app/pricing` before you subscribe.
+Nod offers paid subscriptions (Starter and Pro for one person, Teams for an
+organization) alongside a 14-day free trial. Pricing, the billing cycle, and
+the features and allowances included are shown in the app and at
+`hellonod.app/pricing` before you subscribe.
 
-- Your subscription is sold by **Dima Barabash** (the individual operating
-  Nod) through **Paddle.com Market Limited**, which acts as our **Merchant
+- Your subscription is sold by **Nod** through **Paddle.com Market
+  Limited**, which acts as our **Merchant
   of Record**. Paddle is the seller on record for the transaction and
   handles payment processing, VAT/sales tax, invoicing, and refunds.
 - Subscriptions auto-renew at the end of each billing period. You can
@@ -142,19 +150,54 @@ the app and at `hellonod.app/pricing` before you subscribe.
   what you are charged, and Paddle remits any VAT/GST due for your
   location out of it.
 
-### Extra meeting hours on Starter
+### Included allowances and packs
 
-Starter includes the monthly meeting allowance shown before you buy. If you use
-it up, you may **explicitly** buy a five-hour top-up at the price shown at
-checkout. A top-up:
+Every paid plan includes two monthly allowances, both shown before you buy:
+**capture hours** and **integration credits** (see the next section). If you
+use one up, you may **explicitly** buy a pack at the price shown at checkout —
+extra hours on Starter and Pro, extra integration credits on any paid plan. A
+pack:
 
 - is a one-off purchase and never renews by itself;
-- can be bought more than once in the same month;
-- applies to the billing month you bought it in and does not roll over;
+- can be bought more than once in the same period;
+- applies to the billing period you bought it in and does not roll over;
 - is never charged automatically, and never interrupts a meeting in progress.
 
-Nod does not meter you into an overage charge. When the allowance is gone, the
-app offers a top-up or Pro and waits for you to choose.
+Nod does not meter you into an overage charge. When an allowance is gone, the
+app tells you, offers a pack or a larger plan, and waits for you to choose.
+Until you do, a new capture cannot start (a capture already running is never cut
+off) or, for credits, Nod stops reading your connected tools and answers from
+what it already knows.
+
+### Integration credits
+
+An integration credit is spent each time Nod **reads** a product you connected
+because you asked it to in chat — searching your issues, reading a page, a
+thread, a message or a document. Each such read is one request our servers make
+through our integration provider, and the credit is what pays for it.
+
+The following never spend a credit: anything Nod **writes** on your instruction
+(filing an issue, posting a message, saving a draft, exporting notes), the
+app's own bounded reads that keep its screens current (your calendar, the status
+of tickets it filed, the people and channels a form offers you), and every
+question about your own memory in Nod.
+
+Credits refill at the start of each billing period. On Teams the credits of all
+seats form one pool shared by everyone the workspace covers. We never charge you
+for a credit you did not buy: at zero, reads pause until the period refills or
+someone entitled to buys a pack.
+
+### Teams
+
+Teams is bought by an organization for its members, per seat, with the minimum
+number of seats shown at checkout, by one of its owners or administrators.
+Members are covered in the order they joined, up to the number of seats; a
+member beyond that count keeps whatever plan they hold themselves. Everyone
+covered shares one pool of capture hours and one pool of integration credits.
+Owners and administrators can see who is covered, change seats, buy packs for
+the workspace, and cancel; a member who leaves the organization stops being
+covered at that moment. A person covered by a workspace does not need a plan of
+their own and is not sold one.
 
 ### Referral and advocacy rewards
 
@@ -183,9 +226,12 @@ by Paddle.
 
 ### Fair use on unlimited plans
 
-Pro includes **unlimited meeting hours**. Unlimited means what it says for
-personal use: we do not meter your recording, and there is no per-hour
-charge, no overage bill, and no cut-off in the middle of a meeting.
+A Pro subscription bought while Pro was sold with **unlimited meeting hours**
+keeps them for as long as it stays on that subscription; Pro bought after the
+catalogue change includes the monthly hours shown at checkout instead. For the
+unlimited ones, unlimited means what it says for personal use: we do not meter
+your recording, and there is no per-hour charge, no overage bill, and no cut-off
+in the middle of a meeting.
 
 It is bounded only by the plan being for **one person**. So on Pro you
 agree not to:
@@ -250,10 +296,8 @@ the statutory rights of consumers.
 
 ## 11. Governing law
 
-Because Nod is operated by an individual rather than a registered
-company, these Terms do not designate an exclusive governing
-law. Mandatory consumer-protection law in your country of residence
-applies in full.
+These Terms do not designate an exclusive governing law. Mandatory
+consumer-protection law in your country of residence applies in full.
 
 Payments are handled by Paddle as Merchant of Record under Paddle's own
 buyer terms, which apply to the payment transaction in addition to these

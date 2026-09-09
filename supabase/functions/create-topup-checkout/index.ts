@@ -1,5 +1,8 @@
-// Starter top-up checkout — an explicit, non-recurring purchase of +5 meeting
-// hours for the CURRENT billing period.
+// Top-up checkout — an explicit, non-recurring purchase of extra meeting hours
+// or integration credits for the CURRENT billing period. Which pack, what it
+// grants, and whether the person or their workspace is buying, is the
+// catalogue's and the intent's business: this function only decides that the
+// sku is one we sell.
 //
 // The order matters and is the whole point of this function:
 //   1. Supabase mints an intent that pins the period, the included allowance and
@@ -13,7 +16,8 @@
 // Deployed per-branch via git: develop (sandbox) and main (live) each from theirs.
 
 import { adminClient, authenticate } from "../_shared/supabase.ts";
-import { json } from "../_shared/http.ts";
+import { isObject, json } from "../_shared/http.ts";
+import { eventPlan } from "../_shared/product-events.ts";
 import { PADDLE_API_BASE, PADDLE_HEADERS } from "../_shared/paddle.ts";
 
 const PADDLE_API_KEY = Deno.env.get("PADDLE_API_KEY");
@@ -21,10 +25,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-const TOPUP_SKU = "starter_5h_usd_12";
-
 interface TopupCheckoutRequest {
     sku: string;
+    /// Where the person pressed the button. Older clients send nothing and
+    /// only ever bought from the allowance gate in the notch.
+    surface?: string;
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -44,7 +49,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     } catch {
         return json({ error: "Invalid JSON body" }, 400);
     }
-    if (body.sku !== TOPUP_SKU) {
+    // Which packs exist is the catalogue's answer, not a list kept here:
+    // `create_topup_checkout_intent` resolves the sku against `plan_prices` and
+    // refuses anything that is not an active, purchasable top-up.
+    if (typeof body.sku !== "string" || body.sku.length === 0 || body.sku.length > 64) {
         return json({ error: "invalid_topup_sku" }, 422);
     }
 
@@ -64,11 +72,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const priceId = typeof intent.paddle_price_id === "string" ? intent.paddle_price_id : "";
     if (!intentId || !priceId) return json({ error: "topup_unavailable" }, 503);
 
-    const { data: subscription } = await admin
-        .from("subscriptions")
-        .select("paddle_customer_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
+    // A workspace pack is paid by the workspace's Paddle customer, so it lands
+    // on the same invoices as its seats; a personal one by the person's own.
+    const orgId = typeof intent.org_id === "string" ? intent.org_id : null;
+    const { data: subscription } = orgId
+        ? await admin.from("org_subscriptions").select("paddle_customer_id").eq("org_id", orgId).maybeSingle()
+        : await admin.from("subscriptions").select("paddle_customer_id").eq("user_id", user.id).maybeSingle();
     let customerId = typeof subscription?.paddle_customer_id === "string"
         ? subscription.paddle_customer_id
         : undefined;
@@ -87,6 +96,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
             purchase_type: "starter_topup",
             sku: body.sku,
             topup_intent_id: intentId,
+            // Marks the transaction as the workspace's for the webhook, which
+            // then books no personal conversion against the buyer.
+            ...(orgId ? { org_id: orgId } : {}),
         },
         collection_mode: "automatic",
     };
@@ -135,13 +147,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return json({ error: "topup_checkout_unavailable" }, 502);
     }
 
+    const surface = topUpSurface(body.surface);
     const { error: telemetryError } = await admin.rpc("record_server_product_event", {
         p_user_id: user.id,
         p_event: "topup_checkout_started",
         p_properties: {
-            surface: "capture",
-            entry_point: "notch",
-            plan: "starter",
+            surface: surface.surface,
+            entry_point: surface.entryPoint,
+            plan: eventPlan(intent.plan),
             billing: "one_time",
             outcome: "success",
         },
@@ -172,6 +185,16 @@ async function findOrCreateCustomer(email: string): Promise<string | undefined> 
     return undefined;
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
+// Where the pack was bought from, in the analytics vocabulary. A chat notice is
+// the "ask" surface; anything unnamed is the capture gate, which predates the
+// field.
+function topUpSurface(raw: unknown): { surface: string; entryPoint: string } {
+    switch (raw) {
+        case "settings":
+            return { surface: "settings", entryPoint: "settings" };
+        case "chat":
+            return { surface: "ask", entryPoint: "ask" };
+        default:
+            return { surface: "capture", entryPoint: "notch" };
+    }
 }

@@ -125,7 +125,7 @@ let salesDailyModes: [DemoDailyMode: DemoDailyModeContent] = [
             ),
             DemoDailyRow(
                 glyph: .tool(.gmail),
-                title: "Salesforce — Weekly pipeline digest",
+                title: "HubSpot — Weekly pipeline digest",
                 subtitle: "Northwind flagged as at-risk",
                 meta: "6:00 AM"
             )

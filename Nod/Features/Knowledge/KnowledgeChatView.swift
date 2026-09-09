@@ -9,43 +9,43 @@ struct KnowledgeChatView: View {
     /// Navigate the host (the Meetings window's left column) to a session —
     /// used when a mention or source is clicked.
     let onOpenMeeting: (UUID) -> Void
-    /// Set by the main window: the home state then carries the memory brief
-    /// under its openers, and tapping it opens what needs attention. nil where
-    /// the chat has no attention column beside it.
-    var onOpenAttention: (() -> Void)?
 
     @EnvironmentObject private var meetingStore: MeetingStore
     @EnvironmentObject private var profileStore: ProfileStore
     @EnvironmentObject private var labelStore: LabelStore
+    @EnvironmentObject private var settingsFocus: SettingsFocus
     @EnvironmentObject private var entitlements: EntitlementService
     /// The thread itself — shared with any other surface onto the same
     /// conversation, so a question asked in the launcher can be continued here.
     @EnvironmentObject private var chat: KnowledgeChatStore
     @EnvironmentObject private var analytics: ProductAnalytics
+    @EnvironmentObject private var reachability: NetworkReachability
 
     private typealias SessionRef = KnowledgeChatStore.SessionRef
 
+    /// A question written while the previous one was still answering. Held in
+    /// the view because a queued question is a draft with its mentions and its
+    /// scope resolved — exactly what the composer owns — and not yet anything
+    /// the thread knows about.
+    private struct QueuedQuestion {
+        let text: String
+        let pinned: [SessionRef]
+        let scope: [SessionLabel]
+    }
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draft: String = ""
-    @FocusState private var inputFocused: Bool
+    @State private var inputFocused = false
+    @State private var queued: QueuedQuestion?
 
     /// Sessions the user pinned with @ — when non-empty the question is scoped
     /// to exactly these (the router is skipped; the user said what they want).
     @State private var mentions: [SessionRef] = []
-    @State private var showMentionPicker = false
-    @State private var mentionSearch = ""
-    @FocusState private var mentionSearchFocused: Bool
-
-    /// When non-empty, questions are answered using ONLY sessions carrying at
-    /// least one of these labels. Persists across turns until the user clears
-    /// it. An explicit @mention overrides it for that message.
-    @State private var scopeLabelIDs: Set<UUID> = []
-    @State private var showScopePicker = false
 
     /// Resolved against the store rather than held as models, so a renamed or
     /// deleted folder can't leave a stale name in the composer.
     private var scopeLabels: [SessionLabel] {
-        labelStore.labels.filter { scopeLabelIDs.contains($0.id) }
+        labelStore.labels.filter { chat.scopeLabelIDs.contains($0.id) }
     }
 
     var body: some View {
@@ -55,7 +55,11 @@ struct KnowledgeChatView: View {
             // upsell instead of a composer that would only 403.
             if canAskAcross {
                 VStack(spacing: 0) {
-                    messageList
+                    if chat.messages.isEmpty {
+                        chatHome
+                    } else {
+                        messageList
+                    }
                     composer
                 }
             } else {
@@ -64,10 +68,28 @@ struct KnowledgeChatView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await meetingStore.refresh() }
+        // Scope follows the sentence, however the sentence got there — picking
+        // a project from the panel and typing its name by hand are the same
+        // act, and deleting the words unscopes the question again.
+        .onChange(of: draft) { _ in syncScope() }
+        .onChange(of: chat.pendingDraft) { _ in adoptPendingDraft() }
+        // Also on appear: a draft handed over from another surface (Today's
+        // composer, "Ask about this project") is set while this view is not
+        // mounted, and `onChange` never fires for a value that was already
+        // there when the view arrived — the question typed elsewhere vanished.
+        .onAppear(perform: adoptPendingDraft)
+        // The link coming back is the one thing that fixes an offline turn, and
+        // it fixes it without anybody clicking. `NetworkPathMonitor` exists to
+        // decide *when to retry what already failed* — never to gate a send,
+        // which would be the TOCTOU race its own documentation warns about.
+        .onChange(of: reachability.isOnline) { online in
+            guard online, chat.failure?.isOffline == true else { return }
+            Task { await chat.regenerateLast() }
+        }
         .onChange(of: labelStore.labels) { labels in
             let live = Set(labels.map(\.id))
-            guard !scopeLabelIDs.isSubset(of: live) else { return }
-            scopeLabelIDs.formIntersection(live)
+            guard !chat.scopeLabelIDs.isSubset(of: live) else { return }
+            chat.scopeLabelIDs.formIntersection(live)
         }
         // Intercept taps on inline mention links (nod-meeting://m/<uuid>).
         .environment(\.openURL, OpenURLAction { url in
@@ -91,14 +113,16 @@ struct KnowledgeChatView: View {
             Image("nc-sparkle-3")
                 .icon(30)
                 .foregroundStyle(Theme.Palette.violet)
-            Text("Ask across all your meetings")
+            Text("Ask across everything you've captured")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.Palette.ink)
-            Text("Search and ask questions across everything you've recorded — your personal knowledge base. Available on Pro.")
-                .font(.system(size: 12.5))
-                .foregroundStyle(Theme.Palette.graphite)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+            Text(
+                "One memory instead of a pile of notes: ask across every session you've kept, and get the answer with the session it came from. Available on Pro."
+            )
+            .font(.system(size: 12.5))
+            .foregroundStyle(Theme.Palette.graphite)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
             Button {
                 NotificationCenter.default.post(name: .nodOpenSubscription, object: nil)
             } label: {
@@ -120,7 +144,6 @@ struct KnowledgeChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    if chat.messages.isEmpty { emptyState }
                     ForEach(chat.messages) { message in
                         bubble(message)
                             .id(message.id)
@@ -130,12 +153,25 @@ struct KnowledgeChatView: View {
                     // more are coming: it is the only thing on screen that says
                     // the answer isn't finished, and losing it at the first
                     // paragraph would read as a truncated reply.
-                    if chat.isSending { typingIndicator.id(Self.typingAnchor) }
-                    if let errorText = chat.errorText {
-                        Text(errorText)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(Theme.Palette.warning)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    // Separate elements with separate identities. Sharing
+                    // `typingAnchor` between the two let SwiftUI treat the swap
+                    // as "same view, unchanged" and keep the indicator on screen
+                    // while an approval was already waiting.
+                    if let approval = chat.pendingApproval {
+                        ToolApprovalCard(
+                            approval: approval,
+                            onApprove: chat.approvePendingTools,
+                            onApproveAlways: chat.approvePendingToolsAlways,
+                            onDeny: chat.denyPendingTools
+                        )
+                        .id(ChatTranscriptSupport.Anchor.approval)
+                    }
+                    if chat.isSending, chat.pendingApproval == nil {
+                        typingIndicator.id(ChatTranscriptSupport.Anchor.typing)
+                    }
+                    if let failure = chat.failure {
+                        ChatErrorRow(failure: failure) { Task { await chat.regenerateLast() } }
+                            .id(ChatTranscriptSupport.Anchor.failure)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -146,10 +182,33 @@ struct KnowledgeChatView: View {
             }
             .onChange(of: chat.messages.count) { _ in scrollToEnd(proxy) }
             .onChange(of: chat.isSending) { _ in scrollToEnd(proxy) }
+            // A failure arrives without a message to announce it, and one the
+            // user cannot see is one they cannot act on.
+            .onChange(of: chat.failure) { _ in scrollToEnd(proxy) }
             // A growing answer pushes itself off-screen otherwise.
             // Keyed on length, not the string: SwiftUI would otherwise compare
             // the whole growing answer on every flush.
             .onChange(of: chat.messages.last?.content.count) { _ in scrollToEnd(proxy) }
+        }
+    }
+
+    /// Centred in whatever height is left rather than pinned under the title.
+    ///
+    /// Its own branch, outside the transcript's scroll view: the composer is
+    /// anchored to the bottom, so a top-aligned home left a screen-height gap
+    /// between the two things the user is meant to use. The layout reader is
+    /// scoped to this branch and stops existing the moment a message lands —
+    /// the warning in `.agents/rules/swiftui.md` is about readers wrapping the
+    /// streaming transcript, which this one never does. It still scrolls, so a
+    /// short window doesn't clip the openers.
+    private var chatHome: some View {
+        GeometryReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                emptyState
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: proxy.size.height, alignment: .center)
+            }
         }
     }
 
@@ -162,20 +221,29 @@ struct KnowledgeChatView: View {
                 .foregroundStyle(Theme.Palette.ink)
             // What the question will actually reach. Without it an empty
             // composer reads as a chatbot rather than as the user's own memory.
-            Text(ChatHomeSuggestions.scopeHeadline(projects: scopeLabels.map(\.name)))
+            Text(ChatHomeSuggestions.homeSubtitle(projects: scopeLabels.map(\.name)))
                 .font(.system(size: 12.5))
-                .foregroundStyle(Theme.Palette.muted)
+                .foregroundStyle(Theme.Palette.ink)
                 .padding(.bottom, 14)
 
+            // The counts used to sit here too. Today owns them now — and owns
+            // them as a briefing rather than as two numbers — so this screen is
+            // the composer again instead of a second door to the same list.
+            MemoryBriefCard()
+                .padding(.bottom, 18)
+
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(ChatHomeSuggestions.build(meetings: meetingStore.meetings, projects: scopeLabels.map(\.name))) { opener in
+                ForEach(ChatHomeSuggestions.build(
+                    meetings: meetingStore.meetings,
+                    projects: scopeLabels.map(\.name),
+                    firstRunPreview: ChatHomeSuggestions.isPreviewingFirstRun
+                )) { opener in
                     suggestion(opener)
                 }
             }
-            if let onOpenAttention {
-                MemoryBriefCard(onOpenAttention: onOpenAttention)
-                    .padding(.top, 18)
-            }
+
+            ConnectToolsRow()
+                .padding(.top, 22)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 28)
@@ -189,7 +257,18 @@ struct KnowledgeChatView: View {
     /// travels the same path a typed one does and lands in the transcript the
     /// same way.
     private func suggestion(_ opener: ChatHomeSuggestions.Opener) -> some View {
-        ChatSuggestionChip(text: opener.label) {
+        ChatSuggestionChip(text: opener.label, isFeatured: opener.isFeatured) {
+            // A door rather than a question — the sample's opener carries the
+            // session it is about, and the same notification the notch's recap
+            // card posts is what opens it, so there is one way in.
+            if let id = opener.opens {
+                NotificationCenter.default.post(
+                    name: .nodOpenMeetingDetail,
+                    object: nil,
+                    userInfo: [Notification.nodMeetingIDKey: id]
+                )
+                return
+            }
             guard !chat.isSending else { return }
             draft = opener.question
             send()
@@ -199,325 +278,229 @@ struct KnowledgeChatView: View {
     @ViewBuilder
     private func bubble(_ message: KnowledgeChatStore.Message) -> some View {
         if message.role == .user {
-            UserTextBubble(text: userAttributed(message))
-                .padding(.leading, 40)
+            ChatUserTurn(text: message.content, marks: marks(in: message)) {
+                notes(for: message.id)
+            }
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 AssistantTextBubble(
                     content: message.content,
-                    isStreaming: chat.isStreaming && message.id == chat.messages.last?.id
+                    isStreaming: chat.isStreaming && message.id == chat.messages.last?.id,
+                    onRegenerate: regenerateAction(for: message)
                 )
                 .padding(.trailing, 40)
+                notes(for: message.id)
+                // What the turn did, collapsed. Below the answer rather than
+                // above it: the answer is what was asked for, the record of how
+                // it was reached is there to be checked, not read.
+                ChatTurnTrace(steps: message.steps)
+                if message.steps.ranOutOfCredits {
+                    ChatCreditsNotice()
+                }
                 // Sessions and apps are both just "where this came from", so
                 // they read as one row of chips rather than two lists in two
                 // shapes. A session opens; an app is a label — the chip says
                 // which by whether it responds to the pointer.
-                if !message.sources.isEmpty {
-                    sourcesRow(message.sources, in: message.id)
+                ChatSourcesRow(sources: message.sources) { source, rank in
+                    chat.noteOpenedSource(meetingID: source.id, rank: rank, in: message.id)
+                    analytics.record(.answerSourceOpened, properties: .init(surface: .ask))
+                    onOpenMeeting(source.id)
                 }
             }
         }
     }
 
-    /// Everything the answer drew on, in one row: sessions first — they're the
-    /// spine of the answer and they open — then the apps it read off the screen.
-    private func sourcesRow(_ sources: [SessionRef], in answerID: KnowledgeChatStore.Message.ID) -> some View {
-        let ordered = sources.filter { !$0.isApp } + sources.filter(\.isApp)
-        return VStack(alignment: .leading, spacing: 4) {
-            Text("SOURCES")
-                .font(.system(size: 9, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(Theme.Palette.muted)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(Array(ordered.enumerated()), id: \.element.id) { rank, source in
-                        if source.isApp {
-                            sourceChip(source)
-                        } else {
-                            Button {
-                                chat.noteOpenedSource(meetingID: source.id, rank: rank, in: answerID)
-                                onOpenMeeting(source.id)
-                            } label: {
-                                sourceChip(source)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Open this session")
-                        }
-                    }
-                }
-            }
+    private func regenerateAction(for message: KnowledgeChatStore.Message) -> (() -> Void)? {
+        ChatTranscriptSupport.regenerateAction(
+            isNewest: message.id == chat.messages.last?.id,
+            isBusy: chat.isSending || chat.isStreaming
+        ) {
+            Task { await chat.regenerateLast() }
         }
-        .padding(.leading, 2)
     }
 
-    /// One chip. The icon carries the kind: an app's own icon for something read
-    /// off the screen, a document glyph for a recorded session.
-    private func sourceChip(_ source: SessionRef) -> some View {
-        HStack(spacing: 5) {
-            if let bundleID = source.bundleID,
-               let icon = AppDirectory.icon(for: AppDirectory.identity(forBundleID: bundleID)) {
-                Image(nsImage: icon)
-                    .resizable()
-                    .frame(width: 12, height: 12)
-            } else {
-                Image(source.isApp ? "nc-window-pointer" : "nc-file")
-                    .icon(8.5)
-            }
-            Text(source.title)
-                .font(.system(size: 11, weight: .medium))
-                .lineLimit(1)
+    private func notes(for id: KnowledgeChatStore.Message.ID) -> some View {
+        ChatTurnNotes(
+            wasStopped: chat.stoppedMessageIDs.contains(id),
+            isUnsaved: chat.unsavedMessageIDs.contains(id),
+            storeNoun: "this thread"
+        ) {
+            Task { await chat.retrySaving(id) }
         }
-        .foregroundStyle(Theme.Palette.ink.opacity(0.75))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-            Capsule(style: .continuous)
-                .fill(Theme.Palette.surface)
-                .overlay(Capsule().stroke(Theme.Palette.border, lineWidth: 0.5))
-        )
     }
 
-    /// User message with its @mentions rendered as underlined, tappable links
-    /// (white on the violet bubble) that open the session.
-    private func userAttributed(_ message: KnowledgeChatStore.Message) -> AttributedString {
-        var result = AttributedString(message.content)
-        for mention in message.mentions {
-            let token = "@\(mention.title)"
-            if let range = result.range(of: token) {
-                result[range].font = .system(size: 13.5, weight: .semibold)
-                result[range].underlineStyle = .single
-                if let url = URL(string: "nod-meeting://m/\(mention.id.uuidString)") {
-                    result[range].link = url
-                }
-            }
-        }
-        return result
+    /// A sent message's pills, rebuilt at render time from what the app knows
+    /// now rather than stored on the message: only session mentions are
+    /// persisted, and a project or a tool named in the sentence would otherwise
+    /// lose its mark the moment the question was sent.
+    ///
+    /// The `@` test comes first because it is the cheap one: most questions
+    /// name nothing, and this runs for every visible turn on every publish of
+    /// the store — which, while an answer streams, is twenty times a second.
+    private func marks(in message: KnowledgeChatStore.Message) -> [MentionMark] {
+        let candidates = labelStore.labels.map(MentionMark.init(project:))
+            + IntegrationProvider.allCases.map(MentionMark.init(tool:))
+            + message.mentions.map { MentionMark(session: $0, opens: true) }
+        return MentionMark.named(in: message.content, from: candidates)
     }
 
     private var typingIndicator: some View {
-        ThinkingIndicator(script: chat.thinkingScript)
+        ThinkingIndicator(
+            script: chat.thinkingScript,
+            icon: chat.callingProvider?.iconName
+        )
     }
 
+    /// The composer carries the product: asking is the main way into everything
+    /// Nod remembers, so it gets a surface of its own rather than sitting as a
+    /// line of controls at the bottom of the window. The scope lives inside that
+    /// surface because "what this reaches" is part of the question, not a
+    /// setting beside it.
     private var composer: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            composerInput
-            if !labelStore.labels.isEmpty { scopeButton }
+        VStack(alignment: .leading, spacing: 8) {
+            ChatComposer(
+                prompt: composerPrompt,
+                text: $draft,
+                isFocused: $inputFocused,
+                canSend: canSend,
+                isGenerating: chat.isSending,
+                onStop: chat.cancel,
+                sources: ChatMentionSources(
+                    projects: labelStore.labels,
+                    sessions: meetingStore.meetings,
+                    tools: true
+                ),
+                mentions: mentionNames,
+                onPick: record,
+                onSend: { send() }
+            )
+            // Scope lives in the sentence as an `@project` token now — the pill
+            // that used to sit here said the same thing in a second place, and
+            // the two disagreed the moment either one changed.
+            ConnectedToolsRow()
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
+                .fill(Theme.Palette.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radii.card, style: .continuous)
+                        .stroke(inputFocused ? Theme.Palette.violet.opacity(0.5) : Theme.Palette.border, lineWidth: 0.5)
+                )
+        )
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }
 
-    private var composerInput: some View {
-        HStack(alignment: .center, spacing: 8) {
-            ChatComposerField(
-                prompt: composerPrompt,
-                text: $draft,
-                focus: $inputFocused,
-                onSend: { send() }
-            )
-            // A word-boundary "@" opens the session picker (and is consumed
-            // — the chosen mention is re-inserted as "@Title" inline). A
-            // mid-word "@" (e.g. an email or handle) stays literal.
-            .onChange(of: draft) { value in
-                guard value.hasSuffix("@") else { return }
-                let beforeAt = value.dropLast().last
-                let atWordBoundary = beforeAt == nil || beforeAt == " " || beforeAt == "\n"
-                guard atWordBoundary else { return }
-                draft.removeLast()
-                mentionSearch = ""
-                showMentionPicker = true
-            }
-            // Floats above the field, auto-sized, so opening it never
-            // reflows the composer; dismisses on outside-click or Escape.
-            .popover(isPresented: $showMentionPicker, arrowEdge: .top) { mentionPicker }
-
-            Button(action: send) {
-                Image("nc-circle-arrow-up")
-                    .icon(13)
-                    .foregroundStyle(canSend ? Theme.GlassButton.text : .white)
-                    .frame(width: 32, height: 32)
-                    .background(
-                        Circle().fill(canSend ? AnyShapeStyle(Theme.GlassButton.fill) : AnyShapeStyle(Theme.Palette.muted.opacity(0.4)))
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-        }
+    /// Every name that should read as a token in the field: the projects in
+    /// scope, the tools named, and the sessions mentioned.
+    private var mentionNames: [MentionMark] {
+        scopeLabels.map(MentionMark.init(project:))
+            + mentionedTools.map(MentionMark.init(tool:))
+            + mentions.map { MentionMark(session: $0) }
     }
 
     private var composerPrompt: String {
-        guard !scopeLabelIDs.isEmpty else { return "Ask across all memory  (@ to mention a session)" }
+        // The wait is the composer's business too: a field that says nothing
+        // while an answer runs looks disabled, and one that says what pressing
+        // Return will do turns the wait into somewhere to keep working.
+        if queued != nil { return "Queued — sends when this answer finishes" }
+        if chat.isSending { return "Ask something else while you wait…" }
+        // Not the headline's words again — it sits four lines above, and a
+        // placeholder that repeats it teaches nothing twice.
+        guard !chat.scopeLabelIDs.isEmpty else { return "Ask anything  (/ for projects, @ for sessions and tools)" }
         return ChatHomeSuggestions.scopeHeadline(projects: scopeLabels.map(\.name), titleLimit: 48)
     }
 
-    /// Reads what the next question will reach: nothing selected is everything,
-    /// one project names itself, several are counted — the names don't fit.
-    private var scopeSummary: String {
-        switch scopeLabels.count {
-        case 0: "All sessions"
-        case 1: scopeLabels[0].name
-        case let count: "\(count) projects"
-        }
-    }
-
-    /// A popover rather than a `Menu`: folders are toggles now, and an AppKit
-    /// menu closes on every pick (`MenuActionDismissBehavior.disabled` is
-    /// unavailable on macOS), which would make choosing three of them a
-    /// three-times-reopened chore.
-    private var scopeButton: some View {
-        Button { showScopePicker.toggle() } label: {
-            HStack(spacing: 4) {
-                Image("nc-filter")
-                    .icon(9)
-                Text(scopeSummary)
-                    .font(.system(size: 11, weight: .medium))
-                Image("nc-chevron-down")
-                    .icon(8)
-            }
-            .foregroundStyle(scopeLabelIDs.isEmpty ? Theme.Palette.muted : Theme.Palette.violet)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .fixedSize()
-        .help("Scope questions to one or more projects")
-        // Anchored to a fixed point rather than to the button: the button's
-        // width tracks its own summary text, so anchoring to it slid the whole
-        // popover sideways on every pick.
-        .overlay(alignment: .leading) {
-            Color.clear
-                .frame(width: 1, height: 1)
-                .popover(isPresented: $showScopePicker, arrowEdge: .bottom) { scopePicker }
-        }
-    }
-
-    private var scopePicker: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ScopePickerRow(text: "All sessions", isSelected: scopeLabelIDs.isEmpty, swatch: nil) {
-                scopeLabelIDs.removeAll()
-            }
-            Divider()
-                .padding(.vertical, 4)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(labelStore.labels) { label in
-                        ScopePickerRow(
-                            text: label.name,
-                            isSelected: scopeLabelIDs.contains(label.id),
-                            swatch: label.swatchColor
-                        ) {
-                            toggleScope(label)
-                        }
-                    }
-                }
-            }
-            .frame(maxHeight: 260)
-        }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 6)
-        .frame(width: 264)
-    }
-
-    private func toggleScope(_ label: SessionLabel) {
-        if scopeLabelIDs.contains(label.id) {
-            scopeLabelIDs.remove(label.id)
-        } else {
-            scopeLabelIDs.insert(label.id)
-        }
-    }
-
-    private var mentionPicker: some View {
-        VStack(spacing: 0) {
-            TextField("Search sessions", text: $mentionSearch)
-                .textFieldStyle(.roundedBorder)
-                .focused($mentionSearchFocused)
-                .padding(8)
-            Divider()
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if filteredMeetings.isEmpty {
-                        Text("No matching sessions")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.Palette.muted)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
-                    }
-                    ForEach(filteredMeetings) { meeting in
-                        mentionPickerRow(meeting)
-                    }
-                }
-            }
-            .frame(maxHeight: 280)
-        }
-        .frame(width: 300)
-        .onAppear { mentionSearchFocused = true }
-    }
-
-    private func mentionPickerRow(_ meeting: Meeting) -> some View {
-        Button {
-            insertMention(meeting)
-        } label: {
-            HStack(spacing: 9) {
-                Image(meeting.kind.icon)
-                    .icon(11)
-                    .foregroundStyle(Theme.Palette.muted)
-                    .frame(width: 16)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter))
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(Theme.Palette.ink)
-                        .lineLimit(1)
-                    Text(Meeting.shortDateFormatter.string(from: meeting.startedAt))
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(Theme.Palette.muted)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var filteredMeetings: [Meeting] {
-        meetingStore.meetings.filter { $0.matches(mentionSearch) }
-    }
-
-    /// Inserts the chosen session inline as "@Title" so the mention is part of
-    /// the message the user is writing. Tracks the id→title mapping; which
-    /// mentions are actually "active" is re-derived from the text at send time
-    /// (so deleting the inline text drops the mention).
-    private func insertMention(_ meeting: Meeting) {
-        let title = meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter)
-        if !mentions.contains(where: { $0.id == meeting.id }) {
+    /// The composer writes the token; this is what the token means to this
+    /// thread. A project narrows retrieval as well as reading as a word, so
+    /// picking one sets the scope the pill used to own — the token and the
+    /// filter stay the same act instead of two, and `syncScope` keeps them
+    /// that way when the words are edited by hand.
+    private func record(_ pick: ChatMentionPick) {
+        switch pick {
+        case let .session(meeting):
+            let title = meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter)
+            guard !mentions.contains(where: { $0.id == meeting.id }) else { return }
             mentions.append(SessionRef(id: meeting.id, title: title))
+        case .connectTool:
+            settingsFocus.open(.integrations)
+        case .project, .tool:
+            break
         }
-        if !draft.isEmpty, !draft.hasSuffix(" ") { draft += " " }
-        draft += "@\(title) "
-        showMentionPicker = false
+    }
+
+    /// One owner for the scope: whichever projects are named in the draft.
+    /// Deleting the token now unscopes the question, which is what deleting the
+    /// words it is made of should do.
+    private func syncScope() {
+        let named = MentionMark.named(in: draft, from: labelStore.labels, mark: MentionMark.init(project:))
+        let next = Set(named.map(\.id))
+        guard chat.scopeLabelIDs != next else { return }
+        chat.scopeLabelIDs = next
+    }
+
+    private func adoptPendingDraft() {
+        guard let pending = chat.pendingDraft else { return }
+        draft = pending
+        mentions = chat.pendingMentions
+        chat.pendingDraft = nil
+        chat.pendingMentions = []
         inputFocused = true
     }
 
-    private var canSend: Bool {
-        !chat.isSending && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    /// Derived rather than tracked: a stored list outlived the draft it
+    /// described, so a tool named in one question came back as a pill in the
+    /// next.
+    private var mentionedTools: [IntegrationProvider] {
+        MentionMark.namedTools(in: draft)
     }
 
-    // MARK: - Send
+    /// The send button is swapped for Stop while a turn runs, so this only has
+    /// to answer "is there anything to send" — a question written mid-answer is
+    /// queued rather than refused.
+    private var canSend: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     /// The view's only job at send time: work out which mentions are still
     /// live in the text (deleting the inline "@Title" drops the mention) and
-    /// hand the question to the store.
+    /// hand the question to the store — or hold it, if one is still running.
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend else { return }
-        let active = mentions.filter { text.localizedCaseInsensitiveContains("@\($0.title)") }
+        let active = MentionMark.named(in: text, from: mentions) { MentionMark(session: $0) }
+        let scope = scopeLabels
         draft = ""
         mentions = []
-        let scope = scopeLabels
+        let question = QueuedQuestion(text: text, pinned: active, scope: scope)
+        // One deep. A second question written while one is queued replaces it:
+        // a backlog nobody can see or edit is worse than losing the older of
+        // two things typed in the same ten seconds.
+        guard !chat.isSending else {
+            queued = question
+            return
+        }
+        ask(question)
+    }
+
+    private func ask(_ question: QueuedQuestion) {
         let baseline = chat.messages.count
+        let aim: ProductAnalytics.Detail = if !question.pinned.isEmpty {
+            .pinned
+        } else if !question.scope.isEmpty {
+            .project
+        } else if chat.threadID != nil {
+            .followUp
+        } else {
+            .open
+        }
+        analytics.record(.questionAsked, properties: .init(entryPoint: .ask, surface: .ask, detail: aim))
         Task {
-            await chat.ask(text, pinned: active, scope: scope)
-            if chat.answer(after: baseline) != nil {
+            await chat.ask(question.text, pinned: question.pinned, scope: question.scope)
+            if let answer = chat.answer(after: baseline) {
                 analytics.record(
                     .aiActionCompleted,
                     properties: .init(
@@ -525,64 +508,28 @@ struct KnowledgeChatView: View {
                         surface: .ask,
                         contentType: .answer,
                         aiFeature: .knowledgeAsk,
-                        outcome: .success
+                        // Answered from nothing is its own number: a reply
+                        // with no session behind it is the retrieval failing,
+                        // however fluent the words.
+                        outcome: answer.sources.isEmpty ? .empty : .success
                     )
                 )
+            }
+            if let next = queued {
+                queued = nil
+                ask(next)
             }
         }
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
-        let target: AnyHashable? = chat.isSending
-            ? AnyHashable(Self.typingAnchor)
-            : chat.messages.last.map { AnyHashable($0.id) }
-        guard let target else { return }
-        // Mid-stream each flush would restart a 150ms scroll before the last
-        // finished, which is what makes streaming scroll feel rubbery.
-        guard !chat.isStreaming else {
-            proxy.scrollTo(target, anchor: .bottom)
-            return
-        }
-        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(target, anchor: .bottom) }
+        proxy.scrollToEnd(scrollTarget, animated: !chat.isStreaming)
     }
 
-    private static let typingAnchor = "nod.knowledge.typing"
-}
-
-/// One folder in the scope picker: the same swatch-name-checkmark shape the
-/// folder popover on a session uses, so the two lists read as one control.
-private struct ScopePickerRow: View {
-    let text: String
-    let isSelected: Bool
-    let swatch: Color?
-    let action: () -> Void
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 9) {
-                Circle()
-                    .fill(swatch ?? .clear)
-                    .frame(width: 9, height: 9)
-                Text(text)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Theme.Palette.ink)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Image("nc-check")
-                    .icon(11)
-                    .foregroundStyle(Theme.Palette.violet)
-                    .opacity(isSelected ? 1 : 0)
-            }
-            .frame(height: 18)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .hoverHighlight(isHovering, cornerRadius: 6, reduceMotion: reduceMotion)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
+    private var scrollTarget: AnyHashable? {
+        if chat.pendingApproval != nil { return AnyHashable(ChatTranscriptSupport.Anchor.approval) }
+        if chat.failure != nil { return AnyHashable(ChatTranscriptSupport.Anchor.failure) }
+        if chat.isSending { return AnyHashable(ChatTranscriptSupport.Anchor.typing) }
+        return chat.messages.last.map { AnyHashable($0.id) }
     }
 }

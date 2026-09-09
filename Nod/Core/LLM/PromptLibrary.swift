@@ -37,7 +37,6 @@ enum PromptLibrary {
         summaryTemplate: SummaryTemplate = .auto,
         modeFocus: String = "",
         meetingDate: String = "",
-        userQuestion: String = "",
         participants: [String] = [],
         liveNotes: [String] = []
     ) -> (system: String, user: String) {
@@ -103,6 +102,40 @@ enum PromptLibrary {
         sessionDateFormatter.string(from: date)
     }
 
+    /// An instant in the shape a tool argument takes it, in the user's own
+    /// offset — the same thing the calendar tool's schema shows as an example.
+    static func rfc3339String(_ date: Date) -> String {
+        rfc3339Formatter.string(from: date)
+    }
+
+    private static let rfc3339Formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssXXXXX"
+        return formatter
+    }()
+
+    /// What "now" is, for a call that has to turn a spoken date into a tool
+    /// argument.
+    ///
+    /// Its own block rather than one line, because a model with no clock does
+    /// not decline to fill in `starts_at` — it writes a plausible date, gets an
+    /// empty result for a day nobody asked about, and reports that nothing was
+    /// scheduled. Three different wrong months came back this way before this
+    /// existed, each read out as "there were no meetings".
+    static func nowBlock(_ now: Date = Date()) -> String {
+        let calendar = Calendar.current
+        let midnight = calendar.startOfDay(for: now)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: midnight) ?? midnight
+        return """
+        [NOW]
+        - It is \(localTimeString(now)) for the user, and today is \(sessionDateString(now)).
+        - As a tool argument, this instant is \(rfc3339String(now)).
+        - Today runs from \(rfc3339String(midnight)) to \(rfc3339String(tomorrow)). Count every other date the user names from there.
+        - Never write a date you did not derive from those lines. A recalled date lands on a day nobody asked about, and the empty result reads as "nothing was scheduled".
+        """
+    }
+
     private static let sessionDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -126,8 +159,8 @@ enum PromptLibrary {
     /// the user had open twenty minutes earlier to the day before. Both sides of
     /// an answer now get their day computed here rather than derived there.
     static func observationStamp(_ date: Date, now: Date = Date()) -> String {
-        let clock = observationClockFormatter.string(from: date)
-        return switch daysBack(to: date, from: now) {
+        let clock = clockFormatter.string(from: date)
+        return switch DayCount.between(date, and: now) {
         case ..<1: "today at \(clock)"
         case 1: "yesterday at \(clock)"
         case let days: "\(observationDayFormatter.string(from: date)) at \(clock) (\(days) days ago)"
@@ -140,31 +173,22 @@ enum PromptLibrary {
     /// Shared so a session label and a screen block can never disagree about
     /// what "yesterday" means: they are read side by side in one answer, and two
     /// copies of this arithmetic is how one instant ends up dated twice.
-    static func daysBack(to date: Date, from now: Date) -> Int {
-        let calendar = Calendar.current
-        return calendar.dateComponents(
-            [.day],
-            from: calendar.startOfDay(for: date),
-            to: calendar.startOfDay(for: now)
-        ).day ?? 0
-    }
-
     /// The same stamp over a range. Collapses the day when a window was on
     /// screen within one — "today at 10:58–11:14" rather than repeating the day
     /// on both ends of every header.
     static func observationSpan(from start: Date, to end: Date, now: Date = Date()) -> String {
         let opening = observationStamp(start, now: now)
-        guard daysBack(to: start, from: end) == 0 else {
+        guard DayCount.between(start, and: end) == 0 else {
             return "\(opening)–\(observationStamp(end, now: now))"
         }
         // Compared as written, not as instants: a window first seen at 10:58:03
         // and last at 10:58:41 is one stamp, and "today at 10:58–10:58" reads
         // like a bug to a model told to take these literally.
-        let closing = observationClockFormatter.string(from: end)
-        return observationClockFormatter.string(from: start) == closing ? opening : "\(opening)–\(closing)"
+        let closing = clockFormatter.string(from: end)
+        return clockFormatter.string(from: start) == closing ? opening : "\(opening)–\(closing)"
     }
 
-    private static let observationClockFormatter: DateFormatter = {
+    static let clockFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "HH:mm"

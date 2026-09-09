@@ -20,19 +20,6 @@ enum DemoTool: String, Equatable {
     /// vendor, so this one keeps a symbol.
     case support
 
-    var displayName: String {
-        switch self {
-        case .slack: "Slack"
-        case .jira: "Jira"
-        case .notion: "Notion"
-        case .calendar: "Calendar"
-        case .gmail: "Gmail"
-        case .github: "GitHub"
-        case .crm: "Salesforce"
-        case .support: "Support"
-        }
-    }
-
     /// The asset name, or nil for the one tool with no vendor behind it.
     var assetName: String? {
         switch self {
@@ -42,7 +29,7 @@ enum DemoTool: String, Equatable {
         case .calendar: "Brandgooglecalendar"
         case .gmail: "Brandgmail"
         case .github: "Brandgithub"
-        case .crm: "Brandsalesforce"
+        case .crm: "Brandhubspot"
         case .support: nil
         }
     }

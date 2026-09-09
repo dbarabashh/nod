@@ -1,12 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// The main window: a labelled sidebar, the surface you're working in down the
-/// middle, and a context column on the right.
+/// The main window: a labelled sidebar and the surface you're working in down
+/// the middle.
 ///
-/// The right column is the point of the layout — it always carries either what
-/// needs the user or, while a session is open, that session's chat. Nothing
-/// about "what happened and what's next" is ever a click away.
+/// A third column appears for one reason only — a session is open, and its chat
+/// belongs beside it. Everything else is a surface you navigate to, including
+/// what needs the user: a list of outstanding work standing permanently down the
+/// side is what made a memory workspace read as an inbox.
 struct MainWindowView: View {
     /// Session to open on first mount. Set when AppDelegate opens the window in
     /// response to a just-ended meeting.
@@ -16,60 +17,56 @@ struct MainWindowView: View {
     let settings: AnyView
 
     @EnvironmentObject private var meetingStore: MeetingStore
+    @EnvironmentObject private var analytics: ProductAnalytics
     @EnvironmentObject private var knowledgeStore: KnowledgeStore
     @EnvironmentObject private var labelStore: LabelStore
     @EnvironmentObject private var chatStore: ChatStore
     @EnvironmentObject private var knowledgeChat: KnowledgeChatStore
     @EnvironmentObject private var knowledgeThreads: KnowledgeThreadStore
+    @EnvironmentObject private var integrations: IntegrationService
+    @EnvironmentObject private var actionProposals: ActionProposalStore
     @EnvironmentObject private var hotkeys: HotkeyManager
     @EnvironmentObject private var settingsFocus: SettingsFocus
     @EnvironmentObject private var demoPlayback: DemoPlayback
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var surface: Surface = .chat
+    @State private var surface: Surface = .today
     /// Active project filter on the sessions list; nil shows every session.
     @State private var filterLabelID: UUID?
     @State private var undoToastID: UUID = .init()
-    /// What's open *over* the current surface. One value rather than a pair of
-    /// optionals: exclusivity is then a property of the type, instead of a
-    /// `= nil` that every navigation path has to remember.
-    @State private var focus: Focus?
-    /// Collapsed context column — the centre is the working surface, and a
-    /// 380pt panel of open work is not always what you want beside it.
-    @AppStorage("home.contextColumn.collapsed") private var contextCollapsed = false
+    /// The session open *over* the current surface. The surface underneath is
+    /// remembered, so closing returns to it.
+    @State private var focus: Meeting?
+    @State private var awaitedFocusMeetingID: UUID?
+    /// A beat report Today asked to open; cleared by any other navigation so
+    /// the Beats row in the sidebar still opens the grid.
+    @State private var beatRequest: BeatOpenRequest?
     @State private var confirmingClearChat = false
     @StateObject private var contextWidth = ContextColumnWidth()
     @State private var windowWidth: CGFloat = 1180
 
-    /// A session or a single task, opened on top of whichever surface is
-    /// active. The surface underneath is remembered, so closing returns to it.
-    private enum Focus: Equatable {
-        case session(Meeting)
-        case action(TodayDigest.OpenAction)
-
-        var session: Meeting? {
-            if case let .session(meeting) = self { meeting } else { nil }
-        }
-
-        var id: UUID {
-            switch self {
-            case let .session(meeting): meeting.id
-            case let .action(action): action.id
-            }
-        }
-    }
-
     /// What the centre column is showing when nothing is focused over it.
     enum Surface: String {
+        /// What needs attention before anything is asked — the default, because
+        /// a memory that waits to be queried reads as a chat with an archive.
+        case today
         case chat
         case sessions
-        case actionItems
+        /// Deleted sessions. A destination rather than a segment above the
+        /// list: what you can do to a trashed session — restore it, destroy it
+        /// — is not what you can do to a live one, so it is a different place,
+        /// not a lens on the same one.
+        case trash
+        /// The questions that ask themselves. Its own destination rather than a
+        /// section of Settings: a beat's answers are something you come here to
+        /// read, not a preference you set once.
+        case beats
         case settings
-        case dailyModes
+        case demoDailyModes
     }
 
     var body: some View {
-        let contextW = contextWidth.width(for: openSession?.id, totalWidth: windowWidth)
+        let contextW = contextWidth.width(for: focus?.id, totalWidth: windowWidth)
         ZStack(alignment: .leading) {
             HStack(spacing: 0) {
                 HomeSidebar(
@@ -79,8 +76,7 @@ struct MainWindowView: View {
                     onOpenProject: openProject,
                     onOpenThread: openThread,
                     onCapture: capture,
-                    panelShortcut: hotkeys.combo(for: .togglePanel).displayString,
-                    contextCollapsed: $contextCollapsed
+                    panelShortcut: hotkeys.combo(for: .togglePanel).displayString
                 )
                 centreColumn
                     .frame(maxWidth: .infinity)
@@ -95,10 +91,10 @@ struct MainWindowView: View {
                     committedWidth: contextW,
                     windowWidth: windowWidth,
                     onCommit: { newWidth in
-                        contextWidth.setWidth(newWidth, for: openSession?.id, totalWidth: windowWidth)
+                        contextWidth.setWidth(newWidth, for: focus?.id, totalWidth: windowWidth)
                         contextWidth.commit()
                     },
-                    onReset: { contextWidth.resetWidth(for: openSession?.id) }
+                    onReset: { contextWidth.resetWidth(for: focus?.id) }
                 )
             }
         }
@@ -112,7 +108,16 @@ struct MainWindowView: View {
             async let meetings: Void = meetingStore.refresh()
             async let labels: Void = labelStore.refresh()
             async let threads: Void = knowledgeThreads.refreshIfNeeded()
-            _ = await (meetings, labels, threads)
+            // Action items offer to file themselves in whatever is connected, so
+            // every surface in this window needs to know what that is — not just
+            // the two that happened to load it themselves.
+            async let linked: Void = integrations.refreshIfNeeded()
+            // What a meeting is offering to do outlives the session that
+            // proposed it: approving happens minutes or days later, and until
+            // this ran the review cards were only ever visible to the launch
+            // that created them.
+            async let proposals: Void = actionProposals.refresh()
+            _ = await (meetings, labels, threads, linked, proposals)
             contextWidth.prune(keeping: Set(meetingStore.meetings.map(\.id)))
             if let id = initialFocusMeetingID {
                 focus(on: id)
@@ -123,14 +128,25 @@ struct MainWindowView: View {
             focus = nil
             surface = .chat
         }
+        // `nod://action-items` outlives the screen it was named for. Released
+        // builds, emails and the menu bar still send it, so it keeps working and
+        // lands where the items now live: a meeting shows what it produced under
+        // its own summary, and there is no longer a list of everything.
         .onReceive(NotificationCenter.default.publisher(for: .nodOpenActionItems)) { _ in
             focus = nil
-            surface = .actionItems
+            surface = .sessions
         }
         .onReceive(NotificationCenter.default.publisher(for: .nodOpenMeetingDetail)) { note in
             if let id = note.userInfo?[Notification.nodMeetingIDKey] as? UUID {
-                focus(on: id)
+                // A deep link from a ticket can land before the first load
+                // has filled the cache; the id waits for it rather than
+                // being dropped.
+                if !focus(on: id) { awaitedFocusMeetingID = id }
             }
+        }
+        .onChange(of: meetingStore.digestKey) { _ in
+            guard let id = awaitedFocusMeetingID, focus(on: id) else { return }
+            awaitedFocusMeetingID = nil
         }
         // A deep link asked for a Settings pane (post-checkout return, an upsell
         // button, the menu-bar item) — the pane itself reads which one.
@@ -163,58 +179,24 @@ struct MainWindowView: View {
         .onChange(of: focus?.id) { _ in confirmingClearChat = false }
     }
 
-    /// Settings already has a sidebar and a detail pane of its own — a third
-    /// column beside them is four columns of chrome for one form, and what
-    /// needs the user isn't actionable while they're changing a setting.
+    /// The right column is now one thing only: the open session's chat. What
+    /// needs the user is a screen you go to, not a panel that stands beside
+    /// whatever you were doing — a memory workspace with a permanent list of
+    /// outstanding work down its side is an inbox wearing a chat.
     private var showsContextColumn: Bool {
-        if openSession != nil { return true }
-        return surface != .settings && surface != .dailyModes && !contextCollapsed
+        focus != nil
     }
-
-    private var openSession: Meeting? {
-        focus?.session
-    }
-
-    /// Hides the attention column. The counterpart lives in the sidebar footer,
-    /// so a collapsed column is never a dead end.
-    private var collapseButton: some View {
-        Button {
-            withAnimation(.standard(reduceMotion: reduceMotion)) { contextCollapsed = true }
-        } label: {
-            Image("nc-sidebar-right")
-                .icon(11)
-                .foregroundStyle(Theme.Palette.muted)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.top, 12)
-        .padding(.trailing, 10)
-        .help("Hide what needs your attention")
-    }
-
-    // MARK: - Centre column
 
     /// An open session takes the centre edge to edge — the macOS split-view
     /// reading, where the detail replaces the list rather than floating over it.
     private var centreColumn: some View {
         ZStack(alignment: .bottom) {
-            switch focus {
-            case let .session(meeting):
+            if let meeting = focus {
                 MeetingDetailView(meeting: meeting, onClose: closeFocus)
                     .id(meeting.id)
                     .transition(.opacity)
                     .onExitCommand(perform: closeFocus)
-            case let .action(action):
-                ActionDetailView(
-                    item: action.item,
-                    meeting: action.meeting,
-                    onClose: closeFocus,
-                    onOpenSession: openMeeting
-                )
-                .id(action.id)
-                .transition(.opacity)
-            case nil:
+            } else {
                 surfaceContent
             }
             if let pending = meetingStore.pendingUndo {
@@ -235,27 +217,32 @@ struct MainWindowView: View {
     @ViewBuilder
     private var surfaceContent: some View {
         switch surface {
+        case .today:
+            TodayView(
+                onCapture: capture,
+                onOpenMeeting: { focus = $0 },
+                onOpenReport: openReport,
+                onAsk: askFromToday
+            )
+            .transition(.opacity)
         case .chat:
             chatHome.transition(.opacity)
-        case .sessions:
+        case .sessions, .trash:
             SessionsListView(
+                mode: surface == .trash ? .trash : .all,
                 filterLabelID: $filterLabelID,
-                onOpen: { focus = .session($0) },
+                onOpen: { focus = $0 },
                 onStartCapture: capture,
+                onAskAboutProject: askAboutProject,
                 panelShortcut: hotkeys.combo(for: .togglePanel).displayString
             )
             .transition(.opacity)
-        case .actionItems:
-            ActionItemsAggregateView(
-                meetings: meetingStore.meetings,
-                onOpenMeeting: openMeeting,
-                onBack: { show(.chat) }
-            )
-            .transition(.opacity)
+        case .beats:
+            BeatsView(open: beatRequest, onOpenThread: openThread).transition(.opacity)
         case .settings:
             settings.transition(.opacity)
-        case .dailyModes:
-            // Only reachable via the sidebar row HomeSidebar shows while a
+        case .demoDailyModes:
+            // Only reachable from the sidebar row HomeSidebar shows while a
             // scenario is armed, so `armed` is never nil here in practice.
             if let scenario = demoPlayback.armed {
                 DemoDailyModesView(scenario: scenario)
@@ -267,39 +254,23 @@ struct MainWindowView: View {
     /// The cross-session chat, held to a reading width rather than stretched
     /// across the whole window — a composer 900pt wide is a worse composer.
     private var chatHome: some View {
-        KnowledgeChatView(
-            onOpenMeeting: openMeeting,
-            onOpenAttention: {
-                withAnimation(.standard(reduceMotion: reduceMotion)) { contextCollapsed = false }
-            }
-        )
-        .frame(maxWidth: 780)
-        .frame(maxWidth: .infinity)
+        KnowledgeChatView(onOpenMeeting: openMeeting)
+            .frame(maxWidth: Theme.Layout.editor)
+            .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Context column (right)
-
-    /// What needs the user, or — while a session is open — that session's chat.
-    /// One slot, two jobs: the question you'd ask about what's on screen is
-    /// always in the same place.
-    private func contextColumn(width: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            if let meeting = openSession {
+    /// The open session's chat, beside the session itself — the question you'd
+    /// ask about what's on screen, in the same place every time.
+    @ViewBuilder private func contextColumn(width: CGFloat) -> some View {
+        if let meeting = focus {
+            VStack(spacing: 0) {
                 sessionChatHeader(meeting)
                 Divider().overlay(Theme.Palette.border)
                 SessionChatView(meeting: meeting).id(meeting.id)
-            } else {
-                AttentionColumn(
-                    onOpenMeeting: openMeeting,
-                    onOpenAction: { focus = .action($0) },
-                    onOpenActionItems: { show(.actionItems) },
-                    onOpenSessions: { show(.sessions) }
-                )
-                .overlay(alignment: .topTrailing) { collapseButton }
             }
+            .frame(width: width)
+            .background(Theme.Palette.overlay.opacity(0.025))
         }
-        .frame(width: width)
-        .background(Color.white.opacity(0.025))
     }
 
     private func sessionChatHeader(_ meeting: Meeting) -> some View {
@@ -355,8 +326,6 @@ struct MainWindowView: View {
         }
     }
 
-    // MARK: - Navigation
-
     private func show(_ target: Surface) {
         guard surface != target || focus != nil || filterLabelID != nil else { return }
         // Sessions from the sidebar's own row means all of them; a project keeps
@@ -364,17 +333,45 @@ struct MainWindowView: View {
         if target == .sessions { filterLabelID = nil }
         surface = target
         focus = nil
+        beatRequest = nil
+    }
+
+    private func openReport(_ row: TodayView.BeatReportRow) {
+        show(.beats)
+        beatRequest = BeatOpenRequest(beat: row.beat, runID: row.run.id)
     }
 
     /// Open a session over whatever is in the centre. The context column
     /// follows it to that session's chat.
     private func openMeeting(_ id: UUID) {
         guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else { return }
-        focus = .session(meeting)
+        focus = meeting
     }
 
     private func closeFocus() {
         focus = nil
+    }
+
+    /// Everything Nod knows about this project becomes the scope of the next
+    /// question. The list stays where it was — the user is leaving it, not
+    /// filtering it further.
+    private func askAboutProject(_ label: SessionLabel) {
+        knowledgeChat.pendingDraft = "\(MentionMark(project: label).token) "
+        show(.chat)
+    }
+
+    /// A question typed on Today lands in the chat mid-flight: the composer
+    /// there is the real one, this only saves retyping the thought.
+    private func askFromToday(_ request: ActionDelegation.AskRequest) {
+        if request.session != nil {
+            analytics.record(.actionItemActed, properties: .init(surface: .home, outcome: .asked))
+        }
+        // A fresh thread: a question raised from Today is its own subject,
+        // not a continuation of whatever chat happened to be open last.
+        knowledgeChat.startNewThread()
+        knowledgeChat.pendingMentions = request.session.map { [$0] } ?? []
+        knowledgeChat.pendingDraft = request.text
+        show(.chat)
     }
 
     private func openProject(_ label: SessionLabel) {
@@ -412,18 +409,18 @@ struct MainWindowView: View {
         }
     }
 
-    /// Open the matching session from the in-memory cache. No-op if the id
-    /// isn't cached — the caller inserts into MeetingStore before signalling.
-    private func focus(on id: UUID) {
-        guard let meeting = meetingStore.meetings.first(where: { $0.id == id }) else {
+    /// Open the matching session from the in-memory cache. False if the id
+    /// isn't cached yet.
+    @discardableResult
+    private func focus(on id: UUID) -> Bool {
+        guard let meeting = meetingStore.byID[id] else {
             Log.ui.info("MainWindowView.focus skipped — meeting not in cache: \(id.uuidString)")
-            return
+            return false
         }
-        focus = .session(meeting)
+        focus = meeting
+        return true
     }
 }
-
-// MARK: - Undo toast
 
 private struct UndoToast: View {
     let message: String
@@ -439,21 +436,13 @@ private struct UndoToast: View {
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(Theme.Palette.ink)
             Spacer(minLength: 8)
-            Button(action: onUndo) {
-                Text("Undo")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.GlassButton.text)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                    .glassButtonSurface(Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
+            GlassPillButton("Undo", size: .compact, action: onUndo)
             Button(action: onDismiss) {
                 Image("nc-xmark")
                     .icon(9)
                     .foregroundColor(Theme.Palette.muted)
                     .frame(width: 18, height: 18)
-                    .background(Circle().fill(Color.white.opacity(0.08)))
+                    .background(Circle().fill(Theme.Palette.overlay.opacity(0.08)))
             }
             .buttonStyle(.plain)
         }
@@ -462,15 +451,13 @@ private struct UndoToast: View {
         .frame(maxWidth: 380)
         .background(
             Capsule(style: .continuous)
-                .fill(.ultraThinMaterial)
+                .glassFill()
                 .overlay(Capsule().fill(Theme.Palette.bgSoft.opacity(0.85)))
                 .overlay(Capsule().stroke(Theme.Palette.borderStrong, lineWidth: 0.5))
         )
-        .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
+        .shadow(color: DesignTokens.Shadow.ink(light: 0.16, dark: 0.35), radius: 14, x: 0, y: 6)
     }
 }
-
-// MARK: - Context column divider
 
 /// The context column's divider: the visible seam, the invisible grab strip,
 /// and the in-flight resize preview — all owned here so a drag mutates only this

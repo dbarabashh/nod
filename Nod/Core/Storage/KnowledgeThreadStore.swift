@@ -13,6 +13,10 @@ final class KnowledgeThreadStore: ObservableObject {
         var title: String
         let createdAt: Date
         var updatedAt: Date
+        /// Set when the thread was written by a beat rather than typed. Decoded
+        /// only — a thread claims a beat by being attached to one, never by
+        /// saying so on insert.
+        var beatID: UUID?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -20,6 +24,7 @@ final class KnowledgeThreadStore: ObservableObject {
             case title
             case createdAt = "created_at"
             case updatedAt = "updated_at"
+            case beatID = "beat_id"
         }
 
         /// Insert payload — `created_at`/`updated_at` are omitted so Postgres'
@@ -91,6 +96,10 @@ final class KnowledgeThreadStore: ObservableObject {
     }
 
     @Published private(set) var threads: [Thread] = []
+    /// Bumped when every thread was deleted at once, so each chat holding one
+    /// of them lets go: a thread id kept past this points at nothing, and the
+    /// next answer's persist would fail on it.
+    @Published private(set) var purges = 0
     @Published private(set) var isLoading = false
 
     private static let threadsTable = "knowledge_threads"
@@ -119,9 +128,13 @@ final class KnowledgeThreadStore: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         do {
+            // Beat threads are left out: they have their own list, and a
+            // daily beat would otherwise push every real conversation off the
+            // first screen within a week.
             threads = try await supabase
                 .from(Self.threadsTable)
                 .select()
+                .is("beat_id", value: nil)
                 .order("updated_at", ascending: false)
                 .limit(200)
                 .execute()
@@ -130,6 +143,19 @@ final class KnowledgeThreadStore: ObservableObject {
         } catch {
             Log.ui.error("KnowledgeThreadStore.refresh failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Drops the previous account's conversations on sign-out.
+    ///
+    /// `hasLoaded` matters as much as the list: without it `refreshIfNeeded`
+    /// answers "already loaded" for the next person who signs in, so they are
+    /// shown the last account's chat titles and never a fetch of their own.
+    /// That is how a sign-out, a sign-in as somebody else and a sign-in back
+    /// left an account looking at an empty list until the app was relaunched.
+    func clear() {
+        threads = []
+        hasLoaded = false
+        isLoading = false
     }
 
     /// The owner comes from the live session rather than an injected auth
@@ -146,7 +172,8 @@ final class KnowledgeThreadStore: ObservableObject {
             userID: userID,
             title: Self.trimmedTitle(title),
             createdAt: Date(),
-            updatedAt: Date()
+            updatedAt: Date(),
+            beatID: nil
         )
         do {
             try await supabase.from(Self.threadsTable).insert(thread).execute()
@@ -155,6 +182,44 @@ final class KnowledgeThreadStore: ObservableObject {
         } catch {
             Log.ui.error("KnowledgeThreadStore.create failed: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    /// Marks a finished thread as a beat's answer and names it after the beat.
+    /// Done after the run rather than before, so a beat that fails leaves no
+    /// half-written thread claiming to be its answer.
+    /// Titles a thread an agent just wrote, so the Ask list shows the agent's
+    /// name rather than the first words of its prompt. Unlike a beat's
+    /// `attach`, the thread stays in the list — an after-meeting brief is
+    /// meant to be seen there.
+    func rename(threadID: UUID, title: String) async {
+        do {
+            try await supabase
+                .from(Self.threadsTable)
+                .update(["title": Self.trimmedTitle(title)])
+                .eq("id", value: threadID.uuidString)
+                .execute()
+        } catch {
+            Log.ui.error("thread rename failed: \(error.localizedDescription)")
+        }
+    }
+
+    func attach(threadID: UUID, to beatID: UUID, title: String) async {
+        struct Attachment: Encodable {
+            let beat_id: String
+            let title: String
+        }
+        do {
+            try await supabase
+                .from(Self.threadsTable)
+                .update(Attachment(beat_id: beatID.uuidString, title: Self.trimmedTitle(title)))
+                .eq("id", value: threadID.uuidString)
+                .execute()
+            // It was inserted into the visible list by `create`; a beat's
+            // answer does not belong there.
+            threads.removeAll { $0.id == threadID }
+        } catch {
+            Log.ui.error("KnowledgeThreadStore.attach failed: \(error.localizedDescription)")
         }
     }
 
@@ -177,6 +242,7 @@ final class KnowledgeThreadStore: ObservableObject {
     /// a message is one request rather than an insert plus an update — and the
     /// timestamp comes from the database rather than the device's clock, which
     /// is the same reason `Thread.encode` omits it.
+    @discardableResult
     func append(
         threadID: UUID,
         id: UUID,
@@ -184,8 +250,8 @@ final class KnowledgeThreadStore: ObservableObject {
         content: String,
         sources: [KnowledgeChatStore.SessionRef],
         evidence: [StoredExcerpt]
-    ) async {
-        guard let userID = await currentUserID() else { return }
+    ) async -> Bool {
+        guard let userID = await currentUserID() else { return false }
         let message = StoredMessage(
             id: id,
             threadID: threadID,
@@ -199,27 +265,27 @@ final class KnowledgeThreadStore: ObservableObject {
         do {
             try await supabase.from(Self.messagesTable).insert(message).execute()
             moveToTop(threadID)
+            return true
         } catch {
             Log.ui.error("KnowledgeThreadStore.append failed: \(error.localizedDescription)")
+            return false
         }
     }
 
-    /// Names an untitled thread from its first question, so the list is
-    /// readable without a second model call.
-    func setTitleIfEmpty(_ title: String, threadID: UUID) async {
-        guard let index = threads.firstIndex(where: { $0.id == threadID }),
-              threads[index].title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { return }
-        let trimmed = Self.trimmedTitle(title)
-        threads[index].title = trimmed
+    /// Drops specific turns from a saved thread. Used when an answer is
+    /// regenerated: the replaced turns have to leave the thread too, or
+    /// reopening it shows the same question answered twice.
+    func deleteMessages(_ ids: [UUID], in threadID: UUID) async {
+        guard !ids.isEmpty else { return }
         do {
             try await supabase
-                .from(Self.threadsTable)
-                .update(["title": trimmed])
-                .eq("id", value: threadID.uuidString)
+                .from(Self.messagesTable)
+                .delete()
+                .eq("thread_id", value: threadID.uuidString)
+                .in("id", values: ids.map(\.uuidString))
                 .execute()
         } catch {
-            Log.ui.error("KnowledgeThreadStore.setTitle failed: \(error.localizedDescription)")
+            Log.ui.error("KnowledgeThreadStore.deleteMessages failed: \(error.localizedDescription)")
         }
     }
 
@@ -237,6 +303,27 @@ final class KnowledgeThreadStore: ObservableObject {
         } catch {
             threads = previous
             Log.ui.error("KnowledgeThreadStore.delete failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Every conversation at once, beats' own threads left alone. One request
+    /// rather than a loop of `delete`: a list of eighty deletes that stops at
+    /// forty leaves a sidebar nobody asked for.
+    func deleteAll() async {
+        guard let userID = supabase.auth.currentUser?.id else { return }
+        let previous = threads
+        threads = []
+        do {
+            try await supabase
+                .from(Self.threadsTable)
+                .delete()
+                .eq("user_id", value: userID.uuidString)
+                .is("beat_id", value: nil)
+                .execute()
+            purges += 1
+        } catch {
+            threads = previous
+            Log.ui.error("KnowledgeThreadStore.deleteAll failed: \(error.localizedDescription)")
         }
     }
 

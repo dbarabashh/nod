@@ -14,13 +14,14 @@ enum MeetingMarkdownExport {
         meeting: Meeting,
         transcript: [TranscriptRecord],
         tags: [String] = [],
-        actionItems: [ActionItem] = []
+        actionItems: [ActionItem] = [],
+        host: String? = nil
     ) -> String {
         var out = frontmatter(meeting: meeting, tags: tags)
         out += "\n"
 
         let title = (meeting.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        out += "# \(title.isEmpty ? "Untitled meeting" : title)\n"
+        out += "# \(title.isEmpty ? "Untitled session" : title)\n"
 
         let summary = meeting.summary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !summary.isEmpty {
@@ -41,7 +42,15 @@ enum MeetingMarkdownExport {
         if !transcript.isEmpty {
             out += "\n## Transcript\n\n"
             out += transcript
-                .map { line(for: $0, meetingStart: meeting.startedAt, names: meeting.speakerNames) }
+                .map {
+                    line(
+                        for: $0,
+                        meetingStart: meeting.startedAt,
+                        names: meeting.speakerNames,
+                        host: host,
+                        selfSpeaker: meeting.selfSpeaker
+                    )
+                }
                 .joined(separator: "\n")
             out += "\n"
         }
@@ -129,9 +138,16 @@ enum MeetingMarkdownExport {
 
     // MARK: - Body helpers
 
-    private static func line(for record: TranscriptRecord, meetingStart: Date, names: [String: String]?) -> String {
+    private static func line(
+        for record: TranscriptRecord,
+        meetingStart: Date,
+        names: [String: String]?,
+        host: String?,
+        selfSpeaker: Int?
+    ) -> String {
         let stamp = offsetLabel(from: meetingStart, to: record.ts)
-        return "[\(stamp)] **\(record.displayLabel(names: names))**: \(record.text)"
+        let label = record.displayLabel(names: names, host: host, selfSpeaker: selfSpeaker)
+        return "[\(stamp)] **\(label)**: \(record.text)"
     }
 
     /// `[MM:SS]` (or `[H:MM:SS]` past an hour) offset of a transcript line from

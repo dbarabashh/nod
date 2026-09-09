@@ -43,7 +43,7 @@ struct RecordingPermissionsSection: View {
                 SettingsRow(
                     icon: "nc-refresh-2",
                     title: "Restart to finish",
-                    subtitle: relaunchSubtitle
+                    subtitle: permissions.relaunchMessage
                 ) {
                     Button("Relaunch", action: permissions.relaunch)
                         .controlSize(.small)
@@ -62,10 +62,6 @@ struct RecordingPermissionsSection: View {
         permissions.screenRecording == .authorized
             ? "Nod records the other people on a call. It captures speaker audio, not your screen."
             : "Without it Nod hears only you, and calls come back missing everyone else."
-    }
-
-    private var relaunchSubtitle: String {
-        permissions.lastRelaunchError.map(PermissionManager.relaunchFailureMessage) ?? PermissionManager.relaunchHint
     }
 
     @ViewBuilder

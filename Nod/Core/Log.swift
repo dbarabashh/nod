@@ -15,8 +15,11 @@ struct AppLog {
         Swift.print("[\(timestamp)] [\(tag) ERR] \(message)")
     }
 
-    func debug(_ message: String) {
-        logger.debug("\(message, privacy: .public)")
+    /// `@autoclosure` for the same reason `sensitive` has one: a `.debug` line
+    /// on a loop is built on every pass whether or not anybody is listening.
+    func debug(_ message: @autoclosure () -> String) {
+        let text = message()
+        logger.debug("\(text, privacy: .public)")
     }
 
     /// Logs a line that may contain user content — transcript text, prompts,

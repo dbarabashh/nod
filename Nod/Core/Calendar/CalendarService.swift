@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import EventKit
 import Foundation
 
@@ -15,7 +16,8 @@ import Foundation
 /// Google or Microsoft API, nothing on our servers: this is `EventKit` reading
 /// the accounts already set up in the user's own Calendar app, on the device.
 /// Off until the user switches it on, and read-only for the life of the app —
-/// Nod never writes an event.
+/// nothing ever writes through EventKit. (Writing exists only on the separate
+/// connected-account path, one confirmed change at a time.)
 @MainActor
 final class CalendarService: ObservableObject {
     /// The user's switch, independent of the system grant. Both have to be on:
@@ -32,6 +34,7 @@ final class CalendarService: ObservableObject {
             // has never been warmed and the first brief would pay the cold
             // query on the frame the card appears.
             warm()
+            refreshSources()
             Task { await ensureAccess() }
         }
     }
@@ -51,7 +54,39 @@ final class CalendarService: ObservableObject {
     /// on. Nil until the same detached task that resolves the grant has made it.
     private var store: EKEventStore?
     private let defaults: UserDefaults
+    /// Counts the one answer macOS gives. Set by the composition root.
+    var analytics: ProductAnalytics?
     private var activationObserver: NSObjectProtocol?
+
+    /// The server's copy of a calendar this Mac cannot see for itself. Optional
+    /// because previews and tests build a service with no backend.
+    var remote: RemoteCalendar? {
+        didSet {
+            // Synchronously, not through a `Task`: `RemoteCalendar` is
+            // `@MainActor`, so this only ever fires from the main actor, and a
+            // hop would leave `hasAnySource` a tick stale — which is a tick in
+            // which the watcher is still stopped for a calendar that has loaded.
+            // The emitted value, not `remote.hasOccurrences`: `@Published`
+            // publishes from `willSet`, so the property still holds the old
+            // snapshot while this runs — and the first read landing is the
+            // one publish that must turn `hasAnySource` on.
+            remoteObserver = remote?.$occurrences
+                .sink { [weak self] next in
+                    MainActor.assumeIsolated {
+                        self?.refreshSources(remoteHasOccurrences: !next.isEmpty)
+                        self?.remoteGeneration += 1
+                    }
+                }
+            refreshSources()
+        }
+    }
+
+    private var remoteObserver: AnyCancellable?
+
+    /// Bumped whenever the connected calendar's snapshot changes, for a screen
+    /// that computed its rows from the snapshot and would otherwise not know a
+    /// read had landed after it drew.
+    @Published private(set) var remoteGeneration = 0
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -87,8 +122,71 @@ final class CalendarService: ObservableObject {
     }
 
     /// Whether Nod may actually read anything right now.
+    ///
+    /// EventKit only. A calendar connected through Integrations is read from our
+    /// own table and needs no macOS permission — see `hasAnySource`.
     var isReadable: Bool {
         isEnabled && status == .authorized
+    }
+
+    /// Whether anything at all can answer "which meeting is on right now".
+    ///
+    /// The distinction from `isReadable` is the whole reason `RemoteCalendar`
+    /// exists: somebody who connected their calendar exactly as Integrations
+    /// asked, and never granted the macOS Calendars permission, has a perfectly
+    /// good source. Gating the scheduled watcher on `isReadable` switched both
+    /// the meeting offer and the live-room lookup off for precisely those
+    /// people, while the server held every row needed to serve them.
+    ///
+    /// Published rather than computed: the scheduled watcher owns a timer that
+    /// has to start and stop with this answer, and the answer moves for three
+    /// separate reasons — the switch, the macOS grant, and a connected calendar
+    /// loading its first events.
+    @Published private(set) var hasAnySource = false
+
+    /// `isEnabled` governs the macOS Calendars permission and nothing else.
+    /// `privacy.md` § 3.11 gives the two sources an off-switch each and says in
+    /// as many words that neither implies the other — a connected account is
+    /// turned off by disconnecting it, in Integrations. Requiring the General
+    /// switch here as well meant somebody who connected Google in onboarding,
+    /// which is the only calendar we ask for there and never shows that switch,
+    /// got no meeting offer, no live-room lookup, and — because the recording
+    /// then had no invitation to read — the worst of the two diarization paths.
+    private func refreshSources(remoteHasOccurrences: Bool? = nil) {
+        let next = isReadable || (remoteHasOccurrences ?? remote?.hasOccurrences == true)
+        // Guarded for the same reason `adopt` guards `status`: the remote
+        // snapshot is re-read about once a minute for the life of the app, and
+        // an unchanged answer would still invalidate every observing body.
+        guard next != hasAnySource else { return }
+        hasAnySource = next
+    }
+
+    /// Switch this Mac's calendar on and ask macOS for the grant.
+    ///
+    /// One call rather than two, because the two do not compose safely on their
+    /// own: `isEnabled`'s `didSet` raises the prompt, but it is guarded on a
+    /// change — so a second attempt, after a prompt that never appeared, has to
+    /// reach `ensureAccess` itself or it does nothing at all.
+    func enableOnThisMac() async {
+        isEnabled = true
+        await ensureAccess()
+    }
+
+    /// What to tell somebody macOS has refused. One sentence, because the app
+    /// says it in three places and they had already started to differ.
+    static let blockedHint = "macOS is blocking calendar access. Allow it in System Settings → Privacy & Security → Calendars."
+
+    /// Asks the server for a fresh read of the connected calendar, for
+    /// `reason`, then brings the snapshot forward. See `RemoteCalendar.sync`.
+    func syncRemote(_ reason: CalendarSyncReason) async {
+        await remote?.sync(reason)
+    }
+
+    /// A watcher tick's share: the periodic ask if one is owed, then the
+    /// snapshot if it has aged.
+    func syncRemoteIfDue() async {
+        await remote?.syncIfDue()
+        await remote?.refreshIfStale(maxAge: 60)
     }
 
     private func refresh() {
@@ -114,6 +212,7 @@ final class CalendarService: ObservableObject {
         // the settings row's body each time.
         guard next != status else { return }
         status = next
+        refreshSources()
         // Guaranteed a transition by the guard, so this is the moment access was
         // gained and never a repeat of it.
         if next == .authorized { warm() }
@@ -172,6 +271,7 @@ final class CalendarService: ObservableObject {
         // access" for a question nobody was ever asked.
         refresh()
         Log.ui.info("calendar: access \(status == .authorized ? "granted" : "not granted")")
+        analytics?.record(.calendarConnected, properties: .init(outcome: status == .authorized ? .granted : .declined))
     }
 
     func openSystemSettings() {
@@ -194,9 +294,27 @@ final class CalendarService: ObservableObject {
     /// conferencing app is what started this; a recording begun by hand, for a
     /// meeting held across a table, passes none and is answered on time alone.
     func meetings(overlapping span: DateInterval, app: ConferencingApp? = nil) -> [CalendarOccurrence] {
-        guard isReadable, let store else { return [] }
-        let occurrences = store.events(matching: predicate(around: span, in: store)).compactMap(Self.occurrence)
+        var occurrences: [CalendarOccurrence] = []
+        if isReadable, let store {
+            occurrences = store.events(matching: predicate(around: span, in: store)).compactMap(Self.occurrence)
+        }
+        occurrences = merged(occurrences, with: remote?.occurrences(overlapping: span) ?? [])
         return CalendarOccurrence.ranked(occurrences, overlapping: span, app: app)
+    }
+
+    /// EventKit first, the server behind it. An account added to Calendar.app
+    /// *and* connected through Integrations shows up in both, and the local copy
+    /// wins: it knows which attendee is the user, which the server can only
+    /// guess from an address.
+    private func merged(
+        _ local: [CalendarOccurrence],
+        with synced: [CalendarOccurrence]
+    ) -> [CalendarOccurrence] {
+        guard !synced.isEmpty else { return local }
+        let known = Set(local.compactMap(\.externalID))
+        return local + synced.filter { occurrence in
+            occurrence.externalID.map { !known.contains($0) } ?? true
+        }
     }
 
     /// The moment a call is noticed, as a span of its own: everything before it
@@ -204,6 +322,20 @@ final class CalendarService: ObservableObject {
     func meetingsNow(app: ConferencingApp) -> [CalendarOccurrence] {
         let now = Date()
         return meetings(overlapping: DateInterval(start: now, duration: 0), app: app)
+    }
+
+    /// The meeting happening now, but only if it can identify itself.
+    ///
+    /// Three callers used to spell this — stamping a lease with its identity,
+    /// looking for a colleague's live room, and joining one — and each also
+    /// repeated the "has an invitation id or a join link" guard. They must agree:
+    /// if lease-stamping and discovery pick different occurrences, the feature
+    /// silently stops matching and looks exactly like nobody else recording.
+    func currentRoomIdentity() -> RoomIdentity? {
+        guard let occurrence = meetings(overlapping: DateInterval(start: Date(), duration: 0)).first,
+              occurrence.externalID != nil || occurrence.conferenceURL != nil
+        else { return nil }
+        return RoomIdentity(icalUID: occurrence.externalID, conferenceURL: occurrence.conferenceURL)
     }
 
     /// Entries whose *start* is near enough to now to be announced.
@@ -214,13 +346,14 @@ final class CalendarService: ObservableObject {
     /// so every event the wider window returned would be decoded — notes
     /// lowercased, attendees read and name-parsed — and then thrown away.
     func meetingsStarting(at now: Date) -> [CalendarOccurrence] {
-        guard isReadable, let store else { return [] }
-        let predicate = store.predicateForEvents(
-            withStart: now.addingTimeInterval(-ScheduledMeeting.grace),
-            end: now.addingTimeInterval(ScheduledMeeting.lead),
-            calendars: nil
-        )
-        return store.events(matching: predicate).compactMap(Self.occurrence)
+        let from = now.addingTimeInterval(-ScheduledMeeting.grace)
+        let to = now.addingTimeInterval(ScheduledMeeting.lead)
+        var occurrences: [CalendarOccurrence] = []
+        if isReadable, let store {
+            let predicate = store.predicateForEvents(withStart: from, end: to, calendars: nil)
+            occurrences = store.events(matching: predicate).compactMap(Self.occurrence)
+        }
+        return merged(occurrences, with: remote?.occurrences(startingBetween: from, and: to) ?? [])
     }
 
     /// Pays the event store's first-query cost somewhere the user is not
@@ -268,15 +401,41 @@ final class CalendarService: ObservableObject {
               !invited.contains(where: { $0.isCurrentUser && $0.participantStatus == .declined })
         else { return nil }
 
+        let text = [event.url?.absoluteString, event.location, event.notes]
+            .compactMap { $0 }
+            .joined(separator: " ")
+
         return CalendarOccurrence(
             title: title,
             startsAt: startsAt,
             endsAt: endsAt,
-            host: ConferencingHost.named(in: [event.url?.absoluteString, event.location, event.notes]
-                .compactMap { $0 }
-                .joined(separator: " ")),
-            attendees: people(among: invited)
+            host: ConferencingHost.named(in: text),
+            attendees: people(among: invited),
+            externalID: event.calendarItemExternalIdentifier,
+            conferenceURL: joinLink(in: text)
         )
+    }
+
+    /// The first link in an invitation that points at a conferencing product we
+    /// recognise. Anything else — a doc, a ticket, an agenda — is not where the
+    /// meeting happens, and handing it over as one would invent a room key that
+    /// two colleagues could accidentally share.
+    /// Built once. The detector is immutable and loading the data-detection
+    /// engine is not free, and this runs for every event of every calendar read.
+    private static let linkDetector = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue
+    )
+
+    private static func joinLink(in text: String) -> URL? {
+        guard let detector = linkDetector else { return nil }
+        let range = NSRange(text.startIndex ..< text.endIndex, in: text)
+        for match in detector.matches(in: text, range: range) {
+            guard let url = match.url, let host = url.host?.lowercased() else { continue }
+            if ConferencingHost.allCases.contains(where: { $0.markers.contains(where: host.contains) }) {
+                return url
+            }
+        }
+        return nil
     }
 
     /// The people on an invitation.
@@ -286,7 +445,7 @@ final class CalendarService: ObservableObject {
     /// speaker than the recording holds. Anyone who declined is dropped for the
     /// same reason — they are on the invitation and not in the room.
     private static func people(among invited: [EKParticipant]) -> [CalendarAttendee] {
-        invited.compactMap { participant in
+        invited.compactMap { participant -> CalendarAttendee? in
             guard participant.participantType == .person,
                   participant.participantStatus != .declined,
                   let name = participant.name?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -294,9 +453,24 @@ final class CalendarService: ObservableObject {
             else { return nil }
             return CalendarAttendee(
                 display: CalendarAttendee.display(from: name),
-                isSelf: participant.isCurrentUser
+                isSelf: participant.isCurrentUser,
+                // `url` is a `mailto:` for a person, and the only address
+                // EventKit offers. Absent for an entry that names somebody
+                // without one, which is ordinary on a local calendar.
+                email: Self.address(of: participant.url)
             )
         }
+    }
+
+    /// The address behind a participant, when the entry carries one.
+    ///
+    /// `EKParticipant.url` is a `mailto:` for a person and something else
+    /// entirely for a room or a resource, so the scheme is what decides whether
+    /// there is an address here at all.
+    private static func address(of url: URL) -> String? {
+        guard url.scheme?.lowercased() == "mailto" else { return nil }
+        let address = url.absoluteString.dropFirst("mailto:".count)
+        return address.isEmpty ? nil : String(address)
     }
 
     /// `nonisolated` so the launch path can pay the first, expensive read off

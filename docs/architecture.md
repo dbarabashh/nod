@@ -52,12 +52,41 @@ Nod launches as an accessory (`LSUIElement = YES`), then switches
 a Dock icon and a normal window when one is visible or while sharing the panel;
 it drops back to `.accessory` otherwise.
 
+⌘Q does not quit. It posts `.nodHideAll`: the main window closes, the notch
+folds to its resting bar, capture and uploads carry on, and the hotkey, the
+Dock icon or the menu-bar item bring the surface back. Quitting is its own
+item — "Quit Nod", ⌥⌘Q, in the app menu and the menu-bar menu — and
+`applicationShouldTerminate` (`QuitPolicy`) ends a recording first, after
+asking, so the outbox lands the transcript's tail before the process leaves;
+the recap is written on the next launch from the same outbox.
+
 `NodApp` is a near-empty SwiftUI `App`; the real bootstrap is in
 `AppDelegate.applicationDidFinishLaunching` (`Nod/App/NodApp.swift`). It
-constructs every service exactly once, wires them together, then either shows
-the onboarding window or the floating panel based on
-`OnboardingState.isCompleted`. Services are passed downstream via
-`@EnvironmentObject`.
+constructs every service exactly once, wires them together, then
+`WindowCoordinator.reconcile()` picks the surface from `OnboardingState`:
+the onboarding window for `.welcome` (language, name, the two diagnostics
+switches) and `.talk` (say what the week holds while holding ⌥T — or type
+it — and hear it back as what matters plus next steps; `TalkRehearsal`
+owns the microphone, the transcription and the read-back while the window
+is up, and `WindowCoordinator` routes the global hold-to-ask key to it), the
+notch running its setup cards (`NotchSetupStage`: intro, microphone,
+calendar, plans) once the flow has handed off to `.notch`, and the notch
+alone once `isCompleted`. The setup skips any ask this Mac has already
+answered and ends on the plans card: "Start talking" completes the flow and
+starts a real voice-note capture through `requestStart()`, whose recap is
+the first thing the person sees Nod make — or on any card's own close,
+which completes the flow and leaves the rest to Today. Screen Recording (the other
+side of a call), ambient screen context, and who the person is (role,
+where they heard of Nod, what to win at) are not asked in onboarding: Today
+raises one card at a time for them (`TodaySetupCards`), and a recording
+that needs system audio still stops at the notch's own `systemAudioAccess`
+gate. Services are passed downstream via `@EnvironmentObject`.
+
+The Ask hotkey (`HotkeyAction.askNod`, ⌘⇧K by default) lands in the notch too:
+idle, it opens `NotchAskCard` over the shared `KnowledgeChatStore` thread and
+makes the panel key so the field takes the caret without a click; during a
+recording it expands the meeting bar's own Ask box instead. There is no
+separate quick panel any more.
 
 ## Audio pipeline (the hot path)
 
@@ -108,6 +137,121 @@ The data flow that produces a transcript:
    sentence-level splits. The rolling `prompt` tail is still sent but OpenRouter
    ignores it; only the direct-Groq path ever applied it.
 
+### A live conversation, tapped open
+
+A bare tap on `HotkeyAction.holdToAsk` (⌥T, held under `HeldQuestionRecorder
+.minSeconds` — a real hold is the section below) opens a continuous voice
+session instead of one clip: `RealtimeVoiceSession` mints a short-lived
+credential from the proxy (`kind: "realtime_token"`, `_shared/realtime.ts`) —
+model `gpt-realtime-2`, voice, and a friend persona all baked in server-side —
+then holds its own `URLSessionWebSocketTask` straight to
+`wss://api.openai.com/v1/realtime`, no proxy in the loop for the rest of the
+call. The mic streams out continuously as 24 kHz mono PCM16
+(`input_audio_buffer.append`); the server's own VAD (`turn_detection:
+server_vad`) decides when the person has stopped talking and starts
+answering; the reply streams back as `response.output_audio.delta` chunks,
+played through an `AVAudioPlayerNode` as they arrive, with transcript deltas
+debounced (~60 ms) into the pill's `.speaking(words)` state. Talking over the
+assistant triggers the server's own barge-in (`interrupt_response: true`);
+since that guarantee is WebRTC/SIP-only, the client also flushes its own
+queued playback on `input_audio_buffer.speech_started` so nothing already
+scheduled talks over the interruption.
+
+The model has exactly one tool, `ask_nod(question)` — a live conversation
+knows nothing about the account on its own, and everything it can answer
+about sessions, calendar, tasks, projects or beats goes through this one
+call into `AppServices.voiceChat`, a `KnowledgeChatStore` instance dedicated
+to voice and capped at five turns (`maxTurns`, `KnowledgeChatStore
+.turnsToDrop`) — its own thread, never the Library's, so a live follow-up
+resolves against what was just said without either polluting the Library's
+history or growing without bound. Because that memory lives on `AppServices`
+rather than inside the session, an accidentally-ended or dropped connection
+does not lose it — the next tap starts a fresh socket with the same last few
+exchanges still behind it.
+
+Tapping again, clicking the pill, or Escape ends the session
+(`RealtimeVoiceSession.stop()`); so does 15 minutes of continuous connection
+(`maxSessionSeconds`) or the socket failing — everything upstream of an
+already-connected session bounds only how long the *token* is valid to
+start one, never how long the conversation itself may run, so this client
+timer is the only cap on that. `RealtimeVoiceSession.isActive` excludes
+`.failed`: a failure tears the session down immediately and shows the reason
+for a moment, but the very next tap starts clean rather than being read as
+"end a session that no longer exists." A hold while a session is open does
+nothing until release (which just ends it) — the key's only job once a
+conversation is open is to close it.
+
+### A question spoken into the notch
+
+Holding `HotkeyAction.holdToAsk` (⌥T by default) opens the microphone for as
+long as the key is down. With no meeting running the surface stays at rest:
+`NotchPresentation.voice(VoiceAskPhase)` is the pill saying "Listening…" then
+"Thinking…", and the Ask card opens (`revealAsk(baseline:)`) only once the
+answer exists. The pill's width is measured from its label
+(`VoiceAskPhase.restingSideWidth`) — a word wider than its half would be drawn
+under the hardware rather than truncated. During a meeting the bar's own Ask
+box shows the same phases.
+The resolver puts the pill above rooms, offers and cards — the person is
+mid-sentence to Nod. `HotkeyManager` reports Carbon's `kEventHotKeyReleased`
+alongside the press so the notch knows when it is let go.
+`HeldQuestionRecorder` assembles one 16 kHz mono clip on its own queue. With
+no recording running it opens a private `AVAudioEngine`; during one it calls
+`AudioCaptureService.divertMicrophone(to:)`, which routes the tap's buffers to
+the clip instead of `onMicBuffer`, so the question never lands in the
+transcript. The diversion only happens while a microphone tap is live
+(`isCapturingMicrophone`); a media session or a paused recording gets Nod's
+own engine. A hold ends itself at sixty seconds (`voiceHoldLimit`), since
+Carbon reports no release for a binding torn down mid-hold, and `start`/`stop`
+on the capture service clear any diversion left behind. On release the clip
+goes to the proxy's `dictate` kind — the `transcribe` path minus the meeting
+lease, refused unless it is WAV and at most sixty seconds by its own header
+(`_shared/dictation.ts`) — and the text is submitted exactly as a typed
+question would be (`submitIdleAsk` / `submitAsk`, with `spoken: true`). What
+goes wrong is said on the row for a moment (`VoiceAskPhase.failed`).
+`SpokenAnswer` is one mouth: every line passes through one queue and one
+player, so nothing is said over anything else. The moment the question is
+transcribed it queues an acknowledgement; when the answer lands it queues the
+answer. Each line goes to the proxy's `speak` kind with a `purpose` and the
+question, which the proxy turns into audio in two steps: `completeOnce`
+(`_shared/complete.ts`) asks `openai/gpt-4o-mini` through OpenRouter — the
+same route as chat — to *write* the line, given a persona (`_shared/speech.ts`
+`PERSONA`: a friend who sat in on the day, warm and on their side, never a
+customer-service voice), the language (Whisper's detection of the question,
+else the app language) and a length rule — one short sentence for a quick
+question, two or three with details only for a meeting, a session, a day's
+work or a brief. That line, and only that line, then goes straight to
+OpenAI's own `/v1/audio/speech` (`gpt-4o-mini-tts`, voice `SPEECH_VOICE` —
+`cedar` by default, the warmer of OpenAI's two newest and the male one) with
+an `instructions` string describing the performance (unhurried and settled
+for the answer, a quick aside for the acknowledgement) — the one control a
+chat-completions voice doesn't expose, and the reason this one call goes to
+OpenAI directly instead of through OpenRouter. It never reads the card's text.
+The proxy refuses a line over 1,500 characters, a language outside
+`AppLanguage`, and more than 40 calls per user per ten minutes; each call
+lands in `usage_events` as `kind = 'speak'` with an estimated cost. Without
+both keys it answers 422 (not retried) and the line is read by
+`AVSpeechSynthesizer` in the language's best installed voice. A short, flat
+answer (`looksAlreadySpoken` — no markdown, no URL/path/identifier, under
+220 characters) skips the script-writing hop entirely and goes straight to
+TTS, since a quick fact needs no rephrasing; the `instructions` string is
+otherwise one shared "voice identity" for both the acknowledgement and the
+answer (same warmth, pacing character, and steady volume), with only the
+energy differing, so the two lines read as one continuous person rather than
+two takes. The per-user rate limit is only refunded on a network-level
+failure (unreachable, timeout) — never on a non-2xx from either provider,
+since the caller's own content can provoke that and refunding it would
+reopen the meter to the abuse it exists to stop. While a line
+plays the phase is `.speaking(words)`: the card shows the words with "Esc to
+stop", the resting pill says "Speaking…" if the card was closed; Escape — or a
+click on the pill, which has no key window for Escape to reach — cuts it off,
+and so does the next hold. The question's own phase and the words being said
+are kept apart (`voicePhase` vs `speakingWords`, merged for display by
+`syncVoiceDisplay`) so "Thinking…" holds while the acknowledgement plays under
+it; a tool approval asked for mid-answer reveals the card at once.
+`config.excludesCurrentProcessAudio` keeps that voice out of the system-audio
+stream, but a Mac on speakers will still hear it through the microphone like
+any other sound in the room.
+
 ## Floating-panel UX
 
 `FloatingPanel` (an `NSPanel` subclass) uses `.nonactivatingPanel | .borderless`,
@@ -116,6 +260,52 @@ ignoresCycle` collection behavior. This is what makes the panel survive Spaces
 switches, stay above other windows, and never steal focus. Don't change these
 flags casually — they're the whole reason the panel UX feels right. The primary
 UI is this floating non-activating panel, anchored to the left of the screen.
+
+## Appearance and transparency
+
+`AppearancePreference` (`Features/Settings/`) owns the theme; the two defaults
+keys live in `AppearanceDefaults` (`Core/DesignSystem/Theme/`), because the
+surfaces that read the transparency switch are `Core` components and `Core` may
+not import a feature:
+
+- **Theme** — `system` (default), `light`, `dark`. Applied once to
+  `NSApp.appearance` from `AppDelegate.applicationDidFinishLaunching` and again
+  on every change; every window Nod opens inherits it. `WindowCoordinator`
+  deliberately does not set a per-window appearance.
+- **Transparent background** — off by default. Every translucent surface goes
+  through `BackdropSurface`, which owns the one gate: the key read through
+  `@AppStorage` (an injected object cannot reach four separate hosting roots)
+  plus macOS's own Reduce transparency
+  (`@Environment(\.accessibilityReduceTransparency)`), which overrides it. That
+  covers the behind-window blur (`WindowBackdrop`, `PanelMaterial`) and the
+  in-window `Material` fills (`Shape.glassFill()`); the Settings row disables
+  itself when macOS has already forced the answer.
+
+Themed colours are plain `static let`s: `Color.themed(light:dark:)` (and
+`NSColor.themed` for the AppKit-drawn surfaces) wraps an `NSColor` dynamic
+provider, so every `Theme.Palette.…` call site follows the appearance it is
+drawn in without knowing a theme exists. `Theme.Palette.overlay` is the base
+for every translucent scrim — white on dark, black on light. A SwiftLint
+`custom_rules` entry (`hardcoded_color`) fails a bare `Color.white` / `.black` /
+inline hex outside the token files and the three opt-out surfaces below, so a
+wash cannot be hardcoded again.
+
+Three surfaces deliberately do **not** follow the setting, each for its own
+reason — this is the whole list:
+
+- **The capture surface.** `NotchPanel` pins `NSAppearance(named: .vibrantDark)`,
+  `NotchStateContent` pins the matching SwiftUI `colorScheme`, and `NotchView`
+  fills with black. It hangs off the cut-out and has to read as part of the
+  machine. Both pins are required — tokens read the scheme, `NSVisualEffectView`
+  reads the window.
+- **The menu-bar item.** `StatusItemController` draws into the system menu bar,
+  which follows the Mac and not `NSApp.appearance`, so it resolves
+  `NSColor.labelColor` against the status button's own `effectiveAppearance`.
+- **The welcome screens** (`SignInView`, `OnboardingView`). `WelcomeBackdrop`
+  paints `Theme.Gradients.welcome` — hellonod.app's hero blue, ported stop for
+  stop from the site's `HeroBackdrop` — and pins `colorScheme` to `.dark`
+  alongside it. The ground is a saturated blue in every theme, so the content on
+  it is white in every theme, and the white pills keep their dark labels.
 
 ## Permissions
 
@@ -218,6 +408,41 @@ evaluate the candidate's English from the original passages.
   speech is preserved in the transcript.
 - **Meeting persistence (#14)** — meetings are stored in a Supabase `meetings`
   table from day 1 (no local JSON), with soft delete + 30-day trash (#16).
+- **Live-room approval (unreleased, sandbox only)** — `join_live_room` now
+  returns `status`, and a join the server cannot prove from the caller's own
+  synced calendar lands as `pending` until the host approves it. `find_live_room`
+  returns a null `host_name` to a caller it cannot place in the meeting.
+
+  A build that predates the change reads a `pending` row as an ordinary join —
+  the listener watches a bar whose transcript never fills, and the host, whose
+  `room_listeners_of` now answers only for `joined`, never sees a request. Both
+  failures are silent. No shipped client is affected (`main` carries no
+  live-room code and the released build is 69), but the gate below makes that
+  hold however the feature is rolled out.
+
+  **`app_config.live_room_required_build` gates both ends.** It ships at
+  `2147483647` — no build qualifies — so the live room is **off in every
+  environment**, including after a merge to prod, until somebody turns it on.
+  `find_live_room` and `join_live_room` answer nothing when either the caller's
+  or the host's `profiles.app_build` is below it, so an old client is never
+  offered the room rather than being refused halfway through one. Leaving,
+  approving and denying stay open at any build, so nobody is trapped in a room.
+
+  Turn it on per branch, never in a migration (`.agents/rules/supabase.md`):
+
+  ```sql
+  select public.activate_live_room(<build that ships the approval UI>);
+  ```
+
+  Service-role only and monotonic — it refuses to lower an active gate.
+
+  **Deploy order:** migrations first is safe (the feature stays off), then the
+  client, then `activate_live_room` with that client's build. Rolling the
+  migrations back is safe too: `JoinedRoom.status` is optional and an absent
+  field reads as the old `joined` behaviour. Tracked as NOD-118.
+
+  A team share is separately still reachable by an administrator who invites an
+  account into the team (NOD-117); the policy pages say so until it is fixed.
 
 ## Official AI connectors
 
@@ -233,6 +458,14 @@ Function verifies the token with Supabase Auth, then reads with service
 credentials while applying the authenticated `user_id` to every meeting and
 transcript query. This is the boundary that prevents a connector token from
 using PostgREST or reading another account.
+
+The consent screen is ours, not Supabase's: Supabase's OAuth 2.1 server hands
+the request to `nod-landing/src/pages/oauth-consent.tsx`, which signs the user in
+and then approves or denies the authorization. Google is the only sign-in method
+it offers publicly. Loading it with `?review=1` also reveals an email-and-password
+form, which exists so app-store reviewers can sign in without a Google account or
+a second factor; only accounts seeded with a password through the Auth admin API
+can use it, and email signup stays disabled so no one can create one.
 
 The server uses the official Model Context Protocol TypeScript SDK and MCP Apps
 extension. It exposes read-only `search`, `fetch`, `list_meetings`, and

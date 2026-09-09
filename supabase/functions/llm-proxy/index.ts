@@ -20,15 +20,49 @@
 
 import { adminClient, authenticate } from "../_shared/supabase.ts";
 import { isObject, json } from "../_shared/http.ts";
-import { ROUTING_VERSION } from "../_shared/model-policy.ts";
+import { applySttModelPolicy, ROUTING_VERSION } from "../_shared/model-policy.ts";
 import { callTranscribe } from "../_shared/stt-providers.ts";
 import { forwardChat } from "../_shared/chat.ts";
 import { recordUsage } from "../_shared/usage.ts";
 import { audioSecondsFromPayload, reportedCostUsd, sttRates, transcribeCostUsd } from "../_shared/stt-cost.ts";
 import { handleIndex, handleSearch, requiredSearchFeature } from "../_shared/search.ts";
+import { handleDistill } from "../_shared/knowledge.ts";
 import { leaseConflictStatus, meetingIdFromPayload, transcribeLeasePayload } from "../_shared/meeting-lease.ts";
+import { dictationRefusal } from "../_shared/dictation.ts";
+import { completeOnce } from "../_shared/complete.ts";
+import {
+    DEFAULT_VOICE,
+    isSpeechRefusal,
+    scriptPrompt,
+    SCRIPT_MAX_CHARS,
+    SCRIPT_MODEL,
+    speaksAsWritten,
+    speechChunks,
+    SpeechMeter,
+    type SpeechPurpose,
+    speechRequest,
+    ttsBody,
+    ttsCostUsd,
+    TTS_MODEL,
+} from "../_shared/speech.ts";
+import {
+    realtimeSessionBody,
+    realtimeTokenRequest,
+    RealtimeSessionMeter,
+    REALTIME_DEFAULT_VOICE,
+    REALTIME_MODEL,
+} from "../_shared/realtime.ts";
 
 const OPENROUTER_API_KEY        = Deno.env.get("OPENROUTER_API_KEY");
+// The direct OpenAI key `/v1/audio/speech` needs — not routed through
+// OpenRouter, which doesn't proxy this endpoint. `SPEECH_VOICE` overrides the
+// voice per branch.
+const OPENAI_API_KEY            = Deno.env.get("OPENAI_API_KEY");
+const SPEECH_VOICE              = Deno.env.get("SPEECH_VOICE") ?? DEFAULT_VOICE;
+const SPEECH_TIMEOUT_MS         = 30_000;
+const speechMeter = new SpeechMeter();
+const REALTIME_VOICE = Deno.env.get("REALTIME_VOICE") ?? REALTIME_DEFAULT_VOICE;
+const realtimeMeter = new RealtimeSessionMeter();
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_ANON_KEY         = Deno.env.get("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -44,8 +78,18 @@ const DEVICE_ACTIVE_TTL_SECONDS = 900;
 type Kind =
     | "chat"
     | "transcribe"
+    // A held-key question: one short clip, no meeting, no lease. Same
+    // provider path as `transcribe`, capped so it cannot stand in for one.
+    | "dictate"
+    // A spoken line — the answer, or a word that it is on its way — voiced by
+    // an audio model through OpenRouter. Audio and its words come back.
+    | "speak"
+    // A short-lived credential for a live voice session — the client holds
+    // its own WebSocket to OpenAI's Realtime API with this, never the real key.
+    | "realtime_token"
     | "index"
     | "search"
+    | "distill"
     | "device_claim"
     | "device_release"
     | "meeting_start"
@@ -120,6 +164,11 @@ interface Entitlement {
     features: string[];
     hours_used: number;
     hours_limit: number;
+    /// Who is paying — "personal", "organization" or "none" — and, when it is a
+    /// workspace, which one. Stamped onto transcription usage so the pool is
+    /// charged to whoever was covering the call, not whoever holds a seat later.
+    payer: string;
+    org_id: string | null;
 }
 
 const ENTITLEMENT_TTL_MS = 60_000;
@@ -158,6 +207,8 @@ async function entitlementFor(admin: ReturnType<typeof adminClient>, userId: str
         features: Array.isArray(data.features) ? data.features.filter((f): f is string => typeof f === "string") : [],
         hours_used: typeof data.hours_used === "number" ? data.hours_used : 0,
         hours_limit: typeof data.hours_limit === "number" ? data.hours_limit : 0,
+        payer: typeof data.payer === "string" ? data.payer : "personal",
+        org_id: typeof data.org_id === "string" ? data.org_id : null,
     };
     entitlementCache.set(userId, { ent, at: now });
     return ent;
@@ -338,19 +389,242 @@ Deno.serve(async (req: Request): Promise<Response> => {
         case "chat":
             return forwardChat(body.payload, user.id);
         case "meeting_start":
+            // The payer is decided when a meeting starts. The cached entitlement
+            // may be up to a minute old and from a different workspace context,
+            // so it is dropped here: the first transcribe chunk re-resolves and
+            // every chunk of this meeting is stamped to whoever covers it now.
+            entitlementCache.delete(user.id);
             return startMeeting(admin, user.id, body.payload);
         case "meeting_end":
             return endMeeting(admin, user.id, body.payload);
         case "transcribe":
             return forwardTranscribe(transcribePayload, user.id, entitlement, admin);
+        case "realtime_token":
+            return forwardRealtimeToken(body.payload, user.id);
+        case "speak":
+            return forwardSpeak(body.payload, user.id);
+        case "dictate": {
+            const refusal = dictationRefusal(body.payload);
+            if (refusal) return json({ error: refusal.error }, refusal.status);
+            return forwardTranscribe(body.payload, user.id, entitlement, admin);
+        }
         case "index":
             return handleIndex(body.payload, user.id);
         case "search":
             return handleSearch(body.payload, user.id);
+        case "distill":
+            return handleDistill(body.payload, user.id);
         default:
             return json({ error: `Unknown kind: ${body.kind}` }, 400);
     }
 });
+
+async function forwardRealtimeToken(payload: unknown, userId: string): Promise<Response> {
+    if (!OPENAI_API_KEY) {
+        console.error(`realtime_token unavailable user=${userId}`);
+        return json({ error: "realtime_unavailable" }, 422);
+    }
+    if (!realtimeMeter.allow(userId)) return json({ error: "realtime_rate_limited" }, 429);
+    const request = realtimeTokenRequest(payload);
+    let upstream: Response;
+    try {
+        upstream = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify(realtimeSessionBody(request, REALTIME_VOICE)),
+        });
+    } catch (error) {
+        console.error(`realtime_token upstream unreachable user=${userId}: ${(error as Error).message}`);
+        realtimeMeter.refund(userId);
+        return json({ error: "realtime_unavailable" }, 502);
+    }
+    if (!upstream.ok) {
+        const detail = (await upstream.text().catch(() => "")).slice(0, 300);
+        console.error(`realtime_token upstream ${upstream.status} user=${userId}: ${detail}`);
+        realtimeMeter.refund(userId);
+        return json({ error: "realtime_failed", status: upstream.status }, 502);
+    }
+    const minted = await upstream.json();
+    const value = typeof minted?.value === "string" ? minted.value : null;
+    if (!value) {
+        console.error(`realtime_token: no secret in upstream response user=${userId}`);
+        realtimeMeter.refund(userId);
+        return json({ error: "realtime_failed" }, 502);
+    }
+    console.log(`realtime_token minted user=${userId} model=${REALTIME_MODEL} voice=${REALTIME_VOICE}`);
+    // No per-call cost to record here: the session that follows runs entirely
+    // between the client and OpenAI, and the spend never crosses this proxy —
+    // `realtimeMeter` bounding how often a session may *start* is the only
+    // guard this hop can offer.
+    return json({ client_secret: value, expires_at: minted.expires_at ?? null, model: REALTIME_MODEL, voice: REALTIME_VOICE }, 200);
+}
+
+async function forwardSpeak(payload: unknown, userId: string): Promise<Response> {
+    const request = speechRequest(payload);
+    if (isSpeechRefusal(request)) return json({ error: request.error }, request.status);
+    // 422, not 503: a branch with no key will have no key on the next attempt
+    // either, and the client retries 5xx before it falls back to its own voice.
+    // Only a vouched-for or short, already-plain line skips the OpenRouter
+    // rewrite — narration still needs it, to come out sounding spoken rather
+    // than read.
+    const needsOpenRouter = !speaksAsWritten(request);
+    if ((needsOpenRouter && !OPENROUTER_API_KEY) || !OPENAI_API_KEY) {
+        console.error(`speak unavailable user=${userId} openrouter=${!!OPENROUTER_API_KEY} openai=${!!OPENAI_API_KEY}`);
+        return json({ error: "speech_unavailable" }, 422);
+    }
+    if (!speechMeter.allow(userId)) return json({ error: "speech_rate_limited" }, 429);
+    const started = Date.now();
+
+    // Step 1 — the words. A short, already-plain answer needs no rewrite —
+    // skipping it is a whole network hop of latency saved on exactly the
+    // quick-fact questions that most want a fast reply. Anything with
+    // markdown, a list, or real length still goes through the model, from
+    // OpenRouter like every other chat call.
+    let script: string;
+    if (speaksAsWritten(request)) {
+        script = request.text;
+    } else {
+        const { system, user } = scriptPrompt(request);
+        const written = await completeOnce({ model: SCRIPT_MODEL, system, user, userId, task: `speak_${request.purpose}` });
+        // No refund here: `completeOnce` already billed the OpenRouter call
+        // regardless of outcome, and a null result can come from content the
+        // caller chose as much as from an outage — refunding on it would
+        // reopen the meter to exactly the abuse it exists to stop.
+        if (!written) return json({ error: "speech_failed" }, 502);
+        script = written;
+    }
+    script = script.slice(0, SCRIPT_MAX_CHARS);
+
+    const served = async (bytes: number) => {
+        console.log(`speak served user=${userId} model=${TTS_MODEL} purpose=${request.purpose} lang=${request.language} stream=${request.stream} dt=${Date.now() - started}ms bytes=${bytes} chars=${script.length}`);
+        await recordUsage({
+            user_id: userId,
+            kind: "speak",
+            model: TTS_MODEL,
+            status: 200,
+            // Characters, not tokens — `prompt_tokens` is left null so this
+            // never mixes into a token total another kind's row reports.
+            cost_usd: ttsCostUsd(script.length),
+            task: request.purpose,
+            requested_model: TTS_MODEL,
+            resolved_model: TTS_MODEL,
+        });
+    };
+
+    if (!request.stream) {
+        const clip = await synthesise(script, request.purpose, userId);
+        if ("error" in clip) {
+            if (clip.refundable) speechMeter.refund(userId);
+            return json({ error: "speech_failed", status: clip.status }, clip.status === 504 ? 504 : 502);
+        }
+        await served(clip.audio.length);
+        return json({ audio: encodeBase64(clip.audio), format: "mp3", transcript: script }, 200);
+    }
+
+    // Step 2, streamed — the first sentence and the rest are synthesised at
+    // once, and each goes out the moment it exists, in order. The status is
+    // committed before any clip is, so a clip that fails is a line saying so
+    // and the client falls back to its own voice for what is missing. One
+    // call, one refund at most, and usage only for audio that was made; a
+    // client that hangs up mid-stream still gets the clips it took billed.
+    const chunks = speechChunks(script);
+    const clips = chunks.map((chunk) => synthesise(chunk, request.purpose, userId));
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+            const line = (value: unknown) => controller.enqueue(encoder.encode(JSON.stringify(value) + "\n"));
+            let bytes = 0;
+            let refund = false;
+            try {
+                line({ transcript: script, clips: chunks.length });
+                for (const [index, pending] of clips.entries()) {
+                    const clip = await pending;
+                    if ("error" in clip) {
+                        refund ||= clip.refundable;
+                        line({ index, error: "speech_failed" });
+                        continue;
+                    }
+                    bytes += clip.audio.length;
+                    line({ index, audio: encodeBase64(clip.audio), format: "mp3", transcript: chunks[index] });
+                }
+            } catch (error) {
+                console.warn(`speak stream cut user=${userId}: ${(error as Error).message}`);
+            } finally {
+                if (refund && bytes === 0) speechMeter.refund(userId);
+                if (bytes > 0) await served(bytes).catch((error) => console.error(`speak usage user=${userId}: ${(error as Error).message}`));
+                try {
+                    controller.close();
+                } catch {
+                    // Already cancelled by the client going away.
+                }
+            }
+        },
+    });
+    return new Response(body, { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
+}
+
+/// One clip from OpenAI, direct: this is the one endpoint that takes a
+/// plain-language `instructions` field, and OpenRouter doesn't route it. The
+/// timeout has to cover reading the body, not just getting headers — `fetch`
+/// resolves as soon as headers arrive, and a stalled body would otherwise run
+/// past `SPEECH_TIMEOUT_MS` unbounded.
+async function synthesise(
+    script: string,
+    purpose: SpeechPurpose,
+    userId: string,
+): Promise<{ audio: Uint8Array } | { error: true; status: number; refundable: boolean }> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SPEECH_TIMEOUT_MS);
+    try {
+        let upstream: Response;
+        let audio: Uint8Array;
+        try {
+            upstream = await fetch("https://api.openai.com/v1/audio/speech", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(ttsBody(script, SPEECH_VOICE, purpose)),
+                signal: controller.signal,
+            });
+            if (!upstream.ok) {
+                // No refund: a script this call itself wrote can be exactly
+                // what provoked OpenAI's refusal, so crediting it back would
+                // let a caller mint free attempts by tripping this on purpose.
+                const detail = (await upstream.text().catch(() => "")).slice(0, 300);
+                console.error(`speak tts ${upstream.status} user=${userId}: ${detail}`);
+                return { error: true, status: upstream.status, refundable: false };
+            }
+            // Inside the same try: the abort can fire while the body is still
+            // being read, and a rejection here must come back as a result,
+            // never escape — in the streamed path nothing would catch it.
+            audio = new Uint8Array(await upstream.arrayBuffer());
+        } catch (error) {
+            // The network itself failed — never something the caller's
+            // content could have provoked, so this is the one failure worth
+            // giving the slot back for.
+            const aborted = error instanceof DOMException && error.name === "AbortError";
+            console.error(`speak tts user=${userId} ${aborted ? "timeout" : "unreachable"}: ${(error as Error).message}`);
+            return { error: true, status: aborted ? 504 : 502, refundable: true };
+        }
+        if (audio.length === 0) {
+            console.error(`speak returned no audio user=${userId}`);
+            return { error: true, status: 502, refundable: false };
+        }
+        return { audio };
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(binary);
+}
 
 // Allowance is enforced here, once, before any audio exists — not per chunk.
 // `start_meeting_lease` decides atomically, so two simultaneous starts cannot
@@ -397,8 +671,11 @@ async function endMeeting(
     return json({ ended: data === true, meeting_id: meetingId }, 200);
 }
 
-async function forwardTranscribe(payload: unknown, userId: string, entitlement: Entitlement | null, admin: ReturnType<typeof adminClient>): Promise<Response> {
+async function forwardTranscribe(rawPayload: unknown, userId: string, entitlement: Entitlement | null, admin: ReturnType<typeof adminClient>): Promise<Response> {
+    const requested = isObject(rawPayload) && typeof rawPayload.model === "string" ? rawPayload.model : "unknown";
+    const payload = isObject(rawPayload) ? applySttModelPolicy(rawPayload) : rawPayload;
     const model = isObject(payload) && typeof payload.model === "string" ? payload.model : "unknown";
+    if (model !== requested) console.log(`routing user=${userId} task=stt requested=${requested} routed=${model} policy=${ROUTING_VERSION}`);
     const audioSeconds = audioSecondsFromPayload(payload);
 
     const { status, text, provider, failover } = await callTranscribe(payload, userId);
@@ -435,8 +712,12 @@ async function forwardTranscribe(payload: unknown, userId: string, entitlement: 
             failover: failover.length > 0 ? failover : null,
             task: "stt",
             routing_version: ROUTING_VERSION,
-            requested_model: model,
+            requested_model: requested,
             resolved_model: `${provider}:${model}`,
+            // The entitlement is cached per user for up to a minute, so a member
+            // who switches workspace mid-meeting is stamped with the previous
+            // payer for at most that long.
+            org_id: entitlement?.payer === "organization" ? entitlement.org_id : null,
         });
     } catch (err) {
         console.warn(`transcribe usage record skipped: ${err}`);

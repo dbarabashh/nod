@@ -4,9 +4,13 @@
       "type": "http",
       "url": "https://sosumi.ai/mcp"
     },
-    "supabase": {
+    "supabase-sandbox": {
       "type": "http",
-      "url": "https://mcp.supabase.com/mcp?project_ref=lptqvnizjwglilgeukwx"
+      "url": "https://mcp.supabase.com/mcp?project_ref=zdpvmwqauczsfwlgflas"
+    },
+    "supabase-prod": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=lptqvnizjwglilgeukwx&read_only=true"
     }
   }
 }

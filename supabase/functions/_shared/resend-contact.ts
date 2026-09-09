@@ -19,7 +19,7 @@ export async function syncContactTopic(
     if (subscription === "opt_out") {
         const updated = await request(`/contacts/${encodeURIComponent(email)}/topics`, {
             method: "PATCH",
-            body: JSON.stringify({ topics }),
+            body: JSON.stringify(topics),
         });
         if (updated.ok || updated.status === 404) return { error: null, retryable: false };
         return contactFailure("update opted-out contact topic", updated);
@@ -36,7 +36,7 @@ export async function syncContactTopic(
 
     const updated = await request(`/contacts/${encodeURIComponent(email)}/topics`, {
         method: "PATCH",
-        body: JSON.stringify({ topics }),
+        body: JSON.stringify(topics),
     });
     if (updated.ok) return { error: null, retryable: false };
     return contactFailure("update opted-in contact topic", updated);

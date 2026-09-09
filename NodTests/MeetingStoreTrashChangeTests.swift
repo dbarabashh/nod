@@ -56,6 +56,40 @@ final class MeetingStoreTrashChangeTests: XCTestCase {
         XCTAssertTrue(fired)
     }
 
+    func testEmptyTrashClearsTrashAndFiresOnTrashChange() async throws {
+        let store = makeStore()
+        await store.refreshTrash()
+        let first = makeMeeting()
+        let second = makeMeeting()
+        try await store.softDelete(first)
+        try await store.softDelete(second)
+        XCTAssertEqual(store.trashedMeetings.count, 2)
+        XCTAssertNotNil(store.pendingUndo)
+        var fired = false
+        store.onTrashChange.subscribe { fired = true }
+
+        try await store.emptyTrash()
+
+        XCTAssertTrue(fired)
+        XCTAssertTrue(store.trashedMeetings.isEmpty)
+        XCTAssertNil(store.pendingUndo)
+    }
+
+    func testEmptyTrashSparesTheRecordingSession() async throws {
+        let store = makeStore()
+        await store.refreshTrash()
+        let old = makeMeeting()
+        let recording = makeMeeting()
+        try await store.softDelete(old)
+        try await store.softDelete(recording)
+        store.setRecordingMeetingID(recording.id)
+
+        try await store.emptyTrash()
+
+        XCTAssertEqual(store.trashedMeetings.map(\.id), [recording.id])
+        XCTAssertEqual(store.pendingUndo?.id, recording.id)
+    }
+
     func testHardDeleteFiresOnTrashChange() async throws {
         let store = makeStore()
         let meeting = makeMeeting()

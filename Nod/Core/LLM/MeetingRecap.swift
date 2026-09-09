@@ -48,22 +48,39 @@ struct MeetingRecap: Codable, Equatable {
 
     /// A single action item, emitted by the recap in a dedicated top-level
     /// `action_items` array (NOT as a `sections` entry) so the app can promote
-    /// each to a first-class, checkable to-do. Single-user product: there is no
-    /// owner field — every item is the user's own task; any "ask Sam" lives
-    /// inside `text`. `deadline` is the verbatim deadline if one was stated.
+    /// each to a first-class, checkable to-do. `deadline` is the verbatim
+    /// deadline if one was stated.
+    ///
+    /// `owner` is not an assignee field and does not become one: the person is
+    /// still named inside `text`, and this stays a single-user product. It
+    /// answers one question the checklist cannot work out for itself — is this
+    /// the user's to do? — and it is set only when the answer is no. A meeting
+    /// the user sat in on without speaking is otherwise all commitments and no
+    /// tasks, and the recap had no way to say so except by dropping them.
     struct Action: Codable, Equatable {
         let text: String
         let deadline: String?
+        let owner: String?
 
-        init(text: String, deadline: String? = nil) {
+        init(text: String, deadline: String? = nil, owner: String? = nil) {
             self.text = text
             self.deadline = deadline
+            self.owner = owner
         }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             text = (try? c.decode(String.self, forKey: .text)) ?? ""
             deadline = try? c.decodeIfPresent(String.self, forKey: .deadline)
+            owner = try? c.decodeIfPresent(String.self, forKey: .owner)
+        }
+
+        /// Somebody other than the user committed to this. A blank string is
+        /// the model's own way of saying "nobody in particular" and means the
+        /// same as the field being absent.
+        var isSomeoneElses: Bool {
+            guard let owner else { return false }
+            return !owner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
 
@@ -161,6 +178,43 @@ struct MeetingRecap: Codable, Equatable {
     var isPlaceholderFallback: Bool {
         guard sections.count == 1, sections[0].bullets.count == 1 else { return false }
         return sections[0].bullets[0].text.localizedCaseInsensitiveContains("too short or unclear")
+    }
+
+    /// Where a bullet sits, so a view can name the one being edited without
+    /// carrying indices around.
+    struct BulletID: Hashable {
+        let section: Int
+        let bullet: Int
+    }
+
+    /// The recap with one bullet rewritten by hand.
+    ///
+    /// The quote goes with it. A bullet's quote is a verbatim line from the
+    /// transcript, carried so a reader can check the recap against what was
+    /// actually said — once somebody edits the sentence it was attached to, it
+    /// no longer stands behind anything, and leaving it there would dress a
+    /// human correction up as something the transcript confirms.
+    ///
+    /// An empty edit removes the bullet: clearing the text of a line you are
+    /// correcting is how a person deletes it, and a blank bullet renders as a
+    /// stray dash nobody can get rid of.
+    func replacing(_ id: BulletID, with text: String) -> MeetingRecap {
+        guard sections.indices.contains(id.section),
+              sections[id.section].bullets.indices.contains(id.bullet)
+        else { return self }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var rebuilt = sections
+        var bullets = rebuilt[id.section].bullets
+        if trimmed.isEmpty {
+            bullets.remove(at: id.bullet)
+        } else {
+            bullets[id.bullet] = Bullet(text: trimmed, quote: nil)
+        }
+        rebuilt[id.section] = Section(title: rebuilt[id.section].title, bullets: bullets)
+        // A section with nothing left in it is not a heading, it is a hole.
+        rebuilt.removeAll { $0.bullets.isEmpty }
+        return MeetingRecap(sections: rebuilt, actionItems: actionItems)
     }
 
     func toMarkdown() -> String {
@@ -278,83 +332,5 @@ struct MeetingRecap: Codable, Equatable {
             if matched { return start }
         }
         return nil
-    }
-}
-
-private func cleaned(_ strings: [String]) -> [String] {
-    strings
-        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-}
-
-/// "Catch me up" (`.hero`) structured output: the three catch-up slots,
-/// rendered as one short paragraph (matches the previous plain-text contract).
-struct CatchUp: Codable {
-    let currentTopic: String
-    let positions: String
-    let status: String
-
-    enum CodingKeys: String, CodingKey {
-        case currentTopic = "current_topic"
-        case positions
-        case status
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        currentTopic = (try? c.decode(String.self, forKey: .currentTopic)) ?? ""
-        positions = (try? c.decode(String.self, forKey: .positions)) ?? ""
-        status = (try? c.decode(String.self, forKey: .status)) ?? ""
-    }
-
-    func toMarkdown() -> String {
-        let parts = cleaned([currentTopic, positions, status])
-        return parts.isEmpty ? "Not enough context yet." : parts.joined(separator: " ")
-    }
-}
-
-/// "Key points" (`.smartReply`) structured output: bullets grouped by priority
-/// category, flattened into one list in the order decisions → facts → open
-/// questions.
-struct KeyPoints: Codable {
-    let decisions: [String]
-    let facts: [String]
-    let openQuestions: [String]
-
-    enum CodingKeys: String, CodingKey {
-        case decisions
-        case facts
-        case openQuestions = "open_questions"
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        decisions = (try? c.decode([String].self, forKey: .decisions)) ?? []
-        facts = (try? c.decode([String].self, forKey: .facts)) ?? []
-        openQuestions = (try? c.decode([String].self, forKey: .openQuestions)) ?? []
-    }
-
-    func toMarkdown() -> String {
-        let bullets = cleaned(decisions + facts + openQuestions)
-        guard !bullets.isEmpty else { return "Not enough discussion yet." }
-        return bullets.map { "- \($0)" }.joined(separator: "\n")
-    }
-}
-
-/// "Suggest follow-up questions" (`.followUp`) structured output.
-struct FollowUpQuestions: Codable {
-    let questions: [String]
-
-    enum CodingKeys: String, CodingKey { case questions }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        questions = (try? c.decode([String].self, forKey: .questions)) ?? []
-    }
-
-    func toMarkdown() -> String {
-        let qs = cleaned(questions)
-        guard !qs.isEmpty else { return "No grounded follow-up questions yet." }
-        return qs.map { "- \($0)" }.joined(separator: "\n")
     }
 }

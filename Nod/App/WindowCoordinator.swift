@@ -13,8 +13,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     /// Watches for a call starting and ending. Lives with the notch's session,
     /// which is the thing it can act on.
     private var detector: MeetingDetector?
+    /// What the update feed offers, for the version footer. Owned by the app
+    /// delegate, which owns the Sparkle updater this is the delegate of.
+    var feed = UpdaterChannelDelegate()
     private var schedule: ScheduledMeetingWatcher?
     private var onboardingWindow: NSWindow?
+    /// The window's own ear for the held key, alive only with the window.
+    private var talkRehearsal: TalkRehearsal?
     private var signInWindow: NSWindow?
     private var mainWindow: NSWindow?
 
@@ -29,10 +34,20 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             closeNotch()
             closeOnboardingWindow()
             showSignInWindow()
-        } else if !services.onboarding.isCompleted {
+        } else if !services.onboarding.isCompleted, !services.onboarding.isSettingUpInNotch {
             closeNotch()
             closeSignInWindow()
             showOnboardingWindow()
+        } else if services.onboarding.isSettingUpInNotch {
+            // The window's part is over; the rest of the flow runs where Nod
+            // lives. Nothing else opens until it is done.
+            closeSignInWindow()
+            closeOnboardingWindow()
+            buildNotch()
+            notch.beginSetup()
+            // Spent: the setup is what this launch shows, and the next token
+            // refresh must not pop the main window over a flow in progress.
+            didApplyLaunchBehavior = true
         } else {
             closeSignInWindow()
             closeOnboardingWindow()
@@ -63,16 +78,45 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     private var didApplyLaunchBehavior = false
 
-    /// The quick panel, built on first use — most sessions never open it, and
-    /// it holds a hosting controller plus an event monitor.
-    private lazy var launcher = LauncherController(
-        services: services,
-        openMeeting: { [weak self] id in self?.showMainWindow(focusing: id) },
-        openLibrary: { [weak self] in self?.showMainWindow() }
-    )
+    /// The Ask hotkey, from anywhere. The notch answers it — nothing to do
+    /// before it exists, which is only during sign-in and the window half of
+    /// onboarding.
+    func askNod() {
+        notch.askNod()
+    }
 
-    func toggleLauncher() {
-        launcher.toggle()
+    /// The held key, down and up. While the onboarding window is up, its talk
+    /// step is the only thing that hears it — the notch does not exist yet.
+    /// The rehearsal goes with the window, so its presence is the route.
+    func beginVoiceAsk() {
+        if let talkRehearsal {
+            talkRehearsal.beginHold()
+        } else {
+            notch.beginVoiceAsk()
+        }
+    }
+
+    func endVoiceAsk() {
+        if let talkRehearsal {
+            talkRehearsal.endHold()
+        } else {
+            notch.endVoiceAsk()
+        }
+    }
+
+    /// The live session, for the one caller outside the notch that has to ask
+    /// it something: quitting.
+    var meetingSession: MeetingSession? {
+        notch.model?.session
+    }
+
+    /// ⌘Q. Every window closes and the notch folds to its resting bar; capture,
+    /// uploads and the menu-bar item carry on. The hotkey, the Dock icon and
+    /// the menu-bar item all bring it back.
+    func hideAll() {
+        close(&mainWindow)
+        notch.model?.close()
+        syncActivationPolicy()
     }
 
     /// The toggle hotkey and the menu-bar item: pull the notch open, or fold it
@@ -113,7 +157,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     /// Shared chrome for every coordinator-owned window: transparent
-    /// titlebar, dark appearance, this coordinator as delegate, centred.
+    /// titlebar, this coordinator as delegate, centred on screen. The theme is not set
+    /// here — these windows inherit `NSApp.appearance`, which is what lets the
+    /// Appearance setting reach them.
     private func makeWindow(contentRect: NSRect, styleMask: NSWindow.StyleMask) -> NSWindow {
         let window = NSWindow(
             contentRect: contentRect,
@@ -124,9 +170,33 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.center()
+        Self.centerOnScreen(window)
         return window
+    }
+
+    /// The middle of the screen, which is not where `NSWindow.center()` puts a
+    /// window.
+    ///
+    /// AppKit's own centring is horizontal only: vertically it seats the window
+    /// about a third of the way down, an old HIG placement meant to leave room
+    /// for whatever else is on screen. On a welcome window that is alone on a
+    /// blue field with nothing to balance against, it reads as sitting too high.
+    ///
+    /// `visibleFrame`, so the menu bar and Dock are excluded — centring against
+    /// the raw screen puts the window a menu bar's height too high on every Mac.
+    private static func centerOnScreen(_ window: NSWindow) {
+        // Nil before the window is ordered front, which is where this runs;
+        // `NSScreen.main` is then the screen the user is working on. With
+        // neither, AppKit's placement is still better than the origin.
+        guard let screen = window.screen ?? NSScreen.main else {
+            window.center()
+            return
+        }
+        let area = screen.visibleFrame
+        let size = window.frame.size
+        window.setFrameOrigin(
+            NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2)
+        )
     }
 
     private func close(_ window: inout NSWindow?) {
@@ -169,35 +239,67 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
 
         // .resizable so users with large system text settings can grow the
-        // window. A content min size stops it shrinking below where the
-        // primary action (Continue) still fits.
+        // window. The min size is the designed size: every step is laid out
+        // against it, and shrinking below it clips the primary action.
         let window = makeWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 600),
+            contentRect: NSRect(origin: .zero, size: Self.onboardingSize),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView]
         )
-        window.contentMinSize = NSSize(width: 580, height: 560)
         window.titleVisibility = .hidden
 
-        let root = OnboardingView(onComplete: { [weak self] in
+        let rehearsal = TalkRehearsal(
+            combo: services.hotkeys.combo(for: .holdToAsk),
+            audioCapture: services.audioCapture,
+            permissions: services.permissions,
+            llmClient: services.llmClient,
+            telemetry: services.onboardingTelemetry,
+            language: services.languagePreference
+        )
+        talkRehearsal = rehearsal
+
+        let root = OnboardingView(onHandoff: { [weak self] in
             self?.reconcile()
         })
-        .environmentObject(services.permissions)
+        .environmentObject(rehearsal)
         .environmentObject(services.onboarding)
         .environmentObject(services.languagePreference)
         .environmentObject(services.profileStore)
         .environmentObject(services.auth)
         .environmentObject(services.onboardingTelemetry)
-        .environmentObject(services.modeStore)
-        .environmentObject(services.emailPreferences)
+        .environmentObject(services.productAnalytics)
+        .environmentObject(services.consent)
 
-        window.contentViewController = NSHostingController(rootView: root)
+        let hosting = NSHostingController(rootView: root)
+        // The window is one size for the whole flow. Left to itself the hosting
+        // controller writes each step's own ideal height back to the window, so
+        // the frame jumped on every Continue and the traffic lights moved under
+        // the pointer between steps.
+        hosting.sizingOptions = []
+        window.contentViewController = hosting
+        // After the controller, not before: assigning one resets the window's
+        // size constraints, which is why the main-window path orders it the
+        // same way.
+        window.contentMinSize = Self.onboardingSize
+        window.setContentSize(Self.onboardingSize)
+        window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         onboardingWindow = window
     }
 
+    /// One size for every onboarding step. The steps all fill it rather than
+    /// hugging their own content, so this is the only place it is decided.
+    private static let onboardingSize = NSSize(width: 720, height: 660)
+
     private func closeOnboardingWindow() {
         close(&onboardingWindow)
+        dropTalkRehearsal()
+    }
+
+    /// Gone with the window, so a held key reaches the notch again.
+    private func dropTalkRehearsal() {
+        talkRehearsal?.disarm()
+        talkRehearsal = nil
     }
 
     // MARK: - Notch
@@ -227,6 +329,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             entityStore: services.entityStore,
             knowledgeStore: services.knowledgeStore,
             actionItemStore: services.actionItemStore,
+            agents: services.agentStore,
             language: services.languagePreference,
             proactivity: services.proactivityPreference,
             auth: services.auth,
@@ -235,7 +338,40 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             modeStore: services.modeStore,
             screenExclusions: services.screenExclusions,
             calendar: services.calendar,
-            analytics: services.productAnalytics
+            analytics: services.productAnalytics,
+            proposalRaiser: ProposalRaiser(
+                proposals: services.actionProposals,
+                integrations: services.integrations,
+                organizations: services.organizations,
+                meetings: services.meetingStore
+            ),
+            rooms: services.rooms,
+            lookup: { [services] gate, room, scope in
+                MeetingLookup(
+                    llm: services.llmClient,
+                    integrations: services.integrations,
+                    language: services.languagePreference,
+                    gate: gate,
+                    room: room,
+                    scope: scope,
+                    analytics: services.productAnalytics
+                )
+            },
+            colleagues: { [weak organizations = services.organizations] in
+                RoomComposition.colleagueAddresses(organizations?.people.map(\.email) ?? [])
+            },
+            scope: { [weak labels = services.labelStore, weak meetings = services.meetingStore] id, icalUID in
+                LookupScope.of(
+                    meetingID: id,
+                    icalUID: icalUID,
+                    assignments: labels?.assignments ?? [:],
+                    labelNames: Dictionary(
+                        (labels?.labels ?? []).map { ($0.id, $0.name) },
+                        uniquingKeysWith: { first, _ in first }
+                    ),
+                    meetings: meetings?.meetings ?? []
+                )
+            }
         )
 
         // The detector belongs to the session it can act on, and the notch
@@ -248,11 +384,14 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             preference: services.meetingDetection
         )
         self.detector = detector
+        // The live lookup's room gate asks whether a call is running before it
+        // reads anything out. Weak, because the detector holds the session.
+        meetingSession.callInProgress = { [weak detector] in detector.flatMap(\.callInProgress) }
 
         // The calendar's own offer, raised from the invitation rather than from
         // anything running on the Mac — see `ScheduledMeetingWatcher`. It starts
         // and stops itself from the Settings switch, so nothing starts it here.
-        let schedule = ScheduledMeetingWatcher(calendar: services.calendar, session: meetingSession)
+        let schedule = ScheduledMeetingWatcher(calendar: services.calendar, session: meetingSession, rooms: services.rooms)
         self.schedule = schedule
 
         // One owner of "should we ask?", fed by both sources — see `MeetingOffers`.
@@ -268,6 +407,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 session: meetingSession,
                 offers: offers,
                 audioCapture: services.audioCapture,
+                rooms: services.rooms,
+                calendar: services.calendar,
                 language: services.languagePreference,
                 updateGate: services.updateGate,
                 playback: services.demoPlayback,
@@ -283,7 +424,28 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 entitlements: services.entitlements,
                 billing: services.billing,
                 meetingStore: services.meetingStore,
-                permissions: services.permissions
+                knowledge: services.knowledgeStore,
+                permissions: services.permissions,
+                analytics: services.productAnalytics,
+                knowledgeChat: services.knowledgeChat,
+                voiceChat: services.voiceChat,
+                llmClient: services.llmClient,
+                onboarding: services.onboarding,
+                onboardingTelemetry: services.onboardingTelemetry,
+                integrations: services.integrations,
+                hotkeys: services.hotkeys
+            ),
+            cards: NotchCardEnvironment(
+                integrations: services.integrations,
+                integrationCatalogue: services.integrationCatalogue,
+                actionItems: services.actionItemStore,
+                drafts: services.taskDrafts,
+                meetingGrants: services.meetingGrants,
+                organizations: services.organizations,
+                meetings: services.meetingStore,
+                knowledge: services.knowledgeStore,
+                agents: services.agentStore,
+                proposals: services.actionProposals
             ),
             sharing: services.panelSharing.sharingType
         )
@@ -304,6 +466,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     private var settingsPane: AnyView {
         AnyView(
             SettingsView(
+                feed: feed,
                 hotkey: services.hotkeys,
                 profileStore: services.profileStore,
                 panelSharing: services.panelSharing,
@@ -315,10 +478,15 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 auth: services.auth,
                 accountExport: services.accountExport,
                 connections: services.connections,
+                integrations: services.integrations,
+                integrationCatalogue: services.integrationCatalogue,
+                organizations: services.organizations,
                 modeStore: services.modeStore,
                 referral: services.referral,
                 emailPreferences: services.emailPreferences,
                 productAnalytics: services.productAnalytics,
+                consent: services.consent,
+                toolApproval: services.toolApproval,
                 screenExclusions: services.screenExclusions,
                 screenContext: services.screenContext,
                 meetingDetection: services.meetingDetection,
@@ -326,7 +494,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 demoPlayback: services.demoPlayback,
                 captureSurface: services.captureSurface,
                 audioCapture: services.audioCapture,
-                permissions: services.permissions
+                permissions: services.permissions,
+                appearance: services.appearance
             )
         )
     }
@@ -368,26 +537,54 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         // window level instead (`contentMinSize`, set after the controller is
         // attached), so the content always fills the window and the rail stays
         // pinned at the leading edge.
-        let root = EmailConsentPromptHost(preferences: services.emailPreferences) {
-            MainWindowView(initialFocusMeetingID: meetingID, settings: settingsPane)
-                .environmentObject(services.meetingStore)
-                .environmentObject(services.chatStore)
-                .environmentObject(services.profileStore)
-                .environmentObject(services.entityStore)
-                .environmentObject(services.knowledgeStore)
-                .environmentObject(services.knowledgeChat)
-                .environmentObject(services.knowledgeThreads)
-                .environmentObject(services.actionItemStore)
-                .environmentObject(services.llmClient)
-                .environmentObject(services.languagePreference)
-                .environmentObject(services.labelStore)
-                .environmentObject(services.entitlements)
-                .environmentObject(services.hotkeys)
-                .environmentObject(services.settingsFocus)
-                .environmentObject(services.screenContext)
-                .environmentObject(services.summaryRegeneration)
-                .environmentObject(services.productAnalytics)
-                .environmentObject(services.demoPlayback)
+        let root = CalendarPromptHost(
+            onboarding: services.onboarding,
+            integrations: services.integrations,
+            calendar: services.calendar,
+            email: services.emailPreferences
+        ) {
+            EmailConsentPromptHost(preferences: services.emailPreferences) {
+                DiagnosticsPromptHost(
+                    analytics: services.productAnalytics,
+                    consent: services.consent,
+                    isOnboardingComplete: services.onboarding.isCompleted
+                ) {
+                    MainWindowView(initialFocusMeetingID: meetingID, settings: settingsPane)
+                        .environmentObject(services.meetingStore)
+                        .environmentObject(services.chatStore)
+                        .environmentObject(services.reachability)
+                        .environmentObject(services.profileStore)
+                        .environmentObject(services.modeStore)
+                        .environmentObject(services.entityStore)
+                        .environmentObject(services.knowledgeStore)
+                        .environmentObject(services.knowledgeChat)
+                        .environmentObject(services.knowledgeThreads)
+                        .environmentObject(services.beats)
+                        .environmentObject(services.beatRunner)
+                        .environmentObject(services.agentStore)
+                        .environmentObject(services.actionItemStore)
+                        .environmentObject(services.integrations)
+                        .environmentObject(services.integrationCatalogue)
+                        .environmentObject(services.actionProposals)
+                        .environmentObject(services.taskDrafts)
+                        .environmentObject(services.llmClient)
+                        .environmentObject(services.languagePreference)
+                        .environmentObject(services.labelStore)
+                        .environmentObject(services.meetingGrants)
+                        .environmentObject(services.organizations)
+                        .environmentObject(services.entitlements)
+                        .environmentObject(services.billing)
+                        .environmentObject(feed)
+                        .environmentObject(services.hotkeys)
+                        .environmentObject(services.settingsFocus)
+                        .environmentObject(services.screenContext)
+                        .environmentObject(services.summaryRegeneration)
+                        .environmentObject(services.productAnalytics)
+                        .environmentObject(services.demoPlayback)
+                        .environmentObject(services.permissions)
+                        .environmentObject(services.calendar)
+                }
+            }
         }
 
         let hosting = NSHostingController(rootView: root)
@@ -399,11 +596,10 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         window.contentViewController = hosting
         // With the hosting controller no longer sizing the window, set the opening
         // size and the floor explicitly AFTER attaching it (assigning a
-        // contentViewController resets the window's size constraints). Three
-        // columns now: 1240×760 opens comfortably; 980×560 is where the sidebar,
-        // the centre column, and the context column all still work.
+        // contentViewController resets the window's size constraints). 1240×760
+        // opens comfortably; the floor is `mainWindowFloor`.
         window.setContentSize(NSSize(width: 1240, height: 760))
-        window.contentMinSize = NSSize(width: 980, height: 560)
+        window.contentMinSize = Self.mainWindowFloor
         window.center()
         window.makeKeyAndOrderFront(nil)
         mainWindow = window
@@ -418,6 +614,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         didApplyLaunchBehavior = false
     }
 
+    /// The smallest the main window may be. The width comes from the type that
+    /// enforces the column clamp, so the floor and the clamp cannot disagree;
+    /// it was a flat 980 typed here and again in the live-resize delegate.
+    private static let mainWindowFloor = NSSize(width: ContextColumnWidth.windowMinWidth, height: 560)
+
     // MARK: - NSWindowDelegate
 
     /// Hard floor on the History window's size. `contentMinSize` proved
@@ -429,7 +630,10 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     nonisolated func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
         MainActor.assumeIsolated {
             guard sender === mainWindow else { return frameSize }
-            return NSSize(width: max(frameSize.width, 980), height: max(frameSize.height, 560))
+            return NSSize(
+                width: max(frameSize.width, Self.mainWindowFloor.width),
+                height: max(frameSize.height, Self.mainWindowFloor.height)
+            )
         }
     }
 
@@ -441,6 +645,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 signInWindow = nil
             } else if closed === onboardingWindow {
                 onboardingWindow = nil
+                dropTalkRehearsal()
             } else if closed === mainWindow {
                 // The main window is auxiliary to the panel — closing it
                 // doesn't trigger any reconciliation; capture keeps running.

@@ -27,11 +27,9 @@ struct NotchOffer: View {
     /// What Nod already knows about this meeting. Empty is the ordinary case — a
     /// first conversation, or one nothing on this Mac can put a name to.
     let context: CallContext
-    /// The app "Never for …" would silence, when the offer names one.
-    let mutableApp: ConferencingApp?
     let onStart: () -> Void
     let onDismiss: () -> Void
-    let onMute: (ConferencingApp) -> Void
+    let onOpenSettings: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -45,16 +43,35 @@ struct NotchOffer: View {
                     subtitle
                 }
                 Spacer(minLength: 0)
+                NotchGlyphButton(
+                    icon: "nc-gear-2",
+                    help: "Detection settings",
+                    action: onOpenSettings
+                )
                 NotchGlyphButton(icon: "nc-xmark", help: "Not now", action: onDismiss)
             }
-            actions
+            NotchActionButton(title: "Start transcription", action: onStart)
         }
     }
 
+    /// A question about what Nod noticed, never a statement about what it is
+    /// doing. Nothing is recording yet — this card is the ask — and a title
+    /// that reads as "already running" is the one thing this surface must not
+    /// say on a product whose whole claim is that it never starts on its own.
     private var title: String {
-        guard case let .scheduled(meeting) = offer else { return "Meeting in progress" }
-        guard let userName else { return "\(meeting.title) starts now" }
-        return "Hey \(userName) — \(meeting.title) starts now"
+        let what: String = switch offer {
+        case let .scheduled(meeting):
+            "\(meeting.title) starts now"
+        case let .detected(call):
+            // The app, not the window title: a browser's title is a room code
+            // as often as a name, and naming the app is the honest account of
+            // what Nod actually saw.
+            call.app.isBrowser
+                ? "looks like you're on a call in \(call.app.displayName)"
+                : "looks like you're on a \(call.app.displayName) call"
+        }
+        guard let userName else { return what.prefix(1).uppercased() + what.dropFirst() }
+        return "Hey \(userName) — \(what)"
     }
 
     /// What Nod knows, when it knows something; what it is about to do
@@ -95,24 +112,6 @@ struct NotchOffer: View {
                 .icon(13)
                 .foregroundStyle(Theme.Palette.brand)
                 .frame(width: 24, height: 24)
-        }
-    }
-
-    private var actions: some View {
-        HStack(spacing: 8) {
-            NotchActionButton(title: "Start transcription", action: onStart)
-
-            if let mutableApp {
-                Button { onMute(mutableApp) } label: {
-                    Text("Never for \(mutableApp.displayName)")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(Theme.Palette.muted)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .buttonStyle(.pressable)
-                .linkCursor()
-            }
         }
     }
 }
@@ -203,17 +202,11 @@ struct NotchNotice: View {
                 .foregroundStyle(Theme.Palette.brand)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Text(style.lead.uppercased())
-                        .font(.system(size: 9.5, weight: .bold))
-                        .kerning(0.6)
-                        .foregroundStyle(Theme.Palette.muted.opacity(0.9))
-                    if let spokenAt = finding.spokenAt {
-                        Text(Self.relativeLabel(spokenAt))
-                            .font(.system(size: 9.5, weight: .regular))
-                            .foregroundStyle(Theme.Palette.muted.opacity(0.65))
-                    }
-                }
+                SectionLabel(
+                    style.lead,
+                    size: .compact,
+                    trailing: finding.spokenAt.map(Self.relativeLabel)
+                )
                 Text(finding.text)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
@@ -228,6 +221,80 @@ struct NotchNotice: View {
             Spacer(minLength: 0)
             NotchGlyphButton(icon: "nc-xmark", help: style.dismissHelp, action: onDismiss)
         }
+    }
+}
+
+/// What Nod already knew, raised because the room just made it relevant.
+///
+/// Reads deliberately unlike `NotchNotice`. That card reports something the
+/// user just said; this one makes a claim about a session they are not in, so
+/// it carries where the claim comes from and a way to go and check it. A
+/// remembered fact with no provenance is indistinguishable from an invented
+/// one, and the user cannot verify it without leaving the call.
+struct NotchRecall: View {
+    let recall: LiveRecall
+    let onOpenSource: () -> Void
+    let onDismiss: () -> Void
+    /// Present only when the recalled claim is a concept the room just
+    /// contradicted: one tap records the room's version as current. Everything
+    /// else keeps the two actions this card has always had.
+    var onReplace: (() -> Void)?
+
+    /// A loop reads as its own kind of moment, not as a recall that happens to
+    /// be about a task. It is the one thing on this surface that is *owed* —
+    /// still true, still unpaid, and dated — so it carries the app's own accent
+    /// rather than memory's violet, and says how long it has been waiting.
+    private var isOpenLoop: Bool {
+        recall.origin.isOpenLoop
+    }
+
+    private var tint: Color {
+        isOpenLoop ? Theme.Palette.brand : Theme.Palette.violet
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(isOpenLoop ? "nc-arrow-dotted-rotate-anticlockwise" : "nc-sparkle-3")
+                .icon(12)
+                .foregroundStyle(tint)
+
+            VStack(alignment: .leading, spacing: 3) {
+                eyebrow
+                Text(recall.text)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Text(recall.sourceLabel)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .lineLimit(1)
+                    Button("View context", action: onOpenSource)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(tint)
+                        .linkCursor()
+                    if let onReplace {
+                        Button("This replaces it", action: onReplace)
+                            .buttonStyle(.plain)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Theme.Palette.brand)
+                            .linkCursor()
+                    }
+                }
+                .padding(.top, 1)
+            }
+
+            Spacer(minLength: 0)
+            NotchGlyphButton(icon: "nc-xmark", help: "Dismiss", action: onDismiss)
+        }
+    }
+
+    /// The age sits beside the label rather than down with the source: on a
+    /// promise nobody has kept, how long it has been open is not metadata — it
+    /// is the reason the card is on screen at all.
+    private var eyebrow: some View {
+        SectionLabel(recall.kind.label, size: .compact, trailing: recall.ageLabel)
     }
 }
 
@@ -458,6 +525,8 @@ struct NotchLaunch: View {
     var isLoading = false
     var error: String?
     let onStart: () -> Void
+    /// The other thing the surface does when nothing is recording.
+    let onAsk: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 13) {
@@ -474,12 +543,25 @@ struct NotchLaunch: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                NotchActionButton(
-                    title: session.selectedKind.startActionTitle,
-                    icon: session.selectedKind.icon,
-                    isLoading: isLoading || session.isStartingRecording || session.isFinishingTranscription,
-                    action: onStart
-                )
+                HStack(spacing: 10) {
+                    NotchActionButton(
+                        title: session.selectedKind.startActionTitle,
+                        icon: session.selectedKind.icon,
+                        isLoading: isLoading || session.isStartingRecording || session.isFinishingTranscription,
+                        action: onStart
+                    )
+                    Button(action: onAsk) {
+                        HStack(spacing: 5) {
+                            Image("nc-sparkle-3")
+                                .icon(10)
+                            Text("Ask")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .foregroundStyle(Theme.Palette.muted)
+                    }
+                    .buttonStyle(.pressable)
+                    .linkCursor()
+                }
 
                 if let error {
                     Text(error)
@@ -494,10 +576,19 @@ struct NotchLaunch: View {
     }
 }
 
+/// `mm:ss`, wherever the notch shows a clock — including the listening bar,
+/// which counts somebody else's meeting and must not read differently from the
+/// bar the person recording it is looking at.
+enum ElapsedClock {
+    static func text(seconds: Int) -> String {
+        String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
 extension MeetingSession {
     /// The elapsed time as `mm:ss`, for the two places the notch shows a clock.
     var elapsedClock: String {
-        String(format: "%02d:%02d", elapsed / 60, elapsed % 60)
+        ElapsedClock.text(seconds: elapsed)
     }
 }
 

@@ -79,9 +79,14 @@ final class ScheduledMeetingWatcher: ObservableObject {
 
     private let calendar: CalendarService
     private let session: MeetingSession
+    /// Asked on the same tick, because it needs the same thing: what the
+    /// calendar says is happening now. A second timer for one extra question
+    /// would wake the Mac twice to learn the same fact.
+    private let rooms: RoomListenerService
     /// Meetings already put to the user, by fingerprint. Asking twice about the
     /// same meeting is what makes a proactive app feel like a nagging one.
     private var answered: Set<String> = []
+    private var lastRoomNote: String?
     private var timer: Task<Void, Never>?
     private var switchObserver: AnyCancellable?
     private var sleepObservers: [NSObjectProtocol] = []
@@ -91,19 +96,29 @@ final class ScheduledMeetingWatcher: ObservableObject {
     /// call can start at any instant, where a meeting starts at a time both
     /// sides already agreed on.
     private static let interval: TimeInterval = 20
+    /// The cadence while somebody could be about to start recording the meeting
+    /// this Mac is also in — see `nextDelay`. Short enough to read as "the moment
+    /// they started", long enough that it is still one small indexed lookup
+    /// rather than a stream.
+    private static let roomInterval: TimeInterval = 3
 
-    init(calendar: CalendarService, session: MeetingSession) {
+    init(calendar: CalendarService, session: MeetingSession, rooms: RoomListenerService) {
         self.calendar = calendar
         self.session = session
+        self.rooms = rooms
 
-        // The switch owns the loop, not just the query inside it. Left running
-        // against a `calendar.isReadable` guard the timer would keep waking a
-        // sleeping Mac to learn nothing — and `privacy.md` § 3.11 promises the
-        // timer stops when the switch does, which a guard does not deliver.
-        switchObserver = calendar.$isEnabled
+        // Having a source owns the loop, not just the query inside it. Left
+        // running against a `calendar.isReadable` guard the timer would keep
+        // waking a sleeping Mac to learn nothing — and `privacy.md` § 3.11
+        // promises Nod stops reading the moment the switch goes off, which a
+        // guard inside a still-ticking loop does not deliver.
+        //
+        // `hasAnySource`, not `isEnabled`: a connected calendar account is the
+        // other half of § 3.11 and has its own off-switch, in Integrations.
+        switchObserver = calendar.$hasAnySource
             .removeDuplicates()
-            .sink { [weak self] enabled in
-                if enabled { self?.start() } else { self?.stop() }
+            .sink { [weak self] hasSource in
+                if hasSource { self?.start() } else { self?.stop() }
             }
         observeSleep()
     }
@@ -116,15 +131,42 @@ final class ScheduledMeetingWatcher: ObservableObject {
     }
 
     func start() {
-        guard timer == nil, calendar.isEnabled else { return }
+        guard timer == nil, calendar.hasAnySource else { return }
         Log.screen.info("scheduled: watching the calendar (every \(Int(Self.interval))s)")
         timer = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(Self.interval * 1_000_000_000))
+                let delay = await MainActor.run { self?.nextDelay ?? Self.interval }
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard let self, !Task.isCancelled else { return }
+                // Before the tick, not after: a connected calendar is only as
+                // current as its last read, and the entry this tick is looking
+                // for may have been created since the app last came forward.
+                await calendar.syncRemoteIfDue()
                 tick()
             }
         }
+    }
+
+    /// How long to wait before looking again.
+    ///
+    /// Twenty seconds is the right cadence for "has a meeting started?", which is
+    /// a question about the calendar and changes slowly. It is the wrong cadence
+    /// for "has a colleague started recording the meeting I am in?", which
+    /// changes the instant they press a button and which the other person is
+    /// sitting there waiting to be told about. At twenty seconds that card
+    /// arrived up to twenty seconds late, and read as the feature being broken.
+    ///
+    /// So the loop tightens for exactly as long as that question is live: a
+    /// meeting is on the calendar right now, we are not recording it ourselves,
+    /// and no room has been found yet. Outside that, nothing is waiting on us
+    /// and the slow cadence is what keeps this cheap for the rest of the day.
+    private var nextDelay: TimeInterval {
+        guard session.meeting == .idle,
+              rooms.joined == nil,
+              rooms.available == nil,
+              calendar.currentRoomIdentity() != nil
+        else { return Self.interval }
+        return Self.roomInterval
     }
 
     func stop() {
@@ -151,8 +193,13 @@ final class ScheduledMeetingWatcher: ObservableObject {
     }
 
     private func tick() {
-        guard calendar.isReadable else { return clear() }
+        guard calendar.hasAnySource else {
+            note("live room: no calendar source — EventKit unauthorised and nothing synced")
+            return clear()
+        }
         let now = Date()
+
+        askAboutLiveRooms()
 
         // A recording under way answers every candidate: the user is in a
         // meeting, whichever one it is.
@@ -161,25 +208,61 @@ final class ScheduledMeetingWatcher: ObservableObject {
             return clear()
         }
         guard candidate == nil else {
-            // Stop offering once its window has passed, even if nobody answered.
-            if let candidate, !candidate.isStarting(at: now) { answered(candidate) }
+            // Stop offering once its window has passed, even if nobody answered —
+            // and the moment Today is told the person is not going.
+            if let candidate, !candidate.isStarting(at: now) || MeetingAttendance.answers()[candidate.fingerprint] != nil {
+                answered(candidate)
+            }
             return
         }
 
         let starting = calendar
             .meetingsStarting(at: now)
-            .first { ScheduledMeeting.isStarting($0.startsAt, at: now) && !answered.contains(Self.key($0)) }
+            .first {
+                ScheduledMeeting.isStarting($0.startsAt, at: now)
+                    && !answered.contains(MeetingAttendance.fingerprint($0))
+                    && MeetingAttendance.answer(for: $0) == nil
+            }
         guard let starting else { return }
 
         Log.screen.info("scheduled: \(starting.title) starts now")
         candidate = ScheduledMeeting(starting)
     }
 
-    /// The fingerprint of an entry that has not been turned into a
-    /// `ScheduledMeeting` yet — checked before the attendee names are read, so a
-    /// meeting already answered costs nothing to skip.
-    private static func key(_ occurrence: CalendarOccurrence) -> String {
-        "\(occurrence.title)@\(occurrence.startsAt.timeIntervalSince1970)"
+    /// Whether a colleague is already recording whatever is on the calendar now.
+    ///
+    /// Only while nothing of our own is running, and only for an entry that can
+    /// identify itself — the answer is about a specific meeting, not about being
+    /// in the same company as somebody who is recording.
+    private func askAboutLiveRooms() {
+        // Logged on change, never per tick. Until now this whole path was silent
+        // unless it threw, so a colleague who never saw the join card left no
+        // trace anywhere — and three separate causes were diagnosed by reading
+        // code and shipping a guess. One line per state change is what turns the
+        // next report into evidence.
+        if session.meeting != .idle {
+            return note("live room: not asking — a recording of our own is running")
+        }
+        if rooms.joined != nil {
+            return note("live room: not asking — already listening to one")
+        }
+        guard let identity = calendar.currentRoomIdentity() else {
+            note("live room: nothing on the calendar names this moment")
+            return rooms.forgetRoom()
+        }
+        note("live room: asking about \(identity.icalUID ?? identity.conferenceURL?.absoluteString ?? "?")")
+        Task { [rooms] in
+            await rooms.lookForRoom(identity)
+        }
+    }
+
+    /// One line per *change* of outcome. The tick runs three times a minute for
+    /// the life of the app; logging every pass would bury the transition that
+    /// actually matters.
+    private func note(_ message: String) {
+        guard message != lastRoomNote else { return }
+        lastRoomNote = message
+        Log.screen.info("\(message)")
     }
 
     /// No meeting starts on a sleeping Mac, and a loop that keeps its schedule

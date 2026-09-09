@@ -14,6 +14,24 @@ struct CalendarAttendee: Equatable {
     /// so telling the user apart from everyone else never involves matching an
     /// address against anything.
     let isSelf: Bool
+    /// The address the invitation carries, lowercased, when it carries one.
+    ///
+    /// Kept because it is the only thing here that can be matched against
+    /// anything else. `display` is a name for a human to read — two people can
+    /// share one, and one person shows up under three — so a room described by
+    /// names alone cannot be told apart from a room of strangers. Address is
+    /// what joins an attendee to `people.primary_email`, and that join is what
+    /// says whether the person on this call is a colleague or a customer.
+    ///
+    /// `nil` for a local EventKit entry that names somebody without one.
+    let email: String?
+
+    init(display: String, isSelf: Bool, email: String? = nil) {
+        self.display = display
+        self.isSelf = isSelf
+        self.email = email.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            .flatMap { $0.isEmpty ? nil : $0 }
+    }
 }
 
 extension CalendarAttendee {

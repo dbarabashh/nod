@@ -32,6 +32,7 @@ import { adminClient } from "../_shared/supabase.ts";
 import { isObject, json } from "../_shared/http.ts";
 import { currencyAmount, paidSubscriptionTransaction } from "../_shared/paddle-transaction.ts";
 import { payoutDueRewards } from "../_shared/reward-payout.ts";
+import { eventPlan } from "../_shared/product-events.ts";
 
 // Reject a validly-signed delivery whose `ts` is older than this — a captured
 // event (e.g. an old `subscription.activated`) can't be replayed later to
@@ -111,8 +112,14 @@ async function handleCompletedTransaction(
     const customData = isObject(data.custom_data) ? data.custom_data : {};
     const offerClaimId = nullableStr(customData.offer_claim_id);
 
+    // A workspace purchase is the organization's. Booking it as the buyer's
+    // conversion spends their one `subscription_paid` slot — the outbox is
+    // `on conflict (user_id, event) do nothing` — on the company's money, so
+    // their own first subscription is never reported.
+    const isWorkspaceTransaction = nullableStr(customData.org_id) !== null;
+
     const paidTransaction = paidSubscriptionTransaction(data);
-    if (paidTransaction && eventOccurredAt) {
+    if (paidTransaction && eventOccurredAt && !isWorkspaceTransaction) {
         if (userId) {
             const { data: accepted, error } = await admin.rpc("enqueue_paid_transaction_conversion", {
                 p_user_id: userId,
@@ -143,15 +150,22 @@ async function handleCompletedTransaction(
     for (const priceId of priceIds(data.items)) {
         const { data: price } = await admin
             .from("plan_prices")
-            .select("kind")
+            .select("kind, plan")
             .eq("paddle_price_id", priceId)
             .maybeSingle();
 
         if (price?.kind === "topup") {
-            await fulfilTopup(admin, transactionId, priceId, origin, occurredAt, data);
+            await fulfilTopup(admin, transactionId, { id: priceId, plan: str(price.plan) }, origin, occurredAt, data, isWorkspaceTransaction);
         } else if (price?.kind === "subscription") {
             if (!userId || !subscriptionId) {
                 console.warn(`subscription transaction missing identity txn=${transactionId}`);
+                continue;
+            }
+            // Same reason: `record_billing_payer` would mark this person's Paddle
+            // customer as having already paid, which permanently disqualifies them
+            // from the referral discount on a personal plan they never bought.
+            if (isWorkspaceTransaction) {
+                console.log(`workspace transaction txn=${transactionId} — no personal attribution`);
                 continue;
             }
             // "First-ever payer" is a provider fact, so it is recorded before
@@ -202,11 +216,13 @@ async function handleCompletedTransaction(
 async function fulfilTopup(
     admin: ReturnType<typeof adminClient>,
     transactionId: string,
-    priceId: string,
+    price: { id: string; plan: string },
     origin: string,
     occurredAt: string,
     data: Record<string, unknown>,
+    isWorkspaceTransaction: boolean,
 ): Promise<void> {
+    const priceId = price.id;
     if (origin !== "api") {
         console.warn(`top-up ignored for unexpected origin=${origin} txn=${transactionId}`);
         return;
@@ -260,9 +276,13 @@ async function fulfilTopup(
         const { error: telemetryError } = await admin.rpc("record_server_product_event", {
             p_user_id: intent.user_id,
             p_event: "topup_purchased",
-            p_properties: { plan: "starter", billing: "one_time", outcome: "success" },
+            p_properties: { plan: eventPlan(price.plan), billing: "one_time", outcome: "success" },
         });
         if (telemetryError) console.warn(`top-up telemetry failed: ${telemetryError.message}`);
+
+        // A workspace's pack is the company's money, not the buyer's conversion —
+        // the same reason the subscription path skips it above.
+        if (isWorkspaceTransaction) return;
 
         const totals = isObject(data.details) && isObject(data.details.totals) ? data.details.totals : {};
         const value = currencyAmount(str(totals.earnings), str(data.currency_code).toUpperCase());
@@ -343,6 +363,50 @@ async function handleSubscription(
     const periodStart    = nullableStr(period.starts_at);
     const periodEnd      = nullableStr(period.ends_at);
 
+    // A workspace subscription belongs to an organization, not to whoever paid,
+    // so it is applied to a different table and the person is only recorded.
+    const orgId = await resolveOrgId(admin, data, subscriptionId);
+    if (orgId) {
+        if (!subscriptionId || !eventId || !eventOccurredAt) {
+            console.warn(`workspace subscription event missing identity — sub=${subscriptionId} org=${orgId}`);
+            return;
+        }
+        const custom = isObject(data.custom_data) ? data.custom_data : {};
+        const { data: applied, error } = await admin.rpc("apply_paddle_org_subscription", {
+            p_org_id:            orgId,
+            p_customer_id:       customerId,
+            p_subscription_id:   subscriptionId,
+            p_price_id:          priceId,
+            p_paddle_status:     status,
+            p_seats:             firstQuantity(data.items),
+            p_period_start:      periodStart,
+            p_period_end:        periodEnd,
+            p_event_id:          eventId,
+            p_event_occurred_at: eventOccurredAt,
+            p_purchased_by:      nullableStr(custom.purchased_by),
+        });
+        if (error) throw new Error(`apply_paddle_org_subscription: ${error.message}`);
+        console.log(`workspace subscription event org=${orgId} status=${status} price=${priceId} applied=${applied === true}`);
+        return;
+    }
+
+    // A workspace price down the personal path is unrecoverable: the personal row
+    // then claims the subscription id, and `resolveOrgId` returns null for every
+    // later event, so the organization can never be attached. Refusing makes the
+    // webhook retry instead, which is the failure we can still fix.
+    if (priceId) {
+        const { data: pricePlan } = await admin
+            .from("plan_prices")
+            .select("plan")
+            .eq("paddle_price_id", priceId)
+            .maybeSingle();
+        if (pricePlan?.plan === "teams") {
+            throw new Error(
+                `workspace price on the personal path — sub=${subscriptionId} price=${priceId}: no org_id resolved`,
+            );
+        }
+    }
+
     const userId = await resolveUserId(admin, data, subscriptionId, customerId);
     if (!userId) {
         console.warn(`subscription event without resolvable user — sub=${subscriptionId} customer=${customerId}`);
@@ -383,6 +447,39 @@ async function handleSubscription(
             console.error(`reward payout error user=${userId}: ${err}`);
         }
     }
+}
+
+// Which organization this subscription belongs to, or null when it is somebody's
+// personal plan. The SUBSCRIPTION id is the only identity that answers this:
+// `custom_data` is a bootstrap for the first event, before any row claims the id.
+//
+// There is deliberately no customer-id fallback. One person can hold both their
+// workspace's subscription and their own — `create-checkout` reuses the same
+// Paddle customer for both — so matching on the customer routed the personal
+// subscription's first event onto the organization and overwrote its plan, its
+// seat count and its subscription id, silently uncovering every seat holder.
+async function resolveOrgId(
+    admin: ReturnType<typeof adminClient>,
+    data: Record<string, unknown>,
+    subscriptionId: string,
+): Promise<string | null> {
+    if (subscriptionId) {
+        const { data: row } = await admin
+            .from("org_subscriptions")
+            .select("org_id")
+            .eq("paddle_subscription_id", subscriptionId)
+            .maybeSingle();
+        if (row?.org_id) return row.org_id as string;
+
+        const { data: personal } = await admin
+            .from("subscriptions")
+            .select("user_id")
+            .eq("paddle_subscription_id", subscriptionId)
+            .maybeSingle();
+        if (personal?.user_id) return null;
+    }
+    const custom = isObject(data.custom_data) ? data.custom_data : {};
+    return nullableStr(custom.org_id);
 }
 
 // Resolve provider-owned identity first. Checkout `custom_data` is only a
@@ -467,6 +564,15 @@ function firstPriceId(items: unknown): string | null {
     if (!isObject(first)) return null;
     if (isObject(first.price)) return nullableStr(first.price.id);
     return nullableStr(first.price_id);
+}
+
+// Seats, as Paddle records them: the quantity on the subscription's first item.
+function firstQuantity(items: unknown): number | null {
+    if (!Array.isArray(items)) return null;
+    const first = items[0];
+    if (!isObject(first)) return null;
+    const quantity = first.quantity;
+    return typeof quantity === "number" && Number.isInteger(quantity) && quantity > 0 ? quantity : null;
 }
 
 function priceIds(items: unknown): string[] {

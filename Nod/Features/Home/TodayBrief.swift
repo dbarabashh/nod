@@ -1,0 +1,145 @@
+import SwiftUI
+
+/// The pure half of Today: what to say and which rows count, separated from
+/// the view so the same logic is testable without a window.
+enum TodayBrief {
+    /// Time-of-day greeting, first name when the profile has one.
+    static func greeting(for displayName: String?, at date: Date = Date()) -> String {
+        let hour = Calendar.current.component(.hour, from: date)
+        let salute = switch hour {
+        case 5 ..< 12: "Good morning"
+        case 12 ..< 18: "Good afternoon"
+        default: "Good evening"
+        }
+        guard let first = Profile.firstName(in: displayName) else { return salute }
+        return "\(salute), \(first)"
+    }
+
+    /// "Starts in 24 min" / "Started 5 min ago" / "Today at 19:00" — and
+    /// "Tomorrow at 07:00" when the 12-hour window crosses midnight, because a
+    /// morning meeting called "Today" at 8pm is a meeting somebody misses.
+    static func startLine(for occurrence: CalendarOccurrence, now: Date) -> String {
+        let minutes = Int(occurrence.startsAt.timeIntervalSince(now) / 60)
+        if minutes < 0 { return "Started \(-minutes) min ago" }
+        if minutes == 0 { return "Starting now" }
+        if minutes <= 90 { return "Starts in \(minutes) min" }
+        let day = Calendar.current.isDate(occurrence.startsAt, inSameDayAs: now) ? "Today" : "Tomorrow"
+        return "\(day) at \(occurrence.startsAt.formatted(date: .omitted, time: .shortened))"
+    }
+
+    /// The card's one CTA, named for the meeting it starts — "Start capture"
+    /// beside the sidebar's capture button was the same action twice. A name
+    /// too long to fit on one line beside "Open last session" is not cut
+    /// short — a truncated name in a button reads as a bug — the button says
+    /// "this meeting" and the full name sits on the card right above.
+    static func captureLabel(for occurrence: CalendarOccurrence) -> String {
+        let title = occurrence.title.trimmingCharacters(in: .whitespaces)
+        guard !title.isEmpty else { return "Start capture" }
+        return title.count <= 18 ? "Start “\(title)”" : "Start this meeting"
+    }
+
+    /// What Google Tasks gets for a calendar entry. The due date is the start
+    /// instant in the local offset; the server keeps the day as written, so the
+    /// time survives only in the notes.
+    static func taskArguments(for occurrence: CalendarOccurrence) -> [String: String] {
+        [
+            "title": occurrence.title,
+            "due": PromptLibrary.rfc3339String(occurrence.startsAt),
+            "notes": taskNotes(for: occurrence)
+        ]
+    }
+
+    /// What Google Calendar gets for a declined invitation. The invitation is
+    /// named by its iCalUID and start — what the calendar row carries — and
+    /// the title, so the server acts only on the words the dialog showed.
+    static func declineArguments(for occurrence: CalendarOccurrence) -> [String: String]? {
+        guard let externalID = occurrence.externalID else { return nil }
+        return [
+            "ical_uid": externalID,
+            "event_title": confirmedTitle(of: occurrence),
+            "event_starts_at": PromptLibrary.rfc3339String(occurrence.startsAt),
+            "response": "declined"
+        ]
+    }
+
+    /// The words the person confirms for an event. An untitled entry is named
+    /// by the same sentinel the server accepts for an empty summary.
+    static func confirmedTitle(of occurrence: CalendarOccurrence) -> String {
+        let title = occurrence.title.trimmingCharacters(in: .whitespaces)
+        return title.isEmpty ? "(no title)" : title
+    }
+
+    /// The note the task carries — shown in the confirmation word for word,
+    /// because the names in it leave Nod.
+    static func taskNotes(for occurrence: CalendarOccurrence) -> String {
+        var notes = "\(occurrence.startsAt.formatted(date: .abbreviated, time: .shortened)) · from your calendar"
+        if !occurrence.others.isEmpty {
+            notes += " with \(occurrence.others.map(\.display).joined(separator: ", "))"
+        }
+        return notes
+    }
+
+    static func taskConsequence(for occurrence: CalendarOccurrence) -> String {
+        "Due \(occurrence.startsAt.formatted(date: .abbreviated, time: .omitted)), "
+            + "with the note “\(taskNotes(for: occurrence))”. "
+            + "The calendar entry stays as it is; Nod stops treating it as a meeting."
+    }
+
+    /// What the last conversation left behind, in one line.
+    static func knowledgeLine(for meeting: Meeting) -> String {
+        let summary = SessionKnowledge.of(meeting).summary
+        return summary.isEmpty ? "no structured recap" : summary
+    }
+
+    /// The most recent session with any of the same people, the invitation
+    /// itself when both sides carry it. This is the "he remembered before I
+    /// did" line — what the last conversation with these people left behind.
+    ///
+    /// Names match on their first word, whole: substring matching made "Ed"
+    /// every Edward on the calendar, and an attendee whose display is a bare
+    /// address matches on the address's own first token.
+    static func lastSession(before occurrence: CalendarOccurrence, in meetings: [Meeting]) -> Meeting? {
+        let live = meetings.live()
+        if let externalID = occurrence.externalID,
+           let matched = live.first(where: { $0.icalUID == externalID }) {
+            return matched
+        }
+        let others = occurrence.others.compactMap { nameToken($0.display) }
+        guard !others.isEmpty else { return nil }
+        return live.first { meeting in
+            let voices = (meeting.speakerNames?.values).map(Array.init) ?? []
+            return voices.compactMap(nameToken).contains { others.contains($0) }
+        }
+    }
+
+    /// The first word of a display name, lowercased — "Sasha K" → "sasha",
+    /// "john.smith@acme.com" → "john". Nil when too short to identify anyone.
+    static func nameToken(_ display: String) -> String? {
+        let first = display
+            .lowercased()
+            .split(whereSeparator: { !$0.isLetter })
+            .first
+            .map(String.init)
+        guard let first, first.count >= 3 else { return nil }
+        return first
+    }
+
+    /// A beat result counts as new until the person has opened Beats from its
+    /// row. Kept per beat in defaults rather than a column: which mornings this
+    /// Mac has shown is this Mac's business.
+    private static func seenKey(_ beat: Beat) -> String {
+        "today.beatSeen.\(beat.id.uuidString)"
+    }
+
+    static func isUnseen(_ run: BeatRun, of beat: Beat) -> Bool {
+        run.scheduledFor.timeIntervalSince1970 > UserDefaults.standard.double(forKey: seenKey(beat))
+    }
+
+    /// Never moves the mark back: opening an older run from the Beats rail is
+    /// not unreading the newer one.
+    static func markSeen(_ run: BeatRun, of beat: Beat) {
+        let defaults = UserDefaults.standard
+        let seen = max(defaults.double(forKey: seenKey(beat)), run.scheduledFor.timeIntervalSince1970)
+        defaults.set(seen, forKey: seenKey(beat))
+    }
+}

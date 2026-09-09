@@ -30,7 +30,6 @@ final class ScreenContextService: ObservableObject {
     /// — forgetting is how a feature quietly stops being used.
     @Published private(set) var pausedUntil: Date?
     @Published private(set) var isRunning = false
-    @Published private(set) var lastCaptureAt: Date?
     /// What the last deletion did, held briefly so a surface can say so.
     ///
     /// The deletion is server-side and there is no list on screen to visibly
@@ -45,6 +44,7 @@ final class ScreenContextService: ObservableObject {
 
     private let supabase: SupabaseClient?
     private let exclusions: ScreenExclusions
+    private let analytics: ProductAnalytics?
     private let reader: AccessibilityReader
     private var timerTask: Task<Void, Never>?
     private var pauseTask: Task<Void, Never>?
@@ -67,7 +67,7 @@ final class ScreenContextService: ObservableObject {
     ///
     /// Stated in `privacy.md` § 3.10(b) — changing it changes a published
     /// claim, not just a constant.
-    private static let interval: TimeInterval = 5
+    static let interval: TimeInterval = 5
 
     /// Floor between two pixel reads. Recognition costs real CPU, and the apps
     /// that need it are the ones the user sits in all day — without this it
@@ -101,11 +101,28 @@ final class ScreenContextService: ObservableObject {
     /// characters each — so the chunk keeps the URL clear of proxy limits.
     private static let bodyChunkSize = 48
 
-    init(supabase: SupabaseClient?, exclusions: ScreenExclusions, reader: AccessibilityReader = AccessibilityReader()) {
+    init(
+        supabase: SupabaseClient?,
+        exclusions: ScreenExclusions,
+        reader: AccessibilityReader = AccessibilityReader(),
+        analytics: ProductAnalytics? = nil
+    ) {
         self.supabase = supabase
         self.exclusions = exclusions
         self.reader = reader
+        self.analytics = analytics
         observeWake()
+    }
+
+    /// Reports the switch moving, and nothing else.
+    ///
+    /// Never what was read, which app it came from, or what is on the blocklist
+    /// — `privacy.md` § 3.8 rules those out by name, and they are the most
+    /// tempting numbers in the product. Adoption and intensity come from
+    /// `screen_observations`, the feature's own records, per the § 3.5 rule that
+    /// what has a domain record is measured from it.
+    private func report(_ outcome: ProductAnalytics.Outcome) {
+        analytics?.record(.ambientContextToggled, properties: .init(surface: .settings, outcome: outcome))
     }
 
     deinit {
@@ -232,6 +249,7 @@ final class ScreenContextService: ObservableObject {
     /// leaving a stale deadline in place would make the toggle do nothing.
     func setAmbientEnabled(_ enabled: Bool) {
         ScreenContextDefaults.setEnabled(enabled)
+        report(enabled ? .enabled : .disabled)
         if enabled {
             ScreenContextDefaults.setPausedUntil(nil)
             // Asked here, not inside `start()`: this is the one moment the
@@ -247,6 +265,7 @@ final class ScreenContextService: ObservableObject {
     func pause(for duration: TimeInterval) {
         ScreenContextDefaults.setPausedUntil(Date().addingTimeInterval(duration))
         refresh()
+        report(.paused)
         Log.screen.info("context: paused for \(Int(duration / 60)) min")
     }
 
@@ -428,14 +447,30 @@ final class ScreenContextService: ObservableObject {
         if let last = lastRecognitionAt, Date().timeIntervalSince(last) < Self.recognitionInterval { return asRead }
 
         lastRecognitionAt = Date()
-        guard let recognized = await ScreenTextRecognizer.read(forProcessID: pid, isAllowed: {
-            !rules.excludesWindow(title: $0)
-        }), let text = ScreenObservationBuilder.text(from: recognized.texts) else { return asRead }
+        guard let recognized = await ScreenTextRecognizer.read(
+            forProcessID: pid,
+            matching: read.title,
+            isAllowed: { !rules.excludesWindow(title: $0) }
+        ), let text = ScreenObservationBuilder.text(from: recognized.texts) else { return asRead }
 
         let title = read.title.isEmpty ? recognized.title : read.title
         Log.screen.info("context: accessibility thin — read \(text.count) chars from pixels")
         return (title, text)
     }
+
+    /// Every Nod on this Mac, not only this one.
+    ///
+    /// The sandbox build carries its own bundle id and installs beside the
+    /// release app, so a guard that only skipped `Bundle.main` left each of them
+    /// reading the other's window: the chat's own sidebar came back later as
+    /// something "seen on your screen", and an address the user had typed into
+    /// Nod was answered as if Nod had found it out.
+    private static let ownBundleIDs: Set<String> = {
+        let shipped: Set = ["com.example.nod", "com.example.nod.sandbox"]
+        let base = (Bundle.main.bundleIdentifier ?? "").replacingOccurrences(of: ".sandbox", with: "")
+        guard !base.isEmpty else { return shipped }
+        return shipped.union([base, base + ".sandbox"])
+    }()
 
     private func captureOnce() async {
         guard ScreenContextDefaults.isEnabled else { return stop() }
@@ -447,25 +482,26 @@ final class ScreenContextService: ObservableObject {
         let rules = exclusions.rules
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier,
-              bundleID != Bundle.main.bundleIdentifier,
+              !Self.ownBundleIDs.contains(bundleID),
               !rules.excludesApp(bundleID: bundleID)
         else { return }
 
         let reader = reader
         let pid = app.processIdentifier
-        let read = await Task.detached(priority: .utility) { () -> (title: String, text: String?)? in
-            guard let focused = reader.focusedWindowText(forProcessID: pid),
-                  !rules.excludesWindow(title: focused.title)
+        let read = await Task.detached(priority: .utility) { () -> (title: String, url: String?, text: String?)? in
+            guard let focused = reader.focusedWindowText(forProcessID: pid, bundleID: bundleID),
+                  !rules.excludesWindow(title: focused.title, url: focused.url)
             else { return nil }
-            return (focused.title, ScreenObservationBuilder.text(from: focused.texts))
+            return (focused.title, focused.url, ScreenObservationBuilder.text(from: focused.texts))
         }.value
 
-        guard let read,
-              let captured = await recognizedIfAccessibilityIsThin(read, pid: pid, rules: rules) else { return }
+        guard let read, !ScreenObservationBuilder.isBrowserChrome(url: read.url),
+              let captured = await recognizedIfAccessibilityIsThin((read.title, read.text), pid: pid, rules: rules) else { return }
         let observation = ScreenObservation(
             userID: userID,
             sourceApp: bundleID,
             sourceTitle: captured.title,
+            sourceURL: read.url,
             // The title leads the content on purpose. It is often the most
             // informative line on screen — the channel, ticket, or document
             // name — and search runs over `content`, so a title-only match
@@ -488,7 +524,6 @@ final class ScreenContextService: ObservableObject {
                 .from("screen_observations")
                 .upsert(observation, onConflict: "user_id,source_app,content_hash")
                 .execute()
-            lastCaptureAt = observation.observedAt
             // Titles name the channel, the ticket, the document — the most
             // identifying part of an ambient capture, and the unified log is
             // persistent and collected by sysdiagnose.
@@ -508,8 +543,8 @@ extension ScreenContextService {
     /// keyword-shaped ("which ticket did Leo move?"), and giving them their own
     /// embedding pipeline would mean a second index with its own retention and
     /// its own way to go stale. Returns nothing when ambient context is off.
-    func recentContext(matching query: String, limit: Int = 4) async -> [ScreenObservation] {
-        let terms = Self.searchTerms(in: query)
+    func recentContext(matching query: String, extraTerms: [String] = [], limit: Int = 4) async -> [ScreenObservation] {
+        let terms = Self.searchTerms(in: query, extra: extraTerms)
         guard !terms.isEmpty, let rows = await matches(terms: terms, fetching: limit * 4) else { return [] }
         let relevant = Array(Self.relevant(rows, for: terms).prefix(limit))
         Log.screen.info("context: \(relevant.count)/\(rows.count) observation(s) kept for \(terms.count) term(s)")
@@ -575,12 +610,15 @@ extension ScreenContextService {
         do {
             return try await supabase
                 .from("screen_observations")
-                .select()
+                .select(ScreenObservation.columns)
                 .gt("expires_at", value: Date())
-                // `simple`, matching the GIN index: the default `english`
-                // config stems away the Ukrainian half of what people ask, and
-                // a query on another config would skip the index entirely.
-                .textSearch("content", query: terms.joined(separator: " | "), config: "simple")
+                // The stored vector, not `content`: the expression form made
+                // the planner parse every row it walked, and a question with
+                // no match on screen took the statement timeout before the
+                // answer could start. `simple`, matching how the column is
+                // built: the default `english` config stems away the
+                // Ukrainian half of what people ask.
+                .textSearch("content_tsv", query: terms.joined(separator: " | "), config: "simple")
                 .order("observed_at", ascending: false)
                 .limit(limit)
                 .execute()
@@ -673,7 +711,7 @@ extension ScreenContextService {
             let chunk = Array(hashes[start ..< min(start + Self.bodyChunkSize, hashes.count)])
             let rows: [ScreenObservation] = try await supabase
                 .from("screen_observations")
-                .select()
+                .select(ScreenObservation.columns)
                 .gt("expires_at", value: Date())
                 .in("content_hash", values: chunk)
                 .execute()
@@ -711,7 +749,21 @@ extension ScreenContextService {
     /// Words worth matching on. Short and very common words are dropped: they
     /// match everything, which is the same as matching nothing.
     static func searchTerms(in query: String) -> [String] {
-        Array(searchable(query).prefix(termLimit))
+        Array(asked(query).prefix(termLimit))
+    }
+
+    /// The question's own words plus what the query-prep model thinks the page
+    /// would carry — the page is usually in English whatever the question was
+    /// asked in, and "пітчі від YC" shares no word with a YouTube title.
+    static func searchTerms(in query: String, extra: [String]) -> [String] {
+        var seen = Set<String>()
+        let own = asked(query).prefix(termLimit)
+        // A lower floor than the question's own words: the model already
+        // chose these as page keys, and "Demo Day" is two of them.
+        let added = extra
+            .flatMap { TextTokens.acronyms(in: $0) + TextTokens.contentWords(in: $0, longerThan: 3, excluding: stopWords) }
+            .prefix(termLimit)
+        return (Array(own) + Array(added)).filter { seen.insert($0).inserted }
     }
 
     /// The same reduction over the projects the grounded sessions are about —
@@ -735,7 +787,15 @@ extension ScreenContextService {
     /// drift apart on the length floor or the stopword list — they feed the same
     /// `textSearch` query.
     private static func searchable(_ text: String) -> [String] {
-        TextTokens.words(in: text).filter { $0.count >= 4 && !stopWords.contains($0) }
+        TextTokens.contentWords(in: text, longerThan: 4, excluding: stopWords)
+    }
+
+    /// A question's words, acronyms first: "YC" is the most specific thing in
+    /// "the video from YC" and the one the length floor would drop. Project
+    /// names go through `searchable` alone — "API" names nothing there.
+    private static func asked(_ text: String) -> [String] {
+        var seen = Set<String>()
+        return (TextTokens.acronyms(in: text) + searchable(text)).filter { seen.insert($0).inserted }
     }
 
     /// Terms per query. Past a handful they stop narrowing and start matching
@@ -747,12 +807,6 @@ extension ScreenContextService {
         "about", "there", "they", "have", "were", "been", "does", "did",
         "тому", "який", "яка", "було", "мене", "мені", "цього", "після"
     ]
-}
-
-/// Ids come back from a delete so the count can be reported; nothing reads the
-/// value.
-private struct DeletedRow: Decodable {
-    let id: UUID
 }
 
 /// User-facing switches for ambient capture. Off until the user turns it on —

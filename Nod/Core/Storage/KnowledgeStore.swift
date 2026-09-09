@@ -50,7 +50,7 @@ final class KnowledgeStore: ObservableObject {
         let meetingIDs: [UUID]?
     }
 
-    private var cache: [CacheKey: [RetrievedChunk]] = [:]
+    private var cache: [CacheKey: KnowledgeHits] = [:]
     private var cacheOrder: [CacheKey] = []
 
     /// Small enough to stay bounded, big enough to cover a typing session and a
@@ -58,8 +58,8 @@ final class KnowledgeStore: ObservableObject {
     /// exactly when `index`/`reindex` clear it.
     private static let cacheLimit = 60
 
-    private func store(_ chunks: [RetrievedChunk], for key: CacheKey) {
-        cache[key] = chunks
+    private func store(_ hits: KnowledgeHits, for key: CacheKey) {
+        cache[key] = hits
         touch(key)
         if cacheOrder.count > Self.cacheLimit {
             cache.removeValue(forKey: cacheOrder.removeFirst())
@@ -109,8 +109,28 @@ final class KnowledgeStore: ObservableObject {
     func search(query: String, matchCount: Int = 8, meetingID: UUID? = nil, meetingIDs: [UUID]? = nil, embedText: String? = nil) async -> [
         RetrievedChunk
     ] {
+        await searchWithConcepts(
+            query: query,
+            matchCount: matchCount,
+            meetingID: meetingID,
+            meetingIDs: meetingIDs,
+            embedText: embedText
+        ).chunks
+    }
+
+    /// The two retrieval stages together: distilled concepts for entities the
+    /// question names, then transcript chunks. Same call, same cache — `search`
+    /// above is this with the concepts dropped, kept for the callers that only
+    /// ever wanted passages.
+    func searchWithConcepts(
+        query: String,
+        matchCount: Int = 8,
+        meetingID: UUID? = nil,
+        meetingIDs: [UUID]? = nil,
+        embedText: String? = nil
+    ) async -> KnowledgeHits {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
+        guard !trimmed.isEmpty else { return .empty }
         // Every miss is an embedding plus a pgvector scan, billed per call. The
         // launcher searches on each pause in typing and a chat turn re-searches
         // its own follow-ups, so the same query comes back constantly within a
@@ -130,11 +150,14 @@ final class KnowledgeStore: ObservableObject {
         }
         #if DEBUG
             if DemoMode.isEnabled {
-                return DemoData.knowledgeChunks(
-                    query: trimmed,
-                    matchCount: matchCount,
-                    meetingID: meetingID,
-                    meetingIDs: meetingIDs
+                return KnowledgeHits(
+                    chunks: DemoData.knowledgeChunks(
+                        query: trimmed,
+                        matchCount: matchCount,
+                        meetingID: meetingID,
+                        meetingIDs: meetingIDs
+                    ),
+                    concepts: []
                 )
             }
         #endif
@@ -146,21 +169,133 @@ final class KnowledgeStore: ObservableObject {
                 meetingIDs: meetingIDs,
                 embedText: embedText
             )
+            // The similarity floor guards chunks alone. Concepts arrive
+            // entity-scoped and already distilled; a low cosine against a HyDE
+            // passage says nothing about whether "Atlas ships 15 Oct" answers
+            // a question that named Atlas.
             let filtered = meetingID == nil
-                ? results.filter { $0.similarity >= Self.minSimilarity }
-                : results
-            store(filtered, for: cacheKey)
-            return filtered
+                ? results.chunks.filter { $0.similarity >= Self.minSimilarity }
+                : results.chunks
+            let hits = KnowledgeHits(chunks: filtered, concepts: results.concepts)
+            store(hits, for: cacheKey)
+            return hits
         } catch LLMProxyClient.ClientError.entitlementRequired {
             // Expected gated state, not a failure: on a lapsed plan the proxy
             // 403s `search` and the client has already surfaced the paywall.
             // Fail soft to [] — the chat call that follows enforces entitlement
             // again and is the real gate, so don't log this as an error.
             Log.ui.info("KnowledgeStore.search gated (entitlement) — returning no chunks")
-            return []
+            return .empty
         } catch {
             Log.ui.error("KnowledgeStore.search failed: \(error.localizedDescription)")
-            return []
+            return .empty
+        }
+    }
+
+    // MARK: - Distillation
+
+    /// What the last distillation pass did, for the recap card's knowledge
+    /// line. Keyed by meeting so a card only reads its own session's outcome.
+    struct DistillationOutcome: Equatable {
+        let meetingID: UUID
+        let counts: DistillCounts
+    }
+
+    @Published private(set) var lastDistillation: DistillationOutcome?
+
+    /// Asks the server to distill a finished session into concepts.
+    /// Best-effort like `index`: the meeting is saved either way, and a failed
+    /// pass costs one session's facts, not the session.
+    func distill(meetingID: UUID) async {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+        do {
+            let counts = try await llm.distill(meetingID: meetingID)
+            if counts.changed > 0 {
+                // New facts change what any cached search may cite.
+                invalidateCache()
+            }
+            lastDistillation = DistillationOutcome(meetingID: meetingID, counts: counts)
+            Log.ui.info(
+                "KnowledgeStore.distill meeting=\(meetingID.uuidString) added=\(counts.added) updated=\(counts.updated) retired=\(counts.retired) noop=\(counts.noop)"
+            )
+        } catch {
+            Log.ui.error("KnowledgeStore.distill failed (non-fatal): \(error.localizedDescription)")
+        }
+    }
+
+    /// How far back the one-time backfill reaches. Enough that the knowledge
+    /// layer starts with the user's recent working memory instead of empty;
+    /// small enough that a first launch doesn't spend an hour of model calls.
+    /// Newest first, so the sessions the user will actually ask about are
+    /// covered in the first minute; anything still uncovered is picked up on
+    /// the next launch, because only missing sessions are ever sent.
+    private static let backfillLimit = 25
+    private var backfillStarted = false
+
+    /// Distills recent sessions that predate the distiller, once per launch.
+    /// Without this the layer starts empty for every existing user and the
+    /// upgrade "feels" like nothing for weeks — the one thing a release of
+    /// this feature is not allowed to feel like. Serial, oldest last, and
+    /// quiet: every failure is one session's facts, never a broken start.
+    func backfillDistill() async {
+        guard !backfillStarted else { return }
+        backfillStarted = true
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
+        struct MeetingRow: Decodable {
+            let id: UUID
+        }
+        do {
+            // Coverage is the server's fact (`meetings.distilled_at`), so this
+            // is one indexed question — never a walk over every concept row.
+            let pending: [MeetingRow] = try await supabase
+                .from("meetings")
+                .select("id")
+                .is("deleted_at", value: nil)
+                .is("distilled_at", value: nil)
+                .order("started_at", ascending: false)
+                .limit(Self.backfillLimit)
+                .execute()
+                .value
+            guard !pending.isEmpty else { return }
+            Log.ui.info("KnowledgeStore.backfill distilling \(pending.count) session(s)")
+            for row in pending {
+                await distill(meetingID: row.id)
+            }
+        } catch {
+            Log.ui.debug("KnowledgeStore.backfill skipped: \(error.localizedDescription)")
+        }
+    }
+
+    /// The recall card's "this replaces it": marks the concept superseded and
+    /// records what the room just said as the claim's current version. Returns
+    /// whether the correction landed, so the card can close only on truth.
+    func supersede(conceptID: UUID, with body: String, meetingID: UUID?) async -> Bool {
+        struct Params: Encodable {
+            let p_concept: String
+            let p_body: String
+            let p_meeting: String?
+        }
+        do {
+            _ = try await supabase
+                .rpc(
+                    "supersede_concept",
+                    params: Params(
+                        p_concept: conceptID.uuidString,
+                        p_body: body,
+                        p_meeting: meetingID?.uuidString
+                    )
+                )
+                .execute()
+            invalidateCache()
+            Log.ui.info("KnowledgeStore.supersede concept=\(conceptID.uuidString)")
+            return true
+        } catch {
+            Log.ui.error("KnowledgeStore.supersede failed: \(error.localizedDescription)")
+            return false
         }
     }
 

@@ -27,6 +27,11 @@ enum Feature: String, CaseIterable {
     /// Pro-tier. The gate that matters is the `screen_observations` RLS policy,
     /// because the client writes that table directly; this key drives the UI.
     case ambientContext = "ambient_context"
+    /// The calendar and the two places notes are exported to. Every paid plan.
+    case integrationsCore = "integrations_core"
+    /// The rest of the catalogue — the tools a ticket is worked in. The gate that
+    /// matters is in `integration-connect`; this key decides what the app offers.
+    case integrationsAll = "integrations_all"
 }
 
 /// The resolved entitlement for the current user, as returned by the
@@ -53,6 +58,17 @@ struct Entitlement: Decodable {
         }
     }
 
+    /// Who is paying, which decides whose allowance the numbers describe. An
+    /// organization's is pooled across its seats, so the same figure means
+    /// something different to the person reading it.
+    enum Payer: String {
+        case personal, organization, none
+
+        init(raw: String) {
+            self = Payer(rawValue: raw) ?? .personal
+        }
+    }
+
     let plan: String
     /// The Paddle price the subscription is currently on (nil for trial / none).
     /// Lets the UI tell monthly from yearly so a same-plan cycle switch isn't
@@ -62,6 +78,10 @@ struct Entitlement: Decodable {
     let features: Set<String>
     let hoursUsed: Double
     let hoursLimit: Double
+    /// Whether THIS subscription is metered, which is not always what the plan
+    /// says: somebody who bought Pro while it promised unlimited hours keeps that
+    /// promise after the plan starts publishing a ceiling.
+    let hoursAreUnlimited: Bool
     /// The allowance in seconds, split so the paywall can say "8 hours + 5 you
     /// bought" instead of one blended number. `canStartMeeting` is the server's
     /// own verdict — the client never re-derives it from the parts.
@@ -74,6 +94,16 @@ struct Entitlement: Decodable {
     /// grandfathered price is hidden from the client catalogue, so the app cannot
     /// derive it from `priceID` alone.
     let billingCycle: String?
+    /// Integration credits: one per metered action Nod runs in a connected tool
+    /// on the person's behalf. Pooled across a workspace's seats when the
+    /// organization pays. Writes after a meeting are not metered; reads are.
+    let integrationCreditsIncluded: Double
+    let integrationCreditsUsed: Double
+    let payer: Payer
+    /// Set only when the organization pays: which workspace, and how many seats
+    /// the pooled allowance was bought for.
+    let orgID: String?
+    let seats: Int?
     let trialEndsAt: Date?
     let renewalDate: Date?
     private let limits: [String: Double]
@@ -86,18 +116,8 @@ struct Entitlement: Decodable {
         max(0, hoursLimit - hoursUsed)
     }
 
-    /// An exhausted allowance on an otherwise healthy plan — the one case the
-    /// notch offers a top-up instead of the paywall.
-    var isAllowanceExhausted: Bool {
-        isActive && canStartMeeting == false
-    }
-
     var hasPurchasedTopUp: Bool {
         topUpSeconds > 0
-    }
-
-    var deviceLimit: Int {
-        Int(limits["devices"] ?? 0)
     }
 
     func can(_ feature: Feature) -> Bool {
@@ -109,12 +129,18 @@ struct Entitlement: Decodable {
         case priceID = "price_id"
         case hoursUsed = "hours_used"
         case hoursLimit = "hours_limit"
+        case hoursAreUnlimited = "hours_are_unlimited"
         case includedSeconds = "included_seconds"
         case topUpSeconds = "top_up_seconds"
         case consumedSeconds = "consumed_seconds"
         case remainingSeconds = "remaining_seconds"
         case canStartMeeting = "can_start_meeting"
         case billingCycle = "billing_cycle"
+        case integrationCreditsIncluded = "integration_credits_included"
+        case integrationCreditsUsed = "integration_credits_used"
+        case payer
+        case orgID = "org_id"
+        case seats
         case trialEndsAt = "trial_ends_at"
         case renewalDate = "renewal_date"
     }
@@ -127,6 +153,9 @@ struct Entitlement: Decodable {
         features = try Set(c.decodeIfPresent([String].self, forKey: .features) ?? [])
         hoursUsed = try c.decodeIfPresent(Double.self, forKey: .hoursUsed) ?? 0
         hoursLimit = try c.decodeIfPresent(Double.self, forKey: .hoursLimit) ?? 0
+        // Absent on a server that predates the per-subscription override, where
+        // the plan's flag was the whole answer and the client already had it.
+        hoursAreUnlimited = try c.decodeIfPresent(Bool.self, forKey: .hoursAreUnlimited) ?? false
         // Derive from hours when the server predates these fields, so an older
         // backend degrades to the previous behaviour instead of reading as zero.
         includedSeconds = try c.decodeIfPresent(Double.self, forKey: .includedSeconds) ?? hoursLimit * 3_600
@@ -136,22 +165,20 @@ struct Entitlement: Decodable {
             ?? max(0, includedSeconds + topUpSeconds - consumedSeconds)
         canStartMeeting = try c.decodeIfPresent(Bool.self, forKey: .canStartMeeting)
         billingCycle = try c.decodeIfPresent(String.self, forKey: .billingCycle)
+        // Absent on a server that predates metering, where every action was
+        // free — so absent reads as "no ceiling", not as "none left".
+        integrationCreditsIncluded = try c.decodeIfPresent(Double.self, forKey: .integrationCreditsIncluded) ?? 0
+        integrationCreditsUsed = try c.decodeIfPresent(Double.self, forKey: .integrationCreditsUsed) ?? 0
+        // Absent on a server that predates workspace plans, where everything was
+        // personal and there was nothing else it could have been.
+        payer = try Payer(raw: c.decodeIfPresent(String.self, forKey: .payer) ?? "personal")
+        orgID = try c.decodeIfPresent(String.self, forKey: .orgID)
+        seats = try c.decodeIfPresent(Int.self, forKey: .seats)
         limits = try c.decodeIfPresent([String: Double].self, forKey: .limits) ?? [:]
         // The RPC returns timestamptz as ISO-8601 strings; parse leniently so a
         // null/absent date is simply "no date", not a decode failure.
-        trialEndsAt = try Self.date(from: c.decodeIfPresent(String.self, forKey: .trialEndsAt))
-        renewalDate = try Self.date(from: c.decodeIfPresent(String.self, forKey: .renewalDate))
-    }
-
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-
-    private static func date(from string: String?) -> Date? {
-        guard let string else { return nil }
-        return isoFormatter.date(from: string) ?? ISO8601DateFormatter().date(from: string)
+        trialEndsAt = try c.decodeIfPresent(String.self, forKey: .trialEndsAt).flatMap(ServerTimestamp.date)
+        renewalDate = try c.decodeIfPresent(String.self, forKey: .renewalDate).flatMap(ServerTimestamp.date)
     }
 }
 

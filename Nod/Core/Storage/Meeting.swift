@@ -27,11 +27,31 @@ struct Meeting: Codable, Identifiable, Equatable {
     /// rows carry (`{"1": "Eric"}`). Sparse: only clusters the transcript itself
     /// identified are named, the rest keep rendering as "Speaker N".
     var speakerNames: [String: String]?
+    /// Which diarized cluster is the person who recorded this, for a session
+    /// captured on one microphone (`source = "room"`, the iOS companion). Nil
+    /// for everything the Mac records: there the user's voice arrives on its
+    /// own stream and needs no cluster to be identified.
+    var selfSpeaker: Int?
     var sourcePlatform: String? = nil
+    /// The calendar invitation this recording was matched to, when there was
+    /// one. Read-only here: the server stamps it from the room the recording
+    /// started in. It is what lets a meeting whose generation failed recover
+    /// its title and its participants from the invitation instead of staying
+    /// nameless forever.
+    var icalUID: String? = nil
     /// Soft-delete timestamp — non-nil when the meeting lives in the Trash
     /// segment (#16). Nil for active rows. Server-driven; the client only
     /// reads this (mutations go via `MeetingStore.softDelete` / `.restore`).
     var deletedAt: Date?
+    /// Non-nil when Nod made the session rather than the user recording it —
+    /// `"welcome"` is the sample seeded at signup. Read-only here, like
+    /// `icalUID`: the server sets it, and nothing the client writes carries it.
+    ///
+    /// A column rather than a `SessionKind` case on purpose. `kind` is a
+    /// non-optional enum with no unknown-value fallback, so a released client
+    /// meeting an unfamiliar one fails to decode the whole row; an unfamiliar
+    /// column is ignored by every client that ever shipped.
+    var origin: String?
 
     // The transcript itself lives in a sibling table — `meeting_transcripts`
     // (migration `20260527093241_meeting_transcripts.sql`) — one row per
@@ -39,6 +59,15 @@ struct Meeting: Codable, Identifiable, Equatable {
     // `meetings` so the list-view fetch doesn't drag a meeting's worth of
     // text per row; the detail view loads transcript entries lazily when
     // the Transcript tab is opened.
+
+    /// Whether Nod wrote this session rather than recording it.
+    ///
+    /// The one place the string is compared, so nothing else has to know how
+    /// the column spells it — and so a second origin ("imported", say) has one
+    /// place to be added rather than a grep to be done.
+    var isWelcome: Bool {
+        origin == "welcome"
+    }
 
     /// The short date a session is labelled with wherever it's listed — the
     /// launcher row, the chat's source chip, the grounding label. Shared so the
@@ -94,8 +123,11 @@ struct Meeting: Codable, Identifiable, Equatable {
         case recap = "recap_json"
         case language
         case speakerNames = "speaker_names"
+        case selfSpeaker = "self_speaker"
         case sourcePlatform = "source_platform"
+        case icalUID = "ical_uid"
         case deletedAt = "deleted_at"
+        case origin
     }
 
     /// Custom encode so `created_at` and `deleted_at` are omitted when nil
@@ -118,6 +150,9 @@ struct Meeting: Codable, Identifiable, Equatable {
         // Omitted when absent so an upsert from the outbox can't wipe names a
         // later extraction pass already wrote.
         try c.encodeIfPresent(speakerNames, forKey: .speakerNames)
+        // Omitted when absent for the same reason as the names above: a Mac
+        // upsert must not clear what the phone wrote about its own recording.
+        try c.encodeIfPresent(selfSpeaker, forKey: .selfSpeaker)
         try c.encode("macos", forKey: .sourcePlatform)
         try c.encodeIfPresent(deletedAt, forKey: .deletedAt)
     }
@@ -149,6 +184,7 @@ struct Meeting: Codable, Identifiable, Equatable {
             recap: recap,
             language: language,
             speakerNames: nil,
+            selfSpeaker: nil,
             deletedAt: nil
         )
     }
@@ -295,5 +331,31 @@ extension Meeting: Hashable {
     /// hashing every field on each `NavigationLink(value:)` resolve.
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
+    }
+}
+
+/// Another person's recording of the meeting you are looking at, offered so the
+/// two can be filed as one. `matchedOn` says what tied them together — the
+/// calendar invitation both copies carry, or the conferencing room they name.
+struct SameMeeting: Decodable, Identifiable, Equatable {
+    let meetingID: UUID
+    let ownerName: String
+    let title: String?
+    let startedAt: Date
+    let matchedOn: String
+    /// Your own earlier recording of this room rather than a colleague's of this
+    /// call. Set by whichever matcher answered, not by the server.
+    var isMine = false
+
+    var id: UUID {
+        meetingID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case meetingID = "meeting_id"
+        case ownerName = "owner_name"
+        case title
+        case startedAt = "started_at"
+        case matchedOn = "matched_on"
     }
 }

@@ -20,8 +20,17 @@ final class ContextColumnWidth: ObservableObject {
     static let defaultWidth: CGFloat = 320
     /// The centre column must keep at least this much room, so the context
     /// column can't be dragged wide enough to crush it. Reserved *on top of*
-    /// the sidebar — see `clampedWidth`.
-    static let minDetailWidth: CGFloat = 368
+    /// the sidebar — see `clampedWidth`. A full content column and its gutters,
+    /// which is what the centre is for: it was a flat 368 that agreed with
+    /// nothing, so the window could be dragged to a floor the layout itself
+    /// then contradicted.
+    static let minDetailWidth: CGFloat = Theme.Layout.content + Theme.Layout.pageInset * 2
+
+    /// The narrowest the window may be, from the same terms `clampedWidth`
+    /// uses. It lives here rather than in `WindowCoordinator` because this is
+    /// the type that enforces the clamp — a floor composed anywhere else reads
+    /// as derived and is free to disagree with the thing that does the work.
+    static let windowMinWidth: CGFloat = HomeSidebar.width + minDetailWidth + minWidth
     /// Width of the resize handle's grab strip, overlaid on the column's leading
     /// edge (it takes no layout space, so it isn't reserved in the clamp).
     static let handleWidth: CGFloat = 11

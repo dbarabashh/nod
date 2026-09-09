@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -16,10 +15,15 @@ struct SettingsView: View {
     private let auth: AuthService?
     private let accountExport: AccountExportService?
     private let connections: ConnectionService?
+    private let integrations: IntegrationService?
+    private let integrationCatalogue: IntegrationCatalogue?
+    private let organizations: OrganizationService?
     private let modeStore: ModeStore?
     private let referral: ReferralService?
     private let emailPreferences: EmailPreferenceService?
     private let productAnalytics: ProductAnalytics?
+    private let consent: ConsentPreference?
+    private let toolApproval: ToolApprovalPreference?
     private let screenExclusions: ScreenExclusions?
     private let screenContext: ScreenContextService?
     private let meetingDetection: MeetingDetectionPreference?
@@ -27,9 +31,12 @@ struct SettingsView: View {
     private let demoPlayback: DemoPlayback?
     private let captureSurface: CaptureSurfacePreference?
     private let audioCapture: AudioCaptureService?
+    @ObservedObject private var feed: UpdaterChannelDelegate
     private let permissions: PermissionManager?
+    private let appearance: AppearancePreference?
 
     init(
+        feed: UpdaterChannelDelegate,
         hotkey: HotkeyManager,
         profileStore: ProfileStore? = nil,
         panelSharing: PanelSharingPreference? = nil,
@@ -41,10 +48,15 @@ struct SettingsView: View {
         auth: AuthService? = nil,
         accountExport: AccountExportService? = nil,
         connections: ConnectionService? = nil,
+        integrations: IntegrationService? = nil,
+        integrationCatalogue: IntegrationCatalogue? = nil,
+        organizations: OrganizationService? = nil,
         modeStore: ModeStore? = nil,
         referral: ReferralService? = nil,
         emailPreferences: EmailPreferenceService? = nil,
         productAnalytics: ProductAnalytics? = nil,
+        consent: ConsentPreference? = nil,
+        toolApproval: ToolApprovalPreference? = nil,
         screenExclusions: ScreenExclusions? = nil,
         screenContext: ScreenContextService? = nil,
         meetingDetection: MeetingDetectionPreference? = nil,
@@ -53,8 +65,8 @@ struct SettingsView: View {
         captureSurface: CaptureSurfacePreference? = nil,
         audioCapture: AudioCaptureService? = nil,
         permissions: PermissionManager? = nil,
-        focusSubscription: Bool = false,
-        focusModes: Bool = false
+        appearance: AppearancePreference? = nil,
+        focusSubscription: Bool = false
     ) {
         _hotkey = ObservedObject(wrappedValue: hotkey)
         self.profileStore = profileStore
@@ -67,10 +79,15 @@ struct SettingsView: View {
         self.auth = auth
         self.accountExport = accountExport
         self.connections = connections
+        self.integrations = integrations
+        self.integrationCatalogue = integrationCatalogue
+        self.organizations = organizations
         self.modeStore = modeStore
         self.referral = referral
         self.emailPreferences = emailPreferences
         self.productAnalytics = productAnalytics
+        self.consent = consent
+        self.toolApproval = toolApproval
         self.screenExclusions = screenExclusions
         self.screenContext = screenContext
         self.meetingDetection = meetingDetection
@@ -78,8 +95,10 @@ struct SettingsView: View {
         self.demoPlayback = demoPlayback
         self.captureSurface = captureSurface
         self.audioCapture = audioCapture
+        self.feed = feed
         self.permissions = permissions
-        _tab = State(initialValue: focusSubscription ? .subscription : (focusModes ? .modes : .general))
+        self.appearance = appearance
+        _tab = State(initialValue: focusSubscription ? .subscription : .general)
     }
 
     /// Left-rail categories, ordered by how often they're opened: the everyday
@@ -87,7 +106,7 @@ struct SettingsView: View {
     /// people come looking for rather than browse. `allCases` drives the rail,
     /// so this declaration order is the on-screen order.
     private enum Tab: String, CaseIterable, Identifiable {
-        case general, modes, shortcuts, connections, profile, subscription, rewards, privacy
+        case general, modes, shortcuts, connections, integrations, organization, profile, subscription, rewards, privacy
         var id: String {
             rawValue
         }
@@ -100,6 +119,8 @@ struct SettingsView: View {
             case .modes: ("Modes", "nc-layers-3")
             case .shortcuts: ("Shortcuts", "nc-keyboard")
             case .connections: ("Connections", "nc-puzzle-piece")
+            case .integrations: ("Integrations", "nc-link")
+            case .organization: ("Organization", "nc-users")
             case .profile: ("Profile", "nc-user")
             case .subscription: ("Subscription", "nc-credit-card")
             case .rewards: ("Rewards", "nc-gift")
@@ -123,12 +144,13 @@ struct SettingsView: View {
     }
 
     @State private var tab: Tab
+    @State private var organizationPage = OrganizationSection.Page.overview
     @EnvironmentObject private var focus: SettingsFocus
 
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-            Divider().overlay(Theme.Palette.border)
+            SettingsRowDivider(indent: 0)
             detail
         }
         // Sized by the window it's a section of — Settings is no longer a
@@ -146,9 +168,13 @@ struct SettingsView: View {
         case .general: tab = .general
         case .subscription: tab = .subscription
         case .rewards: tab = .rewards
-        case .modes: tab = .modes
         case .privacy: tab = .privacy
         case .profile: tab = .profile
+        case .organization: tab = .organization
+        case .organizationBilling:
+            tab = .organization
+            organizationPage = .billing
+        case .integrations: tab = .integrations
         case nil: break
         }
     }
@@ -163,7 +189,7 @@ struct SettingsView: View {
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)
 
-            ForEach(Tab.allCases) { item in
+            ForEach(visibleTabs) { item in
                 if item.startsAccountGroup {
                     Divider()
                         .overlay(Theme.Palette.border)
@@ -174,31 +200,91 @@ struct SettingsView: View {
             }
             Spacer(minLength: 0)
 
+            if let auth {
+                signOutButton(auth)
+            }
+
             // Selectable so a user can copy it verbatim into a bug report.
-            // The DEBUG badge only compiles into Debug builds — a visible cue
-            // that this build talks to the sandbox branch, never shipped to prod.
             HStack(spacing: 6) {
                 Text(Self.versionString)
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.Palette.muted)
                     .textSelection(.enabled)
-                #if DEBUG
-                    Text("DEBUG")
+                if let latest = feed.latest, latest.build != AppVersion.build {
+                    Text("· latest \(latest.label)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.muted)
+                        .textSelection(.enabled)
+                }
+                if let channel = Self.buildChannel {
+                    Text(channel)
                         .font(.system(size: 9, weight: .bold, design: .rounded))
                         .tracking(0.5)
                         .foregroundStyle(Theme.Palette.warning)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(Capsule(style: .continuous).fill(Theme.Palette.warning.opacity(0.15)))
-                #endif
+                        .textSelection(.enabled)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 4)
+            // Asked for when the footer is on screen, not on a timer: it is a
+            // silent check with no prompt, and nobody reads this line unless
+            // they have Settings open.
+            .onAppear { feed.refresh() }
         }
         .padding(12)
         // Clear the traffic-light buttons that float over the transparent titlebar.
         .padding(.top, 28)
-        .frame(width: 210, alignment: .top)
+        .frame(width: Theme.Layout.sidebar, alignment: .top)
+    }
+
+    /// The only way out of the account from inside the app. The menu-bar item
+    /// is the other one, and somebody who opened Settings looking for it has no
+    /// reason to know that.
+    ///
+    /// In the footer rather than as a row in the list above: every row there is
+    /// a destination, and one that signs you out instead of navigating is the
+    /// wrong shape for the place it would sit in. It also keeps the list to
+    /// Nucleo icons — Nod ships no logout glyph, and a hand-drawn one beside
+    /// eight real ones is what `design-system.md` is about.
+    ///
+    /// No confirmation, matching the menu-bar path: signing back in is one
+    /// button, and the device slot is released either way.
+    private func signOutButton(_ auth: AuthService) -> some View {
+        Button {
+            // Slot release rides on `AuthService.onSignOut`, so this frees it
+            // the same way `StatusItemController.signOutAction` does.
+            Task { await auth.signOut() }
+        } label: {
+            Text("Sign out")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.Palette.muted)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .linkCursor()
+    }
+
+    /// Which build this is, or nil for the one that talks to production.
+    ///
+    /// The badge used to read `DEBUG` and compile only into Debug builds, on a
+    /// comment that called it "a visible cue that this build talks to the
+    /// sandbox branch". The Sandbox configuration talks to that branch too and
+    /// carried no badge at all, so the build most likely to be mistaken for the
+    /// real thing — shipped-shape, notarized, delivered by its own appcast —
+    /// was the one that looked identical to it.
+    static var buildChannel: String? {
+        #if DEBUG
+            return "DEBUG"
+        #elseif NOD_SANDBOX
+            return "SANDBOX"
+        #else
+            return nil
+        #endif
     }
 
     private static var versionString: String {
@@ -219,15 +305,15 @@ struct SettingsView: View {
                     .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.muted)
+            .foregroundStyle(isSelected ? Theme.Palette.ink : Theme.Palette.inkSecondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.10) : .clear)
+                    .fill(isSelected ? Theme.Palette.overlay.opacity(0.10) : .clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: Theme.Radii.chip, style: .continuous)
-                            .stroke(isSelected ? Color.white.opacity(0.18) : .clear, lineWidth: 0.5)
+                            .stroke(isSelected ? Theme.Palette.overlay.opacity(0.18) : .clear, lineWidth: 0.5)
                     )
             )
             .contentShape(Rectangle())
@@ -251,6 +337,8 @@ struct SettingsView: View {
                 case .general: generalPane
                 case .modes: modesPane
                 case .connections: connectionsPane
+                case .integrations: integrationsPane
+                case .organization: organizationPane
                 case .shortcuts: shortcutsPane
                 case .privacy: privacyPane
                 }
@@ -275,7 +363,8 @@ struct SettingsView: View {
             demoPlayback: demoPlayback,
             captureSurface: captureSurface,
             audioCapture: audioCapture,
-            permissions: permissions
+            permissions: permissions,
+            appearance: appearance
         )
     }
 
@@ -284,7 +373,7 @@ struct SettingsView: View {
         if let modeStore {
             ModesSettingsSection(store: modeStore)
         } else {
-            Text("Meeting modes are unavailable right now.")
+            Text("Modes are unavailable right now.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.Palette.muted)
         }
@@ -293,7 +382,15 @@ struct SettingsView: View {
     @ViewBuilder
     private var profilePane: some View {
         if let profileStore {
-            ProfileSettingsSection(store: profileStore)
+            VStack(alignment: .leading, spacing: 20) {
+                if let auth {
+                    ProfileIdentityCard(store: profileStore, auth: auth)
+                }
+                ProfileSettingsSection(store: profileStore)
+                if let emailPreferences {
+                    EmailPreferencesSection(preferences: emailPreferences)
+                }
+            }
         } else {
             Text("Sign in to edit your profile.")
                 .font(.system(size: 12.5))
@@ -304,7 +401,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var subscriptionPane: some View {
         if let billing, let entitlements {
-            PaywallView(billing: billing, entitlements: entitlements)
+            PaywallView(billing: billing, entitlements: entitlements, organizations: organizations)
         } else {
             Text("Sign in to manage your subscription.")
                 .font(.system(size: 12.5))
@@ -323,11 +420,19 @@ struct SettingsView: View {
             }
             SettingsRowDivider()
             SettingsRow(
-                icon: "nc-magnifier",
-                title: "Search & ask",
-                subtitle: "Open the quick panel from any app to search your sessions or ask across all of them."
+                icon: "nc-sparkle-3",
+                title: "Ask Nod",
+                subtitle: "Ask from any app — in the notch, about your sessions, your day and what's on your screen. During a meeting it opens the bar's Ask box."
             ) {
-                HotkeyRecorderView(hotkey: hotkey, action: .openLauncher)
+                HotkeyRecorderView(hotkey: hotkey, action: .askNod)
+            }
+            SettingsRowDivider()
+            SettingsRow(
+                icon: "nc-mic",
+                title: "Hold to ask by voice",
+                subtitle: "Hold the key, say the question, let go. Nod writes it down, answers in the notch and reads the answer back. Move it here if ⌥T is taken by something you use."
+            ) {
+                HotkeyRecorderView(hotkey: hotkey, action: .holdToAsk)
             }
         }
     }
@@ -354,20 +459,73 @@ struct SettingsView: View {
         }
     }
 
+    /// The organization pane stays out of the rail until it has something to
+    /// show. A personal account has no organization, and a tab that opens onto
+    /// "you aren't in one" is a tab that shouldn't be there — except in a
+    /// sandbox build, where somebody has to be able to make the first one.
+    private var visibleTabs: [Tab] {
+        Tab.allCases.filter { tab in
+            guard tab == .organization else { return true }
+            #if DEBUG || NOD_SANDBOX
+                return organizations != nil
+            #else
+                return organizations?.belongsToAnyOrganization == true
+            #endif
+        }
+    }
+
+    @ViewBuilder
+    private var organizationPane: some View {
+        if let organizations {
+            OrganizationSection(service: organizations, integrations: integrations, billing: billing, page: $organizationPage)
+        } else {
+            Text("Sign in to work with an organization.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.muted)
+        }
+    }
+
+    @ViewBuilder
+    private var integrationsPane: some View {
+        if let integrations, let integrationCatalogue {
+            IntegrationsSection(
+                service: integrations,
+                catalogue: integrationCatalogue,
+                organizations: organizations,
+                entitlements: entitlements,
+                billing: billing
+            )
+        } else {
+            Text("Sign in to connect Nod to your tools.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.Palette.muted)
+        }
+    }
+
     @ViewBuilder
     private var privacyPane: some View {
         if let auth, let accountExport {
+            // Ordered as the questions arrive: what Nod does, what it may
+            // read, what leaves the Mac, and how to take it all back. Email
+            // choices moved to Profile — deciding which mail to receive is an
+            // account preference, and it sat here diluting a page that has to
+            // answer one thing well.
             VStack(alignment: .leading, spacing: 20) {
+                PrivacySnapshot()
                 if let screenExclusions, let screenContext {
                     ScreenPrivacySection(exclusions: screenExclusions, screenContext: screenContext)
                 }
-                if let emailPreferences {
-                    EmailPreferencesSection(preferences: emailPreferences)
+                if let toolApproval {
+                    ToolApprovalSection(preference: toolApproval)
                 }
                 if let productAnalytics {
-                    ProductAnalyticsSection(analytics: productAnalytics)
+                    ProductAnalyticsSection(analytics: productAnalytics, consent: consent)
                 }
-                AccountDataSection(auth: auth, export: accountExport)
+                CrashReportsSection(consent: consent, analytics: productAnalytics)
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel("Your data")
+                    AccountDataSection(auth: auth, export: accountExport)
+                }
             }
         } else {
             Text("Sign in to manage your data.")
@@ -378,7 +536,7 @@ struct SettingsView: View {
 }
 
 #Preview {
-    SettingsView(hotkey: HotkeyManager())
+    SettingsView(feed: UpdaterChannelDelegate(), hotkey: HotkeyManager())
         .environmentObject(SettingsFocus())
-        .frame(width: 740, height: 560)
+        .frame(width: Theme.Layout.sidebar + Theme.Layout.content + Theme.Layout.pageInset * 2, height: 560)
 }

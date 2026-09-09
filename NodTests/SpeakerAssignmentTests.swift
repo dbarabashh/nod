@@ -354,6 +354,25 @@ final class TranscriptPromptContextTests: XCTestCase {
             "[Me]: hi\n[Them · Eric]: hello\n[Them · Speaker 3]: morning"
         )
     }
+
+    /// On a session somebody shared, `[Me]` is the person who recorded it — not
+    /// the person reading. Unnamed, the model answers "who asked for that?" with
+    /// whoever it does have a name for, which is the reader.
+    ///
+    /// Narrowed, never replaced: every playbook rule keys on `Me` / `Them`, so
+    /// a bare `[Vlad Kampov]` would switch those rules off for exactly the
+    /// sessions we can attribute.
+    func testTheOwnersNameNarrowsTheirOwnTag() {
+        let records = [
+            record(0, source: "me", speaker: nil, text: "hi"),
+            record(1, source: "them", speaker: 2, text: "hello")
+        ]
+
+        XCTAssertEqual(
+            records.promptContext(names: ["2": "Georgi"], host: "Vlad Kampov"),
+            "[Me · Vlad Kampov]: hi\n[Them · Georgi]: hello"
+        )
+    }
 }
 
 /// The naming pass answers "nothing to report" far more often than it answers

@@ -13,6 +13,9 @@ struct ScreenObservation: Codable, Equatable, Identifiable {
     let observedAt: Date
     let sourceApp: String
     let sourceTitle: String
+    /// The page's address when the window is a browser tab, so "send me that
+    /// link again" has something to answer with. Nil for every other app.
+    let sourceURL: String?
     let content: String
     let contentHash: String
     let expiresAt: Date
@@ -23,10 +26,15 @@ struct ScreenObservation: Codable, Equatable, Identifiable {
         case observedAt = "observed_at"
         case sourceApp = "source_app"
         case sourceTitle = "source_title"
+        case sourceURL = "source_url"
         case content
         case contentHash = "content_hash"
         case expiresAt = "expires_at"
     }
+
+    /// Named rather than `*`: the row also carries `content_tsv`, the search
+    /// vector, which is as long as the text it indexes and of no use here.
+    static let columns = "id,user_id,observed_at,source_app,source_title,source_url,content,content_hash,expires_at"
 
     init(
         id: UUID = UUID(),
@@ -34,6 +42,7 @@ struct ScreenObservation: Codable, Equatable, Identifiable {
         observedAt: Date = Date(),
         sourceApp: String,
         sourceTitle: String,
+        sourceURL: String? = nil,
         content: String,
         retention: TimeInterval
     ) {
@@ -42,6 +51,7 @@ struct ScreenObservation: Codable, Equatable, Identifiable {
         self.observedAt = observedAt
         self.sourceApp = sourceApp
         self.sourceTitle = sourceTitle
+        self.sourceURL = sourceURL
         self.content = content
         contentHash = Self.hash(content)
         expiresAt = observedAt.addingTimeInterval(retention)
@@ -72,20 +82,31 @@ struct ScreenObservationIndex: Decodable, Equatable {
     let sourceApp: String
     let sourceTitle: String
     let contentHash: String
+    var sourceURL: String?
 
     enum CodingKeys: String, CodingKey {
         case observedAt = "observed_at"
         case sourceApp = "source_app"
         case sourceTitle = "source_title"
         case contentHash = "content_hash"
+        case sourceURL = "source_url"
     }
 
-    static let columns = "observed_at,source_app,source_title,content_hash"
+    static let columns = "observed_at,source_app,source_title,content_hash,source_url"
 }
 
 /// Turns the strings an accessibility walk returns into something worth
 /// storing, or into nothing at all.
 enum ScreenObservationBuilder {
+    /// A browser's own surfaces — the omnibox dropdown, a new tab, settings —
+    /// answer accessibility like a page and are not one. Storing them buries
+    /// the page the person was actually on under the browser's furniture.
+    static func isBrowserChrome(url: String?) -> Bool {
+        guard let url = url?.lowercased() else { return false }
+        return ["chrome://", "chrome-extension://", "about:", "edge://", "brave://", "arc://", "safari-resource:"]
+            .contains { url.hasPrefix($0) }
+    }
+
     /// Below this, a window carries no answerable content — a toolbar, an empty
     /// panel, a loading state. Storing it costs retrieval quality.
     static let minimumCharacters = 120

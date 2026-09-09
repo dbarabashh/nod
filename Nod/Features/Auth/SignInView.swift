@@ -4,29 +4,23 @@ struct SignInView: View {
     @EnvironmentObject private var auth: AuthService
 
     var body: some View {
-        ZStack {
-            Image("WelcomeSky")
-                .resizable()
-                .interpolation(.high)
-                .scaledToFill()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                .ignoresSafeArea()
-
+        WelcomeBackdrop {
             VStack(spacing: 24) {
                 Spacer(minLength: 0)
 
                 VStack(spacing: 14) {
                     Image("NodGlyphInk")
+                        .renderingMode(.template)
                         .resizable()
                         .interpolation(.high)
                         .scaledToFit()
+                        .foregroundStyle(Theme.Palette.ink)
                         .frame(width: 76, height: 76)
                         .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 6)
 
                     Text("Welcome to Nod")
                         .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(Theme.GlassButton.text)
+                        .foregroundStyle(Theme.Palette.ink)
                 }
 
                 Button {
@@ -38,9 +32,22 @@ struct SignInView: View {
                                 .controlSize(.small)
                                 .tint(Theme.GlassButton.text)
                         } else {
-                            Image("nc-check")
+                            // Google's own mark, untinted — the one documented
+                            // exception to the Nucleo-only rule, and the reason
+                            // `ProviderMark` refuses to tint a colour asset.
+                            //
+                            // The G, not Gmail's M: this signs in with a Google
+                            // account, which is not the same thing as an inbox
+                            // and need not be a Gmail address at all.
+                            //
+                            // Hand-drawn into the catalogue rather than fetched:
+                            // `scripts/fetch-integration-logos.sh` pulls marks
+                            // for products in `IntegrationProvider`, and signing
+                            // in is not an integration. The capitalised name
+                            // says so — every fetched one is lowercased from a
+                            // provider's raw value.
+                            Image("BrandGoogle")
                                 .icon(18)
-                                .foregroundStyle(Theme.GlassButton.text)
                         }
                         Text(auth.isSigningIn ? "Opening browser…" : "Continue with Google")
                             .font(.system(size: 14, weight: .semibold))

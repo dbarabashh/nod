@@ -13,22 +13,15 @@ import Supabase
 final class OnboardingTelemetry: ObservableObject {
     enum Event: String {
         case stepShown = "step_shown"
-        case profileCompleted = "profile_completed"
-        case profileSkipped = "profile_skipped"
         case permissionRequested = "permission_requested"
         case permissionGranted = "permission_granted"
         case permissionDenied = "permission_denied"
-        case permissionPendingRelaunch = "permission_pending_relaunch"
         case permissionsSkipped = "permissions_skipped"
-        case relaunchPrompted = "relaunch_prompted"
-        case relaunchClicked = "relaunch_clicked"
-        case relaunchFailed = "relaunch_failed"
         case completed = "onboarding_completed"
     }
 
     enum Permission: String {
         case microphone
-        case screenRecording = "screen_recording"
     }
 
     private let supabase: SupabaseClient?
@@ -44,7 +37,7 @@ final class OnboardingTelemetry: ObservableObject {
     /// SwiftUI re-runs `.task(id:)` on window rebuilds. A relaunch (which the
     /// Screen Recording grant forces) is a new process and logs the step again,
     /// which is exactly the signal we want to see.
-    private var loggedSteps: Set<OnboardingStep> = []
+    private var loggedStages: Set<String> = []
 
     init(
         supabase: SupabaseClient? = nil,
@@ -74,63 +67,40 @@ final class OnboardingTelemetry: ObservableObject {
     }
 
     func stepShown(_ step: OnboardingStep) {
-        guard loggedSteps.insert(step).inserted else { return }
-        log(.stepShown, step: step)
+        stageShown(Self.name(for: step))
+    }
+
+    /// The notch's half of the flow reports its stages under the same event,
+    /// so the funnel reads as one flow from sign-in to the first question.
+    func setupStageShown(_ stage: NotchSetupStage) {
+        stageShown("notch.\(stage.rawValue)")
+    }
+
+    private func stageShown(_ stage: String) {
+        guard loggedStages.insert(stage).inserted else { return }
+        log(.stepShown, stage: stage)
     }
 
     /// `detail` carries the role, so the funnel answers "who signs up" and
     /// "who finishes" in one query. Nil when they answered without picking one.
-    func profileCompleted(role: WorkRole?) {
-        log(.profileCompleted, step: .profile, detail: role?.rawValue)
-    }
-
-    func profileSkipped() {
-        log(.profileSkipped, step: .profile)
-    }
-
     func permissionRequested(_ permission: Permission) {
-        log(.permissionRequested, step: .permissions, detail: permission.rawValue)
+        log(.permissionRequested, stage: "notch.permissions", detail: permission.rawValue)
     }
 
     func permissionResolved(_ permission: Permission, granted: Bool) {
-        log(granted ? .permissionGranted : .permissionDenied, step: .permissions, detail: permission.rawValue)
-    }
-
-    /// Screen Recording only: the answer can't be read back before a restart,
-    /// so this replaces the `permission_denied` we used to log on faith. Every
-    /// such row was a guess, and the funnel read 0 grants while users were
-    /// recording system audio fine.
-    func screenRecordingPendingRelaunch() {
-        log(.permissionPendingRelaunch, step: .permissions, detail: Permission.screenRecording.rawValue)
+        log(granted ? .permissionGranted : .permissionDenied, stage: "notch.permissions", detail: permission.rawValue)
     }
 
     func permissionsSkipped() {
-        log(.permissionsSkipped, step: .permissions)
-    }
-
-    func relaunchPrompted() {
-        log(.relaunchPrompted, step: .permissions)
-    }
-
-    /// Awaits the write, unlike every other event: the caller terminates the
-    /// process immediately afterwards, and a detached task would lose the row.
-    func relaunchClicked() async {
-        guard let queued = makeQueuedEvent(.relaunchClicked, step: .permissions) else { return }
-        queue.append(queued)
-        persistQueue()
-        await flush()
-    }
-
-    func relaunchFailed(_ reason: String) {
-        log(.relaunchFailed, step: .permissions, detail: reason)
+        log(.permissionsSkipped, stage: "notch.permissions")
     }
 
     func completed() {
         log(.completed)
     }
 
-    private func log(_ event: Event, step: OnboardingStep? = nil, detail: String? = nil) {
-        guard let queued = makeQueuedEvent(event, step: step, detail: detail) else { return }
+    private func log(_ event: Event, stage: String? = nil, detail: String? = nil) {
+        guard let queued = makeQueuedEvent(event, stage: stage, detail: detail) else { return }
         queue.append(queued)
         persistQueue()
         Task { await flush() }
@@ -138,7 +108,7 @@ final class OnboardingTelemetry: ObservableObject {
 
     private func makeQueuedEvent(
         _ event: Event,
-        step: OnboardingStep? = nil,
+        stage: String? = nil,
         detail: String? = nil
     ) -> QueuedOnboardingEvent? {
         guard !analytics.isOptedOut, let userID = auth?.session?.user.id else { return nil }
@@ -152,7 +122,7 @@ final class OnboardingTelemetry: ObservableObject {
                 platform: "macos",
                 appVersion: Self.appVersion(),
                 properties: OnboardingEventProperties(
-                    stage: step.map(Self.name(for:)),
+                    stage: stage,
                     permission: Self.permission(for: event, detail: detail),
                     reasonCode: Self.reasonCode(for: event),
                     outcome: Self.outcome(for: event)
@@ -194,7 +164,7 @@ final class OnboardingTelemetry: ObservableObject {
 
     private func discardQueuedEvents() {
         queue.removeAll()
-        loggedSteps.removeAll()
+        loggedStages.removeAll()
         persistQueue()
         Log.ui.info("onboarding analytics opted out — queue discarded")
     }
@@ -208,8 +178,13 @@ final class OnboardingTelemetry: ObservableObject {
         switch step {
         case .welcome: "welcome"
         case .profile: "profile"
+        case .talk: "tutorial"
+        // The server's stage list has no "diagnostics"; this is a consent
+        // question and files under the name the list already has for one.
+        case .diagnostics: "consent"
+        case .notch: "notch"
         case .permissions: "permissions"
-        case .tutorial: "tutorial"
+        case .calendar: "calendar"
         case .emailPreferences: "consent"
         }
     }
@@ -226,16 +201,13 @@ final class OnboardingTelemetry: ObservableObject {
         case .stepShown: "viewed"
         case .permissionGranted: "granted"
         case .permissionDenied: "declined"
-        case .relaunchFailed: "failure"
-        case .completed, .profileCompleted, .profileSkipped, .permissionRequested,
-             .permissionPendingRelaunch, .permissionsSkipped, .relaunchPrompted,
-             .relaunchClicked: "success"
+        case .completed, .permissionRequested, .permissionsSkipped: "success"
         }
     }
 
     private static func permission(for event: Event, detail: String?) -> String? {
         switch event {
-        case .permissionRequested, .permissionGranted, .permissionDenied, .permissionPendingRelaunch:
+        case .permissionRequested, .permissionGranted, .permissionDenied:
             detail
         default:
             nil
@@ -245,7 +217,6 @@ final class OnboardingTelemetry: ObservableObject {
     private static func reasonCode(for event: Event) -> String? {
         switch event {
         case .permissionDenied: "permission_denied"
-        case .relaunchFailed: "unknown"
         default: nil
         }
     }
