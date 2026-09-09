@@ -16,6 +16,20 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
     /// action rather than a mode of `askNod`.
     case holdToAsk
 
+    /// Whether hold-to-ask by voice reaches customers. Held back while the
+    /// gesture is reconsidered — the same tap happens by accident — and stated
+    /// once rather than as a `#if` at each site: the hotkey, the onboarding
+    /// card, the recorder row and the tap handler all have to agree, and a
+    /// build condition repeated four times is four chances to disagree with
+    /// nothing to catch it.
+    static let voiceAskShips: Bool = {
+        #if DEBUG || NOD_SANDBOX
+            true
+        #else
+            false
+        #endif
+    }()
+
     var id: String {
         rawValue
     }
@@ -123,17 +137,12 @@ final class HotkeyManager: ObservableObject {
         Self.registered.forEach { register($0) }
     }
 
-    /// The actions this build actually listens for. `holdToAsk` is held back
-    /// from released builds along with the voice ask it triggers: a Carbon
-    /// hotkey registered for a feature that answers nothing takes ⌥T away from
-    /// whatever else the person had on it.
-    static var registered: [HotkeyAction] {
-        #if DEBUG || NOD_SANDBOX
-            HotkeyAction.allCases
-        #else
-            HotkeyAction.allCases.filter { $0 != .holdToAsk }
-        #endif
-    }
+    /// The actions this build actually listens for. A Carbon hotkey registered
+    /// for a feature that answers nothing takes ⌥T away from whatever else the
+    /// person had on it.
+    static let registered: [HotkeyAction] = HotkeyAction.voiceAskShips
+        ? HotkeyAction.allCases
+        : HotkeyAction.allCases.filter { $0 != .holdToAsk }
 
     func combo(for action: HotkeyAction) -> Combo {
         combos[action] ?? action.defaultCombo

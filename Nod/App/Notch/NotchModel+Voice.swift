@@ -102,12 +102,10 @@ extension NotchModel {
                 // because the same tap happens by accident. Released builds
                 // fall through to silence, which is what a tap with nothing
                 // said should do; sandbox keeps the feature reachable.
-                #if DEBUG || NOD_SANDBOX
-                    guard !hasMeetingBar else { return }
-                    UISound.meetingDetected.play(recording: false)
-                    let name = PersonName.first(of: profiles.displayNameOrAccountName)
-                    await realtimeVoice.start(language: voiceLanguage ?? language.current, name: name)
-                #endif
+                guard HotkeyAction.voiceAskShips, !hasMeetingBar else { return }
+                UISound.meetingDetected.play(recording: false)
+                let name = PersonName.first(of: profiles.displayNameOrAccountName)
+                await realtimeVoice.start(language: voiceLanguage ?? language.current, name: name)
                 return
             }
             do {

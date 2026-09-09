@@ -222,6 +222,8 @@ struct SettingsView: View {
                     latestText
                 }
             }
+            .lineLimit(1)
+            .textSelection(.enabled)
             .padding(.horizontal, 10)
             .padding(.bottom, 4)
             // Asked for when the footer is on screen, not on a timer: it is a
@@ -241,9 +243,7 @@ struct SettingsView: View {
         Text(Self.versionString)
             .textStyle(Theme.Typography.meta)
             .foregroundStyle(Theme.Palette.muted)
-            .lineLimit(1)
             .fixedSize()
-            .textSelection(.enabled)
     }
 
     @ViewBuilder
@@ -252,9 +252,7 @@ struct SettingsView: View {
             Text("· latest \(latest.label)")
                 .textStyle(Theme.Typography.meta)
                 .foregroundStyle(Theme.Palette.muted)
-                .lineLimit(1)
                 .fixedSize()
-                .textSelection(.enabled)
         }
     }
 
@@ -265,12 +263,10 @@ struct SettingsView: View {
                 .textStyle(Theme.Typography.micro)
                 .tracking(0.5)
                 .foregroundStyle(Theme.Palette.warning)
-                .lineLimit(1)
                 .fixedSize()
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
                 .background(Capsule(style: .continuous).fill(Theme.Palette.warning.opacity(0.15)))
-                .textSelection(.enabled)
         }
     }
 
@@ -462,7 +458,7 @@ struct SettingsView: View {
             }
             // Only where the key is registered: a recorder for a shortcut the
             // build never listens for is a setting that silently does nothing.
-            #if DEBUG || NOD_SANDBOX
+            if HotkeyManager.registered.contains(.holdToAsk) {
                 SettingsRowDivider()
                 SettingsRow(
                     icon: "nc-mic",
@@ -471,7 +467,7 @@ struct SettingsView: View {
                 ) {
                     HotkeyRecorderView(hotkey: hotkey, action: .holdToAsk)
                 }
-            #endif
+            }
         }
     }
 
@@ -503,10 +499,7 @@ struct SettingsView: View {
     /// way in was an invite from an organization nobody could create.
     /// `OrganizationSection` already opens on its own create card.
     private var visibleTabs: [Tab] {
-        Tab.allCases.filter { tab in
-            guard tab == .organization else { return true }
-            return organizations != nil
-        }
+        Tab.allCases.filter { $0 != .organization || organizations != nil }
     }
 
     @ViewBuilder
