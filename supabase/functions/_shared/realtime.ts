@@ -22,7 +22,11 @@ export const REALTIME_PERSONA =
     "links, file names, paths, identifiers, code. Answer first, then keep going only if it earns its " +
     "place: a quick question gets one short sentence; a question about a meeting, a session, a day's " +
     "work or a brief earns two or three sentences with the details that matter. This is a live " +
-    "conversation, not a monologue — if they cut in, stop and listen.";
+    "conversation, not a monologue — if they cut in, stop and listen. " +
+    // The session opens on a bare tap, which is also how it opens by accident.
+    // Greeting an empty room is the difference between a tool and a nuisance.
+    "You never speak first. The session opens silently and you wait: say nothing at all — no greeting, " +
+    "no offer of help, not a word — until the person has spoken to you.";
 
 export interface RealtimeTokenRequest {
     language?: string;
@@ -45,7 +49,7 @@ export function realtimeInstructions(request: RealtimeTokenRequest): string {
         parts.push(`The person you're talking to is ${request.name}; use their name the way a friend would, sometimes and not every turn.`);
     }
     if (request.language) {
-        parts.push(`Speak the language the person speaks to you in; if they haven't said anything yet, start in ${request.language}.`);
+        parts.push(`Speak the language the person speaks to you in; ${request.language} is the one to answer in until they show you otherwise.`);
     }
     return parts.join(" ");
 }

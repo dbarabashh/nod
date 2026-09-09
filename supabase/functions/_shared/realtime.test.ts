@@ -26,8 +26,19 @@ Deno.test("a name is carried into the instructions, bounded and trimmed", () => 
   assertEquals(realtimeTokenRequest({ name: 7 }), {});
   const named = realtimeInstructions({ name: "Dima", language: "uk" });
   assertStringIncludes(named, "talking to is Dima");
-  assertStringIncludes(named, "start in uk");
+  assertStringIncludes(named, "uk is the one to answer in");
   assertEquals(realtimeInstructions({}).includes("talking to is"), false);
+});
+
+// The session opens on a bare tap, so an unprompted greeting lands on someone
+// who pressed the key by accident and said nothing.
+Deno.test("the live voice never speaks first", () => {
+  const bare = realtimeInstructions({});
+  const full = realtimeInstructions({ name: "Dima", language: "uk" });
+  for (const instructions of [bare, full]) {
+    assertStringIncludes(instructions, "You never speak first");
+    assertStringIncludes(instructions, "until the person has spoken to you");
+  }
 });
 
 Deno.test("the session body asks for pcm24 both ways and the chosen voice", () => {
