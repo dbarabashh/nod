@@ -45,6 +45,7 @@ import { PADDLE_API_BASE, PADDLE_HEADERS } from "../_shared/paddle.ts";
 
 const PADDLE_API_KEY              = Deno.env.get("PADDLE_API_KEY");
 const PADDLE_REFERRAL_DISCOUNT_ID = Deno.env.get("PADDLE_REFERRAL_DISCOUNT_ID");
+const REFERRAL_CODE_PATTERN = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/;
 const SUPABASE_URL              = Deno.env.get("SUPABASE_URL");
 const SUPABASE_ANON_KEY         = Deno.env.get("SUPABASE_ANON_KEY");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -90,6 +91,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const ref = typeof body.ref === "string"
         ? body.ref.trim().toUpperCase() || undefined
         : undefined;
+    // A Paddle coupon or a typo is not a referral. Refusing it here spares two
+    // Paddle preflight calls and keeps the reason honest: the code, not the plan.
+    if (ref && !REFERRAL_CODE_PATTERN.test(ref)) return json({ error: "invalid_referral" }, 422);
     const offer = body.offer === "winback" ? body.offer : undefined;
     if (body.offer !== undefined && !offer) return json({ error: "offer_not_eligible" }, 422);
     if (ref && offer) return json({ error: "offer_not_eligible" }, 422);

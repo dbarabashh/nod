@@ -297,14 +297,14 @@ struct ActivePlanCard: View {
 
     private var referralField: some View {
         VStack(alignment: .leading, spacing: 4) {
-            TextField("Referral code", text: $referralCode)
+            TextField("Friend's referral code", text: $referralCode)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 12.5, design: .monospaced))
                 .onChange(of: referralCode) { newValue in
                     let upper = newValue.uppercased()
                     if upper != referralCode { referralCode = upper }
                 }
-            Text("Applies −50% off your first month (monthly billing).")
+            Text("A friend's 6-letter Nod code, not a coupon. Applies −50% off your first month of Starter or Pro (monthly billing).")
                 .textStyle(Theme.Typography.meta)
                 .foregroundStyle(Theme.Palette.muted)
         }

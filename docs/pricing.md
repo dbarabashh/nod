@@ -70,7 +70,8 @@ predate the new catalog render the new prices too.
 The three marketing discounts on live (`Discount for friends` 40%,
 `Friendly discount` 15%, `Nod Pro monthly - 1 month free` 100%) are still
 restricted to the superseded price ids, so they no longer apply to a new
-checkout. The two referral discounts are unrestricted and follow the catalog.
+checkout. The two referral discounts are unrestricted and follow the catalog; the
+server accepts a referral only on monthly Starter or Pro.
 
 ### Lifecycle win-back offer — built, not released
 

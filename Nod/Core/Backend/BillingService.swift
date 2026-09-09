@@ -302,7 +302,7 @@ final class BillingService: ObservableObject {
         let fallback = "Couldn't start checkout. Please try again."
         switch ServerError.functionCode(error) {
         case "invalid_referral":
-            return "That referral code isn't valid. Check it and try again."
+            return "That isn't a Nod referral code. It's the 6-letter code from a friend's share link, not a coupon."
         case "self_referral":
             return "You can't use your own referral code."
         case "already_paid":
