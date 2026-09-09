@@ -204,27 +204,22 @@ struct SettingsView: View {
                 signOutButton(auth)
             }
 
-            // Selectable so a user can copy it verbatim into a bug report.
-            HStack(spacing: 6) {
-                Text(Self.versionString)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.Palette.muted)
-                    .textSelection(.enabled)
-                if let latest = feed.latest, latest.build != AppVersion.build {
-                    Text("· latest \(latest.label)")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.Palette.muted)
-                        .textSelection(.enabled)
+            // The three pieces together are wider than the 188pt rail, and an
+            // HStack that overflows wraps each Text on its own — which broke
+            // the badge across two lines as "DEBU/G". Every piece is now
+            // unbreakable, and the row folds as whole items instead.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    versionText
+                    latestText
+                    channelBadge
                 }
-                if let channel = Self.buildChannel {
-                    Text(channel)
-                        .font(.system(size: 9, weight: .bold, design: .rounded))
-                        .tracking(0.5)
-                        .foregroundStyle(Theme.Palette.warning)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Capsule(style: .continuous).fill(Theme.Palette.warning.opacity(0.15)))
-                        .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        versionText
+                        channelBadge
+                    }
+                    latestText
                 }
             }
             .padding(.horizontal, 10)
@@ -238,6 +233,45 @@ struct SettingsView: View {
         // Clear the traffic-light buttons that float over the transparent titlebar.
         .padding(.top, 28)
         .frame(width: Theme.Layout.sidebar, alignment: .top)
+    }
+
+    /// Selectable so a user can copy it verbatim into a bug report, and never
+    /// broken mid-word: the rail is narrower than this line wants to be.
+    private var versionText: some View {
+        Text(Self.versionString)
+            .textStyle(Theme.Typography.meta)
+            .foregroundStyle(Theme.Palette.muted)
+            .lineLimit(1)
+            .fixedSize()
+            .textSelection(.enabled)
+    }
+
+    @ViewBuilder
+    private var latestText: some View {
+        if let latest = feed.latest, latest.build != AppVersion.build {
+            Text("· latest \(latest.label)")
+                .textStyle(Theme.Typography.meta)
+                .foregroundStyle(Theme.Palette.muted)
+                .lineLimit(1)
+                .fixedSize()
+                .textSelection(.enabled)
+        }
+    }
+
+    @ViewBuilder
+    private var channelBadge: some View {
+        if let channel = Self.buildChannel {
+            Text(channel)
+                .textStyle(Theme.Typography.micro)
+                .tracking(0.5)
+                .foregroundStyle(Theme.Palette.warning)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Capsule(style: .continuous).fill(Theme.Palette.warning.opacity(0.15)))
+                .textSelection(.enabled)
+        }
     }
 
     /// The only way out of the account from inside the app. The menu-bar item
