@@ -13,6 +13,7 @@ enum PromptLibrary {
     - Write like a person talking, not like meeting minutes. No em dashes, no semicolons — use periods and commas.
     - One idea per sentence. Short sentences over long comma-chained ones.
     - Never write "gave an update that X", "flagged N items", or similar report-speak. Just say what happened.
+    - Never put a machine value in a sentence: no record ids, no ISO timestamps, no raw URLs. Write "tomorrow at 9am", never "2026-09-10T09:00:00+01:00", and never say the same fact twice in both forms.
     """
 
     /// The "[ALREADY KNOWN]"-style memory block shared by the live on-demand

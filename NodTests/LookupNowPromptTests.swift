@@ -103,3 +103,21 @@ final class LookupNowPromptTests: XCTestCase {
         XCTAssertTrue(prompt.system.contains(today))
     }
 }
+
+/// A created calendar event came back as "running from
+/// 2026-09-10T09:00:00+01:00 to 2026-09-10T10:00:00+01:00, with id
+/// qe5s6cgkkv914stkm8q4jc8tu4" — the tool's own fields, read out in a sentence
+/// meant for a person glancing at a card mid-meeting.
+final class MachineValuePromptTests: XCTestCase {
+    func testEveryProseSurfaceForbidsMachineValues() {
+        let lookup = PromptLibrary.buildLookupAnswer(
+            request: "make a meeting for tomorrow",
+            results: [("google-calendar.create_event", "{}")],
+            memory: []
+        ).system
+        for prompt in [lookup, PromptLibrary.humanProseStyle] {
+            XCTAssertTrue(prompt.contains("Never put a machine value in a sentence"))
+            XCTAssertTrue(prompt.contains("no ISO timestamps"))
+        }
+    }
+}
