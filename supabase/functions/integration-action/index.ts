@@ -27,6 +27,10 @@ import { recordUsage } from "../_shared/usage.ts";
 // What a metered action costs us at the broker, per call, so the row carries a
 // number the founder dashboard can add up. Pipedream's list rate for a Connect
 // credit; a proxied read is one credit.
+// Pipedream Connect Startup (checkout, 2026-09-09): $150 a month covers
+// 10,000 credits, then $0.012 each up to 14,999 used, $0.0084 to 39,999,
+// $0.0067 to 89,999. Booked at the first overage tier: the included pool is a
+// fixed cost, and this is what the next credit costs once it is spent.
 const CREDIT_COST_USD = 0.012;
 
 Deno.serve(async (req) => {

@@ -737,8 +737,11 @@ final class IntegrationService: ObservableObject {
     /// which fires on every window focus, and a tracker's answer does not change
     /// between two of those.
     ///
-    /// Thirty minutes, not one: at a one-minute floor this mirror alone was 109
-    /// Linear reads in a day, more than every question asked of every tool.
+    /// Six hours, not thirty minutes: at a one-minute floor this mirror alone
+    /// was 109 Linear reads in a day, and at thirty it was still the largest
+    /// broker cost per person — every read is a Pipedream credit the person
+    /// never sees. Four a day keeps a ticked ticket honest within a working
+    /// half-day; the person's own tick still mirrors out at once.
     func remoteCompletions(among items: [ActionItem]) async -> [UUID: Bool] {
         let now = Date()
         if let lastStatusRead, now.timeIntervalSince(lastStatusRead) < Self.statusInterval { return [:] }
@@ -773,7 +776,7 @@ final class IntegrationService: ObservableObject {
     /// Matches `STATUS_LIMIT` in the Linear handler — the batch is what the
     /// provider will accept in one call, not a preference.
     private static let statusBatch = 50
-    private static let statusInterval: TimeInterval = 30 * 60
+    private static let statusInterval: TimeInterval = 6 * 60 * 60
     private var lastStatusRead: Date?
 
     private func taskStates(

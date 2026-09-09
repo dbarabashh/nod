@@ -239,7 +239,7 @@ untouched. Source: `supabase/migrations/20260905203754` … `20260906130516`.
 | Integration credits / month | 100 | 100 | **500** | 500 × seats, pooled |
 | Integrations | core | core (Google Calendar, Notion, Google Drive) | all | all |
 | Hour pack | — | 5 h · $12 | 10 h · $29 | — |
-| Automation Pack | — | 1,000 credits · $10 | 1,000 credits · $10 | 1,000 credits · $10, bought by an owner/admin for the workspace |
+| Automation Pack | — | 500 credits · $10 | 500 credits · $10 | 500 credits · $10, bought by an owner/admin for the workspace |
 
 - **Pro is metered at 20 h**, no longer "unlimited with fair use". Every
   subscriber who was on Pro when the change landed keeps what they were sold:
