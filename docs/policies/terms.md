@@ -1,6 +1,6 @@
 # Terms of Service
 
-_Last updated: 2026-09-06_
+_Last updated: 2026-09-09_
 
 _The provisions below on included allowances and packs, integration credits,
 the Teams plan, and referral/advocacy rewards are **advance notice**. They take
@@ -226,12 +226,11 @@ by Paddle.
 
 ### Fair use on unlimited plans
 
-A Pro subscription bought while Pro was sold with **unlimited meeting hours**
-keeps them for as long as it stays on that subscription; Pro bought after the
-catalogue change includes the monthly hours shown at checkout instead. For the
-unlimited ones, unlimited means what it says for personal use: we do not meter
-your recording, and there is no per-hour charge, no overage bill, and no cut-off
-in the middle of a meeting.
+Pro is sold with **unlimited meeting hours**. Unlimited means what it says for
+personal use: we do not meter your recording, and there is no per-hour charge,
+no overage bill, and no cut-off in the middle of a meeting. If a future
+catalogue publishes a monthly figure for Pro instead, it applies to
+subscriptions bought after that change; yours keeps the hours it was sold with.
 
 It is bounded only by the plan being for **one person**. So on Pro you
 agree not to:

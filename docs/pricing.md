@@ -1,6 +1,6 @@
 # Nod — Pricing
 
-_Last updated: 2026-09-06_
+_Last updated: 2026-09-09_
 
 The spec the pricing surfaces are built from. Three of them have to agree, and
 each has its own copy: `plans` / `plan_prices` in Supabase (the only enforced
@@ -19,13 +19,23 @@ Existing subscribers keep the price they bought at — see "Cutover status".
 
 ## Plans
 
-| | **Trial** | **Starter** | **Pro** |
-|---|---|---|---|
-| Price, billed yearly | **$0** for 14 days | **$12 / mo** ($144 / yr) | **$20 / mo** ($240 / yr) |
-| Price, billed monthly | — | **$15 / mo** | **$24 / mo** |
-| Meeting hours / month | **5** | **8** | **Unlimited** (fair use) |
-| Devices | 1 | 1 | 3 |
-| Card required to start | no | — | — |
+| | **Trial** | **Starter** | **Pro** | **Teams** |
+|---|---|---|---|---|
+| Price, billed yearly | **$0** for 14 days | **$12 / mo** ($144 / yr) | **$20 / mo** ($240 / yr) | **$32 / seat / mo** ($384 / yr) |
+| Price, billed monthly | — | **$15 / mo** | **$24 / mo** | **$39 / seat / mo** |
+| Meeting hours / month | **5** | **8** | **Unlimited** (fair use) | **25 / seat**, pooled across the workspace |
+| Devices | 1 | 1 | 3 | 3 per seat |
+| Card required to start | no | — | — | — |
+
+Teams is **not purchasable on prod**: the plan and its prices exist, but no live
+Paddle id has been set, so nothing is `available_for_new_checkout`.
+
+Pro's fair-use bound is `plans.pro.limits.hours_per_month` — see
+"Pro's 'unlimited' is a bounded promise" below for the number and how it was
+derived. Teams hours are a **workspace pool**, not a per-person ration:
+`resolve_entitlement` compares the workspace's total consumption against
+`hours_per_month × seats`, so a heavy week for one member is covered by a quiet
+one for another.
 
 Prices are **tax-inclusive**: the figure above is what the customer is charged,
 and Paddle remits VAT/GST out of it. `terms.md` § 7 says so; it used to say the
@@ -37,6 +47,28 @@ the landing advertised `$0.60 / hr` for weeks after the code stopped being able
 to charge it. What does exist is explicit, one-time **packs** bought for the
 current period (hours; and, on the `integrations` branch, integration
 credits — see "Built on `integrations`, sandbox only").
+
+## The 20-hour Pro allowance, and why it is gone again
+
+`20260905203754_pro_publishes_its_hours` replaced Pro's unlimited promise with a
+published 20-hour allowance as part of **NOD-138**. Its own header says it must
+not reach production before the proposal was approved and this file, the landing
+page and `terms.md` § 7 moved with it. Nothing enforced that. The migration
+travelled to prod inside an unrelated merge on 2026-09-09, and prod sold 20 hours
+at the $24 / $240 price that had been approved for unlimited — a pairing in no
+approved catalog.
+
+`20260909220821_pro_goes_back_to_no_ceiling` restores the 2026-08-12 offer:
+unlimited with the 40-hour fair-use bound, which is what the storefront price
+was approved for. Subscriptions are untouched. Its header carries the full
+reasoning, including why the landing page (nod-landing `7fc7673`) was moved
+before the migration rather than after it.
+
+NOD-138 is approved (2026-09-08) and pairs **25 hours with $29 / $288** for Pro
+and **30 pooled hours per seat** for Teams. Sandbox already sells the NOD-138
+prices; prod does not. Moving prod there is a price change with its own rollout —
+live Paddle ids, this file, the landing page and `terms.md` § 7 together — and is
+not what the revert above does.
 
 ## Cutover status — live since 2026-08-12
 
@@ -236,7 +268,7 @@ untouched. Source: `supabase/migrations/20260905203754` … `20260906130516`.
 |---|---|---|---|---|
 | Price, billed yearly | $0 for 14 days | $12 / mo | **$24 / mo** ($288 / yr) | **$32 / mo** per seat |
 | Price, billed monthly | — | $15 / mo | **$29 / mo** | **$39 / mo** per seat |
-| Meeting hours / month | 5 | 8 | **20**, metered | 25 × seats, pooled |
+| Meeting hours / month | 5 | 8 | ~~**20**, metered~~ unlimited (reverted) | 25 × seats, pooled |
 | Integration credits / month | 100 | 100 | **500** | 500 × seats, pooled |
 | Integrations | core | core (Google Calendar, Notion, Google Drive) | all | all |
 | Hour pack | — | 5 h · $12 | 10 h · $29 | — |
@@ -246,8 +278,9 @@ untouched. Source: `supabase/migrations/20260905203754` … `20260906130516`.
   subscriber who was on Pro when the change landed keeps what they were sold:
   `limit_overrides.hours_per_month = 40` and, where the row said so,
   `subscriptions.hours_are_unlimited`, both cleared only by a plan change.
-  Prod still carries the `unlimited` promise and has not been pinned — that
-  decision is open.
+  **Reverted on 2026-09-09** — see "The 20-hour Pro allowance, and why it is
+  gone again" above. Pro is unlimited again on every branch; the pins written
+  here stand.
 - **An integration credit is one metered call** to a connected product through
   the broker. A *read the chat makes* is metered; a write (filing a ticket,
   posting a message, appending notes, a draft, an invite) is free; the reads
