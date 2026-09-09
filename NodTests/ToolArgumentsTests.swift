@@ -30,12 +30,40 @@ final class ToolArgumentsTests: XCTestCase {
     /// four-letter string, and a nested value's description is worse than its
     /// absence.
     func testWhatATooolArgumentCannotCarryIsDropped() {
-        let decoded = ToolArguments.decode(#"{"kept":"x","dropped":null,"nested":{"a":1},"list":[1,2]}"#)
+        let decoded = ToolArguments.decode(#"{"kept":"x","dropped":null,"nested":{"a":1},"objects":[{"a":1}]}"#)
 
         XCTAssertEqual(decoded["kept"], "x")
         XCTAssertNil(decoded["dropped"])
         XCTAssertNil(decoded["nested"])
-        XCTAssertNil(decoded["list"])
+        XCTAssertNil(decoded["objects"])
+    }
+
+    /// The guests the model sent as a list have to reach the invitation. Every
+    /// list argument is declared comma-separated and read either way, but a
+    /// model sends an array for `attendees` regardless — and dropped, the event
+    /// was created with nobody on it and nothing said so.
+    func testAListArgumentArrivesCommaJoined() {
+        let decoded = ToolArguments.decode(#"{"attendees":["a@b.com","c@d.com"],"keys":[1,2]}"#)
+
+        XCTAssertEqual(decoded["attendees"], "a@b.com,c@d.com")
+        XCTAssertEqual(decoded["keys"], "1,2")
+    }
+
+    func testAnEmptyListIsNoArgument() {
+        XCTAssertNil(ToolArguments.decode(#"{"attendees":[]}"#)["attendees"])
+    }
+
+    func testTheTwoDecodersReadALikeToo() throws {
+        let json = #"{"attendees":["a@b.com","c@d.com"],"title":"Sync","empty":[]}"#
+        let call = ChatToolCall(
+            id: "1",
+            type: "function",
+            function: ChatToolCall.Function(name: "google-calendar_create_event", arguments: json)
+        )
+        let routed = try JSONDecoder().decode(PromptLibrary.LookupChoice.self, from: Data(#"{"tool":"t","arguments":\#(json)}"#.utf8))
+
+        XCTAssertEqual(call.arguments["attendees"], "a@b.com,c@d.com")
+        XCTAssertEqual(call.arguments, routed.arguments)
     }
 
     func testUnreadableArgumentsAreNoArguments() {

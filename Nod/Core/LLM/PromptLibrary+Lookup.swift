@@ -41,6 +41,10 @@ extension PromptLibrary {
     ///
     /// Null decodes to nothing rather than "null": an argument the model chose
     /// to leave out must not reach a provider as the four-letter string.
+    ///
+    /// A list is joined by `ToolArguments.joined`, which owns that rule for
+    /// both decoders. This routing call is free-form JSON with nothing
+    /// enforcing the schema, so `attendees` arrives as an array routinely.
     fileprivate struct JSONScalar: Decodable {
         let stringValue: String?
 
@@ -56,9 +60,11 @@ extension PromptLibrary {
                 stringValue = String(flag)
             } else if let number = try? value.decode(Double.self) {
                 stringValue = String(number)
+            } else if let list = try? value.decode([JSONScalar].self) {
+                stringValue = ToolArguments.joined(list.map(\.stringValue))
             } else {
-                // An object or an array. Nothing a tool argument takes, and
-                // passing its description on would be worse than omitting it.
+                // An object. Nothing a tool argument takes, and passing its
+                // description on would be worse than omitting it.
                 stringValue = nil
             }
         }
@@ -213,7 +219,7 @@ extension PromptLibrary {
         something a tool returned. If only the room answers the question, return an empty `text`: that case is
         handled elsewhere, and an answer built from the meeting wearing a product's mark is the one mistake this
         card must never make.
-        - `subject` is what this was read from — an issue key, a channel name, or the session an earlier discussion came from — copied from what you were given, or empty.
+        - `subject` is what this was read from, in the words a person would recognise it by — an issue key, a channel name, the session an earlier discussion came from. Never a record id, never a URL. Empty when the product's answer carried no such name.
         - `usedTool` is true only when the tool's result is part of your answer. It decides which mark the card shows, so it must not claim a source you did not use.
         - LANGUAGE: write in \(lang).\(hop)
 

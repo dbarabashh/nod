@@ -132,10 +132,32 @@ enum ToolArguments {
 
     /// One value, or nil for anything a tool argument cannot carry.
     ///
-    /// `nil` for null as well as for objects and arrays: an argument the model
-    /// chose to leave out must not reach a provider as the four-letter string,
-    /// and a nested value's description is worse than its absence.
+    /// `nil` for null as well as for objects: an argument the model chose to
+    /// leave out must not reach a provider as the four-letter string, and a
+    /// nested value's description is worse than its absence.
+    ///
+    /// A list is joined rather than dropped — see `joined(_:)`.
     static func scalar(_ value: Any) -> String? {
+        guard let list = value as? [Any] else { return atom(value) }
+        return joined(list.map(atom))
+    }
+
+    /// A list argument as the wire carries it. Every list argument is declared
+    /// as a comma-separated string and every adapter reads one either way
+    /// (`params.ts`'s `listOf`), but a model sends `["a@b.com"]` for a parameter
+    /// called `attendees` however plainly the schema says otherwise — and
+    /// dropped, it created the event with nobody on it, approved on a card that
+    /// also showed no guests.
+    ///
+    /// Here rather than once per decoder, for the reason above: the separator
+    /// and the empty-is-absent rule are one contract with the adapters, and the
+    /// last time the two decoders each kept their own they disagreed.
+    static func joined(_ items: [String?]) -> String? {
+        let kept = items.compactMap { $0 }
+        return kept.isEmpty ? nil : kept.joined(separator: ",")
+    }
+
+    private static func atom(_ value: Any) -> String? {
         switch value {
         case let string as String: string
         // Asked by exact type rather than with `as? Bool`, which is true for

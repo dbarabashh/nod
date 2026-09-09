@@ -38,11 +38,21 @@ final class LookupArgumentDecodingTests: XCTestCase {
     }
 
     func testNestedValuesAreDroppedRatherThanStringified() throws {
-        let decoded = try choice(#"{"tool":"t","arguments":{"ok":"1","nested":{"a":1},"list":[1,2]}}"#)
+        let decoded = try choice(#"{"tool":"t","arguments":{"ok":"1","nested":{"a":1},"objects":[{"a":1}]}}"#)
 
         XCTAssertEqual(decoded.arguments?["ok"], "1")
         XCTAssertNil(decoded.arguments?["nested"])
-        XCTAssertNil(decoded.arguments?["list"])
+        XCTAssertNil(decoded.arguments?["objects"])
+    }
+
+    /// Nothing enforces the schema on this call — it is free-form JSON the model
+    /// writes — so a list arrives nested as readily as flat.
+    /// `ToolArgumentsTests.testTheTwoDecodersReadALikeToo` pins the flat case
+    /// against the chat's decoder; this is the shape only this one can meet.
+    func testANestedListStillFlattens() throws {
+        let decoded = try choice(#"{"tool":"t","arguments":{"attendees":[["a@b.com"],"c@d.com"]}}"#)
+
+        XCTAssertEqual(decoded.arguments?["attendees"], "a@b.com,c@d.com")
     }
 
     func testChoosingNothingStillDecodes() throws {
