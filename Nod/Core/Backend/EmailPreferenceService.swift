@@ -28,7 +28,7 @@ enum EmailTopic: String, CaseIterable, Identifiable, Hashable {
         case .lifecycleGuidance:
             "During a trial: learning emails on days 1, 4, and 10. After that: an occasional useful nudge."
         case .founderResearch:
-            "Notes from Vlad about how Nod is working for you, sometimes with an optional call."
+            "Notes from Dima about how Nod is working for you, sometimes with an optional call."
         }
     }
 

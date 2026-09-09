@@ -32,10 +32,10 @@ const TOPIC_IDS: Record<string, string | undefined> = {
     lifecycle_guidance: Deno.env.get("RESEND_LIFECYCLE_GUIDANCE_TOPIC_ID"),
     founder_research: Deno.env.get("RESEND_FOUNDER_RESEARCH_TOPIC_ID"),
 };
-const FROM = "Vlad from Nod <vlad@hellonod.app>";
-const REPLY_TO = "vlad@hellonod.app";
+const FROM = "Dima from Nod <dmytro@hellonod.app>";
+const REPLY_TO = "dmytro@hellonod.app";
 
-// The 17 template aliases never change between deploys, so checking each one on
+// The template aliases never change between deploys, so checking each one on
 // every send would double our provider calls for no information.
 const TEMPLATE_CACHE_TTL_MS = 10 * 60 * 1000;
 const publishedTemplates = new Map<string, number>();
