@@ -307,17 +307,12 @@ final class ChatStore: ObservableObject, ChatToolGateHost {
         // is waiting for any more.
         guard openMeetingID == context.meetingID, !Task.isCancelled else { return }
         if outcome.steps.ranOutOfCredits { turnRanOutOfCredits = true }
-        // The history now carries the call and its result, so it no longer
-        // matches the prefix the provider has on file.
-        await requestReply(
-            ReplyContext(
-                systemPrompt: context.systemPrompt,
-                meetingID: context.meetingID,
-                userID: context.userID,
-                cachePrompt: false
-            ),
-            round: round + 1
-        )
+        // The caller's judgement carries into every round of the same question.
+        // A tool result is appended to `history`, which sits after the cache
+        // breakpoint at the end of the system message — so it cannot invalidate
+        // a prefix it comes after. Turning caching off here re-billed the whole
+        // system prompt on exactly the turns that send it three times.
+        await requestReply(context, round: round + 1)
     }
 
     func clear() {
