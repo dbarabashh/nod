@@ -84,8 +84,8 @@ on conflict (user_id) do update set
 -- these into one number; the contract is that it does not.
 insert into public.usage_events (user_id, created_at, kind, model, status, audio_seconds, cost_usd, task)
 values
-    ('10000000-0000-4000-8000-000000000211', date_trunc('month', now()) - interval '10 days', 'transcribe', 'deepgram:nova-3', 200, 3600, 1.00, 'stt'),
-    ('10000000-0000-4000-8000-000000000211', date_trunc('month', now()) + interval '2 days', 'transcribe', 'deepgram:nova-3', 200, 7200, 2.00, 'stt');
+    ('10000000-0000-4000-8000-000000000211', date_trunc('month', now()) - interval '10 days', 'transcribe', 'groq:openai/whisper-large-v3', 200, 3600, 1.00, 'stt'),
+    ('10000000-0000-4000-8000-000000000211', date_trunc('month', now()) + interval '2 days', 'transcribe', 'groq:openai/whisper-large-v3', 200, 7200, 2.00, 'stt');
 
 -- Priced and unpriced calls: the unpriced one is counted and moves no money.
 insert into public.usage_events (user_id, created_at, kind, model, status, prompt_tokens, completion_tokens, cost_usd, task)
@@ -100,10 +100,10 @@ values
 
 -- The founder's own traffic: flagged internal, never dropped.
 insert into public.usage_events (user_id, created_at, kind, model, status, audio_seconds, cost_usd, task)
-values ('10000000-0000-4000-8000-000000000201', date_trunc('month', now()) + interval '1 day', 'transcribe', 'deepgram:nova-3', 200, 600, 0.10, 'stt');
+values ('10000000-0000-4000-8000-000000000201', date_trunc('month', now()) + interval '1 day', 'transcribe', 'groq:openai/whisper-large-v3', 200, 600, 0.10, 'stt');
 
 insert into public.usage_events (user_id, created_at, kind, model, status, audio_seconds, cost_usd, task)
-values ('10000000-0000-4000-8000-000000000213', date_trunc('month', now()) + interval '1 day', 'transcribe', 'deepgram:nova-3', 200, 3600, 0.30, 'stt');
+values ('10000000-0000-4000-8000-000000000213', date_trunc('month', now()) + interval '1 day', 'transcribe', 'groq:openai/whisper-large-v3', 200, 3600, 0.30, 'stt');
 
 insert into public.meetings (user_id, created_at, started_at, ended_at, summary)
 values ('10000000-0000-4000-8000-000000000211', date_trunc('month', now()) + interval '2 days',
@@ -298,7 +298,7 @@ update public.profiles set active_org_id = '50000000-0000-4000-8000-000000000001
 -- Inside the workspace period, so the window cannot be what hides it.
 insert into public.usage_events (user_id, org_id, created_at, kind, model, status, audio_seconds, cost_usd, task)
 values ('10000000-0000-4000-8000-000000000218', '50000000-0000-4000-8000-000000000001',
-        now() - interval '1 hour', 'transcribe', 'deepgram:nova-3', 200, 7200, 0.50, 'stt');
+        now() - interval '1 hour', 'transcribe', 'groq:openai/whisper-large-v3', 200, 7200, 0.50, 'stt');
 insert into public.usage_events (user_id, org_id, created_at, kind, model, status, cost_usd, task)
 values ('10000000-0000-4000-8000-000000000218', '50000000-0000-4000-8000-000000000001',
         now() - interval '1 hour', 'integration', 'linear', 200, 0.01, 'ask');
@@ -368,7 +368,7 @@ $$;
 set local timezone = 'Pacific/Kiritimati';
 insert into public.usage_events (user_id, created_at, kind, model, status, audio_seconds, cost_usd, task)
 values ('10000000-0000-4000-8000-000000000212', timestamptz '2026-08-31 23:00+00',
-        'transcribe', 'deepgram:nova-3', 200, 60, 0.07, 'stt');
+        'transcribe', 'groq:openai/whisper-large-v3', 200, 60, 0.07, 'stt');
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"10000000-0000-4000-8000-000000000201","email":"vlad@hellonod.app","role":"authenticated"}';
 do $$

@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-09-08_
+_Last updated: 2026-09-09_
 
 _Resend and Pipedream are listed under advance notice. The optional product-update, lifecycle,
 and founder-research workflow is not sending today and will not begin earlier
@@ -20,9 +20,9 @@ subscribe to change notifications, email **dmytro@hellonod.app**.
 | Subprocessor                | Purpose                                  | Data shared                                                       | Location           | Training on your data | DPA / no-train basis |
 |-----------------------------|------------------------------------------|-------------------------------------------------------------------|--------------------|-----------------------|----------------------|
 | **Supabase, Inc.**          | Auth, Postgres database, Edge Functions, in-region text embeddings (`gte-small`) for cross-session search, first-party acquisition attribution and product analytics | Email, OAuth identity, meeting transcripts, summaries, chat messages, transcript embeddings, extracted entities, usage logs, consented campaign touches, bounded app interaction events, random installation/session IDs, and account attribution | AWS `eu-west-1` (Ireland) | No                    | Supabase DPA         |
-| **OpenRouter, Inc.**        | LLM request routing + Whisper transcription (last-resort fallback) + writing the short line said aloud after a question asked by voice | Audio chunks (transient), transcript text, chat messages, query text, the spoken question and written answer behind that short line | Routed via no-train providers | No                    | Zero Data Retention enabled; "may train on request data" routes disabled |
-| **Groq, Inc.**              | Whisper (large-v3) speech-to-text — primary transcription provider | Audio chunks (transient — one short WAV per utterance) | USA (Google Cloud) | No | GroqCloud DPA; Services Agreement prohibits training on Inputs/Outputs; no retention by default (transient error/abuse logs ≤ 30 days; ZDR available) |
-| **OpenAI** (via Azure OpenAI Service / OpenRouter) | Whisper speech-to-text (fallback) | Audio chunks (transient, ~5 s windows) | Routed by OpenRouter | No | Azure OpenAI no-train commitment; OpenRouter Zero Data Retention routing |
+| **OpenRouter, Inc.**        | LLM request routing + speech-to-text (OpenAI `gpt-4o-transcribe`) — the transcription path for all audio in the default routing mode + writing the short line said aloud after a question asked by voice | Audio chunks (transient), transcript text, chat messages, query text, the spoken question and written answer behind that short line | Routed via no-train providers | No                    | Zero Data Retention enabled; "may train on request data" routes disabled |
+| **Groq, Inc.**              | Whisper (large-v3) speech-to-text — a direct fallback path kept for an OpenRouter outage and reached only when that mode is switched on by hand. It last served a transcription on 2026-08-14 | Audio chunks (transient — one short WAV per utterance), only while that mode is on | USA (Google Cloud) | No | GroqCloud DPA; Services Agreement prohibits training on Inputs/Outputs; no retention by default (transient error/abuse logs ≤ 30 days; ZDR available) |
+| **OpenAI** (via Azure OpenAI Service / OpenRouter) | Speech-to-text: `gpt-4o-transcribe`, routed by OpenRouter, currently serves every transcription; Whisper via Azure only behind the hand-switched direct fallback | Audio chunks (transient, ~5 s windows) | Routed by OpenRouter | No | Azure OpenAI no-train commitment; OpenRouter Zero Data Retention routing |
 | **OpenAI, Inc.** (direct API, `api.openai.com`) | Reading a spoken reply's short line aloud (`gpt-4o-mini-tts`), after a question asked by voice; and a live conversation, when you tap the ask key instead of holding it (`gpt-realtime-2`, Realtime API) | The one- to three-sentence line for a spoken reply, and its language — never a recording, a transcript, or the full written answer. For a live conversation: your microphone audio and the model's spoken replies, streamed directly between your Mac and OpenAI over a short-lived credential Nod's server mints and never sees the conversation through; when the conversation asks Nod something about your account, only the question and Nod's answer for that one lookup, the same as a typed question. | USA | Not used to train models per OpenAI's API data usage policy; retained up to 30 days for abuse monitoring unless zero-data-retention is separately enabled | OpenAI API DPA |
 | **Anthropic PBC** (via AWS Bedrock / Google Vertex AI) | LLM summarisation & chat — primary (Claude Sonnet 4.6, Claude Haiku 4.5 fallback) | Transcript text, system prompt, chat messages | Routed by OpenRouter | No | Bedrock / Vertex AI no-train commitment |
 | **Google LLC** (via Google Vertex AI) | LLM summarisation — optional alternative model (Gemini) + a routing host for Claude | Transcript text, system prompt | Routed by OpenRouter | No                    | Vertex AI no-train commitment |
@@ -34,9 +34,10 @@ subscribe to change notifications, email **dmytro@hellonod.app**.
 | **Google LLC** (Analytics and Ads) | Consent-gated website analytics, campaign attribution, and conversion measurement | IP address, browser/device data, sanitised page and event details, Google Analytics client ID, and Google click/campaign identifiers. No meeting content or Nod account identity. | Global | No | Google Ads Data Protection Terms; Google Controller-Controller Data Protection Terms where applicable |
 
 Nod does not create or retain an audio recording. Audio normally exists at a
-subprocessor only for the duration of one Whisper request. Groq's documented
-exception is transient error or abuse logging for up to 30 days unless Zero
-Data Retention is enabled; it does not use inputs or outputs for training.
+subprocessor only for the duration of one transcription request. Groq's
+documented exception — transient error or abuse logging for up to 30 days
+unless Zero Data Retention is enabled — applies only while the direct Groq
+fallback is switched on; it does not use inputs or outputs for training.
 
 Nod never receives or stores your full card details — those are handled
 entirely by Paddle as Merchant of Record.
@@ -95,9 +96,10 @@ receive no signal that an email was opened or a link inside it was followed.
 ## How data flows
 
 ```
-You ──► Nod (your Mac) ──► Supabase Edge Function (llm-proxy) ──┬─► Groq ──► Whisper (speech-to-text, primary)
-                          │                                     ├─► OpenRouter ──► Claude (summaries + chat) + Whisper (last-resort)
-                          │                                     └─► OpenAI ──► Whisper (fallback)
+You ──► Nod (your Mac) ──► Supabase Edge Function (llm-proxy) ──┬─► OpenRouter ──► gpt-4o-transcribe (speech-to-text)
+                          │                                     │                 + Claude (summaries + chat)
+                          │                                     ├─► Groq ──► Whisper (only when switched on by hand)
+                          │                                     └─► OpenAI ──► Whisper (only when switched on by hand)
                           │
                           └─► Supabase Postgres (transcripts, summaries, usage logs)
 ```
@@ -105,9 +107,10 @@ You ──► Nod (your Mac) ──► Supabase Edge Function (llm-proxy) ──
 No provider API key ever touches your Mac. The app sends requests to our
 own Edge Function authenticated with your Supabase JWT; the Edge Function
 attaches the provider key (stored only in Supabase secrets) and forwards
-the call. Speech-to-text goes to Groq first, with OpenAI and OpenRouter as
-fallbacks; chat and summaries go through OpenRouter. Audio bytes are
-forwarded once and never written to durable storage anywhere in this chain.
+the call. Speech-to-text, chat and summaries all go through OpenRouter; the
+direct Groq and OpenAI paths exist for an OpenRouter outage and are reached
+only when that mode is switched on by hand. Audio bytes are forwarded once and
+never written to durable storage anywhere in this chain.
 
 ---
 
@@ -139,6 +142,7 @@ forwarded once and never written to durable storage anywhere in this chain.
 | 2026-09-06 | Named the app's update feed and installers as served from `hellonod.app` (Vercel) — they always were; the app now checks every four hours instead of daily, so the request is described. No new subprocessor. |
 | 2026-09-06 | Gave advance notice that a read of a connected tool asked for in chat draws an integration credit from the plan's monthly pool, and that each such read is recorded as one usage row (product, action, cost, paying organization) beside the existing per-day count. Same subprocessor, same content shared; what changes is that the reads are counted against a plan and pause at zero rather than being unbounded. |
 | 2026-09-08 | A task filed from a meeting now carries one transcript sentence, the meeting title/date and a Nod deep link in its description; undoing a filing closes the task with a note. |
+| 2026-09-09 | Corrected the speech-to-text disclosure to match the routing that has been live since 2026-08-14: every transcription goes to OpenAI `gpt-4o-transcribe` through OpenRouter. Groq and direct OpenAI Whisper remain listed as outage fallbacks reached only when switched on by hand; Groq last served a transcription on 2026-08-14. No new subprocessor and no change to what is shared or retained — the earlier entry named Groq as primary after that had ceased to be true. |
 
 ---
 

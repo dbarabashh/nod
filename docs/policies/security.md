@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-09-06_
+_Last updated: 2026-09-09_
 
 _[Calendar access](#calendar-access), organization-enforced recording ownership
 and administrator-read access under [Organizations](#organizations), and the
@@ -18,9 +18,11 @@ floating panel on the left of your screen._
 Nod records your meetings on your Mac and turns them into notes. Capture and
 voice detection run on-device; transcription and summarization run on hosted
 inference providers with no model training, with as little data leaving your
-machine as possible. Nod does not create or retain an audio recording. Groq may
-retain transient error or abuse logs for up to 30 days unless Zero Data
-Retention is enabled; the precise provider boundary is documented below.
+machine as possible. Nod does not create or retain an audio recording.
+Transcription routes through OpenRouter under Zero Data Retention; the direct
+Groq path, which may retain transient error or abuse logs for up to 30 days, is
+reached only when switched on by hand for an outage. The precise provider
+boundary is documented below.
 Everything Nod keeps is stored in the EU.
 
 ---
@@ -32,14 +34,15 @@ Everything Nod keeps is stored in the EU.
   [Infrastructure](#infrastructure): transcription runs on providers hosted
   outside the EU, under EU-U.S. Data Privacy Framework adequacy or standard
   contractual clauses and no training. OpenRouter routes use Zero Data
-  Retention; Groq may retain transient error or abuse logs for up to 30 days.
-  Nod itself stores no audio recording.
+  Retention; the hand-switched direct Groq path may retain transient error or
+  abuse logs for up to 30 days. Nod itself stores no audio recording.
 - **Encrypted in transit and at rest.** TLS 1.2+ on the wire (TLS 1.3 by
   default; TLS 1.1 and below are rejected). AES-256 at rest in Postgres.
   Direct database connections also require SSL.
 - **We do not train any models on your data.** Neither do our subprocessors.
   OpenRouter routes have Zero Data Retention and "may train on request data"
-  disabled; Groq contractually prohibits training on inputs and outputs.
+  disabled; Groq, on the fallback path, contractually prohibits training on
+  inputs and outputs.
 - **Audio is never stored.** Chunks are transcribed in ~5-second windows and
   the bytes are released as soon as the transcript returns. Only the
   transcript and your notes are persisted.
@@ -90,10 +93,11 @@ Telling voices apart afterwards also happens on your Mac, on a speaker model
 first use and keeps on disk. That download sends nothing but the request itself
 — no audio, no transcript, no account — and every diarised meeting after it
 works offline.
-Each chunk is sent to Whisper in the cloud through our own proxy, and Nod
-discards the audio bytes immediately after the transcript comes back. OpenRouter
-fallback routes use Zero Data Retention; Groq may retain transient error or abuse
-logs for up to 30 days unless Zero Data Retention is enabled. The proxy runs in
+Each chunk is sent to a speech-to-text model in the cloud through our own proxy,
+and Nod discards the audio bytes immediately after the transcript comes back.
+OpenRouter routes use Zero Data Retention; the hand-switched direct Groq path may
+retain transient error or abuse logs for up to 30 days unless Zero Data Retention
+is enabled. The proxy runs in
 the EU; the inference providers it
 forwards to do not (see [Infrastructure](#infrastructure)). Transcription and summarization are not on-device. The
 transcript and the AI-generated summary are saved to your private Nod account.
@@ -116,11 +120,14 @@ your Mac.
 
 We also do not allow our subprocessors to train on your data.
 
-Speech-to-text runs primarily on **Groq**, whose Services Agreement prohibits
-using inputs or outputs to train any model and which retains no customer data
-by default (only transient error/abuse logs, ≤ 30 days).
+Speech-to-text runs on OpenAI's **`gpt-4o-transcribe`** through **OpenRouter**,
+which has carried every transcription since 2026-08-14. A direct **Groq**
+Whisper path is kept for an OpenRouter outage and is reached only when that mode
+is switched on by hand; Groq's Services Agreement prohibits using inputs or
+outputs to train any model and it retains no customer data by default (only
+transient error/abuse logs, ≤ 30 days).
 
-The LLM and fallback Whisper calls go through OpenRouter, where we have:
+Speech-to-text, LLM summaries and chat all go through OpenRouter, where we have:
 
 - Enabled **Zero Data Retention** for all non-frontier model routes.
 - **Disabled** "paid endpoints that may train on request data".
@@ -135,9 +142,10 @@ The LLM and fallback Whisper calls go through OpenRouter, where we have:
 
 Nod **does not create or retain an audio recording**. Audio is held in memory
 only long enough to chunk it (~5 seconds), normalise it, and POST the chunk to
-Whisper through our proxy. As soon as the transcript returns, Nod releases the
-audio bytes. There is no recording file or waveform export in Nod. The direct
-Groq provider may retain transient error or abuse logs for up to 30 days unless
+the speech-to-text model through our proxy. As soon as the transcript returns,
+Nod releases the audio bytes. There is no recording file or waveform export in
+Nod. On the hand-switched fallback path, the direct Groq provider may retain
+transient error or abuse logs for up to 30 days unless
 Zero Data Retention is enabled; see the [Subprocessors list](./subprocessors.md).
 
 ### Screen access
@@ -464,7 +472,7 @@ sure you comply with the rules where you and your participants are located.
 | Auth                  | Supabase Auth            | AWS `eu-west-1`   |
 | Server-side functions | Supabase Edge Functions  | EU                |
 | LLM gateway           | OpenRouter               | routed            |
-| Whisper transcription | Groq (primary); OpenAI/Azure + OpenRouter (fallback) | US (Groq); routed (no-train) |
+| Speech-to-text | OpenAI `gpt-4o-transcribe` via OpenRouter; direct Groq/OpenAI Whisper only when switched on by hand | routed (no-train); US (Groq) on the fallback path |
 | Text embeddings       | Supabase Edge runtime (`gte-small`) | in-region, no external provider |
 | LLM summaries & chat  | Anthropic Claude via AWS Bedrock / Vertex (Google Gemini optional) | (no-train) |
 
@@ -501,9 +509,10 @@ account identifier (Privacy Policy § 3.17).
 ## How data flows
 
 ```
-You ──► Nod (your Mac) ──► Supabase Edge Function (llm-proxy) ──┬─► Groq ──► Whisper (speech-to-text, primary)
-                          │                                     ├─► OpenRouter ──► Claude (summaries + chat) + Whisper (last-resort)
-                          │                                     └─► OpenAI ──► Whisper (fallback)
+You ──► Nod (your Mac) ──► Supabase Edge Function (llm-proxy) ──┬─► OpenRouter ──► gpt-4o-transcribe (speech-to-text)
+                          │                                     │                 + Claude (summaries + chat)
+                          │                                     ├─► Groq ──► Whisper (only when switched on by hand)
+                          │                                     └─► OpenAI ──► Whisper (only when switched on by hand)
                           │
                           └─► Supabase Postgres (transcripts, summaries, usage logs)
 ```

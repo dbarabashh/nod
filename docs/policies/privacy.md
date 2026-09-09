@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-09-08_
+_Last updated: 2026-09-09_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -45,8 +45,8 @@ your full card details.
 ## 2. What Nod is
 
 Nod is a macOS app that records meetings playing through your Mac's
-speakers and microphone, transcribes them via Whisper, and produces an
-AI-generated summary using a large language model. It runs as a small window of
+speakers and microphone, transcribes them with a hosted speech-to-text model,
+and produces an AI-generated summary using a large language model. It runs as a small window of
 its own — a floating panel today, moving into the notch at the top of your screen
 in a coming version — and never records without you pressing record.
 
@@ -107,11 +107,12 @@ Row-Level Security. Cross-session "Ask Nod" conversations are saved as threads
 you can reopen — and delete, which removes their messages with them.
 
 Nod does **not** create or retain a raw-audio recording. Audio exists only as
-transient memory inside the app and inside the Whisper request, for the duration
-of a single ~5-second chunk. Nod releases the bytes as soon as the transcript
-returns. There is no audio file or waveform export in Nod. Groq may retain
-transient error or abuse logs for up to 30 days unless Zero Data Retention is
-enabled; see the [Subprocessors list](./subprocessors.md).
+transient memory inside the app and inside the transcription request, for the
+duration of a single ~5-second chunk. Nod releases the bytes as soon as the
+transcript returns. There is no audio file or waveform export in Nod. On the
+hand-switched direct Groq fallback path, Groq may retain transient error or
+abuse logs for up to 30 days unless Zero Data Retention is enabled; see the
+[Subprocessors list](./subprocessors.md).
 
 **A question you speak.** Holding the ask key opens your microphone for as
 long as you hold it; letting go sends that one clip — and only that clip — to
@@ -825,12 +826,16 @@ installed current, secure and working, and answering the question you sent.
 configured our subprocessors so that they do not use your data for
 training:
 
-- Speech-to-text runs primarily on **Groq**, whose Services Agreement
-  prohibits using inputs or outputs to train any model and which retains
-  no customer data by default (only transient error/abuse logs, ≤ 30 days).
-- LLM and fallback Whisper calls go through OpenRouter with Zero Data
-  Retention enabled for non-frontier models and the "may train on request
-  data" routes (both paid and free) explicitly disabled.
+- Speech-to-text runs on OpenAI's **`gpt-4o-transcribe`** through
+  **OpenRouter**, which has carried every transcription since 2026-08-14.
+  A direct **Groq** Whisper path is kept for an OpenRouter outage and is
+  reached only when that mode is switched on by hand; Groq's Services
+  Agreement prohibits using inputs or outputs to train any model and it
+  retains no customer data by default (only transient error/abuse logs,
+  ≤ 30 days).
+- Speech-to-text, LLM summaries and chat go through OpenRouter with Zero
+  Data Retention enabled for non-frontier models and the "may train on
+  request data" routes (both paid and free) explicitly disabled.
 - First-party endpoints for OpenAI, Anthropic, and Google are disabled in
   our OpenRouter account. Traffic is routed to enterprise endpoints
   (Azure OpenAI, AWS Bedrock, Google Vertex AI), which contractually do
@@ -851,7 +856,8 @@ We do **not** sell or rent personal data to anyone. We share data with
 third parties only when one of the following applies:
 
 - It's a subprocessor on the published list, acting under a data
-  processing agreement (Supabase, Groq for speech-to-text, OpenRouter,
+  processing agreement (Supabase, OpenRouter for speech-to-text, summaries
+  and chat, Groq on the speech-to-text fallback path,
   Resend for email — only once the § 3.14 advance-notice period completes,
   Anthropic via AWS Bedrock / Google Vertex for LLM summaries and chat,
   OpenAI via Azure, Google Cloud / Vertex, Google OAuth, Apple, and Paddle
@@ -885,7 +891,8 @@ European Union (AWS `eu-west-1`, Ireland).
 
 Some subprocessors operate globally and may process data outside the EU:
 
-- **Groq** (speech-to-text), **OpenRouter**, **Anthropic** (via AWS
+- **OpenRouter** (speech-to-text, summaries and chat), **Groq**
+  (speech-to-text fallback), **Anthropic** (via AWS
   Bedrock / Google Vertex), **OpenAI/Azure**, and **Google/Vertex** may
   route requests to US-based infrastructure.
   Transfers rely on the EU
