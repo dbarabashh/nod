@@ -164,7 +164,7 @@ struct KnowledgeChatView: View {
                             onApproveAlways: chat.approvePendingToolsAlways,
                             onDeny: chat.denyPendingTools
                         )
-                        .id(ChatTranscriptSupport.Anchor.approval)
+                        .id(approval.id)
                     }
                     if chat.isSending, chat.pendingApproval == nil {
                         typingIndicator.id(ChatTranscriptSupport.Anchor.typing)
@@ -185,6 +185,9 @@ struct KnowledgeChatView: View {
             // A failure arrives without a message to announce it, and one the
             // user cannot see is one they cannot act on.
             .onChange(of: chat.failure) { _ in scrollToEnd(proxy) }
+            // The card arrives without a message or a state change to announce
+            // it, and a question the user cannot see is one they cannot answer.
+            .onChange(of: chat.pendingApproval) { _ in scrollToEnd(proxy) }
             // A growing answer pushes itself off-screen otherwise.
             // Keyed on length, not the string: SwiftUI would otherwise compare
             // the whole growing answer on every flush.
@@ -527,7 +530,7 @@ struct KnowledgeChatView: View {
     }
 
     private var scrollTarget: AnyHashable? {
-        if chat.pendingApproval != nil { return AnyHashable(ChatTranscriptSupport.Anchor.approval) }
+        if let approval = chat.pendingApproval { return AnyHashable(approval.id) }
         if chat.failure != nil { return AnyHashable(ChatTranscriptSupport.Anchor.failure) }
         if chat.isSending { return AnyHashable(ChatTranscriptSupport.Anchor.typing) }
         return chat.messages.last.map { AnyHashable($0.id) }

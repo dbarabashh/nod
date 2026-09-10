@@ -10,19 +10,67 @@ import Foundation
 /// consent.
 @MainActor
 final class ChatToolGate: ObservableObject {
-    /// One card per model turn, not per call — see `ToolApprovalCard`.
+    /// One card per model turn — see `ToolApprovalCard`.
     struct Pending: Identifiable, Equatable {
         let id = UUID()
+        let round: Round
+
+        /// The product this card may offer to stop asking about, if any. Only
+        /// a round that reaches one product and writes nothing: "always allow"
+        /// names a product, so a round touching two cannot be answered by one
+        /// button, and buying silence for a tool that sends a message is not a
+        /// thing to agree to once.
+        var alwaysAllowable: IntegrationProvider? {
+            guard round.batches.count == 1, let batch = round.batches.first,
+                  !batch.tools.isEmpty, batch.tools.allSatisfy({ !$0.mutating })
+            else { return nil }
+            return batch.provider
+        }
+    }
+
+    /// One model turn's tool calls, and the same calls split by product.
+    ///
+    /// A model asked about the calendar and the inbox in the same breath emits
+    /// both in one message, and nothing upstream stops it. The card has to
+    /// name every product it will reach, and the standing "reads may run
+    /// unasked" permission has to be held for every one of them — both used to
+    /// be decided from whichever call happened to come first.
+    struct Round: Equatable {
+        /// In the order the model asked, which is how the assistant turn
+        /// replays them.
+        let calls: [ChatToolCall]
+        /// One per product, in the order the round first reached each.
+        let batches: [Batch]
+
+        /// A single call, for the lookup that routes one tool itself rather
+        /// than letting a model choose.
+        init(_ call: ChatToolCall, tool: ChatTool) {
+            self.init(calls: [call], batches: [Batch(call, tool: tool)])
+        }
+
+        fileprivate init(calls: [ChatToolCall], batches: [Batch]) {
+            self.calls = calls
+            self.batches = batches
+        }
+    }
+
+    /// One product's share of a round.
+    struct Batch: Equatable {
         let provider: IntegrationProvider
         let calls: [ChatToolCall]
         let tools: [ChatTool]
 
-        /// Whether this card may offer to stop asking. Only a card with no
-        /// write on it: "always allow" on a batch that sends a message would
-        /// buy silence for every message after it, which is not a thing to
-        /// agree to once.
-        var mayAlwaysAllow: Bool {
-            !tools.isEmpty && tools.allSatisfy { !$0.mutating }
+        /// The product is read off the tool rather than passed beside it: a
+        /// batch whose name and calls disagree is the defect `Round` exists to
+        /// prevent, and a memberwise initialiser lets a caller build one.
+        init(_ call: ChatToolCall, tool: ChatTool) {
+            self.init(provider: tool.provider, calls: [call], tools: [tool])
+        }
+
+        fileprivate init(provider: IntegrationProvider, calls: [ChatToolCall], tools: [ChatTool]) {
+            self.provider = provider
+            self.calls = calls
+            self.tools = tools
         }
     }
 
@@ -86,45 +134,84 @@ final class ChatToolGate: ObservableObject {
         turns = []
     }
 
-    /// Runs `calls` once the person allows them, and returns what to tell the
+    /// Runs `round` once the person allows it, and returns what to tell the
     /// model. A denial is an outcome too — the model is told it was declined,
     /// which is what stops it asking again in the same breath.
     ///
-    /// `tools` are the catalogue entries matched to `calls`, in the same order.
-    /// `onApproved` runs after the person allows the calls and before the first
-    /// one goes out — the moment a chat stops waiting on a person and starts
-    /// waiting on a product, which is the only thing worth saying out loud
-    /// between the two.
+    /// One decision for the whole round, however many products it reaches: a
+    /// card per product would put the second one under a button the user is
+    /// already reaching for, and a search that went out while the write beside
+    /// it was still being considered is the same answer, arrived at in an
+    /// order nobody was shown. Every call gets a result whichever way it went,
+    /// because a missing one makes the next request invalid.
+    ///
+    /// `onApproved` runs before each product's first call goes out — the
+    /// moment a chat stops waiting on a person and starts waiting on a
+    /// product, which is the only thing worth saying out loud between the two.
     func run(
-        _ calls: [ChatToolCall],
-        tools: [ChatTool],
-        provider: IntegrationProvider,
+        _ round: Round,
         using integrations: IntegrationService,
-        onApproved: () -> Void = {}
+        onApproved: (IntegrationProvider) -> Void = { _ in }
     ) async -> Outcome {
+        var outcome = Outcome()
+        // The assistant's request has to be replayed verbatim, or the provider
+        // rejects results for calls it can't see in the history.
+        outcome.turns.append(LLMProxyClient.ChatTurn(role: .assistant, content: "", toolCalls: round.calls))
+        let allowed = await allows(round) && !Task.isCancelled
+        var results: [String: LLMProxyClient.ChatTurn] = [:]
+        for batch in round.batches {
+            let settled = await settle(batch, using: integrations, allowed: allowed, onApproved: onApproved)
+            for turn in settled.turns {
+                results[turn.toolCallID ?? ""] = turn
+            }
+            outcome.steps += settled.steps
+        }
+        callingProvider = nil
+        // Grouped by product to run, replayed in the order they were asked:
+        // pairing is by `tool_call_id` on every provider we speak to, but a
+        // history whose results answer in a different order than the request
+        // listed them is a needless bet on that staying true.
+        outcome.turns += round.calls.compactMap { results[$0.id] }
+        turns += outcome.turns
+        return outcome
+    }
+
+    /// Whether this round may run: the unattended rule, the person's standing
+    /// preference, or the card.
+    private func allows(_ round: Round) async -> Bool {
+        // Before anything that could answer yes. A standing preference to run
+        // reads unasked is not a licence to run them after the person pressed
+        // stop.
+        if Task.isCancelled { return false }
+        // `allSatisfy` is true of nothing, so an empty round would run itself.
+        guard !round.batches.isEmpty else { return false }
+        let tools = round.batches.flatMap(\.tools)
+        let products = round.batches.map(\.provider.rawValue).joined(separator: "+")
         if unattended {
             let mutates = tools.contains { $0.mutating }
             Log.ui.info(
-                "unattended \(provider.rawValue) call(s)=\(calls.count) \(mutates ? "refused — mutating" : "allowed")"
+                "unattended \(products) call(s)=\(round.calls.count) \(mutates ? "refused — mutating" : "allowed")"
             )
-            return await settle(calls, tools: tools, provider: provider, using: integrations, allowed: !mutates)
+            return !mutates
         }
         // Reads run unasked when the person said they may — the rule the live
         // lookup has always followed ("a read changes nothing"), now available
-        // to the chat as well. A batch carrying any write is a write, and shows
-        // its card exactly as before.
-        if approvalPreference?.runsUnasked(tools, from: provider) == true {
-            Log.ui.info("\(calls.count) \(provider.rawValue) read(s) allowed without asking")
-            approvalLog?.record(provider: provider, tools: tools, allowed: true, unasked: true)
-            return await settle(calls, tools: tools, provider: provider, using: integrations, allowed: true, onApproved: onApproved)
+        // to the chat as well. Every product in the round, not the first one:
+        // a permission granted for the calendar has never been asked about the
+        // mail. A round carrying any write is a write, and shows its card.
+        if round.batches.allSatisfy({ approvalPreference?.runsUnasked($0.tools, from: $0.provider) == true }) {
+            Log.ui.info("\(round.calls.count) \(products) read(s) allowed without asking")
+            record(round, allowed: true, unasked: true)
+            return true
         }
-        Log.ui.info("awaiting approval for \(calls.count) \(provider.rawValue) call(s)")
+        Log.ui.info("awaiting approval for \(round.calls.count) \(products) call(s)")
         // A question asked while an older card still stands supersedes it. The
         // slot holds one continuation: overwriting it used to strand the first
         // task suspended for the rest of the meeting, because cancelling that
         // task does not resume a `withCheckedContinuation`.
         cancelPending()
-        pending = Pending(provider: provider, calls: calls, tools: tools)
+        let mine = Pending(round: round)
+        pending = mine
         let allowed = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 // Cancelled before the continuation was stored — resume it at
@@ -142,31 +229,34 @@ final class ChatToolGate: ObservableObject {
             // on an answer that can no longer arrive.
             Task { @MainActor [weak self] in self?.cancelPending() }
         }
-        pending = nil
-        approvalLog?.record(provider: provider, tools: tools, allowed: allowed, unasked: false)
-        return await settle(calls, tools: tools, provider: provider, using: integrations, allowed: allowed, onApproved: onApproved)
+        if pending?.id == mine.id { pending = nil }
+        record(round, allowed: allowed, unasked: false)
+        return allowed
+    }
+
+    /// One log entry per product, so a mixed round is counted as the several
+    /// decisions the person actually made about their products.
+    private func record(_ round: Round, allowed: Bool, unasked: Bool) {
+        for batch in round.batches {
+            approvalLog?.record(provider: batch.provider, tools: batch.tools, allowed: allowed, unasked: unasked)
+        }
     }
 
     /// Runs what was allowed and writes the turns the model has to see either
     /// way. Shared by the card and the unattended path so a beat's transcript
     /// is assembled by the same code as a person's.
     private func settle(
-        _ calls: [ChatToolCall],
-        tools: [ChatTool],
-        provider: IntegrationProvider,
+        _ batch: Batch,
         using integrations: IntegrationService,
         allowed: Bool,
-        onApproved: () -> Void = {}
+        onApproved: (IntegrationProvider) -> Void
     ) async -> Outcome {
         var outcome = Outcome()
-        // The assistant's request has to be replayed verbatim, or the provider
-        // rejects results for calls it can't see in the history.
-        outcome.turns.append(LLMProxyClient.ChatTurn(role: .assistant, content: "", toolCalls: calls))
         if allowed {
-            callingProvider = provider
-            onApproved()
+            callingProvider = batch.provider
+            onApproved(batch.provider)
         }
-        for (call, tool) in zip(calls, tools) {
+        for (call, tool) in zip(batch.calls, batch.tools) {
             let result = allowed
                 ? await integrations.run(call, tool: tool, origin: .chat)
                 : IntegrationService.declinedResult()
@@ -178,8 +268,6 @@ final class ChatToolGate: ObservableObject {
                 outcome: allowed ? Self.outcome(of: result) : .declined
             ))
         }
-        callingProvider = nil
-        turns += outcome.turns
         return outcome
     }
 
@@ -196,9 +284,14 @@ final class ChatToolGate: ObservableObject {
     }
 
     /// Approves this card and stops asking about reads from the same product.
+    ///
+    /// Gated on the continuation, not on the card: a card still on screen for
+    /// a round that was already denied or stopped would otherwise write a
+    /// standing permission out of a click that approved nothing.
     func approveAlways() {
-        if let pending, pending.mayAlwaysAllow {
-            approvalPreference?.allowReads(from: pending.provider)
+        guard approval != nil else { return }
+        if let provider = pending?.alwaysAllowable {
+            approvalPreference?.allowReads(from: provider)
         }
         approve()
     }
@@ -216,13 +309,27 @@ final class ChatToolGate: ObservableObject {
         deny()
     }
 
-    /// The catalogue entries for `calls`, or nil when the model named a tool
-    /// that isn't on offer — which is the one case a chat must refuse rather
-    /// than guess at.
-    nonisolated static func match(_ calls: [ChatToolCall], in catalogue: [ChatTool]) -> (tools: [ChatTool], provider: IntegrationProvider)? {
+    /// The round the model asked for, or nil when it named a tool that isn't
+    /// on offer — which is the one case a chat must refuse rather than guess
+    /// at.
+    ///
+    /// Grouped by product rather than labelled from the first match: a round
+    /// reaching two used to be approved and run as one, under whichever
+    /// product happened to come first.
+    nonisolated static func match(_ calls: [ChatToolCall], in catalogue: [ChatTool]) -> Round? {
         let matched = calls.compactMap { call in catalogue.first { $0.name == call.name } }
-        guard matched.count == calls.count, let provider = matched.first?.provider else { return nil }
-        return (matched, provider)
+        guard matched.count == calls.count, !matched.isEmpty else { return nil }
+        var order: [IntegrationProvider] = []
+        var grouped: [IntegrationProvider: [(call: ChatToolCall, tool: ChatTool)]] = [:]
+        for (call, tool) in zip(calls, matched) {
+            if grouped[tool.provider] == nil { order.append(tool.provider) }
+            grouped[tool.provider, default: []].append((call: call, tool: tool))
+        }
+        let batches = order.map { provider -> Batch in
+            let pairs = grouped[provider, default: []]
+            return Batch(provider: provider, calls: pairs.map(\.call), tools: pairs.map(\.tool))
+        }
+        return Round(calls: calls, batches: batches)
     }
 }
 

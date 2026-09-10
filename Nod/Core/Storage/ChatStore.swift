@@ -290,17 +290,12 @@ final class ChatStore: ObservableObject, ChatToolGateHost {
     }
 
     private func runTools(_ calls: [ChatToolCall], context: ReplyContext, round: Int) async {
-        guard let matched = ChatToolGate.match(calls, in: availableTools) else {
+        guard let asked = ChatToolGate.match(calls, in: availableTools) else {
             Log.ui.error("ChatStore: model asked for an unknown tool")
             sendState = .failed(.unknownTool(steps: turnSteps))
             return
         }
-        let outcome = await toolGate.run(
-            calls,
-            tools: matched.tools,
-            provider: matched.provider,
-            using: integrations
-        )
+        let outcome = await toolGate.run(asked, using: integrations)
         turnSteps += outcome.steps
         // A stop while the approval card was up resumes the gate as a denial;
         // going back to the model with that spends a round on an answer nobody

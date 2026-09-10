@@ -899,7 +899,7 @@ extension KnowledgeChatStore {
     /// Presents the calls, waits for the answer, runs the approved ones, and
     /// goes back to the model with the results.
     private func runTools(_ calls: [ChatToolCall], context: ReplyContext, round: Int) async {
-        guard let matched = ChatToolGate.match(calls, in: turnTools), let integrations else {
+        guard let asked = ChatToolGate.match(calls, in: turnTools), let integrations else {
             Log.ui.error("KnowledgeChatStore: model asked for an unknown tool")
             failure = .unknownTool(steps: turnSteps)
             thinkingScript = []
@@ -908,11 +908,9 @@ extension KnowledgeChatStore {
 
         thinkingScript = []
         let outcome = await toolGate.run(
-            calls,
-            tools: matched.tools,
-            provider: matched.provider,
+            asked,
             using: integrations,
-            onApproved: { [weak self] in self?.thinkingScript = ChatThinking.calling(matched.provider) }
+            onApproved: { [weak self] provider in self?.thinkingScript = ChatThinking.calling(provider) }
         )
         turnSteps += outcome.steps
         // A stop while the approval card was up resumes the gate as a denial;

@@ -2,30 +2,45 @@ import SwiftUI
 
 /// Asks before anything leaves Nod.
 ///
-/// One card per model turn, not per call: a single question routinely produces
-/// three searches, and three prompts in a row teach the user to approve without
-/// reading — which is the failure mode this exists to prevent. Every call is
-/// still listed, and nothing runs unless the whole card is allowed.
+/// One card per model turn, not per call and not per product: a single
+/// question routinely produces three searches, and three prompts in a row
+/// teach the user to approve without reading — which is the failure mode this
+/// exists to prevent. A second card raised where the first stood is that
+/// failure at its worst, since the button under the cursor changes meaning
+/// before the click lands.
+///
+/// So a round reaching two products is one card that names both, grouped by
+/// product. Every call is listed, and nothing runs unless the whole card is
+/// allowed.
+
 struct ToolApprovalCard: View {
     let approval: ChatToolGate.Pending
     let onApprove: () -> Void
     /// Approve, and stop asking about reads from this product. Absent on a card
-    /// carrying a write.
+    /// carrying a write, or one reaching more than one product.
     var onApproveAlways: (() -> Void)?
     let onDeny: () -> Void
+
+    private var batches: [ChatToolGate.Batch] {
+        approval.round.batches
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                ProviderMark(provider: approval.provider, size: 14)
-                Text("Nod wants to use \(approval.provider.displayName)")
+                ForEach(batches, id: \.provider) { batch in
+                    ProviderMark(provider: batch.provider, size: 14)
+                }
+                Text("Nod wants to use \(productList)")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(zip(approval.calls, approval.tools)), id: \.0.id) { call, tool in
-                    requestRow(call: call, tool: tool)
+                ForEach(batches, id: \.provider) { batch in
+                    ForEach(Array(zip(batch.calls, batch.tools)), id: \.0.id) { call, tool in
+                        requestRow(call: call, tool: tool)
+                    }
                 }
             }
 
@@ -38,8 +53,8 @@ struct ToolApprovalCard: View {
                     .glassButtonSurface(Capsule(style: .continuous))
                     .buttonStyle(.plain)
 
-                if approval.mayAlwaysAllow, let onApproveAlways {
-                    Button("Always allow \(approval.provider.displayName)", action: onApproveAlways)
+                if let provider = approval.alwaysAllowable, let onApproveAlways {
+                    Button("Always allow \(provider.displayName)", action: onApproveAlways)
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(Theme.Palette.ink)
                         .padding(.horizontal, 12)
@@ -59,8 +74,17 @@ struct ToolApprovalCard: View {
         .surfaceCard()
     }
 
+    /// Every product the round reaches, so the header cannot describe less
+    /// than the rows below it.
+    private var productList: String {
+        let names = batches.map(\.provider.displayName)
+        guard let last = names.last, names.count > 1 else { return names.first ?? "" }
+        return names.dropLast().joined(separator: ", ") + " and " + last
+    }
+
     /// Shows the arguments, not just the verb. "Search Linear" is not a decision
-    /// the user can make; "search Linear for founders dashboard" is.
+    /// the user can make; "search Linear for founders dashboard" is. The
+    /// product's own mark rides along, since one card can carry two.
     private func requestRow(call: ChatToolCall, tool: ChatTool) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(tool.mutating ? "nc-pen-writing" : "nc-magnifier")
@@ -68,7 +92,7 @@ struct ToolApprovalCard: View {
                 .foregroundStyle(tool.mutating ? Theme.Palette.warning : Theme.Palette.muted)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 2) {
-                Text(tool.verb)
+                Text("\(tool.verb) \(tool.provider.displayName)")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink.opacity(0.8))
                 Text(call.recognisableArgument(for: tool))

@@ -7,10 +7,11 @@ enum ChatTranscriptSupport {
     /// The rows a transcript scrolls to that are not messages. Separate
     /// identities on purpose: sharing one between the indicator and the
     /// approval card let SwiftUI treat the swap as "same view, unchanged" and
-    /// keep the indicator on screen while an approval was already waiting.
+    /// keep the indicator on screen while an approval was already waiting. The
+    /// card is not among them: it scrolls to its own `Pending.id`, so two
+    /// consecutive rounds are two views rather than one that changed.
     enum Anchor: Hashable {
         case typing
-        case approval
         case failure
         case credits
     }

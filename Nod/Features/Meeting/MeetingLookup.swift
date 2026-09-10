@@ -357,7 +357,7 @@ struct MeetingLookup {
     /// its own outcome rather than an error: nothing went wrong, somebody said
     /// no, and the answer should say that instead of offering to retry.
     private func confirm(_ call: ChatToolCall, routed: Routed, through gate: ChatToolGate) async -> ToolRun {
-        let outcome = await gate.run([call], tools: [routed.tool], provider: routed.provider, using: integrations)
+        let outcome = await gate.run(ChatToolGate.Round(call, tool: routed.tool), using: integrations)
         let declined = outcome.steps.first?.outcome == .declined
         // The one number that says whether the approval card protects more than
         // it interrupts. A gate nobody ever refuses is a dialog, not a gate.

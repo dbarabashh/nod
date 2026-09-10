@@ -123,7 +123,7 @@ struct SessionChatView: View {
                             onApproveAlways: chatStore.approvePendingToolsAlways,
                             onDeny: chatStore.denyPendingTools
                         )
-                        .id(ChatTranscriptSupport.Anchor.approval)
+                        .id(approval.id)
                     }
                     if isSending, chatStore.pendingApproval == nil {
                         typingIndicator.id(ChatTranscriptSupport.Anchor.typing)
@@ -540,7 +540,7 @@ struct SessionChatView: View {
     }
 
     private var scrollTarget: AnyHashable? {
-        if chatStore.pendingApproval != nil { return AnyHashable(ChatTranscriptSupport.Anchor.approval) }
+        if let approval = chatStore.pendingApproval { return AnyHashable(approval.id) }
         if isSending { return AnyHashable(ChatTranscriptSupport.Anchor.typing) }
         switch chatStore.sendState {
         // A failure or a stop arrives without a message to announce it, and one

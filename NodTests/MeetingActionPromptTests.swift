@@ -84,15 +84,12 @@ final class MeetingActionPromptTests: XCTestCase {
         let create = slack.first { $0.name == "slack_create_channel" }
         let tool = try? XCTUnwrap(create)
         guard let tool else { return }
-        panel.approval = ChatToolGate.Pending(
-            provider: .slack,
-            calls: [ChatToolCall(
-                id: "1",
-                type: "function",
-                function: ChatToolCall.Function(name: tool.name, arguments: "{}")
-            )],
-            tools: [tool]
+        let call = ChatToolCall(
+            id: "1",
+            type: "function",
+            function: ChatToolCall.Function(name: tool.name, arguments: "{}")
         )
+        panel.approval = ChatToolGate.Pending(round: ChatToolGate.Round(call, tool: tool))
 
         XCTAssertTrue(panel.isAwaitingApproval)
         XCTAssertFalse(panel.isAnswering)

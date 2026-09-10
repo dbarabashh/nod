@@ -76,10 +76,12 @@ final class ToolApprovalPreference: ObservableObject {
 
     /// Whether this batch may run without a card.
     ///
-    /// The whole batch, not each call: one card covers a model turn, and a turn
-    /// that mixes a search with a write is a write. Splitting it would show the
-    /// card for the write alone and let the read go first — which is the same
-    /// answer, arrived at in an order nobody was shown.
+    /// The whole batch, not each call: a batch is one product's share of a
+    /// model turn, and one that mixes a search with a write is a write.
+    /// Splitting it would show the card for the write alone and let the read
+    /// go first — which is the same answer, arrived at in an order nobody was
+    /// shown. `ChatToolGate` keeps that true across products too: it collects
+    /// every batch's answer before it runs any of them.
     func runsUnasked(_ tools: [ChatTool], from provider: IntegrationProvider) -> Bool {
         guard !tools.isEmpty, tools.allSatisfy({ !$0.mutating }) else { return false }
         return approval == .allowReads || alwaysAllowed.contains(provider)
