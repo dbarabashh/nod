@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import Supabase
 
@@ -606,14 +607,19 @@ final class OrganizationService: ObservableObject {
     /// Two writes, in this order on purpose: the object first, the row second.
     /// A row pointing at an object that failed to upload draws a broken image
     /// for everyone in the organization, while an object nothing points at is
-    /// invisible and overwritten by the next attempt.
+    /// invisible and reclaimed by the next attempt.
     func setLogo(_ image: NSImage, for orgID: UUID) async -> Bool {
         guard let supabase else { return false }
         guard let png = Self.square(image, side: Self.logoSide) else {
             lastError = "That image couldn't be read."
             return false
         }
-        let path = "\(orgID.uuidString.lowercased())/logo.png"
+        let previous = memberships.first { $0.id == orgID }?.organization.logoPath
+        let path = Self.logoPath(for: orgID, content: png)
+        guard path != previous else {
+            lastError = nil
+            return true
+        }
         do {
             _ = try await supabase.storage
                 .from(Self.logoBucket)
@@ -623,6 +629,12 @@ final class OrganizationService: ObservableObject {
                 let p_path: String
             }
             _ = try await supabase.rpc("set_org_logo", params: Params(p_org: orgID, p_path: path)).execute()
+            // Last, and unchecked: the row already points at the new object, so
+            // a failure here leaves storage to reclaim rather than a colleague
+            // looking at a logo that no longer exists.
+            if let previous, !previous.isEmpty {
+                _ = try? await supabase.storage.from(Self.logoBucket).remove(paths: [previous])
+            }
             lastError = nil
             await refresh()
             return true
@@ -644,10 +656,11 @@ final class OrganizationService: ObservableObject {
                 let p_org: UUID
                 let p_path: String?
             }
+            let previous = memberships.first { $0.id == orgID }?.organization.logoPath
             _ = try await supabase.rpc("set_org_logo", params: Params(p_org: orgID, p_path: nil)).execute()
-            _ = try? await supabase.storage
-                .from(Self.logoBucket)
-                .remove(paths: ["\(orgID.uuidString.lowercased())/logo.png"])
+            if let previous, !previous.isEmpty {
+                _ = try? await supabase.storage.from(Self.logoBucket).remove(paths: [previous])
+            }
             lastError = nil
             await refresh()
         } catch {
@@ -659,6 +672,20 @@ final class OrganizationService: ObservableObject {
     /// Cleared the first time the database says otherwise, so the fallback is
     /// paid once per launch rather than on every refresh.
     private var hasLogoColumn = true
+
+    /// Named for what it holds, so replacing a logo is a different object at a
+    /// different URL.
+    ///
+    /// The old name was a fixed `logo.png`, which meant a *replacement* left
+    /// every viewer's `URLSession` cache and the CDN in front of it serving the
+    /// picture that had just been thrown away — a poke telling them to re-read
+    /// the row could not help, because the row still said the same thing. The
+    /// bucket's policies match on the first path segment alone, so the rest of
+    /// the name is ours to choose.
+    nonisolated static func logoPath(for orgID: UUID, content: Data) -> String {
+        let digest = SHA256.hash(data: content).prefix(8).map { String(format: "%02x", $0) }.joined()
+        return "\(orgID.uuidString.lowercased())/\(digest).png"
+    }
 
     private static let logoBucket = "org-logos"
     /// Drawn at 32pt at most, so this is twice the biggest Retina size it needs
