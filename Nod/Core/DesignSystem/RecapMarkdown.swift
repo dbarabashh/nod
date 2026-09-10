@@ -11,6 +11,29 @@ func renderRecapMarkdown(_ source: String) -> AttributedString {
     let options = AttributedString.MarkdownParsingOptions(
         interpretedSyntax: .inlineOnlyPreservingWhitespace
     )
-    return (try? AttributedString(markdown: source, options: options))
+    return (try? AttributedString(markdown: escapingLoneTildes(source), options: options))
         ?? AttributedString(source)
+}
+
+/// A single `~` is how a model writes "approximately" — `~600 users`,
+/// `(~$4k?)` — and the parser reads a matching pair of them as strikethrough,
+/// so two approximations in one line strike out everything between them. A
+/// doubled `~~` is left alone: that one is the author meaning it.
+func escapingLoneTildes(_ source: String) -> String {
+    guard source.contains("~") else { return source }
+    var escaped = ""
+    escaped.reserveCapacity(source.count + 8)
+    var rest = Substring(source)
+    while let tilde = rest.firstIndex(of: "~") {
+        escaped += rest[..<tilde]
+        let afterTilde = rest.index(after: tilde)
+        if afterTilde < rest.endIndex, rest[afterTilde] == "~" {
+            escaped += "~~"
+            rest = rest[rest.index(after: afterTilde)...]
+        } else {
+            escaped += "\\~"
+            rest = rest[afterTilde...]
+        }
+    }
+    return escaped + rest
 }

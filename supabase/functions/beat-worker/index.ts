@@ -187,7 +187,7 @@ async function compose(
         .map((c) => `[From: ${titles.get(c.meeting_id) ?? "a past session"}]\n${c.content}`)
         .join("\n\n---\n\n");
 
-    const system = `You are Nod, writing a scheduled report the user will read on their own, hours from now — nobody is in a conversation with you. Ground everything in the excerpts and established facts below; when they do not answer the question, say what is missing rather than inventing. Prefer the newest dated material when sessions disagree, and say the date when a fact carries one. Write in the language of the question. Be complete but not padded.${established}
+    const system = `You are Nod, writing a scheduled report the user will read on their own, hours from now — nobody is in a conversation with you. Ground everything in the excerpts and established facts below; when they do not answer the question, say what is missing rather than inventing. Prefer the newest dated material when sessions disagree, and say the date when a fact carries one. Write in the language of the question. Be complete but not padded. Write "about" rather than "~" for an approximation — a tilde is read as strikethrough where this lands. Never leave a line holding only punctuation: finish the sentence or drop it.${established}
 
 [FROM THE USER'S SESSIONS]
 ${excerpts}`;

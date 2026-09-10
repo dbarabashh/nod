@@ -105,11 +105,16 @@ export const MODELS: Record<ModelTask, ModelSlot> = {
         purpose: "Turns a session into knowledge entries and claims. Background, one call per session.",
     },
     beat: {
-        default: "deepseek/deepseek-v4-flash-0731",
+        // A report is read on its own, hours later, with nobody there to
+        // notice it went wrong. The fp8 flash model that used to write these
+        // held up on short English input and came apart on a long bilingual
+        // one — CJK spliced mid-sentence, words fused, sentences abandoned
+        // after their opening bracket.
+        default: "anthropic/claude-sonnet-5",
         secret: "BEAT_MODEL",
         fallbackSecret: "CHAT_MODEL",
         via: "openrouter",
-        serves: "DeepInfra fp8 (US), $0.06 / $0.18 per M tokens",
+        serves: "Vertex or Bedrock, $2 / $10 per M tokens, cache reads at $0.20",
         purpose: "Beat reports written by the server while the Mac is asleep, from memory only. A beat that runs while the app is awake uses the chat model and its tools.",
     },
     briefing: {

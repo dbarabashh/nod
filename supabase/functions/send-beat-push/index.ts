@@ -67,7 +67,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     const userID = typeof body.user_id === "string" ? body.user_id : null;
     const beatID = typeof body.beat_id === "string" ? body.beat_id : null;
     const runID = typeof body.run_id === "string" ? body.run_id : null;
-    const title = typeof body.title === "string" && body.title.trim() !== "" ? body.title.trim() : "Beat";
+    const title = typeof body.title === "string" && body.title.trim() !== "" ? body.title.trim() : "Agent";
     if (!userID || !beatID) return json({ error: "user_id and beat_id are required" }, 400);
 
     const admin = adminClient();

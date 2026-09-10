@@ -370,6 +370,8 @@ struct AnswerPiece: Identifiable {
                 flushLinks()
                 flushItems()
                 pieces.append(AnswerPiece(id: "\(index).\(pieces.count)", content: .rule))
+            } else if isStrandedPunctuation(trimmed) {
+                continue
             } else if let item = listItem(of: line) {
                 flushProse()
                 flushLinks()
@@ -396,6 +398,14 @@ struct AnswerPiece: Identifiable {
         guard (1 ... 4).contains(hashes.count), trimmed.dropFirst(hashes.count).first == " " else { return nil }
         let title = trimmed.dropFirst(hashes.count).trimmingCharacters(in: .whitespaces)
         return title.isEmpty ? nil : title
+    }
+
+    /// A line the model left behind: a lone `.` or `)` from a sentence it
+    /// abandoned mid-write. Drawn as prose it becomes a paragraph of its own,
+    /// which reads as a fault in the app rather than in the answer. `---` and
+    /// `***` never reach here — the rule case takes them first.
+    private static func isStrandedPunctuation(_ trimmed: String) -> Bool {
+        !trimmed.isEmpty && trimmed.allSatisfy { $0.isPunctuation || $0.isSymbol }
     }
 
     private static func listItem(of line: String) -> (level: Int, marker: String, text: String)? {

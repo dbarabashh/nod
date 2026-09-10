@@ -415,6 +415,7 @@ private let beatReportRules = """
 - Make the last section a bullet list. Lead each bullet with a bold noun phrase naming the thing, then what to do about it in one sentence.
 - Name real things: repositories, branches, PR numbers, files, people, tickets. A sentence that would read the same for any user on any day is a sentence to cut.
 - No greeting, no preamble, no restating the question, no sign-off, no "let me know if". The first line of the report is the first section heading.
+- Write "about" rather than "~" for an approximation — a tilde is read as strikethrough where this is rendered — and never leave a line holding only punctuation.
 """
 
 private let screenContextRules = """

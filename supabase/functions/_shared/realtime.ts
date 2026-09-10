@@ -65,7 +65,8 @@ const ASK_NOD_TOOL = {
     name: "ask_nod",
     description:
         "Ask Nod anything about the user's own recorded meetings and voice notes, calendar, open tasks, " +
-        "projects, scheduled beats, or what has recently been on their screen. Call this before answering " +
+        "projects, scheduled agents (called beats in earlier builds), or what has recently been on " +
+        "their screen. Call this before answering " +
         "any question that depends on the user's own day, work, schedule, or recordings — you have no " +
         "knowledge of these on your own. Pass the question close to how they asked it.",
     parameters: {

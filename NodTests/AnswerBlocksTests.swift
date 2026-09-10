@@ -100,3 +100,30 @@ final class AnswerBlocksTests: XCTestCase {
         XCTAssertNil(AnswerBlocks.finishedSentences(in: "no ending yet"))
     }
 }
+
+extension AnswerBlocksTests {
+    /// A sentence the model abandoned leaves its bracket on a line of its own.
+    /// Drawn, it becomes a paragraph, and the answer reads as if the app broke.
+    func testStrandedPunctuationLinesAreDropped() {
+        let block = "A finished point.\n.\n.\n)\n- **Next point** — with its own text."
+
+        let pieces = AnswerPiece.pieces(from: block, at: 0)
+
+        XCTAssertEqual(pieces.count, 2)
+        if case let .prose(text) = pieces[0].content {
+            XCTAssertEqual(String(text.characters), "A finished point.")
+        } else {
+            XCTFail("expected the surviving sentence as prose")
+        }
+        guard case let .list(items) = pieces[1].content else { return XCTFail("expected a list") }
+        XCTAssertEqual(items.count, 1)
+    }
+
+    /// The rule case reads `---` before the punctuation drop can swallow it.
+    func testHorizontalRuleSurvivesTheDrop() {
+        let pieces = AnswerPiece.pieces(from: "Above.\n---\nBelow.", at: 0)
+
+        XCTAssertEqual(pieces.count, 3)
+        guard case .rule = pieces[1].content else { return XCTFail("expected a rule") }
+    }
+}
