@@ -64,6 +64,11 @@ targets:
       properties:
         CFBundleShortVersionString: "14.0.2"
         CFBundleVersion: "72"
+        # The name every list shows — menu bar, Dock, and the Privacy panes
+        # where telling one build from another is the whole point. Kept off
+        # PRODUCT_NAME so the bundle stays `Nod.app` and the test host keeps
+        # resolving.
+        CFBundleDisplayName: "$(NOD_DISPLAY_NAME)"
         LSUIElement: true
         NSHumanReadableCopyright: ""
         NSMicrophoneUsageDescription: "Nod needs your microphone to capture your side of a conversation — a call, or a voice note."
@@ -102,6 +107,7 @@ targets:
         OTHER_LDFLAGS: [-lc++]
         NOD_FEED_URL: https://hellonod.app/appcast.xml
         NOD_URL_SCHEME: nod
+        NOD_DISPLAY_NAME: Nod
         # Crash reports. Empty is "off": the SDK does not start without a DSN,
         # and Debug leaves it empty so a developer's crashes stay their own.
         # The prod and sandbox values are Sentry projects, not secrets — a DSN
@@ -109,6 +115,25 @@ targets:
         NOD_SENTRY_DSN: ""
         NOD_SENTRY_ENVIRONMENT: debug
       configs:
+        # Its own identity, for the same reason the sandbox build has one, and
+        # one more: TCC keys a grant to the bundle id *and* the signature that
+        # held it. Sharing `com.example.nod` with the installed Developer
+        # ID-signed app meant Screen Recording and Accessibility showed a
+        # single row, already on, that the Apple Development-signed build could
+        # never satisfy and no amount of toggling could give it.
+        Debug:
+          # A dev build is debugged, re-signed and replaced constantly; the
+          # hardened runtime's guarantees are the shipping build's, and leaving
+          # it on here only means the configuration used all day enforces
+          # library validation differently from the one that is released.
+          ENABLE_HARDENED_RUNTIME: NO
+          PRODUCT_BUNDLE_IDENTIFIER: com.example.nod.debug
+          NOD_DISPLAY_NAME: Nod Debug
+          NOD_URL_SCHEME: nod-debug
+          ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon-Sandbox
+          # Never the public feed: Sparkle would happily install the shipping
+          # release over the build being debugged.
+          NOD_FEED_URL: https://hellonod.app/appcast-sandbox.xml
         Sandbox:
           NOD_SENTRY_DSN: https://eadd66bb41749dc9b07c626058224d62@o4512040805335040.ingest.de.sentry.io/4512040816803920
           NOD_SENTRY_ENVIRONMENT: sandbox
@@ -120,6 +145,7 @@ targets:
           NOD_URL_SCHEME: nod-sandbox
           PRODUCT_BUNDLE_IDENTIFIER: com.example.nod.sandbox
           PRODUCT_NAME: Nod Sandbox
+          NOD_DISPLAY_NAME: Nod Sandbox
           ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon-Sandbox
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: NOD_SANDBOX
           # Same shipping treatment as Release — see the note there.

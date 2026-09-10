@@ -119,6 +119,7 @@
 		3B8044A7E7650D64997B0AD8 /* NodSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E55CBD6BC12BDB24BD7AE87 /* NodSwitch.swift */; };
 		3CED46173F05393A5B4EE140 /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09B638EDDAACEC3B5ED2CEB4 /* AuthService.swift */; };
 		3D2FC8EC719E175053EA5261 /* Agent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30E6BCB38893A78A9C43DA9 /* Agent.swift */; };
+		3DA26EC9E9139DD3F535AB83 /* SessionCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C15CFF318DD8FBD4FA22B4B /* SessionCacheTests.swift */; };
 		3DD6DF295B5AD5D40A9FC1EA /* DemoScript+Management.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7457B2619AE197E1B7FD48D /* DemoScript+Management.swift */; };
 		3E17F4BB051BA9A32DC81EBD /* CalendarSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D593B4C9646A3F1ECD2044B /* CalendarSync.swift */; };
 		3E7A39652A583E148E07A55E /* NotchModel+Ask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 372D41E10944F97809710B6A /* NotchModel+Ask.swift */; };
@@ -334,6 +335,7 @@
 		9C50F7DEAE1B90EE8D02A23E /* StringEmptiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2F2A61560FE2E96ED7EF414 /* StringEmptiness.swift */; };
 		9CFCCA6F5F4A1818DFB5B168 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5843BDF8F169465AB74CBA4 /* AudioCaptureService.swift */; };
 		9D4D81E90325EB35A39F06EE /* NotchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14BA011C91135A7621DBB425 /* NotchView.swift */; };
+		9E247C91F370F37FF576E837 /* RecapMarkdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2DB15226595471ED5B55697 /* RecapMarkdownTests.swift */; };
 		9F6EBD4E6A4754B7B25C3D15 /* DemoScript+Recruiting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AF29664252B473DFA64D608 /* DemoScript+Recruiting.swift */; };
 		9F915E9A2E10F1BB40BBB72E /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23E03CADCF79FA17C6D05E59 /* OnboardingView.swift */; };
 		9FE502DC71F78A2033F2B831 /* PressableButtonStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFE449B6DC41C5B2B99EF3E /* PressableButtonStyle.swift */; };
@@ -834,6 +836,7 @@
 		7B6BF75D2E8A06C008601BC7 /* ChatActingPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatActingPathTests.swift; sourceTree = "<group>"; };
 		7B9D6FC583C72863CBE6DF5B /* ToolApprovalLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolApprovalLog.swift; sourceTree = "<group>"; };
 		7BAD820C5BFFC1AD54E21FBD /* MeetingSpeaker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSpeaker.swift; sourceTree = "<group>"; };
+		7C15CFF318DD8FBD4FA22B4B /* SessionCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCacheTests.swift; sourceTree = "<group>"; };
 		7C3A6EC9E028D3D29761F784 /* AccessibilityReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityReader.swift; sourceTree = "<group>"; };
 		7C88CFA99B1176872FDC7567 /* CalendarOccurrence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarOccurrence.swift; sourceTree = "<group>"; };
 		7D82F8FE76B3B1E83391FD34 /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
@@ -921,6 +924,7 @@
 		A1E58CA3C74EE9FFCAB44F4D /* VoiceOpenActionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceOpenActionsTests.swift; sourceTree = "<group>"; };
 		A1F2829B7DEBB11957D97BB6 /* SpokenAnswer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenAnswer.swift; sourceTree = "<group>"; };
 		A26F795B33581EDCD4708390 /* LoopGraph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopGraph.swift; sourceTree = "<group>"; };
+		A2DB15226595471ED5B55697 /* RecapMarkdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecapMarkdownTests.swift; sourceTree = "<group>"; };
 		A3C378A1B0E1C3C29830F078 /* QuitPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitPolicyTests.swift; sourceTree = "<group>"; };
 		A3E0F3BCD4C1D755BA8E829F /* ScheduledMeeting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledMeeting.swift; sourceTree = "<group>"; };
 		A4BEF0198D68E799494BEB36 /* IconButtonChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IconButtonChrome.swift; sourceTree = "<group>"; };
@@ -1619,6 +1623,7 @@
 				A3C378A1B0E1C3C29830F078 /* QuitPolicyTests.swift */,
 				DF46F497F7BA61951E7EB5DB /* ReadyToFileTests.swift */,
 				7B5D6DB26F5AF7E933AE53C9 /* RecapEditingTests.swift */,
+				A2DB15226595471ED5B55697 /* RecapMarkdownTests.swift */,
 				C19047DB7902A7A952264DC1 /* RetrievalGateTests.swift */,
 				F4FA00B76BA082EACB088EF8 /* RoomCompositionTests.swift */,
 				75117A04DA42BFB18B4F66DF /* RoomTranscriptLabelTests.swift */,
@@ -1629,6 +1634,7 @@
 				1FBB0F30D26A43870912AA61 /* ScreenExclusionsTests.swift */,
 				5C84017CBDE47A632C75D1F7 /* ScreenPrivacySectionRenderTests.swift */,
 				1ECABE4A3FD41FA08CB5597C /* ScreenTextRecognizerTests.swift */,
+				7C15CFF318DD8FBD4FA22B4B /* SessionCacheTests.swift */,
 				4E77989069E4DBC555BF97D2 /* SessionTimeRangeTests.swift */,
 				D48449550D82BEAD2980A056 /* SharedSessionAttributionTests.swift */,
 				6726F22273AB0E914C838738 /* SidebarFitTests.swift */,
@@ -2285,6 +2291,7 @@
 				C15BDE618ED5B4A9F9F58C3D /* QuitPolicyTests.swift in Sources */,
 				B4FC3000220CBC1729A17CCA /* ReadyToFileTests.swift in Sources */,
 				4AF30C5831BE3717833E7DE2 /* RecapEditingTests.swift in Sources */,
+				9E247C91F370F37FF576E837 /* RecapMarkdownTests.swift in Sources */,
 				B64041492BAD823897655F5A /* RetrievalGateTests.swift in Sources */,
 				D076B439D5773D6F8EFBAFBC /* RoomCompositionTests.swift in Sources */,
 				AC372B3CB4DDEBA191A40C6A /* RoomTranscriptLabelTests.swift in Sources */,
@@ -2295,6 +2302,7 @@
 				F7F367F64B52C2F0A77A817B /* ScreenExclusionsTests.swift in Sources */,
 				D4E190DF7A9A6F226B0F5A9E /* ScreenPrivacySectionRenderTests.swift in Sources */,
 				CB4063FA642B571B7933C3A5 /* ScreenTextRecognizerTests.swift in Sources */,
+				3DA26EC9E9139DD3F535AB83 /* SessionCacheTests.swift in Sources */,
 				91E4FEA96D1E44DF3308F3B4 /* SessionTimeRangeTests.swift in Sources */,
 				ACF028D23234F88BCEDFAADA /* SharedSessionAttributionTests.swift in Sources */,
 				30C9078849A324B84BA1A716 /* SidebarFitTests.swift in Sources */,
@@ -2793,6 +2801,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				NOD_DISPLAY_NAME = Nod;
 				NOD_FEED_URL = "https://hellonod.app/appcast.xml";
 				NOD_SENTRY_DSN = "https://a7f3654f767a0e5eed435400dadb4eee@o4512040805335040.ingest.de.sentry.io/4512040812281936";
 				NOD_SENTRY_ENVIRONMENT = production;
@@ -3018,11 +3027,11 @@
 		E53582A6B76C5B03FF6577F2 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Sandbox";
 				CODE_SIGN_ENTITLEMENTS = Nod/Nod.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_DEBUG_DYLIB = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"Vendor\"",
@@ -3032,13 +3041,15 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				NOD_FEED_URL = "https://hellonod.app/appcast.xml";
+				NOD_DISPLAY_NAME = "Nod Debug";
+				NOD_FEED_URL = "https://hellonod.app/appcast-sandbox.xml";
 				NOD_SENTRY_DSN = "";
 				NOD_SENTRY_ENVIRONMENT = debug;
-				NOD_URL_SCHEME = nod;
+				NOD_URL_SCHEME = "nod-debug";
 				OTHER_LDFLAGS = (
 					"-lc++",
 				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.nod.debug;
 				SDKROOT = macosx;
 				SWIFT_OBJC_BRIDGING_HEADER = "Nod/Core/Audio/Nod-Bridging-Header.h";
 			};
@@ -3062,6 +3073,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				NOD_DISPLAY_NAME = "Nod Sandbox";
 				NOD_FEED_URL = "https://hellonod.app/appcast-sandbox.xml";
 				NOD_SENTRY_DSN = "https://eadd66bb41749dc9b07c626058224d62@o4512040805335040.ingest.de.sentry.io/4512040816803920";
 				NOD_SENTRY_ENVIRONMENT = sandbox;
