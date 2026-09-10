@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-09-09_
+_Last updated: 2026-09-10_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -201,7 +201,7 @@ paywall views, successful checkout creation, connecting or disconnecting a
 third-party product, whether a question put to one of those products was
 answered, your decision on an approval card before Nod writes anything to them,
 the ambient-context switch being turned on, off, or paused, a commitment being
-ticked, reopened, delegated, asked about or filed, a beat being created,
+ticked, reopened, delegated, asked about or filed, an agent being created,
 switched or removed and its report being opened, a change of recap mode, how a
 question was aimed (a pinned session, a project, a follow-up, or everything)
 and whether an answer had a session behind it, a source being opened from an
@@ -217,7 +217,7 @@ version, event name, and bounded categories such as session kind, entry point,
 stage, permission type (microphone or screen recording), failure reason,
 surface, content type, AI feature, outcome, which product (from a fixed list of
 the integrations Nod supports), plan, billing cycle, and one further word from
-a fixed list (a beat's cadence, a preset mode's name, how a question was aimed,
+a fixed list (an agent's cadence, a preset mode's name, how a question was aimed,
 who a share went to, which hotkey, the length bucket, which support tile). A
 mode you named yourself is recorded only as "custom".
 
@@ -423,7 +423,7 @@ the product:
 | **Exclusions** | Your blocklist is checked **before** anything is read — including before any pixel is read. An excluded app or window is never traversed and never recognised. In a browser, the check runs against the page's **address** as well as the window title, so a site you excluded is skipped even when the tab calls itself something else. The check runs on your Mac before anything is read; a page that passes is stored with its address, under the same retention and the same exclusions as its text, and an excluded page's address is never stored. |
 | **Excluded out of the box** | Two groups are on the blocklist before you touch it. **Personal messengers** — WhatsApp, Telegram, Messages, Messenger, Signal, Viber, Discord — so a private conversation is never the first thing captured. **Password managers and one-time-secret services** — 1Password, Bitwarden, LastPass, Dashlane, Keeper, NordPass, Proton Pass, Enpass, KeePassXC, Apple Passwords, and the matching websites plus pwpush, One-Time Secret, Privnote, Yopass, scrt.link and 1ty.me — because a vault window lists every account you own, and a one-time secret exists to be read once and destroyed. All of them are ordinary entries you can remove in Settings → Privacy if you want that app or site read; removing one is remembered and it is not added back. Separately, and not as removable entries, Nod never reads the **lock screen, the macOS authorization prompt, or the screensaver** — the places you are most likely to be typing a password, and which carry nothing to answer from. |
 | **Always include** | Category exclusions match keywords in a window title or page address, so they are broad and will sometimes catch a site you want read — a supplier portal under "Shopping", a recruiting call under "Social media". You can list those sites as always-included, and they are captured despite the category. This cannot re-open a site you excluded by name: an explicit exclusion always wins. |
-| **Where it may appear** | Answering a question you ask is what capture is for, and the only use that comes with the switch. Two further uses are each their own opt-in in Settings → Screen, off until you turn them on: **private Today suggestions** — a line next to one of your own commitments saying you appear to have worked on it, naming the app and window, visible only to you and never shared; and **suggestions while drafting** — related work offered as a line you can add to a message you are writing. Nothing from your screen is added to a message, or leaves Nod, except by your own click into an editor you are reading. Beats and shared summaries never use it. |
+| **Where it may appear** | Answering a question you ask is what capture is for, and the only use that comes with the switch. Two further uses are each their own opt-in in Settings → Screen, off until you turn them on: **private Today suggestions** — a line next to one of your own commitments saying you appear to have worked on it, naming the app and window, visible only to you and never shared; and **suggestions while drafting** — related work offered as a line you can add to a message you are writing. Nothing from your screen is added to a message, or leaves Nod, except by your own click into an editor you are reading. Agents and shared summaries never use it. |
 | **Deletion** | Yours to delete at any time, from the same sidebar control: the last 5 minutes, the last 15 minutes, the last hour, or everything Nod has ever read from your screen. Deletion is immediate and permanent, and it does not touch your sessions or transcripts. What it does not do is stop capture: if ambient context is still on and you are still looking at the same window, that window will be read again as a new observation — pause or switch it off first. Account deletion removes all of it. |
 
 Legal basis: Consent (Art. 6(1)(a)) — this one is opt-in, and you can

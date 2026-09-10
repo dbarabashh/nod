@@ -41,7 +41,7 @@ struct SheetHeader: View {
     VStack(spacing: 0) {
         SheetHeader(title: "New project", subtitle: "A project groups sessions, and scopes what Ask Nod reads.")
         Divider().overlay(Theme.Palette.border)
-        SheetHeader(title: "Edit beat", subtitle: "Asked on a schedule, answered where you'll see it.", onClose: {})
+        SheetHeader(title: "Edit agent", subtitle: "Asked on a schedule, answered where you'll see it.", onClose: {})
     }
     .frame(width: 380)
     .background(WindowBackdrop())

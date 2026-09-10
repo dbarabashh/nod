@@ -1,5 +1,13 @@
 # Agents and the knowledge layer
 
+_Naming: what the app and `hellonod.app` call **Agents** is what this
+document, the Swift types and the schema call **beats** — the rename
+(2026-09-10) was to user-facing copy only. `public.beats`, `beat_runs`,
+`next_beat_run` and `Beat`/`BeatStore` are unchanged, and a released client
+still reads them. The event-triggered agents described below are a separate
+mechanism on `public.agents`; the UI names them only in the recap card's
+"Drafted by …" line and the standing-grant card._
+
 _Status: releases 1–3 of the plan below are built on the `integrations` branch
 and applied to the **sandbox** Supabase branch only (2026-08-31): concepts +
 distillation (reading gated by `KNOWLEDGE_READ_ENABLED`, on in sandbox), the

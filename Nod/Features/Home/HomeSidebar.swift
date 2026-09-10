@@ -76,7 +76,7 @@ struct HomeSidebar: View {
                     // live session, so this is a different place to be, and it
                     // costs the list nothing to sit here.
                     SidebarNavRow(
-                        title: "Beats",
+                        title: "Agents",
                         icon: "nc-stopwatch",
                         isSelected: surface == .beats,
                         action: { onSelect(.beats) }

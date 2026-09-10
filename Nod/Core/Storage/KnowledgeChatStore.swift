@@ -1136,8 +1136,9 @@ extension KnowledgeChatStore {
             reportLines.append("• \(beat.title) — ran \(when):\n\(String(report.prefix(Self.beatReportLimit)))")
         }
 
-        let header = "[YOUR BEATS — briefings the user set up for Nod to run on a schedule. Answer from these "
-            + "when asked which beats exist, when one runs, or what one found.]"
+        let header = "[YOUR SCHEDULED AGENTS, called \"beats\" in earlier builds — briefings the user set up "
+            + "for Nod to run on a schedule. Answer from these when asked which agents exist, when one "
+            + "runs, or what one found. They only read and answer; they never act in another tool.]"
         var sections = [header, "Set up:\n" + setupLines.joined(separator: "\n")]
         if !reportLines.isEmpty {
             sections.append("Latest reports:\n" + reportLines.joined(separator: "\n\n"))

@@ -25,3 +25,17 @@ final class BeatIntentTests: XCTestCase {
         XCTAssertTrue(QuestionIntent.asksAboutTasks("що там на мені"))
     }
 }
+
+extension BeatIntentTests {
+    /// The feature's new name has to reach the same context the old one did,
+    /// without the singular dragging in every letting and support agent a
+    /// session ever mentions.
+    func testAsksAboutAgents() {
+        XCTAssertTrue(QuestionIntent.asksAboutBeats("which agents do I have?"))
+        XCTAssertTrue(QuestionIntent.asksAboutBeats("what did my agents find this morning?"))
+        XCTAssertTrue(QuestionIntent.asksAboutBeats("які в мене агенти?"))
+        XCTAssertTrue(QuestionIntent.asksAboutBeats("покажи звіти по агентах"))
+        XCTAssertFalse(QuestionIntent.asksAboutBeats("what did the agent say about the closing date?"))
+        XCTAssertFalse(QuestionIntent.asksAboutBeats("the agency sent over the brief"))
+    }
+}

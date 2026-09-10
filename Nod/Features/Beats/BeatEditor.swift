@@ -89,7 +89,7 @@ struct BeatEditor: View {
 
     private var header: some View {
         SheetHeader(
-            title: mode.beat == nil ? "New beat" : "Edit beat",
+            title: mode.beat == nil ? "New agent" : "Edit agent",
             subtitle: "Asked on a schedule, answered where you'll see it.",
             onClose: { dismiss() }
         )
@@ -170,7 +170,7 @@ struct BeatEditor: View {
     private var ask: some View {
         VStack(alignment: .leading, spacing: 6) {
             SectionLabel("Ask")
-            Text("Reads your sessions, screen record and tools. Never writes to them.")
+            Text("Reads your sessions, screen record and tools, and writes the answer back to you — never to them.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(Theme.Palette.ink.opacity(0.6))
                 .fixedSize(horizontal: false, vertical: true)
@@ -240,7 +240,7 @@ struct BeatEditor: View {
         SheetFooter(
             delete: mode.beat == nil ? nil : TitledAction(isDeleting ? "Deleting…" : "Delete", isEnabled: !isDeleting, action: delete),
             cancel: { dismiss() },
-            primary: TitledAction(mode.beat == nil ? "Create beat" : "Save", isEnabled: isAsked, action: save)
+            primary: TitledAction(mode.beat == nil ? "Create agent" : "Save", isEnabled: isAsked, action: save)
         )
     }
 
@@ -292,7 +292,7 @@ struct BeatEditor: View {
             SectionLabel("Reads", size: .compact)
             if !planAllowsIntegrations {
                 HStack(spacing: 8) {
-                    Text("Connected products are not included in your plan. This beat reads your sessions, screen record and calendar.")
+                    Text("Connected products are not included in your plan. This agent reads your sessions, screen record and calendar.")
                         .font(.system(size: 11.5))
                         .foregroundStyle(Theme.Palette.ink.opacity(0.6))
                         .fixedSize(horizontal: false, vertical: true)
@@ -305,7 +305,7 @@ struct BeatEditor: View {
                 }
             } else if linked.isEmpty {
                 HStack(spacing: 8) {
-                    Text("Nothing connected yet. Connect a product and this beat can read it.")
+                    Text("Nothing connected yet. Connect a product and this agent can read it.")
                         .font(.system(size: 11.5))
                         .foregroundStyle(Theme.Palette.ink.opacity(0.6))
                         .fixedSize(horizontal: false, vertical: true)
@@ -349,7 +349,7 @@ struct BeatEditor: View {
                         }
                         .buttonStyle(.plain)
                         .linkCursor()
-                        .help(isOn ? "This beat may read \(product.displayName)" : "This beat will not read \(product.displayName)")
+                        .help(isOn ? "This agent may read \(product.displayName)" : "This agent will not read \(product.displayName)")
                     }
                     Button { leave(for: .integrations) } label: {
                         HStack(spacing: 4) {
@@ -371,7 +371,7 @@ struct BeatEditor: View {
                     .linkCursor()
                     .help("Opens Settings → Integrations. Anything you connect there appears here.")
                 }
-                Text("Anything you connect later appears here. A beat that was never narrowed reads it too.")
+                Text("Anything you connect later appears here. An agent that was never narrowed reads it too.")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.Palette.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -398,7 +398,7 @@ struct BeatEditor: View {
 }
 
 #if DEBUG
-    #Preview("New beat") {
+    #Preview("New agent") {
         BeatEditor(mode: .create)
             .environmentObject(BeatStore(supabase: nil, auth: nil))
             .environmentObject(IntegrationService(supabase: nil))

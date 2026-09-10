@@ -102,7 +102,7 @@ final class BeatRunner: ObservableObject {
             beat = beats.beats.first { $0.id == claimed.beatID }
         }
         guard let beat else {
-            await beats.fail(claimed.id, reason: "The beat was deleted before its run was answered.")
+            await beats.fail(claimed.id, reason: "The agent was deleted before its run was answered.")
             return
         }
         let started = ContinuousClock.now

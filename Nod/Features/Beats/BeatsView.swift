@@ -161,7 +161,7 @@ struct BeatsView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Beats")
+                Text("Agents")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(Theme.Palette.ink)
                 Text("A question Nod keeps asking, answered where you'll see it.")
@@ -169,7 +169,7 @@ struct BeatsView: View {
                     .foregroundStyle(Theme.Palette.ink.opacity(0.6))
             }
             Spacer(minLength: 12)
-            GlassPillButton("New beat", leadingIcon: "nc-plus") { editor = .create }
+            GlassPillButton("New agent", leadingIcon: "nc-plus") { editor = .create }
         }
     }
 
@@ -331,7 +331,7 @@ private struct BeatCard: View {
                     }
                     .buttonStyle(.plain)
                     .linkCursor()
-                    .help("This beat can only run once \(reads.displayName) is connected")
+                    .help("This agent can only run once \(reads.displayName) is connected")
                 } else if let setUp {
                     Button(action: setUp) {
                         HStack(spacing: 4) {
@@ -375,7 +375,7 @@ private struct BeatCard: View {
 }
 
 #if DEBUG
-    #Preview("Beats") {
+    #Preview("Agents") {
         BeatsView(onOpenThread: { _ in })
             .environmentObject(BeatStore(supabase: nil, auth: nil))
             .environmentObject(IntegrationService(supabase: nil))

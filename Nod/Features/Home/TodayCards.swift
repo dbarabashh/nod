@@ -164,7 +164,7 @@ struct TodayBeatsCard: View {
     @EnvironmentObject private var analytics: ProductAnalytics
 
     var body: some View {
-        TodayCardList(title: "From your beats", items: reports, row: beatRow)
+        TodayCardList(title: "From your agents", items: reports, row: beatRow)
     }
 
     private func beatRow(_ row: TodayView.BeatReportRow) -> some View {
@@ -211,6 +211,6 @@ struct TodayBeatsCard: View {
         }
         .buttonStyle(.plain)
         .linkCursor()
-        .help("Open in Beats")
+        .help("Open in Agents")
     }
 }

@@ -24,7 +24,7 @@ final class SidebarFitTests: XCTestCase {
     /// here: it is an offer rather than a destination, and it is allowed the
     /// tail that buys the other rows their room.
     private let navigation = [
-        "Today", "Ask NOD", "Memory", "Beats", "Trash",
+        "Today", "Ask NOD", "Memory", "Agents", "Trash",
         "Shared with me", "Add project", "Settings", "Your account"
     ]
 

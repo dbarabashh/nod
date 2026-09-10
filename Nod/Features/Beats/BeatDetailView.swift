@@ -104,7 +104,7 @@ struct BeatDetailView: View {
                             .foregroundStyle(Theme.Palette.ink.opacity(0.6))
                     }
                 } else {
-                    Text("This beat hasn't run yet. It will at its next hour, or press Run now.")
+                    Text("This agent hasn't run yet. It will at its next hour, or press Run now.")
                         .font(.system(size: 12.5))
                         .foregroundStyle(Theme.Palette.ink.opacity(0.6))
                 }
@@ -252,7 +252,7 @@ struct BeatDetailView: View {
 }
 
 #if DEBUG
-    #Preview("Beat detail") {
+    #Preview("Agent detail") {
         BeatDetailView(
             beat: Beat(
                 id: UUID(),

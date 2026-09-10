@@ -130,7 +130,7 @@ struct Beat: Codable, Identifiable, Equatable {
 
     var displayTitle: String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Untitled beat" : trimmed
+        return trimmed.isEmpty ? "Untitled agent" : trimmed
     }
 }
 

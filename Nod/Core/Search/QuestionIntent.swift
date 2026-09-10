@@ -109,8 +109,14 @@ enum QuestionIntent {
         "latest update", "що я пропустив", "що нового", "введи в курс"
     ]
 
+    /// Plural for the new name, both numbers for the old: "agent" alone is a
+    /// letting agent, a support agent or somebody in the room far more often
+    /// than it is ours, while "beat" reached this list already narrowed. The
+    /// old word stays because it is what this feature shipped under.
     private static let beatWords: Set<String> = [
-        "beat", "beats", "briefing", "briefings", "digest", "біт", "біти", "брифінг", "дайджест"
+        "agents", "beat", "beats", "briefing", "briefings", "digest",
+        "агенти", "агентів", "агентам", "агентами", "агентах",
+        "біт", "біти", "брифінг", "дайджест"
     ]
 
     static func asksAboutSchedule(_ text: String) -> Bool {
