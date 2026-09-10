@@ -118,15 +118,7 @@ struct AppServices {
 
     /// Construction ORDER is load-bearing — Supabase before the LLM client,
     /// auth before the stores that read it, callback wiring last.
-    static func make() -> AppServices {
-        // Constructing HotkeyManager registers the Carbon hotkeys; keep it
-        // first so registration timing matches the old lazy `.shared` touch
-        // at the top of applicationDidFinishLaunching.
-        let hotkeys = HotkeyManager()
-        let permissions = PermissionManager()
-        let onboarding = OnboardingState()
-        let audioCapture = AudioCaptureService()
-        let languagePreference = LanguagePreference()
+    static func make() async -> AppServices {
         // Supabase client must exist before the LLM client — all LLM traffic
         // is JWT-authenticated through the `llm-proxy` Edge Function (#11).
         // Opt into the new authStateChanges behavior — the SDK emits the
@@ -144,6 +136,16 @@ struct AppServices {
                 )
             )
         )
+        // Ahead of everything else, because everything else is what a stall
+        // here would hold up — and ahead of the hotkeys in particular, since a
+        // combination registered before `onTrigger` is wired is claimed
+        // system-wide and answered by nobody.
+        await warmSessionStorage(supabase)
+        let hotkeys = HotkeyManager()
+        let permissions = PermissionManager()
+        let onboarding = OnboardingState()
+        let audioCapture = AudioCaptureService()
+        let languagePreference = LanguagePreference()
         let auth = AuthService(client: supabase)
         let llmClient = LLMProxyClient(supabase: supabase)
         // Free the single-device slot on every sign-out path (menu, forced
@@ -399,6 +401,33 @@ struct AppServices {
             settingsFocus: SettingsFocus(),
             appearance: AppearancePreference()
         )
+    }
+
+    /// Reads the stored session once, off the main thread, so that the
+    /// synchronous reads that follow — `AuthService.init`'s among them — are
+    /// answered by `AuthSessionStorage`'s cache instead of the keychain.
+    ///
+    /// A session the login keychain still holds is fetched through securityd,
+    /// which has been measured in seconds on a degraded keychain: long enough
+    /// for the main thread to be reported as hung. On a global queue rather
+    /// than a `Task`, because the call blocks its thread outright and the
+    /// cooperative pool has only one thread per core to block.
+    private static func warmSessionStorage(_ client: SupabaseClient) async {
+        let started = ContinuousClock.now
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = client.auth.currentSession
+                continuation.resume()
+            }
+        }
+        let milliseconds = Int((ContinuousClock.now - started) / .milliseconds(1))
+        Log.auth.info("session storage warm-up \(milliseconds)ms")
+        // Nod is an accessory app with nothing on screen until this returns,
+        // so a wait past the hang threshold is now invisible where it used to
+        // file itself. Reported by hand, or the next one is never known about.
+        if milliseconds >= 2000 {
+            CrashReporting.note("session storage warm-up took \(milliseconds)ms")
+        }
     }
 
     /// Drops everything the signed-out account put in memory, so the next

@@ -19,7 +19,7 @@ final class AuthSessionStorage: AuthLocalStorage {
     }
 
     private struct State {
-        var entries: [String: Data?] = [:]
+        var cache = SessionCache()
         var legacyOnly = false
     }
 
@@ -33,23 +33,32 @@ final class AuthSessionStorage: AuthLocalStorage {
     }
 
     func store(key: String, value: Data) throws {
+        // The SDK re-stores the session on almost every read of it — its own
+        // storage migration re-encodes and writes back — and each of those is
+        // a keychain round trip for bytes already there.
+        guard state.withLock({ $0.cache.value(for: key) }) != .some(value) else { return }
         try write(value, for: key)
-        state.withLock { $0.entries[key] = value }
+        state.withLock { $0.cache.set(value, for: key) }
     }
 
     func retrieve(key: String) throws -> Data? {
-        if let cached = state.withLock({ $0.entries[key] }) {
+        if let cached = state.withLock({ $0.cache.value(for: key) }) {
             return cached
         }
-        let stored = try read(key)
-        state.withLock { $0.entries[key] = stored }
+        var stored: Data?
+        // Cached on the way out whether the read answered or threw: a failure
+        // reaches its answer the slow way — a degraded login keychain answers
+        // through securityd — and the SDK reports a throw as "no session"
+        // regardless, so repeating it only stalls whoever asks next.
+        defer { state.withLock { $0.cache.fill(stored, for: key) } }
+        stored = try read(key)
         return stored
     }
 
     func remove(key: String) throws {
         SecItemDelete(baseQuery(key, dataProtection: true) as CFDictionary)
         SecItemDelete(baseQuery(key, dataProtection: false) as CFDictionary)
-        state.withLock { $0.entries[key] = Data?.none }
+        state.withLock { $0.cache.set(nil, for: key) }
     }
 
     private func read(_ key: String) throws -> Data? {
@@ -59,7 +68,7 @@ final class AuthSessionStorage: AuthLocalStorage {
             case errSecSuccess:
                 return item.data
             case errSecItemNotFound:
-                return try adoptLegacyItem(key)
+                return adoptLegacyItem(key)
             case errSecMissingEntitlement:
                 fallBackToLegacy()
             case let status:
@@ -91,12 +100,19 @@ final class AuthSessionStorage: AuthLocalStorage {
     /// Carries a session written by an earlier build over to the
     /// data-protection keychain, so upgrading doesn't sign everyone out. Runs
     /// at most once per key per launch — after it the cache answers.
-    private func adoptLegacyItem(_ key: String) throws -> Data? {
+    private func adoptLegacyItem(_ key: String) -> Data? {
         let legacy = copyItem(key, dataProtection: false)
         guard legacy.status == errSecSuccess, let data = legacy.data else {
             return nil
         }
-        try write(data, for: key)
+        do {
+            try write(data, for: key)
+        } catch {
+            // The session is in hand. Failing to carry it forward is not a
+            // reason to report the user signed out — it stays where it was,
+            // for the next launch to try again.
+            return data
+        }
         // Only once the copy is somewhere else. Without the entitlement the
         // write falls back to the legacy keychain, so deleting "the old one"
         // deletes the only one — which signed the user out on every launch.
@@ -164,5 +180,44 @@ final class AuthSessionStorage: AuthLocalStorage {
     private func fallBackToLegacy() {
         state.withLock { $0.legacyOnly = true }
         Log.auth.info("session storage: data-protection keychain unavailable, using legacy")
+    }
+}
+
+/// What `AuthSessionStorage` remembers between keychain trips, and the rules
+/// for what a late answer may overwrite. Its own type because those rules
+/// decide whether a user stays signed in, and no keychain can be stood up in
+/// a test bundle to exercise them through the storage itself.
+struct SessionCache {
+    private enum Entry {
+        case read(Data?)
+        case written(Data?)
+    }
+
+    private var entries: [String: Entry] = [:]
+
+    /// `.some(nil)` — looked for, not there — is an answer worth keeping;
+    /// `nil` means the key has not been looked for yet.
+    func value(for key: String) -> Data?? {
+        switch entries[key] {
+        case nil: nil
+        case let .read(data), let .written(data): data
+        }
+    }
+
+    /// A session found wins over a session missed: two readers can be inside
+    /// the legacy adoption at once, and the one that looks after the item was
+    /// moved finds nothing where the other found a session. Neither may undo
+    /// what the app itself wrote while they were reading.
+    mutating func fill(_ value: Data?, for key: String) {
+        switch entries[key] {
+        case .written: return
+        case let .read(found) where found != nil: return
+        default: entries[key] = .read(value)
+        }
+    }
+
+    /// What the app itself just wrote or deleted.
+    mutating func set(_ value: Data?, for key: String) {
+        entries[key] = .written(value)
     }
 }

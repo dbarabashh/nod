@@ -32,3 +32,26 @@ final class AppDeepLinkTests: XCTestCase {
         XCTAssertNil(try AppDeepLink(url: XCTUnwrap(URL(string: "nod://unknown")), callbackHost: "auth-callback"))
     }
 }
+
+extension AppDeepLinkTests {
+    /// The gate that decides whether a link launched too early is acted on or
+    /// held: signing in is the one thing an app with nobody signed in can do.
+    func testOnlyTheCallbackActsWithoutASignedInApp() {
+        XCTAssertFalse(AppDeepLink.authCallback.needsSignedInApp)
+
+        let held: [AppDeepLink] = [
+            .checkoutComplete,
+            .referral(code: "ABC123"),
+            .invite(token: UUID()),
+            .meeting(id: UUID()),
+            .record,
+            .history,
+            .ask,
+            .actionItems,
+            .subscription(offer: "winback")
+        ]
+        for link in held {
+            XCTAssertTrue(link.needsSignedInApp, "\(link) would open a window over the sign-in one")
+        }
+    }
+}

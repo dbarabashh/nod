@@ -114,6 +114,10 @@ final class NotchModel: ObservableObject {
     /// become key for a field to take the caret, and only the controller
     /// holds the panel.
     var onWantsKeyboard: (() -> Void)?
+    /// The end of the notch's half of onboarding, which is the moment the app
+    /// itself becomes the surface. Only the coordinator can reconcile onto it,
+    /// and nothing else here changes for it to notice.
+    var onSetupFinished: (() -> Void)?
 
     /// Where the notch's half of onboarding stands, or nil once it is done.
     /// Internal rather than private because the flow lives in

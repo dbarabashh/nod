@@ -14,6 +14,19 @@ enum AppDeepLink: Equatable {
     case actionItems
     case subscription(offer: String?)
 
+    /// Every case but the callback opens the main window without asking, and
+    /// a launch that has the sign-in or onboarding window up would have that
+    /// covered — so those links wait here rather than being acted on early.
+    var needsSignedInApp: Bool {
+        switch self {
+        case .authCallback:
+            false
+        case .checkoutComplete, .referral, .invite, .meeting,
+             .record, .history, .ask, .actionItems, .subscription:
+            true
+        }
+    }
+
     init?(url: URL, callbackHost: String?) {
         guard let host = url.host else { return nil }
         if host == callbackHost {

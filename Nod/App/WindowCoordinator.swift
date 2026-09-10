@@ -16,6 +16,21 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     /// What the update feed offers, for the version footer. Owned by the app
     /// delegate, which owns the Sparkle updater this is the delegate of.
     var feed = UpdaterChannelDelegate()
+    /// Called each time reconciliation lands on the app itself rather than on
+    /// sign-in or onboarding. The app delegate holds deep links that need a
+    /// signed-in, onboarded app until exactly that moment, and completing
+    /// onboarding is one of the ways it arrives without the session changing.
+    var didReachApp: (() -> Void)?
+
+    /// Whether the app itself is the surface, rather than sign-in or one of
+    /// the onboarding steps. `reconcile()` decides this and everything that
+    /// has to agree with it — what a deep link may open — asks here.
+    var isShowingApp: Bool {
+        services.auth.session != nil
+            && services.onboarding.isCompleted
+            && !services.onboarding.isSettingUpInNotch
+    }
+
     private var schedule: ScheduledMeetingWatcher?
     private var onboardingWindow: NSWindow?
     /// The window's own ear for the held key, alive only with the window.
@@ -53,6 +68,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             closeOnboardingWindow()
             buildNotch()
             applyLaunchBehavior()
+            didReachApp?()
         }
     }
 
@@ -402,39 +418,44 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             preference: services.meetingDetection
         )
 
-        notch.build(
-            model: NotchModel(
-                session: meetingSession,
-                offers: offers,
-                audioCapture: services.audioCapture,
-                rooms: services.rooms,
-                calendar: services.calendar,
-                language: services.languagePreference,
-                updateGate: services.updateGate,
-                playback: services.demoPlayback,
-                captureSurface: services.captureSurface,
-                panelSharing: services.panelSharing,
-                profiles: services.profileStore,
-                briefing: CallBriefing(
-                    meetings: services.meetingStore,
-                    actionItems: services.actionItemStore,
-                    calendar: services.calendar
-                ),
-                consent: services.consent,
-                entitlements: services.entitlements,
-                billing: services.billing,
-                meetingStore: services.meetingStore,
-                knowledge: services.knowledgeStore,
-                permissions: services.permissions,
-                analytics: services.productAnalytics,
-                knowledgeChat: services.knowledgeChat,
-                voiceChat: services.voiceChat,
-                llmClient: services.llmClient,
-                onboarding: services.onboarding,
-                onboardingTelemetry: services.onboardingTelemetry,
-                integrations: services.integrations,
-                hotkeys: services.hotkeys
+        let model = NotchModel(
+            session: meetingSession,
+            offers: offers,
+            audioCapture: services.audioCapture,
+            rooms: services.rooms,
+            calendar: services.calendar,
+            language: services.languagePreference,
+            updateGate: services.updateGate,
+            playback: services.demoPlayback,
+            captureSurface: services.captureSurface,
+            panelSharing: services.panelSharing,
+            profiles: services.profileStore,
+            briefing: CallBriefing(
+                meetings: services.meetingStore,
+                actionItems: services.actionItemStore,
+                calendar: services.calendar
             ),
+            consent: services.consent,
+            entitlements: services.entitlements,
+            billing: services.billing,
+            meetingStore: services.meetingStore,
+            knowledge: services.knowledgeStore,
+            permissions: services.permissions,
+            analytics: services.productAnalytics,
+            knowledgeChat: services.knowledgeChat,
+            voiceChat: services.voiceChat,
+            llmClient: services.llmClient,
+            onboarding: services.onboarding,
+            onboardingTelemetry: services.onboardingTelemetry,
+            integrations: services.integrations,
+            hotkeys: services.hotkeys
+        )
+        // Finishing setup is the one way the app becomes the surface without
+        // the session changing, and nothing else reconciles for it.
+        model.onSetupFinished = { [weak self] in self?.reconcile() }
+
+        notch.build(
+            model: model,
             cards: NotchCardEnvironment(
                 integrations: services.integrations,
                 integrationCatalogue: services.integrationCatalogue,

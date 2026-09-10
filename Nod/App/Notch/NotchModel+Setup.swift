@@ -34,6 +34,7 @@ extension NotchModel {
         onboardingTelemetry.completed()
         Log.ui.info("setup: finished")
         refresh()
+        onSetupFinished?()
         // The notch has been the whole of onboarding; the window it hands
         // back to is the one place the day's own screen — and the first-visit
         // tips on it — actually lives.

@@ -90,6 +90,13 @@ enum CrashReporting {
     static func stop() {
         SentrySDK.close()
     }
+
+    /// A stall that no longer reaches the main thread reaches nothing else
+    /// either: `enableAppHangTracking` watches that one thread, so work moved
+    /// off it goes unreported unless it says so itself. No-op until `start()`.
+    static func note(_ message: String) {
+        SentrySDK.capture(message: message)
+    }
 }
 
 #if DEBUG || NOD_SANDBOX

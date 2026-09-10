@@ -59,15 +59,16 @@ struct NodApp: App {
 /// status item, wires the cross-cutting observers, and routes URL callbacks.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    /// nil only before `applicationDidFinishLaunching` ran — every code path
-    /// that can fire earlier (URL callbacks) queues instead of touching it.
+    /// nil only until `startServices()` lands, which is a turn after launch —
+    /// every code path that can fire earlier (URL callbacks) queues instead of
+    /// touching it.
     private var services: AppServices?
     private var windows: WindowCoordinator?
     private var statusBar: StatusItemController?
     private var authObserveTask: Task<Void, Never>?
     private var statusObserveTask: Task<Void, Never>?
     private var panelSharingObserveTask: Task<Void, Never>?
-    private var pendingCallbackURLs: [URL] = []
+    private var pendingDeepLinkURLs: [URL] = []
 
     // Sparkle owns its own lifecycle once `startingUpdater: true`. We retain
     // the controller so the automatic check timer (SUScheduledCheckInterval)
@@ -85,7 +86,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Before anything else can crash, on the main thread as the SDK requires.
         CrashReporting.start()
-        let services = AppServices.make()
+        Task { @MainActor [weak self] in await self?.startServices() }
+    }
+
+    /// The graph and every surface it owns. A turn after launch rather than
+    /// inside it: `make()` suspends, so what it waits on is not charged to the
+    /// main thread. Anything deliverable in that window — the URLs of a launch
+    /// that opened a deep link — queues instead of being dropped.
+    private func startServices() async {
+        let services = await AppServices.make()
         let windows = WindowCoordinator(services: services)
         let statusBar = StatusItemController(
             services: services,
@@ -96,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // feed is Sparkle's — so the delegate that already answers Sparkle's
         // channel question is the one that reports it.
         windows.feed = updaterChannelDelegate
+        windows.didReachApp = { [weak self] in self?.routePendingDeepLinks() }
         updaterChannelDelegate.refresh = { [weak self] in
             self?.updaterController.updater.checkForUpdateInformation()
         }
@@ -351,11 +361,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Drain any URL callbacks that arrived before auth was ready.
-        let pending = pendingCallbackURLs
-        pendingCallbackURLs.removeAll()
-        for url in pending {
-            Task { @MainActor in await services.auth.handleCallback(url) }
+        // The deep links that arrived before the graph did. The surface they
+        // land on comes first: the auth observer's pass that raises it is
+        // still a turn away, and a link that opens the main window would
+        // cover a sign-in window put up after it.
+        if !pendingDeepLinkURLs.isEmpty {
+            services.onboarding.adopt(userID: services.auth.currentSupabaseSession?.user.id)
+            windows.reconcile()
+            // Again, because a reconcile that lands on sign-in or onboarding
+            // never fires `didReachApp`, and a callback queued by a cold launch
+            // still has to be handed over.
+            routePendingDeepLinks()
         }
 
         // The first focus of any text field lazily spins up the spell / grammar /
@@ -386,17 +402,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    /// Hands over every queued link the app can act on now, and keeps the rest
+    /// queued. A link is often the reason the person opened Nod at all — an
+    /// invite mailed to someone who has never signed in is the ordinary case —
+    /// so one that arrives too early waits for the app to be ready rather than
+    /// being dropped. `WindowCoordinator.didReachApp` calls this again each
+    /// time the app itself is what reconciliation lands on, whether that came
+    /// from a token refresh, a sign-in, or onboarding finishing.
+    private func routePendingDeepLinks() {
+        guard let windows else { return }
+        let canRoute = { (url: URL) in windows.isShowingApp || !Self.needsSignedInApp(url) }
+        let routable = pendingDeepLinkURLs.filter(canRoute)
+        pendingDeepLinkURLs.removeAll(where: canRoute)
+        guard !routable.isEmpty else { return }
+        application(NSApp, open: routable)
+    }
+
+    private static func needsSignedInApp(_ url: URL) -> Bool {
+        // A URL nothing will ever route — a foreign scheme, or a host that
+        // parses as no link of ours — is handed over and discarded rather than
+        // held for an app state that cannot make it routable.
+        guard url.scheme?.lowercased() == AuthService.callbackURL.scheme else { return false }
+        return AppDeepLink(url: url, callbackHost: AuthService.callbackURL.host)?.needsSignedInApp ?? false
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
+        // Every branch below needs the graph, or one of the observers
+        // registered with it, so before `startServices` lands there is nothing
+        // to route to. Held rather than dropped — a launch that opened a deep
+        // link delivers it in that window.
+        guard services != nil else {
+            pendingDeepLinkURLs.append(contentsOf: urls)
+            return
+        }
         for url in urls where url.scheme?.lowercased() == AuthService.callbackURL.scheme {
             guard let deepLink = AppDeepLink(url: url, callbackHost: AuthService.callbackURL.host) else { continue }
             switch deepLink {
             case .authCallback:
                 Log.auth.info("received auth callback url")
-                if let auth = services?.auth {
-                    Task { @MainActor in await auth.handleCallback(url) }
-                } else {
-                    pendingCallbackURLs.append(url)
-                }
+                Task { @MainActor in await self.services?.auth.handleCallback(url) }
             case .checkoutComplete:
                 // Paddle's hosted checkout (success URL → /checkout/done) deep-links
                 // back here once payment lands. Bring the app forward, open Settings
