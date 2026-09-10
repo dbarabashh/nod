@@ -1,6 +1,6 @@
 # Cookie Policy
 
-_Last updated: 2026-09-05_
+_Last updated: 2026-09-10_
 
 This policy explains the browser storage and measurement technologies used on
 `hellonod.app`. The Nod macOS and iOS apps do not use cookies.
@@ -21,7 +21,7 @@ download, sign-in, trial, or paid service.
 | `nod_session_id_v1` | Session storage | Random ID used to count a browser session without storing the page URL or identity. | Until the browser tab or session ends, or you withdraw consent. |
 | `nod_campaign_v1` | Local storage | Keeps the most recent UTM and Google click campaign details for attribution during the visit and download/sign-in flow. | 90 days, until replaced, until you clear site data, or until you withdraw consent. Server-side events are deleted on withdrawal or after 400 days. |
 | `nod_hero_variant_v1` | Local storage | Records which version of the homepage headline you were shown, so a page test shows you the same version on later visits rather than changing under you. Holds only the letter `A` or `B` — no identifier and nothing about you. | Until you clear site data or withdraw consent. |
-| `nod_booking_confirmation_event_v1` | Session storage | Reuses one random event ID so reloading a marked Calendly confirmation redirect cannot create duplicate first-party confirmation rows. It records only redirect arrival, not a verified booking. | Until the browser tab or session ends. |
+| `nod_booking_confirmation_event_v1` | Session storage | Reuses one random event ID so reloading a marked booking confirmation redirect cannot create duplicate first-party confirmation rows. It records only redirect arrival, not a verified booking. | Until the browser tab or session ends. |
 
 Supabase Auth may use browser storage on connector authorization pages to keep
 the security state required for sign-in and OAuth grants. Those private pages

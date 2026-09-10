@@ -596,7 +596,7 @@ and it omits the invite token, query values, referrer, campaign fields, and
 Google identifiers. Google Tag Manager, Google Analytics, Google Ads
 measurement, and Vercel Web Analytics remain disabled on that route.
 
-A marked redirect from Calendly may send Supabase a first-party
+A marked redirect from our booking page may send Supabase a first-party
 `demo_booked` event. This means only that the browser reached the confirmation
 redirect; it is not verification that a booking exists and is not used to
 trigger automation. Reloads reuse a session-scoped event ID to prevent
@@ -676,7 +676,7 @@ suppress a complaint or a bouncing address.
 
 ### 3.15 Working in an organization (team context early access)
 
-Nod can be used alone or, for approved early-access teams, inside an organization.
+Nod can be used alone or, for teams, inside an organization.
 This is not a generally available self-service workspace. The current sharing
 contract is described here rather than left to product copy.
 
