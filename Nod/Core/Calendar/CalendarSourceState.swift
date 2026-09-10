@@ -18,10 +18,9 @@ enum CalendarSourceState: Equatable {
         switch calendar.status {
         case .authorized where calendar.isEnabled: .connected
         case .denied: .blocked
-        // Deliberately still an offer, never a spinner: `ensureAccess` declines
-        // to prompt when no window is key, and macOS itself asks only once — so
-        // an undetermined grant is a button the user can press again, not a
-        // state to wait in.
+        // Deliberately still an offer, never a spinner: macOS asks only once,
+        // and after it has been answered the status moves — so an undetermined
+        // grant is a button the user can press again, not a state to wait in.
         default: .offer
         }
     }

@@ -20,9 +20,12 @@ struct RelaunchCard: View {
                     .icon(15)
                     .foregroundStyle(Theme.Palette.cyan)
 
+                // `Palette.ink`, not `GlassButton.text`: the label colour of the
+                // pill beside it is `onAccent`, which is dark wherever the pill
+                // is light — on this card's own dark ground it is unreadable.
                 Text(hint)
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Theme.GlassButton.text.opacity(0.9))
+                    .foregroundStyle(Theme.Palette.ink)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: 0)
@@ -69,4 +72,6 @@ struct RelaunchCard: View {
     .padding(20)
     .frame(width: 420)
     .background(Theme.Palette.surface)
+    // The only host is the notch, which pins this scheme in every theme.
+    .preferredColorScheme(.dark)
 }

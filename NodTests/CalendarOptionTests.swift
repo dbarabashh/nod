@@ -13,8 +13,8 @@ final class CalendarOptionTests: XCTestCase {
     }
 
     /// Switching it on is not the grant. macOS answers separately, and until it
-    /// does the row has to stay pressable — `ensureAccess` refuses to prompt
-    /// with no key window, so a spinner here could never end.
+    /// does the row has to stay pressable — the person can quit before
+    /// answering, and a spinner would then have nothing to end it.
     func testTheDeviceRowStaysPressableWhileTheGrantIsUndecided() throws {
         let service = try CalendarServiceFixture.service(switchedOn: true)
         XCTAssertEqual(service.status, .notDetermined)

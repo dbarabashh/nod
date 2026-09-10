@@ -57,6 +57,11 @@ final class CalendarService: ObservableObject {
     /// Counts the one answer macOS gives. Set by the composition root.
     var analytics: ProductAnalytics?
     private var activationObserver: NSObjectProtocol?
+    /// True while `requestFullAccessToEvents` is out. `enableOnThisMac` reaches
+    /// `ensureAccess` twice — once through `isEnabled`'s `didSet`, once directly
+    /// — and both pass the `notDetermined` guard before either request returns,
+    /// so without this the first grant is asked for twice.
+    private var isRequestingAccess = false
 
     /// The server's copy of a calendar this Mac cannot see for itself. Optional
     /// because previews and tests build a service with no backend.
@@ -193,6 +198,17 @@ final class CalendarService: ObservableObject {
         adopt(Self.currentStatus())
     }
 
+    /// The gesture's fallback: `openStoreOffMainThread` normally has the store
+    /// ready long before anyone clicks, but a click during the first moments of
+    /// a launch can still beat it, and returning nothing there is the silent
+    /// no-op this whole path exists to stop being.
+    private func openStoreNow() -> EKEventStore {
+        let opened = EKEventStore()
+        store = opened
+        Log.ui.info("calendar: store opened on demand")
+        return opened
+    }
+
     /// The launch-path variant: the first read is the expensive one, so it is
     /// made where nothing is waiting on it.
     private func openStoreOffMainThread() {
@@ -220,34 +236,31 @@ final class CalendarService: ObservableObject {
 
     /// Ask macOS for the grant, if it has never been asked.
     ///
-    /// **Only ever call this from something the user just did**, with a window
-    /// on screen — the Settings switch, or the button beside it. Never at launch.
+    /// **Only ever call this from something the user just did** — the Settings
+    /// switch, the button beside it, or the onboarding card. Never at launch.
     ///
-    /// Nod launches as an accessory with no window (`LSUIElement`), and a TCC
-    /// prompt raised in that state has nowhere to appear: EventKit returns
-    /// `false` immediately, throws nothing, and leaves the authorization status
-    /// `notDetermined` — and every later request in the same process then does
-    /// the same, so the button beside the switch stops working too. Reconciling
-    /// the grant at launch, which is the obvious way to heal a switch that says
-    /// "on" against a macOS that was never asked, burns the one request the
-    /// process gets before the user can see anything.
+    /// macOS asks once per process and once per install, so spending the ask
+    /// somewhere the user is not looking spends it for good.
+    ///
+    /// This used to enforce the rule with `NSApp.keyWindow != nil`, which is the
+    /// wrong test twice over: the notch is a `.nonactivatingPanel` that takes
+    /// key only for the Ask field, and an accessory app has no key window at all
+    /// while it is not frontmost. Once the calendar ask moved into the notch
+    /// that guard matched every time and the button stopped doing anything.
+    /// There is no window test that says what it meant — the status item and the
+    /// notch are both visible from launch — and none is needed: TCC presents its
+    /// own alert on the app's behalf, which is why `requestMicrophone` asks from
+    /// the same card with no guard at all.
     ///
     /// The switch and the grant still go out of step for ordinary reasons — turn
     /// it on, quit before answering. That is repaired by the settings row
     /// offering to ask again, not by asking on its own.
     func ensureAccess() async {
         guard isEnabled, status == .notDetermined else { return }
-        // The rule above, enforced rather than described. A prompt raised with
-        // no window on screen is not refused — it is never shown, and it spends
-        // the one request the process gets, so the button in Settings silently
-        // stops working for the rest of the session. Cheap to check, and it
-        // turns an hour of "EventKit returns false and throws nothing" into one
-        // log line naming the cause.
-        guard let store else { return }
-        guard NSApp.keyWindow != nil else {
-            Log.ui.error("calendar: access requested with no window on screen — refusing, macOS would not prompt")
-            return
-        }
+        let store = store ?? openStoreNow()
+        guard !isRequestingAccess else { return }
+        isRequestingAccess = true
+        defer { isRequestingAccess = false }
 
         do {
             if #available(macOS 14.0, *) {
