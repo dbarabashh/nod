@@ -989,8 +989,8 @@ rejected), encryption at rest (AES-256), Row-Level Security on every
 table, secrets isolated server-side. Detail in our [Security page](./security.md).
 
 If you discover a vulnerability, please email **dmytro@hellonod.app**.
-Nod is built and operated by its two co-founders, with no 24/7 on-call
-rotation — but every report goes straight to the founding team and is acted
+Nod is built and operated by its founder, Dmytro Barabash, with no
+24/7 on-call rotation, but every report goes straight to him and is acted
 on as quickly as possible. We're happy to publicly credit researchers.
 
 In case of a personal data breach that's likely to result in a risk to

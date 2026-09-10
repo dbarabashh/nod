@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-09-09_
+_Last updated: 2026-09-10_
 
 _[Calendar access](#calendar-access), organization-enforced recording ownership
 and administrator-read access under [Organizations](#organizations), and the
@@ -620,8 +620,8 @@ the meantime we're happy to walk through our actual controls. Email
 **dmytro@hellonod.app**.
 
 **Where can I report a vulnerability?**
-**dmytro@hellonod.app**. Nod is built and operated by its two co-founders, with
-no 24/7 on-call team — but every report goes straight to the founding team and
+**dmytro@hellonod.app**. Nod is built and operated by its founder, Dmytro
+Barabash, with no 24/7 on-call team, but every report goes straight to him and
 we act on it as quickly as we can. We're happy to credit researchers publicly.
 
 **Can I use my own AI provider / private cloud?**
