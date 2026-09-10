@@ -417,16 +417,20 @@ struct TeamsContactCard: View {
                 Text("Larger organization?")
                     .textStyle(Theme.Typography.cardTitle)
                     .foregroundStyle(Theme.Palette.ink)
-                Text("Tell us how your company works and we'll come back with options.")
+                Text("Fifteen minutes: tell us how your company works and we'll come back with options.")
                     .textStyle(Theme.Typography.secondary)
                     .foregroundStyle(Theme.Palette.muted)
             }
             Spacer(minLength: 0)
             Button {
-                guard let url = URL(string: "mailto:dmytro@hellonod.app?subject=Nod%20for%20teams") else { return }
+                // A booking page rather than a `mailto:`, which opens nothing
+                // at all on a Mac with no mail client set up — and this is the
+                // one button on the paywall whose whole job is to start a
+                // conversation.
+                guard let url = URL(string: "https://cal.com/dima-from-nod/15min") else { return }
                 NSWorkspace.shared.open(url)
             } label: {
-                Text("Talk to us")
+                Text("Book a call")
                     .textStyle(Theme.Typography.secondary.weight(.semibold))
                     .foregroundStyle(Theme.Palette.ink)
                     .padding(.horizontal, 14)
