@@ -11,6 +11,8 @@ final class AuthService: NSObject, ObservableObject {
     // allowlist, so a mismatch here fails at the provider, not at launch.
     #if NOD_SANDBOX
         static let callbackURL = URL(string: "nod-sandbox://auth-callback")!
+    #elseif DEBUG
+        static let callbackURL = URL(string: "nod-debug://auth-callback")!
     #else
         static let callbackURL = URL(string: "nod://auth-callback")!
     #endif
