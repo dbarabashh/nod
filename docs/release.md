@@ -349,13 +349,16 @@ Sentry projects' DSNs. A DSN is a submit-only key, not a secret, and the
 values are set once in `project.yml` rather than injected at release time.
 
 Release builds are stripped (`STRIP_INSTALLED_PRODUCT`), so a production
-stack trace is unreadable in Sentry until the build's dSYM is uploaded. Until
-that step is in `scripts/release.sh`, upload by hand after notarization:
+stack trace is unreadable in Sentry until the build's dSYM is uploaded.
+`scripts/release.sh` uploads the archive's dSYMs after notarization when
+`sentry-cli` is installed and logged in (`SENTRY_ORG`, default `nod-jl`;
+`SENTRY_PROJECT`, default `prod`, or `sandbox` with `--sandbox`). Without it
+the step warns and the release continues; upload by hand afterwards:
 
 ```sh
-brew install getsentry/tools/sentry-cli
-sentry-cli debug-files upload --org <org> --project <project> \
-  "build/Nod.xcarchive/dSYMs"
+brew install getsentry/tools/sentry-cli && sentry-cli login
+sentry-cli debug-files upload --org nod-jl --project prod \
+  "dist/Nod-<version>.xcarchive/dSYMs"
 ```
 
 What a report may contain is bound to `privacy.md` § 3.17; change the options

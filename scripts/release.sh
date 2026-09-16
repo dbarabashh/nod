@@ -82,6 +82,9 @@
 # Optional:
 #   SIGN_IDENTITY       default: "Developer ID Application"
 #                       (override to "Nod Dev" + --skip-notarize for local tests)
+#   SENTRY_ORG          default: nod-jl — dSYMs go here when sentry-cli is
+#   SENTRY_PROJECT      installed and logged in (default: prod, or sandbox
+#                       with --sandbox); otherwise the step only warns.
 #   SUPABASE_SERVICE_ROLE_KEY  required by --to (channel enrolment is
 #                       service-role only) — set it from Supabase dashboard →
 #                       Project Settings → API → service_role.
@@ -98,6 +101,7 @@ SPARKLE_BIN_DIR="${SPARKLE_BIN_DIR:-$HOME/Downloads/Sparkle-2.9.2/bin}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-Nod_New}"
 NOD_LANDING_REPO="${NOD_LANDING_REPO:-$(dirname "$REPO_ROOT")/nod-landing}"
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}"
+SENTRY_ORG="${SENTRY_ORG:-nod-jl}"
 
 SKIP_NOTARIZE=0
 NO_PUBLISH=0
@@ -526,6 +530,30 @@ else
   xcrun stapler validate "${DMG_PATH}"
   spctl --assess --type open --context context:primary-signature -v "${DMG_PATH}" 2>&1 \
     | grep -E "accepted|source=" || die "Gatekeeper assessment failed"
+fi
+
+# ───────────────────────── dSYM ─────────────────────────
+
+# Release builds are stripped, so a crash report is unreadable in Sentry until
+# the archive's dSYMs are there. The upload is not a gate: a missing or
+# logged-out sentry-cli warns and the release goes on. Test runs that publish
+# nothing skip it, so throwaway builds don't pile up in the project.
+if [ "$SANDBOX" = 1 ]; then
+  SENTRY_PROJECT="${SENTRY_PROJECT:-sandbox}"
+else
+  SENTRY_PROJECT="${SENTRY_PROJECT:-prod}"
+fi
+if [ "$NO_PUBLISH" = 1 ]; then
+  say "Skipping dSYM upload (--no-publish)"
+elif command -v sentry-cli >/dev/null 2>&1; then
+  say "Upload dSYMs to Sentry (${SENTRY_ORG}/${SENTRY_PROJECT})"
+  sentry-cli debug-files upload --org "${SENTRY_ORG}" --project "${SENTRY_PROJECT}" \
+    "${ARCHIVE_PATH}/dSYMs" \
+    || echo "    ⚠️  dSYM upload failed — run it by hand: sentry-cli debug-files upload --org ${SENTRY_ORG} --project ${SENTRY_PROJECT} '${ARCHIVE_PATH}/dSYMs'"
+else
+  echo "    ⚠️  sentry-cli not installed; crash stacks for this build stay unsymbolicated."
+  echo "        brew install getsentry/tools/sentry-cli && sentry-cli login, then:"
+  echo "        sentry-cli debug-files upload --org ${SENTRY_ORG} --project ${SENTRY_PROJECT} '${ARCHIVE_PATH}/dSYMs'"
 fi
 
 # ───────────────────────── appcast ─────────────────────────
