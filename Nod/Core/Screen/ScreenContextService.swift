@@ -237,7 +237,7 @@ final class ScreenContextService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            MainActor.assumeMainThread { self?.refresh() }
         }
     }
 

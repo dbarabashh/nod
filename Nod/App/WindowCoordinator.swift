@@ -649,7 +649,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     /// History window so the fixed-size sign-in / onboarding windows are
     /// untouched. Runs on the main thread, so the isolated state is safe to read.
     nonisolated func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
-        MainActor.assumeIsolated {
+        MainActor.assumeMainThread {
             guard sender === mainWindow else { return frameSize }
             return NSSize(
                 width: max(frameSize.width, Self.mainWindowFloor.width),

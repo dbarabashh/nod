@@ -870,7 +870,7 @@ final class MeetingSession: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            MainActor.assumeMainThread {
                 guard let self, self.meeting != .idle else { return }
                 Log.ui.info("sleep: ending the meeting")
                 self.endMeeting()

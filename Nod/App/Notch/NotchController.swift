@@ -189,7 +189,7 @@ final class NotchController {
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak model] _ in
-            MainActor.assumeIsolated {
+            MainActor.assumeMainThread {
                 guard let model, model.closesOnOutsideClick else { return }
                 model.close()
             }

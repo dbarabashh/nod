@@ -186,7 +186,7 @@ final class RoomListenerService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            MainActor.assumeMainThread {
                 guard let self, self.joined != nil else { return }
                 Log.ui.info("sleep: leaving the live room")
                 Task { await self.leave() }

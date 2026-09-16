@@ -33,7 +33,7 @@ final class UpdateGate: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.status = .required }
+            MainActor.assumeMainThread { self?.status = .required }
         }
     }
 

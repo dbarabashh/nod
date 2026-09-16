@@ -264,7 +264,7 @@ final class AuthService: NSObject, ObservableObject {
 
 extension AuthService: ASWebAuthenticationPresentationContextProviding {
     nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        MainActor.assumeIsolated {
+        MainActor.assumeMainThread {
             NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) ?? NSWindow()
         }
     }

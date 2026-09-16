@@ -373,10 +373,10 @@ final class MeetingDetector: ObservableObject {
         let center = NSWorkspace.shared.notificationCenter
         sleepObservers = [
             center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.stop() }
+                MainActor.assumeMainThread { self?.stop() }
             },
             center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refreshAfterWake() }
+                MainActor.assumeMainThread { self?.refreshAfterWake() }
             }
         ]
     }

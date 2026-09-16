@@ -169,7 +169,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
 
     nonisolated func menuNeedsUpdate(_ menu: NSMenu) {
-        MainActor.assumeIsolated {
+        MainActor.assumeMainThread {
             menu.removeAllItems()
 
             let signedIn = services.auth.session != nil

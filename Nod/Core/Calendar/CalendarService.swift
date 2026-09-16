@@ -77,7 +77,7 @@ final class CalendarService: ObservableObject {
             // one publish that must turn `hasAnySource` on.
             remoteObserver = remote?.$occurrences
                 .sink { [weak self] next in
-                    MainActor.assumeIsolated {
+                    MainActor.assumeMainThread {
                         self?.refreshSources(remoteHasOccurrences: !next.isEmpty)
                         self?.remoteGeneration += 1
                     }
