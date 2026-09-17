@@ -1,10 +1,10 @@
 # Nod — Pricing
 
-_Last updated: 2026-09-09_
+_Last updated: 2026-09-17_
 
 The spec the pricing surfaces are built from. Three of them have to agree, and
 each has its own copy: `plans` / `plan_prices` in Supabase (the only enforced
-truth), `hellonod.app/pricing` (`nod-landing`, 12 locales), and the in-app
+truth), `hellonod.app/pricing` (`nod-landing`, English and Ukrainian), and the in-app
 paywall (`PaywallView`). When a number here changes, all three move.
 
 The prices in **Plans** below are the approved ones. This document exists because
@@ -15,14 +15,27 @@ The NOD-76 replacement catalog was **approved on 2026-08-12** and cut over on
 prod the same day, so the numbers below are what a new customer is charged.
 Existing subscribers keep the price they bought at — see "Cutover status".
 
+**2026-09-17 — the published pricing page is the source of truth.** The founder
+confirmed that `hellonod.app/pricing` carries the current prices and allowances,
+and the **Plans** table below was moved to match it: Pro at **$24 / mo billed
+yearly ($288) and $29 monthly**, unlimited under fair use; Teams at $32 / $39 per
+seat with 25 pooled hours per seat. The landing catalog
+(`nod-landing/src/lib/public-product-catalog.ts`), its tests, `llms.txt` and the
+playbook (`context/pricing.md`) were aligned the same day. "Cutover status",
+"Live catalog" and the NOD-138 paragraph further down still record the
+2026-08-12 cutover ($24 / $240 Pro, the `pro_monthly_usd_24` and
+`pro_yearly_usd_240` live price ids) and were **not re-verified against Paddle
+or `plan_prices` in this edit** — reconcile them when the live catalog is next
+touched.
+
 ---
 
 ## Plans
 
 | | **Trial** | **Starter** | **Pro** | **Teams** |
 |---|---|---|---|---|
-| Price, billed yearly | **$0** for 14 days | **$12 / mo** ($144 / yr) | **$20 / mo** ($240 / yr) | **$32 / seat / mo** ($384 / yr) |
-| Price, billed monthly | — | **$15 / mo** | **$24 / mo** | **$39 / seat / mo** |
+| Price, billed yearly | **$0** for 14 days | **$12 / mo** ($144 / yr) | **$24 / mo** ($288 / yr) | **$32 / seat / mo** ($384 / yr) |
+| Price, billed monthly | — | **$15 / mo** | **$29 / mo** | **$39 / seat / mo** |
 | Meeting hours / month | **5** | **8** | **Unlimited** (fair use) | **25 / seat**, pooled across the workspace |
 | Devices | 1 | 1 | 3 | 3 per seat |
 | Card required to start | no | — | — | — |
@@ -364,5 +377,5 @@ subscribers the fair-use ceiling is about.
 |---|---|
 | Fair use, tax treatment, refunds | `docs/policies/terms.md` § 7 |
 | Which policy a pricing change touches | `docs/policy-bindings.md` |
-| Landing pricing table, 12 locales | `../nod-landing/src/locales/*.ts` |
+| Landing pricing table, English and Ukrainian | `../nod-landing/src/locales/*.ts` |
 | Entitlement resolution | `supabase/migrations/*monthly_usage_window*`, `Nod/Core/Backend/EntitlementService.swift` |

@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-09-10_
+_Last updated: 2026-09-17_
 
 _[Calendar access](#calendar-access), organization-enforced recording ownership
 and administrator-read access under [Organizations](#organizations), and the
@@ -521,12 +521,14 @@ No provider API key ever touches your Mac. The app sends requests to our
 own Supabase Edge Function (`llm-proxy`), authenticated with your Supabase
 JWT. The Edge Function attaches the provider key (stored only in Supabase
 secrets, readable only from the function's runtime) and forwards the call
-upstream — speech-to-text to Groq first, with OpenAI and OpenRouter as
-fallbacks.
+upstream — speech-to-text through OpenRouter, which has carried every
+transcription since 2026-08-14. The direct Groq and OpenAI Whisper paths are
+reached only when that mode is switched on by hand for an outage.
 
 Audio bytes are forwarded once per chunk and never written to durable
-storage anywhere in this chain — not on your Mac, not in our database, not
-by Groq (no retention by default), and not by any fallback Whisper provider.
+storage anywhere in this chain — not on your Mac, not in our database, and
+not as a recording at any provider. On the hand-switched Groq path, Groq may
+retain transient error or abuse logs for up to 30 days, as described above.
 
 ---
 
