@@ -224,7 +224,7 @@ final class MentionCell: NSTextAttachmentCell {
     /// Template assets are tinted in an offscreen copy. Compositing straight
     /// into the window's context punched the pill's own background out from
     /// under the mark.
-    private static func artwork(for glyph: MentionMark.Glyph, side: CGFloat, tint: NSColor) -> NSImage? {
+    static func artwork(for glyph: MentionMark.Glyph, side: CGFloat, tint: NSColor) -> NSImage? {
         guard case let .icon(name) = glyph, let image = NSImage(named: name) else { return nil }
         guard image.isTemplate else { return image }
         return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
@@ -253,19 +253,6 @@ enum MentionText {
 
     static let ink = Theme.Palette.inkNS
 
-    /// The used rect alone, which is also what `NSTextView` sizes itself to.
-    ///
-    /// Taking the larger of the used and bounding rects looked safer — a pill
-    /// stands proud of the ascender, and the bounding rect knows it — but it
-    /// made the height reported to SwiftUI disagree with the height the text
-    /// view gave itself. The clip view and the document view then had different
-    /// sizes, so a single line could be scrolled inside the field and sat at
-    /// whatever offset it was left at. The pill's headroom comes from
-    /// `verticalInset`, which the text view counts in its own sizing.
-    static func contentHeight(_ layout: NSLayoutManager, in container: NSTextContainer) -> CGFloat {
-        max(layout.usedRect(for: container).height, font.ascender - font.descender)
-    }
-
     /// No paragraph style, deliberately. Line spacing was added here once so
     /// two stacked pills could not touch, but it lands *after* every line
     /// including the last — so the box grew at the bottom only and the text sat
@@ -288,7 +275,9 @@ enum MentionText {
             while let found = MentionMark.standingRange(of: mark.token, in: result.string as NSString, from: cursor) {
                 let attachment = NSTextAttachment()
                 attachment.attachmentCell = MentionCell(mark: mark)
-                result.replaceCharacters(in: found, with: NSAttributedString(attachment: attachment))
+                let pill = NSMutableAttributedString(attachment: attachment)
+                pill.addAttribute(.copyText, value: mark.token, range: NSRange(location: 0, length: pill.length))
+                result.replaceCharacters(in: found, with: pill)
                 // The replacement is one character long, so carry on just after
                 // it rather than from the old, now-stale, upper bound.
                 cursor = found.location + 1
@@ -349,7 +338,7 @@ enum MentionText {
     ///   neither follows the clip view's width nor grows with its content — and
     ///   a click lands on the clip view instead of the text, which reads as a
     ///   field that refuses the caret.
-    static func makeTextView(_ type: NSTextView.Type = NSTextView.self, scrollable: Bool = false) -> NSTextView {
+    static func makeTextView<View: NSTextView>(_ type: View.Type = NSTextView.self, scrollable: Bool = false) -> View {
         let storage = NSTextStorage()
         let layout = NSLayoutManager()
         let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
@@ -401,9 +390,25 @@ final class MentionMeasurer {
         layout.addTextContainer(container)
     }
 
+    /// What the storage holds, so an ask that only changed the width re-breaks
+    /// the lines it has instead of rebuilding every cell and glyph — which is
+    /// every visible bubble, on every step of a window being resized.
+    private var laidOut: (text: String, marks: [MentionMark])?
+
+    /// The text's own size: the used rect alone, with no inset and no floor —
+    /// each view adds the inset it draws with.
+    ///
+    /// Taking the larger of the used and bounding rects looked safer — a pill
+    /// stands proud of the ascender, and the bounding rect knows it — but it
+    /// made the height reported to SwiftUI disagree with the height the text
+    /// view gave itself. The clip view and the document view then had different
+    /// sizes, so a single line could be scrolled inside the field and sat at
+    /// whatever offset it was left at. The pill's headroom comes from the
+    /// view's inset, which the text view counts in its own sizing.
+    ///
     /// `build` is what gets laid out when the answer is not remembered; the
     /// default is the composer's own rendering of `text` and `marks`.
-    func size(
+    func usedSize(
         text: String,
         marks: [MentionMark],
         width: CGFloat,
@@ -413,14 +418,14 @@ final class MentionMeasurer {
         let input = MentionMeasurement(text: text, marks: marks, width: width)
         if let remembered = isIdeal ? ideal : concrete, remembered.input == input { return remembered.size }
 
-        storage.setAttributedString(build?() ?? MentionText.attributed(from: text, marks: marks))
+        if laidOut?.text != text || laidOut?.marks != marks {
+            storage.setAttributedString(build?() ?? MentionText.attributed(from: text, marks: marks))
+            laidOut = (text, marks)
+        }
         container.size = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
-        let size = CGSize(
-            width: min(ceil(used.width), width),
-            height: ceil(MentionText.contentHeight(layout, in: container)) + 2 * MentionText.verticalInset
-        )
+        let size = CGSize(width: min(ceil(used.width), width), height: ceil(used.height))
         if isIdeal { ideal = (input, size) } else { concrete = (input, size) }
         return size
     }
@@ -533,8 +538,10 @@ struct MentionTextView: NSViewRepresentable {
         // the row treat the composer as a fixed-width column and hand the rest
         // of the line to the send button.
         guard let width = proposal.width, width > 1, width.isFinite else { return nil }
-        let measured = context.coordinator.measurer.size(text: text, marks: mentions, width: width)
-        return CGSize(width: width, height: min(measured.height, maxHeight))
+        let used = context.coordinator.measurer.usedSize(text: text, marks: mentions, width: width)
+        // An empty field is still a row tall.
+        let height = max(used.height + 2 * MentionText.verticalInset, ceil(MentionText.rowHeight))
+        return CGSize(width: width, height: min(height, maxHeight))
     }
 
     @MainActor
@@ -592,78 +599,12 @@ struct MentionTextView: NSViewRepresentable {
     }
 }
 
-/// A sent message, drawn with the same pills the composer showed while it was
-/// being written.
-struct MentionTextLabel: NSViewRepresentable {
-    let text: String
-    var marks: [MentionMark]
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> NSTextView {
-        let view = MentionText.makeTextView()
-        view.isEditable = false
-        view.isSelectable = true
-        view.delegate = context.coordinator
-        // Filled here as well as in `updateNSView`: SwiftUI is free to measure a
-        // freshly made view before it updates it, and an empty storage measures
-        // to nothing.
-        view.textStorage?.setAttributedString(MentionText.attributed(from: text, marks: marks))
-        context.coordinator.remember(text: text, marks: marks)
-        return view
-    }
-
-    /// Every bubble in the transcript is re-made on each publish of the chat
-    /// store, and an answer publishes per word — so an unguarded rebuild
-    /// re-allocated the attributed string and invalidated the whole TextKit
-    /// layout for every visible message, tens of times a second.
-    ///
-    /// The guard reads what was applied rather than reconstructing the plain
-    /// text out of the storage: a bubble with a pill in it holds an attachment,
-    /// which is exactly the case the reconstruction's fast path cannot take, so
-    /// the check walked the whole message to conclude nothing had changed. An
-    /// empty storage is the one state a remembered value can be wrong about,
-    /// and it is free to test.
-    func updateNSView(_ view: NSTextView, context: Context) {
-        guard let storage = view.textStorage else { return }
-        guard storage.length == 0 || !context.coordinator.holds(text: text, marks: marks) else { return }
-        context.coordinator.remember(text: text, marks: marks)
-        storage.setAttributedString(MentionText.attributed(from: text, marks: marks))
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextView, context: Context) -> CGSize? {
-        // SwiftUI asks for the ideal size first, with no width. Returning nil
-        // there left it to guess, and it guessed small — the bubble laid its
-        // text out three words wide and spilled past its own background. So an
-        // unconstrained ask is measured on one long line and answered with the
-        // width the text actually wants.
-        let ceiling: CGFloat = 10_000
-        let isIdeal = !(proposal.width.map { $0 > 1 && $0 < ceiling } ?? false)
-        let width = isIdeal ? ceiling : (proposal.width ?? ceiling)
-        return context.coordinator.measurer.size(text: text, marks: marks, width: width, isIdeal: isIdeal)
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        let measurer = MentionMeasurer()
-
-        private var applied: (text: String, marks: [MentionMark])?
-
-        func holds(text: String, marks: [MentionMark]) -> Bool {
-            applied?.text == text && applied?.marks == marks
-        }
-
-        func remember(text: String, marks: [MentionMark]) {
-            applied = (text, marks)
-        }
-
-        /// A session mention opens its session; the others carry no url and are
-        /// left alone.
-        func textView(_ view: NSTextView, clickedOn cell: NSTextAttachmentCellProtocol, in rect: NSRect, at index: Int) {
-            guard let mention = (cell as? MentionCell)?.mark, let url = mention.url else { return }
-            NSWorkspace.shared.open(url)
+extension TranscriptLabel {
+    /// A sent message, drawn with the same pills the composer showed while it
+    /// was being written.
+    init(message: String, marks: [MentionMark], inset: CGSize) {
+        self.init(key: message, marks: marks, inset: inset, hugsContent: true) {
+            MentionText.attributed(from: message, marks: marks)
         }
     }
 }

@@ -60,7 +60,7 @@ final class AnswerLinkPieceTests: XCTestCase {
     }
 
     /// A reference inside a sentence stays in the sentence: the paragraph is
-    /// one prose piece, and the link is drawn inline by `ReferenceText`.
+    /// one prose piece, and the link is drawn inline by `AnswerText.inline`.
     func testAReferenceInsideASentenceStaysProse() {
         XCTAssertEqual(kinds("Ще є \(link), але вона на Владі, не на тобі."), ["prose"])
         XCTAssertEqual(kinds("\(link) is the one that blocks the release."), ["prose"])

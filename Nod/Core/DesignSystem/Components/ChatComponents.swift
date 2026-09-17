@@ -6,6 +6,13 @@ import SwiftUI
 /// differ in their data model and grounding, but render the same bubbles,
 /// suggestion chips, and typing affordance — keep that look in one place.
 
+extension CGSize {
+    /// The room between a chat bubble's edge and its text. Handed to the text
+    /// view as its inset rather than wrapped around it as padding — see
+    /// `TranscriptLabel.inset`.
+    static let chatBubbleInset = CGSize(width: 12, height: 9)
+}
+
 extension View {
     /// The standard chat-bubble background: violet for the user's turn, the
     /// surface colour with a hairline border for the assistant's.
@@ -154,42 +161,30 @@ struct ChatSuggestionChip: View {
 /// bubble, markdown rendering, and copy behaviour stay identical. Callers
 /// supply the trailing layout (gutter spacer, any sources row).
 struct AssistantTextBubble: View {
-    private let content: String
-    private let rendered: [AnswerPiece]
-    private let showsBubble: Bool
-    private let isStreaming: Bool
-    @State private var isHovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
+    let content: String
+    /// `false` is the same answer without the chat chrome — used where the
+    /// surface itself is already the container (the launcher panel), so the
+    /// rendering and the copy affordance stay shared instead of being written
+    /// a second time.
+    var showsBubble = true
+    var isStreaming = false
     /// Set on the newest answer only. Regenerating an older one would orphan
     /// every turn after it, which was written against the answer being
     /// replaced — so the affordance simply isn't offered there.
-    private let onRegenerate: (() -> Void)?
+    var onRegenerate: (() -> Void)?
 
-    /// `showsBubble: false` is the same answer without the chat chrome — used
-    /// where the surface itself is already the container (the launcher panel),
-    /// so the markdown rendering and the copy affordance stay shared instead of
-    /// being written a second time.
-    init(content: String, showsBubble: Bool = true, isStreaming: Bool = false, onRegenerate: (() -> Void)? = nil) {
-        self.content = content
-        self.showsBubble = showsBubble
-        self.isStreaming = isStreaming
-        self.onRegenerate = onRegenerate
-        // Rendered once here, not in `body`: re-parsing the whole markdown on
-        // every body pass is quadratic in the answer's length. While streaming,
-        // `StreamingAnswer` parses per block instead — also once each.
-        rendered = isStreaming
-            ? []
-            : AnswerBlocks.complete(in: content, isFinished: true)
-            .enumerated()
-            .flatMap { AnswerPiece.pieces(from: $0.element, at: $0.offset) }
-    }
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Nothing to show yet: the turn exists but no paragraph has finished. The
     /// thinking indicator is carrying the wait, and an empty bubble beside it
     /// would read as a stalled answer.
     private var isAwaitingFirstBlock: Bool {
         isStreaming && !AnswerBlocks.hasComplete(in: content)
+    }
+
+    private var bubbleInset: CGSize {
+        showsBubble ? .chatBubbleInset : .zero
     }
 
     var body: some View {
@@ -200,15 +195,12 @@ struct AssistantTextBubble: View {
                 Group {
                     if isStreaming {
                         StreamingAnswer(content: content)
+                            .padding(.horizontal, bubbleInset.width)
+                            .padding(.vertical, bubbleInset.height)
                     } else {
-                        AnswerPieces(pieces: rendered)
+                        TranscriptLabel(answer: content, inset: bubbleInset)
                     }
                 }
-                .font(.system(size: 13.5))
-                .foregroundStyle(Theme.Palette.ink.opacity(0.95))
-                .textSelection(.enabled)
-                .padding(.horizontal, showsBubble ? 12 : 0)
-                .padding(.vertical, showsBubble ? 9 : 0)
                 .modifier(ChatBubbleFill(isEnabled: showsBubble))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if !isStreaming {
@@ -260,10 +252,10 @@ private struct StreamingAnswer: View {
     @State private var absorbed = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(rendered) { piece in
-                AnswerPieceView(piece: piece)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(rendered.enumerated()), id: \.element.id) { index, piece in
+                TranscriptLabel(piece: piece)
+                    .padding(.top, AnswerText.spacing(above: index, in: rendered))
                     .transition(.answerArrival(reduceMotion: reduceMotion))
             }
         }
@@ -315,6 +307,13 @@ struct AnswerPiece: Identifiable {
     /// second half of the address.
     let id: String
     let content: Content
+
+    /// A finished answer, whole.
+    static func pieces(in answer: String) -> [AnswerPiece] {
+        AnswerBlocks.complete(in: answer, isFinished: true)
+            .enumerated()
+            .flatMap { pieces(from: $0.element, at: $0.offset) }
+    }
 
     /// Splits a paragraph into what it actually holds: runs of reference lines,
     /// drawn as rows, and everything else, drawn as markdown.
@@ -424,59 +423,6 @@ struct AnswerPiece: Identifiable {
     }
 }
 
-/// Draws a sequence of answer pieces with the paragraph spacing of a reply.
-struct AnswerPieces: View {
-    let pieces: [AnswerPiece]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(pieces) { AnswerPieceView(piece: $0) }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-struct AnswerPieceView: View {
-    let piece: AnswerPiece
-
-    var body: some View {
-        switch piece.content {
-        case let .prose(block):
-            ReferenceProse(block)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case let .links(items):
-            ProviderLinkList(items: items)
-        case let .heading(title):
-            Text(title)
-                .font(.system(size: 12, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(Theme.Palette.ink)
-                .textCase(.uppercase)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 4)
-        case .rule:
-            Rectangle()
-                .fill(Theme.Palette.border)
-                .frame(height: 1)
-                .padding(.vertical, 2)
-        case let .list(items):
-            VStack(alignment: .leading, spacing: 3) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(item.marker)
-                            .foregroundStyle(Theme.Palette.muted)
-                            .frame(minWidth: 10, alignment: .trailing)
-                        ReferenceProse(item.text)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(.leading, CGFloat(item.level) * 16)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
 /// Splits an answer into the paragraphs that are safe to show.
 enum AnswerBlocks {
     /// Blocks separated by a blank line, minus the one still being written.
@@ -540,13 +486,10 @@ private struct ChatBubbleFill: ViewModifier {
     }
 }
 
-/// A user chat turn: the right-aligned bubble. A turn that named something is
-/// drawn by `MentionTextLabel`, so its pills match the ones the composer showed
-/// while the question was being written.
+/// A user chat turn: the right-aligned bubble, with the pills the composer
+/// showed while the question was being written.
 struct UserTextBubble: View {
     let text: String
-    /// Present when the turn named something. Empty keeps the plain `Text`
-    /// path, which is most messages in both chats.
     var marks: [MentionMark] = []
 
     @State private var isHovering = false
@@ -554,19 +497,8 @@ struct UserTextBubble: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            Group {
-                if marks.isEmpty {
-                    Text(text)
-                        .font(.system(size: MentionText.font.pointSize))
-                        .foregroundStyle(Theme.Palette.ink)
-                        .textSelection(.enabled)
-                } else {
-                    MentionTextLabel(text: text, marks: marks)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .chatBubbleBackground(isUser: true)
+            TranscriptLabel(message: text, marks: marks, inset: .chatBubbleInset)
+                .chatBubbleBackground(isUser: true)
             // Copying your own turn is how a question gets reused — reworded in
             // a new thread, or pasted somewhere else. The affordance mirrors the
             // assistant's, flipped to the side this bubble sits on.

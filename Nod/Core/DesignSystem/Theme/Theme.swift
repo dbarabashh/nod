@@ -46,6 +46,8 @@ enum Theme {
         /// `ink`'s AppKit twin, for the composer's `NSTextView`. Declared beside
         /// the token it mirrors so the pair is edited once.
         static let inkNS = NSColor.themed(light: NSColor(DesignTokens.Palette.twilightInk), dark: .white)
+        static let mutedNS = NSColor.themed(light: NSColor(DesignTokens.Palette.stoneGray), dark: NSColor(DesignTokens.Palette.slateGray))
+        static let borderNS = NSColor.themed(light: .black.withAlphaComponent(0.08), dark: .white.withAlphaComponent(0.08))
 
         // Translucent layers, built on `overlay` so glass effects survive the
         // theme swap — a white wash on a light surface is invisible, and a

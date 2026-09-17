@@ -5,8 +5,9 @@ import SwiftUI
 /// product's mark, the title as text rather than as a blue link, and the arrow
 /// that says it leaves the app.
 ///
-/// Two sizes for two places. `reference` is a line of an answer, where the
-/// title is the point; `compact` sits in a row's metadata line beside a date,
+/// Two sizes for two places. `reference` is a line of its own, where the title
+/// is the point — an answer draws the same row in TextKit (`AnswerText.links`),
+/// and the two keep their numbers in step; `compact` sits in a row's metadata line beside a date,
 /// and takes that line's weight so it reads as one more fact about the item.
 struct ProviderLink: View {
     enum Style {

@@ -93,11 +93,7 @@ struct BeatDetailView: View {
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(Theme.Palette.ink.opacity(0.6))
                     if let text = beats.reports[run.id] {
-                        AnswerPieces(pieces: AnswerBlocks
-                            .complete(in: text, isFinished: true)
-                            .enumerated()
-                            .flatMap { AnswerPiece.pieces(from: $0.element, at: $0.offset) })
-                            .font(.system(size: MentionText.font.pointSize))
+                        TranscriptLabel(answer: text)
                     } else {
                         Text(Self.placeholder(for: run))
                             .font(.system(size: 12.5))

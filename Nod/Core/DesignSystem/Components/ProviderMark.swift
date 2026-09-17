@@ -55,9 +55,9 @@ struct ProviderMark: View {
 
     /// The stand-in is a Nucleo glyph drawn on the same 18pt grid as the rest
     /// of the interface, so it sits a size smaller than a brand mark that fills
-    /// its own square. One rule for the row and the inline mark: two copies of
-    /// the shrink drift apart silently.
-    private static func side(for provider: IntegrationProvider, size: CGFloat) -> CGFloat {
+    /// its own square. One rule for the row, the inline mark and the row an
+    /// answer draws in TextKit: two copies of the shrink drift apart silently.
+    static func side(for provider: IntegrationProvider, size: CGFloat) -> CGFloat {
         tinted.contains(provider) ? size * 0.82 : size
     }
 
