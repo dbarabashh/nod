@@ -62,8 +62,8 @@ targets:
       # version and breaking Sparkle's appcast update flow. scripts/release.sh
       # bumps both this file and Info.plist (PlistBuddy) in lockstep.
       properties:
-        CFBundleShortVersionString: "14.0.5"
-        CFBundleVersion: "75"
+        CFBundleShortVersionString: "14.1.0"
+        CFBundleVersion: "76"
         # The name every list shows — menu bar, Dock, and the Privacy panes
         # where telling one build from another is the whole point. Kept off
         # PRODUCT_NAME so the bundle stays `Nod.app` and the test host keeps
