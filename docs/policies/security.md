@@ -42,7 +42,10 @@ Everything Nod keeps is stored in the EU.
 - **We do not train any models on your data.** Neither do our subprocessors.
   OpenRouter routes have Zero Data Retention and "may train on request data"
   disabled; Groq, on the fallback path, contractually prohibits training on
-  inputs and outputs.
+  inputs and outputs. TypeSafe, which reads a question asked in "Ask Nod"
+  into typed decisions, commits not to train on input; Zero Data Retention
+  is not enabled there, and it never receives audio, transcripts, summaries
+  or screen text.
 - **Audio is never stored.** Chunks are transcribed in ~5-second windows and
   the bytes are released as soon as the transcript returns. Only the
   transcript and your notes are persisted.

@@ -1,6 +1,6 @@
 # Subprocessors
 
-_Last updated: 2026-09-09_
+_Last updated: 2026-09-21_
 
 _Resend and Pipedream are listed under advance notice. The optional product-update, lifecycle,
 and founder-research workflow is not sending today and will not begin earlier
@@ -31,6 +31,7 @@ subscribe to change notifications, email **dmytro@hellonod.app**.
 | **Paddle.com Market Limited** | Merchant of Record — subscription billing, payment processing, VAT/sales-tax remittance, invoicing, refunds | Name, email, billing address and country, and payment-method details you enter at checkout; subscription and transaction records | UK; global payment processing | No | Paddle DPA; Paddle acts as Merchant of Record |
 | **Functional Software, Inc. (Sentry)** | Crash and freeze reports from the macOS app | Stack trace, app version and channel, macOS version, Mac model, a random per-installation id. No account identifier, IP address (not sent), meeting content, request URLs, screenshots or logs. Off until the person answers the setup question (new installs) or the one-time prompt (updated installs); switchable off in Settings → Privacy; off in debug builds. | USA | No | Sentry DPA; Sentry's own retention (90 days) |
 | **Vercel Inc.**             | Hosting for the marketing website (`hellonod.app`), the app's update feed and installers, + cookieless Web Analytics | Visitor IP (transient — used to derive aggregate page-view/event counts, never stored or exposed), user-agent (for an update check: the app version and Sparkle version), page path. No account or meeting data. | USA (global edge) | No | Vercel DPA; Web Analytics is cookieless and does not track across sites |
+| **TypeSafe AI, Inc.** | Reading a question you ask in "Ask Nod" into typed decisions — which period it covers, whether it is about your own work, which of your sessions and which people or projects it names — so the right material is retrieved. It writes no text and sees no answer | The question you typed, your own last few questions in that conversation (never Nod's answers), the titles, dates and kinds of your most recent sessions, the names of people and projects extracted from your sessions, the titles of your scheduled agents and the names of tools you connected. No audio, transcript, summary or screen text | United States | No | TypeSafe Data Processing Addendum (EU SCCs); TypeSafe's Privacy Policy commits not to train or fine-tune any model on input. Zero Data Retention is **not** enabled — TypeSafe offers it on enterprise plans only |
 | **Google LLC** (Analytics and Ads) | Consent-gated website analytics, campaign attribution, and conversion measurement | IP address, browser/device data, sanitised page and event details, Google Analytics client ID, and Google click/campaign identifiers. No meeting content or Nod account identity. | Global | No | Google Ads Data Protection Terms; Google Controller-Controller Data Protection Terms where applicable |
 
 Nod does not create or retain an audio recording. Audio normally exists at a
@@ -129,6 +130,7 @@ never written to durable storage anywhere in this chain.
 | 2026-08-06 | Documented official ChatGPT and Claude connectors as user-authorized recipients, with read-only OAuth access rather than subprocessors acting for Nod. |
 | 2026-08-07 | Added consent-gated Google Analytics and Google Ads measurement, plus first-party campaign-to-account attribution in Supabase. |
 | 2026-08-08 | Documented bounded first-party macOS/iOS product interaction events stored in Supabase; no app analytics SDK or Google app telemetry was added. |
+| 2026-09-21 | Added TypeSafe AI, Inc., which reads a question asked in "Ask Nod" into typed decisions. It receives the question, your own recent questions in that conversation, session titles and dates, and the names of people and projects — no audio, transcript, summary or screen text. It went live the same day, without the 30 days' notice this page commits to. |
 | 2026-08-15 | Gave advance notice of Nango for tool connections you make yourself — outbound actions (Linear) and, when it ships, reading your calendar. Nothing is connected until you connect it. |
 | 2026-08-14 | Corrected the email-tracking description: click tracking is enabled on our sending domain, not disabled as previously stated. Open tracking remains off. |
 | 2026-08-11 | Gave advance notice of Resend for the three separately consented optional email topics and for operational referral-status notices. Nothing is sending under this workflow yet. |

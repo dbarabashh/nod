@@ -1,6 +1,6 @@
 # Recording & Consent
 
-_Last updated: 2026-08-01_
+_Last updated: 2026-09-21_
 
 > The guidance below reflects how the product actually behaves today; the
 > legal rules of where you live always take precedence over anything on
@@ -35,7 +35,7 @@ consult a lawyer in your jurisdiction.
   window — as text, through the macOS accessibility interface, never as a
   screenshot. The count is used on-device; the names go with the transcript to
   the summarising model so the summary can name who said what, under the same
-  Zero Data Retention terms as everything else, and are not stored as a
+  Zero Data Retention terms as the transcript itself, and are not stored as a
   separate record. This does not
   change what you owe the other participants: the spoken notice below is
   about **recording**, which is the part that affects them.

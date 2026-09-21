@@ -836,6 +836,15 @@ training:
 - Speech-to-text, LLM summaries and chat go through OpenRouter with Zero
   Data Retention enabled for non-frontier models and the "may train on
   request data" routes (both paid and free) explicitly disabled.
+- Reading a question you ask in "Ask Nod" into typed decisions — which
+  period it covers, which of your sessions and people it names — runs on
+  **TypeSafe**, outside OpenRouter. TypeSafe commits in its privacy policy
+  not to train or fine-tune any model on input. Zero Data Retention is
+  **not** enabled there: TypeSafe offers it on enterprise plans only, and
+  otherwise keeps request data under its own retention terms. It receives
+  the question and the names and titles listed on the
+  [Subprocessors page](./subprocessors.md) — never audio, a transcript, a
+  summary or screen text.
 - First-party endpoints for OpenAI, Anthropic, and Google are disabled in
   our OpenRouter account. Traffic is routed to enterprise endpoints
   (Azure OpenAI, AWS Bedrock, Google Vertex AI), which contractually do
@@ -857,7 +866,8 @@ third parties only when one of the following applies:
 
 - It's a subprocessor on the published list, acting under a data
   processing agreement (Supabase, OpenRouter for speech-to-text, summaries
-  and chat, Groq on the speech-to-text fallback path,
+  and chat, TypeSafe for reading "Ask Nod" questions, Groq on the
+  speech-to-text fallback path,
   Resend for email — only once the § 3.14 advance-notice period completes,
   Anthropic via AWS Bedrock / Google Vertex for LLM summaries and chat,
   OpenAI via Azure, Google Cloud / Vertex, Google OAuth, Apple, and Paddle
@@ -891,7 +901,8 @@ European Union (AWS `eu-west-1`, Ireland).
 
 Some subprocessors operate globally and may process data outside the EU:
 
-- **OpenRouter** (speech-to-text, summaries and chat), **Groq**
+- **OpenRouter** (speech-to-text, summaries and chat), **TypeSafe**
+  (reading "Ask Nod" questions, hosted in the US), **Groq**
   (speech-to-text fallback), **Anthropic** (via AWS
   Bedrock / Google Vertex), **OpenAI/Azure**, and **Google/Vertex** may
   route requests to US-based infrastructure.
