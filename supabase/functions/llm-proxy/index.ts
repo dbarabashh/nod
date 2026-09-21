@@ -27,6 +27,7 @@ import { recordUsage } from "../_shared/usage.ts";
 import { audioSecondsFromPayload, reportedCostUsd, sttRates, transcribeCostUsd } from "../_shared/stt-cost.ts";
 import { handleIndex, handleSearch, requiredSearchFeature } from "../_shared/search.ts";
 import { handleDistill } from "../_shared/knowledge.ts";
+import { forwardJudge } from "../_shared/judge.ts";
 import { leaseConflictStatus, meetingIdFromPayload, transcribeLeasePayload } from "../_shared/meeting-lease.ts";
 import { dictationRefusal } from "../_shared/dictation.ts";
 import { completeOnce } from "../_shared/complete.ts";
@@ -90,6 +91,7 @@ type Kind =
     | "index"
     | "search"
     | "distill"
+    | "judge"
     | "device_claim"
     | "device_release"
     | "meeting_start"
@@ -414,6 +416,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
             return handleSearch(body.payload, user.id);
         case "distill":
             return handleDistill(body.payload, user.id);
+        case "judge":
+            return forwardJudge(body.payload, user.id);
         default:
             return json({ error: `Unknown kind: ${body.kind}` }, 400);
     }

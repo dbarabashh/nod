@@ -347,6 +347,7 @@ struct AppServices {
                 beats: beats,
                 chat: beatChat,
                 threads: knowledgeThreads,
+                meetings: meetingStore,
                 entitlements: entitlements,
                 auth: auth
             ),
@@ -450,6 +451,9 @@ struct AppServices {
         profileStore.clear()
         chatStore.clear()
         knowledgeChat.clear()
+        voiceChat.clear()
+        beatRunner.clear()
+        agentStore.clear()
         knowledgeThreads.clear()
         beats.clear()
         actionItemStore.clear()

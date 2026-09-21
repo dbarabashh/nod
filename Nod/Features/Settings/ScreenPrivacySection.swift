@@ -35,6 +35,7 @@ struct ScreenPrivacySection: View {
     @AppStorage(ScreenContextDefaults.retentionDaysKey) private var retentionDays = ScreenContextDefaults.defaultRetentionDays
     @AppStorage(AmbientScopes.todaySuggestionsKey) private var todaySuggestions = false
     @AppStorage(AmbientScopes.draftingKey) private var draftingSuggestions = false
+    @AppStorage(AmbientScopes.agentsKey) private var agentsReadScreen = false
     @State private var isReviewingExclusions = false
 
     var body: some View {
@@ -160,6 +161,17 @@ struct ScreenPrivacySection: View {
                 subtitle: "Offer related work as additions to a message you're writing. Nothing is added or sent without your click."
             ) {
                 Toggle("", isOn: $draftingSuggestions)
+                    .nodSwitch()
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsRowDivider()
+            SettingsRow(
+                icon: "nc-stopwatch",
+                title: "Agents",
+                subtitle: "Let your agents use what you had open when they write a report. Off, they work from sessions, calendar, tasks and tools."
+            ) {
+                Toggle("", isOn: $agentsReadScreen)
                     .nodSwitch()
                     .labelsHidden()
                     .controlSize(.small)

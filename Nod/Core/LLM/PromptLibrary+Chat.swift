@@ -219,6 +219,18 @@ extension PromptLibrary {
 
     // MARK: - Query preparation (HyDE + conversational rewrite)
 
+    private static let hydeDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEEE, yyyy-MM-dd"
+        return formatter
+    }()
+
+    /// Today as a model is told it: weekday and ISO date, Gregorian.
+    static func promptDay(_ now: Date = Date()) -> String {
+        hydeDayFormatter.string(from: now)
+    }
+
     /// Pre-retrieval transform for cross-session search. From the user's
     /// (possibly context-dependent) question it produces two things:
     ///   • `standalone_query` — the latest question rewritten to stand on its
@@ -233,11 +245,13 @@ extension PromptLibrary {
         history: [LLMProxyClient.ChatTurn],
         query: String,
         language: AppLanguage = .english,
-        personalContext: String = ""
+        personalContext: String = "",
+        now: Date = Date()
     ) -> (system: String, user: String) {
         let lang = language.promptName
+        let today = promptDay(now)
         let base = """
-        You prepare a user's question for semantic search over the transcripts of meetings, voice notes, and recordings they made. You do NOT answer the question for the user — you output a JSON object with exactly four fields.
+        You prepare a user's question for semantic search over the transcripts of meetings, voice notes, and recordings they made. You do NOT answer the question for the user — you output a JSON object with exactly these fields.
 
         1. "standalone_query": rewrite the LATEST question so it stands on its own without the conversation history. Resolve pronouns, ellipsis, and back-references ("it", "that", "the second one", "the enterprise one") into explicit terms using the earlier turns. If the question is already self-contained, return it essentially unchanged. Write it in \(
             lang
@@ -247,15 +261,21 @@ extension PromptLibrary {
             lang
         ).
 
-        3. "about_screen": true when the user is asking about their own recent activity — what they were doing, working on, looking at, or have missed — rather than about what was said in a recorded session. Nod also keeps a short-lived record of the windows the user had open, and this flag is what reaches for it. Say true for "what have I been working on", "що було за останні 20 хвилин", "any updates?", "catch me up", "what did I miss" — anything a colleague would answer by looking over their shoulder rather than by reading meeting notes. Say false for questions about a specific meeting, person, decision, or topic ("what did Leo say about pricing", "які дедлайни по проєкту"). When both readings fit, prefer true: the screen record is added to the session excerpts, never used instead of them.
+        3. "about_screen": true when the user is asking about their own recent activity — what they were doing, working on, looking at, or have missed — rather than about what was said in a recorded session. Nod also keeps a short-lived record of the windows the user had open, and this flag is what reaches for it. Say true for "what have I been working on", "що було за останні 20 хвилин", "any updates?", "catch me up", "what did I miss" — anything a colleague would answer by looking over their shoulder rather than by reading meeting notes. A request to sum up the user's own work stays true when it names a project or a client: "збери мою роботу по проєкту X для дейліка", "what did I get done on the Acme migration this week". Say false for questions about a specific meeting, person, decision, or topic ("what did Leo say about pricing", "які дедлайни по проєкту"). When both readings fit, prefer true: the screen record is added to the session excerpts, never used instead of them.
 
         4. "needs_sessions": false when the answer lives somewhere other than the recordings. Several cases: the request carries everything it needs ("create a ticket titled X", "file this in Linear", "put a meeting in my calendar at 13:30 with alina@acme.com", "when am I free on Thursday"); the user names a connected product as the SOURCE — "based on what we have in Linear", "what's on my Linear board", "my progress today according to Linear"; or the message is small talk, a greeting, banter, or a question about Nod itself with nothing to look up — "how are you", "what's up", "hey", "how's it going", "thanks", "lol nice" — none of these are asking what was said or done anywhere, and answering them by searching sessions returns nonsense grounded in whatever happened to match. A request to DO something is never true, however many names or dates it carries — "book time with Dima today" is an instruction, not a question about what Dima and the user discussed today. Say true only when the answer depends on what was actually said, decided or promised in a session, including requests that name a meeting ("do we have tickets for what we discussed here"). When neither reading is clear, say true.
 
         5. "screen_terms": two to six short search keys for the record of windows the user had open — the proper nouns, product names, acronyms and title words the page they mean would carry, in the page's own language (usually English, whatever the question's language) plus the user's. For "я дивився відео з пітчами від YC, дай посилання": ["YC", "Demo Day", "pitch", "YouTube", "пітч"]. Empty when the question is not about something they had open.
 
+        6. "names": the people, companies, products and projects the standalone question names, each in its canonical spelling — the one a document, a ticket or a meeting title would use. People type names by ear and in their own alphabet: «лінеар» is "Linear", «фігма» is "Figma", «гітхаб» is "GitHub". Only names the user wrote or the conversation resolved; never add one they did not mean. Empty when the question names nothing.
+
+        7. "period": the stretch of time the answer has to cover, as one of "today", "yesterday", "this_week", "last_week", "this_month", "last_month", "last_<n>_days" (for instance "last_3_days", and two weeks is "last_14_days"), "since_last_workday", "upcoming", or explicit dates as "YYYY-MM-DD..YYYY-MM-DD" (one day is just "YYYY-MM-DD"). Read what the period is a period OF, not just which date word appears: a report for today's standup or daily covers the work done since the previous one, so it is "since_last_workday" and not "today"; a question about what is planned, due or coming ("next week", "tomorrow") is "upcoming". Empty string when the question names no period.
+
+        Today is \(today).
+
         [OUTPUT FORMAT]
         Respond with ONLY a JSON object — no markdown, no preamble, no code fence:
-        {"standalone_query": "<the self-contained question>", "hypothetical_answer": "<the transcript-style passage>", "about_screen": <true|false>, "needs_sessions": <true|false>, "screen_terms": ["<key>", ...]}
+        {"standalone_query": "<the self-contained question>", "hypothetical_answer": "<the transcript-style passage>", "about_screen": <true|false>, "needs_sessions": <true|false>, "screen_terms": ["<key>", ...], "names": ["<name>", ...], "period": "<period>"}
         """
         let system = personalContext.isEmpty ? base : personalContext + "\n\n" + base
 

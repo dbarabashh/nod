@@ -295,101 +295,20 @@ enum ScreenRecall {
     /// or in the morning about yesterday.
     static let defaultLookback: TimeInterval = 24 * 60 * 60
 
-    /// The window to recap, or nil when the question isn't asking for one.
-    static func window(for question: String, now: Date = Date()) -> DateInterval? {
-        guard asksForRecap(question) else { return nil }
-        if let named = SessionTimeRange.detect(in: question, now: now) {
-            return DateInterval(start: named.start, end: min(named.end, now))
-        }
-        return defaultWindow(now: now)
+    /// The window to recap: the period the question named, never past now, or
+    /// the last day when it named none.
+    ///
+    /// Whether to recap at all is query prep's `about_screen`. A phrase list
+    /// used to decide it, and the ways people ask what they were doing don't
+    /// enumerate in one language, let alone in all of them.
+    static func window(named period: DateInterval?, now: Date = Date()) -> DateInterval {
+        guard let period, period.start < now else { return defaultWindow(now: now) }
+        return DateInterval(start: period.start, end: min(period.end, now))
     }
 
-    /// The window to use when something other than the phrase list decided the
-    /// question is about the user's own recent activity.
     static func defaultWindow(now: Date = Date()) -> DateInterval {
         DateInterval(start: now.addingTimeInterval(-defaultLookback), end: now)
     }
-
-    /// A phrase matches when every one of its words opens a word in the
-    /// question, in any order and at any distance.
-    ///
-    /// Substring matching missed the way people actually type: "які останні
-    /// новини" doesn't contain "які новини", and "what did I end up doing"
-    /// doesn't contain "what did I do". Matching on word prefixes rather than
-    /// whole words keeps the Ukrainian entries working — "працю" has to reach
-    /// "працював", "працюю" and "працювала", which is why those entries are
-    /// written as stems.
-    static func asksForRecap(_ question: String) -> Bool {
-        let words = TextTokens.words(in: question)
-        return phrases.contains { phrase in
-            TextTokens.words(in: phrase).allSatisfy { stem in
-                words.contains { $0.hasPrefix(stem) }
-            }
-        }
-    }
-
-    /// Deliberately phrase-matched rather than routed by the model: this runs
-    /// on every question, and a router round-trip to recognise "what was I
-    /// doing" would cost a second of latency on all of them.
-    ///
-    /// Broad on purpose. Screen context is *added* to the session excerpts,
-    /// never swapped in — so a phrase that fires on a question about meetings
-    /// costs prompt room, while a missed one costs the answer. "Any recent
-    /// updates?" retrieved nothing from the screen until this list grew.
-    private static let phrases = ownWork + catchingUp
-
-    private static let ownWork = [
-        "what have i been",
-        "what i have been",
-        "what i've been",
-        "what was i working",
-        "what am i working",
-        "what was i doing",
-        "what am i doing",
-        "what i was doing",
-        "what did i do",
-        "what have i done",
-        "what was i just",
-        "been up to",
-        "was i up to",
-        "recap of my day",
-        "recap my day",
-        "summarize my day",
-        "summarise my day",
-        "my day",
-        "on my screen",
-        "що я робив",
-        "що я робила",
-        "що я дивив",
-        "чим я займав",
-        "чим я займаю",
-        "над чим я працю",
-        "що я сьогодні",
-        "мій день",
-        "на екрані"
-    ]
-
-    private static let catchingUp = [
-        "any updates",
-        "recent updates",
-        "any news",
-        "what's new",
-        "whats new",
-        "anything new",
-        "what did i miss",
-        "what have i missed",
-        "what's been happening",
-        "whats been happening",
-        "where did i leave off",
-        "where i left off",
-        "catch me up",
-        "bring me up to speed",
-        "що нового",
-        "які новини",
-        "що я пропустив",
-        "де я зупинив",
-        "введи мене в курс"
-    ]
 }
 
 /// The one shape screen context takes in a prompt.

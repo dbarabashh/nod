@@ -35,6 +35,18 @@ private enum RecallCandidate {
 /// on its own, still add up to twice the interruptions — and the user does not
 /// experience them as two features.
 extension LiveMeetingAnalyst {
+    /// The candidates the typed gate did not rule out — all of them when there
+    /// is no gate to ask.
+    func standingOn<Candidate>(
+        _ candidates: [Candidate],
+        in window: String,
+        text: (Candidate) -> String
+    ) async -> [Candidate] {
+        let request = RecallGate.request(window: window, candidates: candidates.map(text))
+        guard let answers = await llm.judge(request) else { return candidates }
+        return RecallGate.kept(candidates.count, given: answers).map { candidates[$0] }
+    }
+
     /// Deliberately mean. Three per meeting, at least four minutes apart, and
     /// never while a finding from this meeting is already on screen.
     ///
@@ -79,7 +91,12 @@ extension LiveMeetingAnalyst {
                 .filter { $0.meetingID != nil && $0.meetingID != session }
             guard !matches.isEmpty || !concepts.isEmpty else { return }
 
-            let candidates = concepts.map(RecallCandidate.concept) + matches.map(RecallCandidate.chunk)
+            let found = concepts.map(RecallCandidate.concept) + matches.map(RecallCandidate.chunk)
+            let candidates = await standingOn(found, in: window, text: \.text)
+            guard !candidates.isEmpty else {
+                Log.llm.info("live: recall candidates ruled out before asking")
+                return
+            }
             let (system, user) = PromptLibrary.buildMemoryRecall(
                 window: window,
                 candidates: candidates.map(\.text),

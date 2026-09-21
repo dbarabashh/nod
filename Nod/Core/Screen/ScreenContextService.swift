@@ -543,11 +543,30 @@ extension ScreenContextService {
     /// keyword-shaped ("which ticket did Leo move?"), and giving them their own
     /// embedding pipeline would mean a second index with its own retention and
     /// its own way to go stale. Returns nothing when ambient context is off.
-    func recentContext(matching query: String, extraTerms: [String] = [], limit: Int = 4) async -> [ScreenObservation] {
-        let terms = Self.searchTerms(in: query, extra: extraTerms)
-        guard !terms.isEmpty, let rows = await matches(terms: terms, fetching: limit * 4) else { return [] }
-        let relevant = Array(Self.relevant(rows, for: terms).prefix(limit))
-        Log.screen.info("context: \(relevant.count)/\(rows.count) observation(s) kept for \(terms.count) term(s)")
+    func recentContext(
+        matching query: String,
+        names: [String] = [],
+        extraTerms: [String] = [],
+        limit: Int = 4
+    ) async -> [ScreenObservation] {
+        let named = names.prefix(Self.nameLimit).map { Self.keyTerms(in: [$0]) }.filter { !$0.isEmpty }
+        let keys = Array(Set(named.joined()))
+        var seenTerms = Set(keys)
+        let own = (Self.searchTerms(in: query) + Self.keyTerms(in: extraTerms)).filter { seenTerms.insert($0).inserted }
+        guard !keys.isEmpty || !own.isEmpty else { return [] }
+        // Two pools, because each is the newest few rows matching *any* of its
+        // terms: searched together, a window carrying "report" from an hour
+        // ago fills the slots ahead of last Friday's only page naming the
+        // client the question was about. The names' pool is the wide one for
+        // `linkedContext`'s reason — it is ranked by strength, not recency.
+        async let keyed = matches(terms: keys, fetching: Self.linkedPoolSize)
+        async let asked = matches(terms: own, fetching: limit * 4)
+        let (byName, byWord) = await (keyed, asked)
+        guard byName != nil || byWord != nil else { return [] }
+        var seen = Set<UUID>()
+        let rows = ((byName ?? []) + (byWord ?? [])).filter { seen.insert($0.id).inserted }
+        let relevant = Array(Self.relevant(rows, for: own, names: named).prefix(limit))
+        Log.screen.info("context: \(relevant.count)/\(rows.count) observation(s) kept for \(own.count) term(s), \(keys.count) key(s)")
         return relevant
     }
 
@@ -607,6 +626,7 @@ extension ScreenContextService {
     /// callers don't log an empty result as a miss.
     private func matches(terms: [String], fetching limit: Int) async -> [ScreenObservation]? {
         guard isEntitled, ScreenContextDefaults.isEnabled, let supabase else { return nil }
+        guard !terms.isEmpty else { return [] }
         do {
             return try await supabase
                 .from("screen_observations")
@@ -732,9 +752,35 @@ extension ScreenContextService {
     /// window *is*, so a question that names it has already identified it.
     /// Counting every match the same threw those away — a window titled "Jira
     /// (DM)" lost a six-term question because it shared only "jira" with it.
-    static func relevant(_ observations: [ScreenObservation], for terms: [String]) -> [ScreenObservation] {
-        let required = terms.count > 1 ? 2 : 1
-        return observations.filter { score(observation: $0, for: terms) >= required }
+    ///
+    /// So does a **name** anywhere — the one the question turns on. Held to
+    /// two hits, a ticket that said the client's name once in its body lost to
+    /// the rule meant for words like "report". A name counts only whole:
+    /// "John" alone is not John Smith.
+    ///
+    /// Strongest first, recency as the tiebreak — one hit now qualifies, so
+    /// the newest window is no longer the likeliest to be the right one.
+    static func relevant(
+        _ observations: [ScreenObservation],
+        for terms: [String],
+        names: [[String]] = []
+    ) -> [ScreenObservation] {
+        let required = terms.count + names.count > 1 ? 2 : 1
+        return observations
+            .map { observation in
+                // As words, not substrings: "Ann" is in every window that
+                // says "channel", and a name now outranks everything else.
+                let title = Set(TextTokens.words(in: observation.sourceTitle))
+                let all = title.union(TextTokens.words(in: observation.content))
+                let named = names.reduce(0) { total, name in
+                    guard name.allSatisfy(all.contains) else { return total }
+                    return total + (name.allSatisfy(title.contains) ? 4 : 2)
+                }
+                return (observation: observation, score: score(observation: observation, for: terms) + named)
+            }
+            .filter { $0.score >= required }
+            .sorted { ($0.score, $0.observation.observedAt) > ($1.score, $1.observation.observedAt) }
+            .map(\.observation)
     }
 
     static func score(observation: ScreenObservation, for terms: [String]) -> Int {
@@ -752,18 +798,21 @@ extension ScreenContextService {
         Array(asked(query).prefix(termLimit))
     }
 
-    /// The question's own words plus what the query-prep model thinks the page
-    /// would carry — the page is usually in English whatever the question was
-    /// asked in, and "пітчі від YC" shares no word with a YouTube title.
-    static func searchTerms(in query: String, extra: [String]) -> [String] {
+    /// Search terms out of what the query-prep model supplied: the names in
+    /// the question, or what it thinks the page would carry — the page is
+    /// usually in English whatever the question was asked in, and "пітчі від
+    /// YC" shares no word with a YouTube title.
+    ///
+    /// A lower floor than the question's own words: the model already chose
+    /// these as page keys, and "Demo Day" is two of them.
+    static func keyTerms(in extra: [String]) -> [String] {
         var seen = Set<String>()
-        let own = asked(query).prefix(termLimit)
-        // A lower floor than the question's own words: the model already
-        // chose these as page keys, and "Demo Day" is two of them.
-        let added = extra
-            .flatMap { TextTokens.acronyms(in: $0) + TextTokens.contentWords(in: $0, longerThan: 3, excluding: stopWords) }
-            .prefix(termLimit)
-        return (Array(own) + Array(added)).filter { seen.insert($0).inserted }
+        return Array(
+            extra
+                .flatMap { TextTokens.acronyms(in: $0) + TextTokens.contentWords(in: $0, longerThan: 3, excluding: stopWords) }
+                .filter { seen.insert($0).inserted }
+                .prefix(termLimit)
+        )
     }
 
     /// The same reduction over the projects the grounded sessions are about —
@@ -801,6 +850,9 @@ extension ScreenContextService {
     /// Terms per query. Past a handful they stop narrowing and start matching
     /// every window that carries any one of them.
     static let termLimit = 6
+
+    /// Names searched per question. Each adds its words to one `|` query.
+    private static let nameLimit = 4
 
     private static let stopWords: Set<String> = [
         "what", "when", "where", "which", "that", "this", "with", "from",

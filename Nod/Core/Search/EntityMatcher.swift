@@ -51,12 +51,19 @@ enum EntityMatcher {
 
     /// Whole-word match. A substring match would fire "Leo" on "Leonid" and
     /// scope the answer to the wrong person's meetings.
+    ///
+    /// Every occurrence is tried, not only the first: "Leonid opened it, Leo
+    /// approved" names Leo, and stopping at the first hit said it did not.
     private static func contains(_ needle: String, in haystack: String) -> Bool {
-        guard let range = haystack.range(of: needle) else { return false }
-        let beforeIsBoundary = range.lowerBound == haystack.startIndex
-            || !haystack[haystack.index(before: range.lowerBound)].isLetter
-        let afterIsBoundary = range.upperBound == haystack.endIndex
-            || !haystack[range.upperBound].isLetter
-        return beforeIsBoundary && afterIsBoundary
+        var searched = haystack.startIndex ..< haystack.endIndex
+        while let range = haystack.range(of: needle, range: searched) {
+            let beforeIsBoundary = range.lowerBound == haystack.startIndex
+                || !haystack[haystack.index(before: range.lowerBound)].isLetter
+            let afterIsBoundary = range.upperBound == haystack.endIndex
+                || !haystack[range.upperBound].isLetter
+            if beforeIsBoundary, afterIsBoundary { return true }
+            searched = haystack.index(after: range.lowerBound) ..< haystack.endIndex
+        }
+        return false
     }
 }

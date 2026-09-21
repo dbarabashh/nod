@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-09-17_
+_Last updated: 2026-09-21_
 
 _[Calendar access](#calendar-access), organization-enforced recording ownership
 and administrator-read access under [Organizations](#organizations), and the
@@ -282,7 +282,9 @@ tell you what you already discussed and what was left open.
   `chat_messages`.
 - **Cross-session chats ("Ask Nod").** Each conversation is saved as a thread
   (`knowledge_threads`) with its messages (`knowledge_messages`), so you can
-  reopen and continue it. A saved message also keeps the sessions the answer
+  reopen and continue it. When a later question names a person or project, the
+  saved answers and scheduled-agent reports that mention them are read back as
+  context for the new answer. A saved message also keeps the sessions the answer
   drew on and the excerpts it quoted, so a reopened answer still shows its
   evidence. You can delete any thread from the Ask Nod list; deleting a thread
   deletes its messages with it.

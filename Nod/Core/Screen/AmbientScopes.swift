@@ -16,9 +16,17 @@ enum AmbientScopes {
     /// Offer only — nothing is ever added to a message except by the person's
     /// own click, into an editor they are looking at.
     static let draftingKey = "screen.scopes.drafting"
+    /// Letting a scheduled or after-meeting agent read the screen record. An
+    /// agent's report is written with nobody asking, and can be read later by
+    /// whoever the person shows it to — not the same as answering them.
+    static let agentsKey = "screen.scopes.agents"
 
     static var todaySuggestions: Bool {
         UserDefaults.standard.bool(forKey: todaySuggestionsKey)
+    }
+
+    static var agents: Bool {
+        UserDefaults.standard.bool(forKey: agentsKey)
     }
 
     /// "Today 14:32" / "Yesterday 15:04" / "Aug 28" — when a piece of related

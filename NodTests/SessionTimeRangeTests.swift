@@ -18,75 +18,123 @@ final class SessionTimeRangeTests: XCTestCase {
         calendar.date(from: DateComponents(year: year, month: month, day: day, hour: 12)) ?? .distantPast
     }
 
-    private func detect(_ question: String) -> DateInterval? {
-        SessionTimeRange.detect(in: question, now: now, calendar: calendar)
+    private func resolve(_ period: String) -> DateInterval? {
+        SessionTimeRange.resolve(period: period, now: now, calendar: calendar)
     }
 
     func testLastWeekIsTheWholeMondayToSundayBefore() throws {
-        let window = try XCTUnwrap(detect("what happened last week?"))
+        let window = try XCTUnwrap(resolve("last_week"))
         XCTAssertTrue(window.contains(day(6)), "Mon 6 Jul should be in last week")
         XCTAssertTrue(window.contains(day(12)), "Sun 12 Jul should be in last week")
         XCTAssertFalse(window.contains(day(13)), "Mon 13 Jul is this week")
         XCTAssertFalse(window.contains(day(5)), "Sun 5 Jul is the week before")
     }
 
-    func testUkrainianAndRussianPhrasingResolveToo() throws {
-        let uk = try XCTUnwrap(detect("що було на минулому тижні?"))
-        let ru = try XCTUnwrap(detect("что было на прошлой неделе?"))
-        XCTAssertTrue(uk.contains(day(8)))
-        XCTAssertEqual(uk, ru)
-    }
-
     func testThisWeekExcludesLastWeek() throws {
-        let window = try XCTUnwrap(detect("цього тижня"))
+        let window = try XCTUnwrap(resolve("this_week"))
         XCTAssertTrue(window.contains(day(13)))
         XCTAssertFalse(window.contains(day(12)))
     }
 
     func testYesterdayAndTodayAreSingleDays() throws {
-        let yesterday = try XCTUnwrap(detect("what did I record yesterday?"))
+        let yesterday = try XCTUnwrap(resolve("yesterday"))
         XCTAssertTrue(yesterday.contains(day(15)))
         XCTAssertFalse(yesterday.contains(day(16)))
 
-        let today = try XCTUnwrap(detect("сьогодні"))
+        let today = try XCTUnwrap(resolve(" Today "))
         XCTAssertTrue(today.contains(day(16)))
     }
 
     func testMonthWindows() throws {
-        let lastMonth = try XCTUnwrap(detect("summarise last month"))
+        let lastMonth = try XCTUnwrap(resolve("last_month"))
         XCTAssertTrue(lastMonth.contains(day(3, 6)))
         XCTAssertFalse(lastMonth.contains(day(1)))
 
-        let thisMonth = try XCTUnwrap(detect("цього місяця"))
+        let thisMonth = try XCTUnwrap(resolve("this_month"))
         XCTAssertTrue(thisMonth.contains(day(2)))
     }
 
     func testTrailingWindows() throws {
-        let days = try XCTUnwrap(detect("anything in the last 3 days?"))
+        let days = try XCTUnwrap(resolve("last_3_days"))
         XCTAssertTrue(days.contains(day(14)))
         XCTAssertFalse(days.contains(day(12)))
+        XCTAssertEqual(days.end, now)
 
-        let weeks = try XCTUnwrap(detect("за останні 2 тижні"))
-        XCTAssertTrue(weeks.contains(day(4)))
+        XCTAssertNil(resolve("last_0_days"))
+        XCTAssertNil(resolve("last_many_days"))
     }
 
-    func testFuturePhrasesLookBackAtRecentSessionsInstead() {
+    func testExplicitDatesCoverBothEnds() throws {
+        let window = try XCTUnwrap(resolve("2026-07-06..2026-07-08"))
+        XCTAssertTrue(window.contains(day(6)))
+        XCTAssertTrue(window.contains(day(8)))
+        XCTAssertFalse(window.contains(day(9)))
+
+        XCTAssertEqual(resolve(" 2026-07-06 .. 2026-07-08 "), window)
+        XCTAssertNil(resolve("2026-07-08..2026-07-06"))
+    }
+
+    func testOneDateIsThatDay() throws {
+        let window = try XCTUnwrap(resolve("2026-07-08"))
+        XCTAssertTrue(window.contains(day(8)))
+        XCTAssertFalse(window.contains(day(9)))
+    }
+
+    func testADateThatDoesNotExistIsNoPeriod() {
+        XCTAssertNil(resolve("2026-13-45"))
+        XCTAssertNil(resolve("2026-02-30..2026-03-02"))
+        XCTAssertNil(resolve("2026-07-06..soon"))
+        XCTAssertNil(resolve("26-07-06"))
+        XCTAssertNil(resolve("2026--07-06"))
+        XCTAssertNil(resolve("2026-07-06..2026-07-07..2026-07-08"))
+    }
+
+    func testAnOpenRangeEndsNow() throws {
+        let window = try XCTUnwrap(resolve("2026-07-06.."))
+        XCTAssertTrue(window.contains(day(6)))
+        XCTAssertEqual(window.end, now)
+        XCTAssertNil(resolve("2026-08-01.."), "a range that has not started names no past")
+    }
+
+    /// "A report on project X" reads to the model as a question about a
+    /// topic, and the flag alone then denied the period instead of recapping it.
+    func testAStandupReportIsAboutOwnWorkWhateverTheFlagSays() {
+        let report = LLMProxyClient.PreparedQuery(standalone: "report", period: SessionTimeRange.sinceLastWorkdayKey)
+        XCTAssertTrue(report.asksAboutOwnWork)
+        XCTAssertFalse(LLMProxyClient.PreparedQuery(standalone: "what did Leo say last week", period: "last_week").asksAboutOwnWork)
+    }
+
+    /// The report for Monday's standup is about Friday, not about the hour
+    /// between waking up and asking for it.
+    func testAStandupReportReachesBackOverTheWeekend() throws {
+        let monday = calendar.date(from: DateComponents(year: 2026, month: 7, day: 20, hour: 9)) ?? .distantPast
+        let window = try XCTUnwrap(SessionTimeRange.resolve(period: "since_last_workday", now: monday, calendar: calendar))
+        XCTAssertTrue(window.contains(day(17)), "Fri 17 Jul is the previous working day")
+        XCTAssertFalse(window.contains(day(16)))
+        XCTAssertEqual(window.end, monday)
+
+        let midweek = try XCTUnwrap(resolve("since_last_workday"))
+        XCTAssertTrue(midweek.contains(day(15)))
+        XCTAssertFalse(midweek.contains(day(14)))
+    }
+
+    func testAnUpcomingPeriodLooksBackAtRecentSessionsInstead() {
         // There are no sessions in the future — the plans for it were stated in
         // the days before, so that's what has to be searched.
-        XCTAssertTrue(SessionTimeRange.mentionsFuture(in: "що заплановано на наступний тиждень?"))
-        XCTAssertTrue(SessionTimeRange.mentionsFuture(in: "what should I do next week"))
-        XCTAssertTrue(SessionTimeRange.mentionsFuture(in: "what's due tomorrow?"))
-        XCTAssertFalse(SessionTimeRange.mentionsFuture(in: "what happened last week?"))
-
-        let lookback = SessionTimeRange.planningLookback(now: now, calendar: calendar)
+        let lookback = resolve(SessionTimeRange.upcoming)
         XCTAssertEqual(lookback?.contains(day(10)), true, "three weeks back is in scope")
         XCTAssertEqual(lookback?.contains(day(20, 6)), false, "a month back is not")
     }
 
-    func testUntimedQuestionsStayUnscoped() {
-        XCTAssertNil(detect("what did we decide about pricing?"))
-        XCTAssertNil(detect("що вирішили по прайсингу?"))
-        XCTAssertNil(detect(""))
+    func testFuturePhrasesAreRecognised() {
+        XCTAssertTrue(SessionTimeRange.mentionsFuture(in: "що заплановано на наступний тиждень?"))
+        XCTAssertTrue(SessionTimeRange.mentionsFuture(in: "what's due tomorrow?"))
+        XCTAssertFalse(SessionTimeRange.mentionsFuture(in: "what happened last week?"))
+    }
+
+    func testNoPeriodStaysUnscoped() {
+        XCTAssertNil(resolve(""))
+        XCTAssertNil(resolve("sometime"))
     }
 }
 
@@ -210,6 +258,15 @@ final class EntityMatcherTests: XCTestCase {
             ["Anna Kovalenko", "Anna"],
             "both match, but the more specific one is offered first"
         )
+    }
+
+    func testALaterWholeWordCountsWhenTheFirstHitIsInsideAnotherWord() {
+        XCTAssertEqual(EntityMatcher.matched(names: ["Leo"], in: "Leonid opened the PR and Leo approved it"), ["Leo"])
+        XCTAssertTrue(EntityMatcher.matched(names: ["Leo"], in: "Leonid opened the PR, Leonid merged it").isEmpty)
+    }
+
+    func testAMatchStartingInsideAFailedOneIsStillFound() {
+        XCTAssertEqual(EntityMatcher.matched(names: ["jo jo"], in: "banjo jo jo"), ["jo jo"])
     }
 
     func testWholeWordsOnly() {

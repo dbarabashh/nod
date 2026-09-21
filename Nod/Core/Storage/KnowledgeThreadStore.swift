@@ -223,6 +223,84 @@ final class KnowledgeThreadStore: ObservableObject {
         }
     }
 
+    struct PastAnswer: Decodable {
+        struct Origin: Decodable {
+            let title: String
+            let beatID: UUID?
+
+            enum CodingKeys: String, CodingKey {
+                case title
+                case beatID = "beat_id"
+            }
+        }
+
+        let content: String
+        let createdAt: Date
+        let sources: [KnowledgeChatStore.SessionRef]
+        /// Read with the row: `threads` holds no beat threads, which are
+        /// exactly the ones a report comes from.
+        let thread: Origin
+
+        enum CodingKeys: String, CodingKey {
+            case content
+            case createdAt = "created_at"
+            case sources
+            case thread = "knowledge_threads"
+        }
+    }
+
+    /// What Nod already wrote — in another chat, or in an agent's report —
+    /// that mentions any of `names`, newest first.
+    ///
+    /// Matched as text, on names only: an answer is found by who or what it is
+    /// about, and a question's ordinary words are in every answer there is.
+    func answers(
+        mentioning names: [String],
+        outside threadID: UUID?,
+        limit: Int = 3,
+        keeping isStillTrue: (PastAnswer) -> Bool
+    ) async -> [PastAnswer] {
+        let patterns = Self.mentionFilters(for: names)
+        guard !patterns.isEmpty else { return [] }
+        do {
+            var query = supabase
+                .from(Self.messagesTable)
+                .select("content,created_at,sources,knowledge_threads(title,beat_id)")
+                .eq("role", value: "assistant")
+                .or(patterns.joined(separator: ","))
+            if let threadID { query = query.neq("thread_id", value: threadID.uuidString) }
+            let found: [PastAnswer] = try await query
+                .order("created_at", ascending: false)
+                .limit(limit * 8)
+                .execute()
+                .value
+            // `ilike` finds "Leo" inside "Leonid", so the name is checked
+            // again as a whole word. And an answer that cites nothing is
+            // either Nod saying it found nothing — handed back, the failure a
+            // person retried three times becomes the record of their week —
+            // or one whose grounding cannot be checked against what has since
+            // been deleted.
+            return Array(found.filter { answer in
+                !answer.sources.isEmpty
+                    && !EntityMatcher.matched(names: names, in: answer.content).isEmpty
+                    && isStillTrue(answer)
+            }.prefix(limit))
+        } catch {
+            Log.ui.error("KnowledgeThreadStore.answers failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    /// One PostgREST `or` clause per name. Anything that could end the filter
+    /// becomes a wildcard rather than vanishing, so "Node.js" still finds
+    /// itself.
+    static func mentionFilters(for names: [String]) -> [String] {
+        names
+            .map { String($0.map { $0.isLetter || $0.isNumber || $0 == " " || $0 == "-" ? $0 : "*" }) }
+            .filter { $0.filter(\.isLetter).count >= 3 }
+            .map { "content.ilike.\"*\($0)*\"" }
+    }
+
     func messages(in threadID: UUID) async -> [StoredMessage] {
         do {
             return try await supabase

@@ -9,7 +9,7 @@ import Foundation
 /// morning's beat and not a week of them.
 ///
 /// One run at a time on purpose. A beat is a full grounded turn — retrieval,
-/// the screen record, a couple of model round trips — and three of them at once
+/// the screen record where its opt-in is on, a couple of model round trips — and three of them at once
 /// on a machine somebody is trying to work on is a fan, not a feature.
 @MainActor
 final class BeatRunner: ObservableObject {
@@ -21,6 +21,7 @@ final class BeatRunner: ObservableObject {
     private let beats: BeatStore
     private let chat: KnowledgeChatStore
     private let threads: KnowledgeThreadStore
+    private let meetings: MeetingStore
     private let entitlements: EntitlementService
     private let auth: AuthService
 
@@ -31,12 +32,14 @@ final class BeatRunner: ObservableObject {
         beats: BeatStore,
         chat: KnowledgeChatStore,
         threads: KnowledgeThreadStore,
+        meetings: MeetingStore,
         entitlements: EntitlementService,
         auth: AuthService
     ) {
         self.beats = beats
         self.chat = chat
         self.threads = threads
+        self.meetings = meetings
         self.entitlements = entitlements
         self.auth = auth
         observeSleep()
@@ -59,6 +62,11 @@ final class BeatRunner: ObservableObject {
                 await tick()
             }
         }
+    }
+
+    /// The run's chat is a store of its own and holds the last account's turn.
+    func clear() {
+        chat.clear()
     }
 
     func stop() {
@@ -84,6 +92,18 @@ final class BeatRunner: ObservableObject {
               entitlement.isActive,
               entitlement.can(.askAcrossMeetings)
         else { return }
+        // A Mac opened at the beat's hour reaches this before its sessions
+        // have loaded, and a run answered then is written as though the
+        // account were empty. Nothing else loads them on a Mac that runs from
+        // the menu bar, so this does, and tries again after a failure. The
+        // run stays due while a load is in flight; the next tick takes it. A
+        // load that failed again is let through — it may never succeed, and a
+        // thin report beats none.
+        switch meetings.loadState {
+        case .idle, .failed: await meetings.refresh()
+        case .loading, .loaded: break
+        }
+        if case .loading = meetings.loadState { return }
         // Serially, oldest first: the morning briefing is answered before the
         // midday one, and each is a whole grounded turn.
         for run in await beats.dueRuns() {
@@ -107,10 +127,15 @@ final class BeatRunner: ObservableObject {
         }
         let started = ContinuousClock.now
         chat.startNewThread()
-        await chat.ask(beat.prompt, products: beat.providers)
-        guard let threadID = chat.threadID else {
+        let report = await chat.ask(beat.prompt, products: beat.providers)
+        // A thread alone is not a report: the question is saved before the
+        // answer exists, so an offline morning used to be recorded as a
+        // finished run with nothing in it, and never retried.
+        // A report that was cut short is still one; `ask` returns what arrived.
+        guard let threadID = chat.threadID, report != nil else {
+            if let orphan = chat.threadID { await threads.delete(orphan) }
             await beats.fail(claimed.id, reason: chat.failure?.message ?? "The answer could not be saved.")
-            Log.ui.error("beat \(beat.displayTitle) produced no thread")
+            Log.ui.error("beat \(beat.displayTitle) produced no report")
             return
         }
         await threads.attach(threadID: threadID, to: beat.id, title: beat.displayTitle)

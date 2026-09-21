@@ -163,7 +163,7 @@ enum AboutNod {
         return facts
     }
 
-    private static let facts = paragraphs([
+    static let facts = paragraphs([
         ["[ABOUT NOD — answer from this, in the language the question was asked]"],
         [
             "Recording: Nod records the call's audio and the microphone on the user's Mac.",

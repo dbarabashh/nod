@@ -167,10 +167,14 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
     /// read only to seed the screen crossing.
     private var projectCache: [UUID: [String]] = [:]
 
-    /// Cached for the app run: entities are people and projects, not chunks —
-    /// a handful of rows that don't change between questions.
-    private var entityNames: [(String, UUID)] = []
+    /// Cached until the corpus grows: entities are people and projects, not
+    /// chunks — a handful of rows that don't change between questions.
+    private var entityNames: [Entity] = []
     private var entityCacheStamp = -1
+    private var turnReadsScreen = true
+    /// What the typed reading made of this turn's question. Nil when there is
+    /// none, and each block then decides from its phrase table as before.
+    private var turnReading: QuestionReading?
 
     /// The label the model reads. A bare "16 Jul" can't answer "what happened
     /// on Friday?" — it needs the weekday and how long ago that was.
@@ -328,6 +332,8 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
         pendingDraft = nil
         pendingMentions = []
         failure = nil
+        entityNames = []
+        entityCacheStamp = -1
         clearTurnMarkers()
     }
 
@@ -412,14 +418,29 @@ extension KnowledgeChatStore {
     /// The work runs in a task this store owns rather than the caller's, so
     /// `cancel()` has something to stop. Awaiting it here keeps every existing
     /// call site — which reads the answer once this returns — working unchanged.
-    func ask(_ text: String, pinned: [SessionRef] = [], scope: [SessionLabel] = [], products: [IntegrationProvider]? = nil) async {
+    /// - Parameter readsScreen: false for a run whose answer can leave Nod
+    ///   without a click — an agent with standing authority files what its
+    ///   brief surfaced, and nothing read from the screen may travel that way.
+    /// - Returns: the answer this question got, or nil when it got none. A
+    ///   caller that compared message counts instead read a bounded store's
+    ///   trimmed history as "nothing came back".
+    @discardableResult
+    func ask(
+        _ text: String,
+        pinned: [SessionRef] = [],
+        scope: [SessionLabel] = [],
+        products: [IntegrationProvider]? = nil,
+        readsScreen: Bool = true
+    ) async -> Message? {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         // Claimed BEFORE the task exists. `run` starts on the next suspension,
         // and a second ask arriving in that window would otherwise pass this
         // guard and run a whole parallel pipeline on the same store.
-        guard !text.isEmpty, !isSending else { return }
+        guard !text.isEmpty, !isSending else { return nil }
+        let before = messages.last?.id
         isSending = true
         failure = nil
+        turnReadsScreen = readsScreen
         let task = Task { await run(text, pinned: pinned, scope: scope, products: products) }
         inFlight = task
         await task.value
@@ -430,10 +451,12 @@ extension KnowledgeChatStore {
         // Bounded stores (a live voice conversation, never the Library's own
         // thread) forget the oldest turn once a new one lands, rather than
         // asking every later follow-up to carry the whole call in its context.
+        let answer = messages.last.flatMap { $0.role == .assistant && $0.id != before && !$0.content.isEmpty ? $0 : nil }
         if let maxTurns {
             let drop = Self.turnsToDrop(count: messages.count, maxTurns: maxTurns)
             if drop > 0 { messages.removeFirst(drop) }
         }
+        return answer
     }
 
     /// How many oldest messages to drop so at most `maxTurns` (a question and
@@ -531,10 +554,7 @@ extension KnowledgeChatStore {
         // from an English question. Resolved up front so query prep writes the
         // HyDE passage in the same language too.
         let replyLanguage = AppLanguage.detect(from: text) ?? language.current
-        // A question about how Nod works is answered from facts or not at all,
-        // and retrieval has nothing to say about it. Resolved once: `run`
-        // builds a prompt in two places, and only one of them had this.
-        let aboutNod = AboutNod.grounding(for: text)
+        turnReading = nil
         // HyDE + conversational rewrite: a self-contained query (drives routing
         // + entity matching) and a hypothetical transcript-style answer
         // (embedded for the vector match).
@@ -555,6 +575,11 @@ extension KnowledgeChatStore {
             language: replyLanguage,
             personalContext: profile.promptContext
         )
+        // The decisions, as opposed to the text: which period, whose work,
+        // which blocks, which recordings. Asked beside query prep rather than
+        // of it — a closed question gets a probability back, so "unsure" can
+        // fall through to prep's reading instead of being acted on.
+        async let judging = readQuestion(text, history: priorHistory)
 
         await roster
         // A beat gets the reading half of the catalogue only. What it finds
@@ -565,14 +590,47 @@ extension KnowledgeChatStore {
         // just a round trip that ends in a silent decline.
         turnTools = await Self.offered(tools, products: products, readsOnly: unattended || readsRunUnasked)
 
-        let prepared: (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool, screenTerms: [String])
-        let routing: Routing
+        let prepared: LLMProxyClient.PreparedQuery
+        var routing: Routing
         if priorHistory.isEmpty {
-            async let routed = route(pinned: pinned, scope: scope, standalone: text, asked: text)
-            (prepared, routing) = await (preparing, routed)
+            // The typed reading comes back well before query prep does, so the
+            // first route already has the period and the names; without one it
+            // routes from the typed text alone, as it always did.
+            let judged = await judging
+            turnReading = judged
+            let early = judged.map { LLMProxyClient.PreparedQuery(standalone: text).overlaid(with: $0) }
+            async let routed = route(pinned: pinned, scope: scope, standalone: text, asked: text, reading: early)
+            let (written, first) = await (preparing, routed)
+            prepared = written.overlaid(with: judged)
+            routing = first
+            // Routed again only for what the first pass could not have had: a
+            // period nobody had read yet, or a name query prep spelled that
+            // the typed text and the reading both missed — and only where a
+            // route reads them at all.
+            let readsThem = pinned.isEmpty && scope.isEmpty && MentionMark.namedTools(in: text).isEmpty
+                && !actsWithoutRetrieval(on: prepared, pinned: pinned, scope: scope)
+            var needsReading = readsThem && (early?.period ?? "") != prepared.period
+                && SessionTimeRange.resolve(period: prepared.period) != nil
+            if readsThem, !needsReading {
+                needsReading = await spellsAnEntity(
+                    prepared.names,
+                    missingFrom: ([text] + (early?.names ?? [])).joined(separator: Self.nameSeam)
+                )
+            }
+            if needsReading {
+                routing = await route(
+                    pinned: pinned, scope: scope, standalone: text, asked: text, reading: prepared, fallback: routing
+                )
+            }
         } else {
-            prepared = await preparing
-            routing = await route(pinned: pinned, scope: scope, standalone: prepared.standalone, asked: text)
+            let judged = await judging
+            turnReading = judged
+            // "The whole history" is not the reading's to decide here: it saw
+            // the follow-up as typed, and the router gets the rewritten one.
+            var followUp = judged
+            if followUp?.sessionIDs?.isEmpty == true { followUp?.sessionIDs = nil }
+            prepared = await preparing.overlaid(with: followUp)
+            routing = await route(pinned: pinned, scope: scope, standalone: prepared.standalone, asked: text, reading: prepared)
         }
         // Query prep and routing are two model round trips before a single
         // token is written — the longest stretch of a turn with nothing on
@@ -596,8 +654,7 @@ extension KnowledgeChatStore {
         // "What was I working on", "did I miss anything" is not an action
         // however the router reads it, and the screen record is the only place
         // its answer lives — taking this path answered it from Slack and Linear
-        // alone. Read from the model's flag and from the phrase list alike, for
-        // the reason `observed(for:aboutScreen:)` keeps both.
+        // alone.
         //
         // So does anything the person pointed at. An @-mentioned session or a
         // folder token is `route()`'s most specific intent, and the standalone
@@ -605,15 +662,9 @@ extension KnowledgeChatStore {
         // without ever seeing them. Two sessions were tagged, the model judged
         // the remaining words self-contained, and the answer came back from
         // the product blurb: "I can only see their titles."
-        let asksAboutScreen = prepared.aboutScreen || ScreenRecall.window(for: prepared.standalone) != nil
-        if Self.actsWithoutRetrieval(
-            needsSessions: prepared.needsSessions,
-            asksAboutScreen: asksAboutScreen,
-            hasTools: !turnTools.isEmpty,
-            pinned: pinned,
-            scope: scope
-        ) {
+        if actsWithoutRetrieval(on: prepared, pinned: pinned, scope: scope) {
             Log.ui.info("chat: acting without retrieval")
+            let aboutNod = aboutNodBlock(for: text)
             thinkingScript = ChatThinking.acting
             let beatBlock = await beatsBlock(for: prepared.standalone)
             let system = PromptLibrary.buildKnowledgeSystem(
@@ -654,11 +705,13 @@ extension KnowledgeChatStore {
         // Independent of retrieval — it only needs the resolved question — so
         // it overlaps the search instead of adding a round trip after it.
         async let tasks = outstandingTasksBlock(for: prepared.standalone)
+        async let earlier = earlierAnswersBlock(naming: prepared.names)
         let grounding = await gather(
             for: scope,
             query: prepared.standalone,
             embedText: prepared.hyde,
-            aboutScreen: prepared.aboutScreen,
+            recap: prepared.asksAboutOwnWork ? ScreenRecall.window(named: Self.pastWindow(prepared.period)) : nil,
+            names: prepared.names,
             screenTerms: prepared.screenTerms
         )
         if Task.isCancelled { await saved; return }
@@ -668,18 +721,22 @@ extension KnowledgeChatStore {
             apps: sources.filter(\.isApp).count
         )]
         let taskBlock = await tasks
+        let aboutNod = aboutNodBlock(for: text)
         // Ahead of the excerpts and the tasks alike: a question about the day
         // ahead is answered by the calendar, and a retrieval budget that trimmed
         // it would leave the model guessing from last week's transcripts.
         let ahead = await [
             aboutNod,
-            QuestionIntent.asksAboutSchedule(prepared.standalone) ? teammatesBlock() : nil,
+            wantsCalendar(prepared.standalone) ? teammatesBlock() : nil,
             calendarBlock(for: prepared.standalone),
             beatsBlock(for: prepared.standalone),
             taskBlock
         ].compactMap { $0 } + [projectsBlock(for: prepared.standalone)].compactMap { $0 }
+        // After the excerpts: what Nod wrote before is derived from them, and
+        // must not take a recap's room when the budget runs out.
+        let written = await [earlier].compactMap { $0 }
         let system = PromptLibrary.buildKnowledgeSystem(
-            excerpts: Self.withinBudget(ahead + grounding.excerpts),
+            excerpts: Self.withinBudget(ahead + grounding.excerpts + written),
             language: replyLanguage,
             personalContext: profile.promptContext,
             observations: Self.sharingScreenBudget(
@@ -1058,7 +1115,7 @@ extension KnowledgeChatStore {
     /// stored phrase ("end of week") is meaningless without the day it was said
     /// on, which is exactly the mistake the pill in the UI used to make.
     private func outstandingTasksBlock(for question: String) async -> String? {
-        guard QuestionIntent.asksAboutTasks(question) else { return nil }
+        guard turnReading?.wantsTasks ?? QuestionIntent.asksAboutTasks(question) else { return nil }
         let open: [ActionItem]
         do {
             open = try await actionItems.openItems(limit: Self.taskLimit)
@@ -1112,7 +1169,7 @@ extension KnowledgeChatStore {
             let pattern = "\\b" + NSRegularExpression.escapedPattern(for: title) + "\\b"
             return lowered.range(of: pattern, options: .regularExpression) != nil
         }
-        guard QuestionIntent.asksAboutBeats(question) || !named.isEmpty else { return nil }
+        guard (turnReading?.wantsAgents ?? QuestionIntent.asksAboutBeats(question)) || !named.isEmpty else { return nil }
         let candidates = named.isEmpty ? beats.beats : named
 
         // The setup — title, cadence, next run — answers "what did I set up"
@@ -1144,6 +1201,36 @@ extension KnowledgeChatStore {
         return sections.joined(separator: "\n\n")
     }
 
+    /// What Nod already wrote about the people and projects this question
+    /// names — an agent's report, an answer in another chat. Both live in
+    /// threads, which retrieval never reaches, so work Nod had itself summed up
+    /// yesterday was invisible to a question about it today.
+    private func earlierAnswersBlock(naming names: [String]) async -> String? {
+        // A run must not be handed earlier reports, its own among them: it
+        // would restate them as today's, and the next run would compound it.
+        guard !unattended, !readsRunUnasked, !names.isEmpty else { return nil }
+        // Deleting a session, or what Nod read from the screen, is a promise
+        // that it is gone. An answer built on either would carry it back in.
+        let known = meetings.byID
+        let found = await threads.answers(mentioning: names, outside: threadID) { answer in
+            answer.sources.allSatisfy { !$0.isApp && known[$0.id] != nil }
+        }
+        guard !found.isEmpty else { return nil }
+        let lines = found.map { answer -> String in
+            let origin = answer.thread.beatID == nil ? "chat" : "scheduled agent"
+            let when = Self.calendarDayFormatter.string(from: answer.createdAt)
+            let title = answer.thread.title.isEmpty ? "" : " “\(answer.thread.title)”"
+            return "• From the \(origin)\(title), written \(when):\n"
+                + String(answer.content.prefix(Self.earlierAnswerLimit))
+        }
+        let header = "[WHAT NOD WROTE EARLIER — its own answers and agent reports that mention the same names. "
+            + "Each was true when written and may be stale; use them as a record of what was found then, "
+            + "and say when it was.]"
+        return ([header] + lines).joined(separator: "\n\n")
+    }
+
+    private static let earlierAnswerLimit = 1500
+
     private static let beatLimit = 4
     private static let beatReportLimit = 1500
     private static let beatPromptLimit = 200
@@ -1152,7 +1239,7 @@ extension KnowledgeChatStore {
     /// sorted their sessions into. Answers "which projects do I have" without
     /// a search: the names alone are the whole answer.
     private func projectsBlock(for question: String) -> String? {
-        guard QuestionIntent.asksAboutProjects(question), !labels.labels.isEmpty else { return nil }
+        guard turnReading?.wantsProjects ?? QuestionIntent.asksAboutProjects(question), !labels.labels.isEmpty else { return nil }
         let names = labels.labels.prefix(Self.projectLimit).map { "• \($0.name)" }
         return "[YOUR PROJECTS — folders the user organizes sessions into.]\n" + names.joined(separator: "\n")
     }
@@ -1173,7 +1260,7 @@ extension KnowledgeChatStore {
     /// calendar", which is how it came to tell a user with a connected account
     /// that it could not see one.
     private func calendarBlock(for question: String) -> String? {
-        guard QuestionIntent.asksAboutSchedule(question), hasCalendarSource, let calendar else { return nil }
+        guard wantsCalendar(question), hasCalendarSource, let calendar else { return nil }
         let now = Date()
         let horizon = now.addingTimeInterval(Self.calendarHorizon)
         let span = DateInterval(start: Foundation.Calendar.current.startOfDay(for: now), end: horizon)
@@ -1276,6 +1363,51 @@ extension KnowledgeChatStore {
         return formatter
     }()
 
+    /// The typed reading where there is one, the phrase table where there is
+    /// not. The table matches substrings in three languages — "the pricing
+    /// meeting" is not a question about the calendar — so it is the fallback
+    /// and no longer the rule.
+    private func wantsCalendar(_ question: String) -> Bool {
+        turnReading?.wantsCalendar ?? QuestionIntent.asksAboutSchedule(question)
+    }
+
+    /// A question about how Nod works is answered from facts or not at all,
+    /// and retrieval has nothing to say about it.
+    private func aboutNodBlock(for question: String) -> String? {
+        guard let asks = turnReading?.asksAboutNod else { return AboutNod.grounding(for: question) }
+        return asks ? AboutNod.facts : nil
+    }
+
+    /// Nil when there is no reading to be had: nothing configured on this
+    /// branch, or an upstream that did not answer in time.
+    private func readQuestion(_ text: String, history: [LLMProxyClient.ChatTurn]) async -> QuestionReading? {
+        guard llm.canJudge(.question) else { return nil }
+        await loadEntityNamesIfStale()
+        let inputs = QuestionReader.Inputs(
+            question: text,
+            history: history.filter { $0.role != .tool }.map { ($0.role == .user, $0.content) },
+            today: PromptLibrary.promptDay(),
+            sessions: meetings.meetings.prefix(QuestionReader.sessionLimit).map {
+                QuestionReader.Session(
+                    id: $0.id,
+                    title: $0.displayTitle(dateFormatter: Meeting.shortDateFormatter),
+                    date: Meeting.shortDateFormatter.string(from: $0.startedAt),
+                    kind: $0.kind.rawValue
+                )
+            },
+            entities: entityNames,
+            agents: unattended ? [] : (beats?.beats.map(\.title) ?? []),
+            connectedTools: IntegrationProvider.allCases.filter { integrations?.isUsable($0) == true }.map(\.displayName)
+        )
+        guard let answers = await llm.judge(QuestionReader.request(for: inputs)) else { return nil }
+        let reading = QuestionReader.reading(from: answers, for: inputs)
+        Log.ui.info(
+            "chat: read period=\(reading.period ?? "?") ownWork=\(reading.asksAboutOwnWork.map(String.init) ?? "?") "
+                + "named=\(reading.named.count) sessions=\(reading.sessionIDs.map { String($0.count) } ?? "?")"
+        )
+        return reading
+    }
+
     private var chatHistory: [LLMProxyClient.ChatTurn] {
         messages.map {
             LLMProxyClient.ChatTurn(role: $0.role == .user ? .user : .assistant, content: $0.content)
@@ -1321,26 +1453,28 @@ extension KnowledgeChatStore {
         var crossedObservations: [String] = []
     }
 
-    /// Screen context for this question: a per-app recap when it asks what the
-    /// user was doing, keyword matches otherwise. The apps come back alongside
-    /// the text so the answer can be attributed to them.
+    /// Screen context for this question: a per-app recap of `recap` when it
+    /// asks what the user was doing, keyword matches otherwise. The apps come
+    /// back alongside the text so the answer can be attributed to them.
     ///
-    /// `aboutScreen` is the query-prep model's read of the question, and it is
-    /// the primary trigger. The phrase list beside it is a fast path for the
-    /// unmistakable cases, kept so an off day from the model can't take the
-    /// feature out entirely — but it is no longer what the feature rests on.
-    /// Phrase matching alone missed real questions twice ("які останні новини",
-    /// "що було за останні 20 хвилин"): the ways people ask what they were
-    /// doing don't enumerate.
-    private func observed(for query: String, aboutScreen: Bool, screenTerms: [String] = []) async -> Observed {
-        guard let screenContext else { return Observed() }
-        let recap = ScreenRecall.window(for: query) ?? (aboutScreen ? ScreenRecall.defaultWindow() : nil)
+    /// Whether it asks that, and about when, is the query-prep model's read of
+    /// the question. A phrase list used to decide both and missed real
+    /// questions in the two languages it knew ("які останні новини", "що було
+    /// за останні 20 хвилин"): the ways people ask what they were doing don't
+    /// enumerate.
+    private func observed(
+        for query: String,
+        recap: DateInterval?,
+        names: [String],
+        screenTerms: [String]
+    ) async -> Observed {
+        guard let screenContext, readsTheScreen else { return Observed() }
         if let window = recap {
             // Both at once: the recap answers "what was I doing", the keyword
             // match answers the specific thing the question names — and a page
             // open for ten seconds is in the second and never in the first.
             async let recapping = screenContext.activity(in: window)
-            async let matching = screenContext.recentContext(matching: query, extraTerms: screenTerms)
+            async let matching = screenContext.recentContext(matching: query, names: names, extraTerms: screenTerms)
             let (digest, matched) = await (recapping, matching)
             let extra = ScreenActivityDigest.uncovered(matched, by: digest)
             let blocks = digest.apps.map { app in
@@ -1355,8 +1489,14 @@ extension KnowledgeChatStore {
                 coversAWindow: true
             )
         }
-        let matched = await screenContext.recentContext(matching: query, extraTerms: screenTerms)
+        let matched = await screenContext.recentContext(matching: query, names: names, extraTerms: screenTerms)
         return Observed(blocks: matched.map(Self.labeledObservation), apps: Self.appSources(of: matched), ids: Set(matched.map(\.id)))
+    }
+
+    /// Answering a question the person asked is what capture is for. A run
+    /// nobody asked for reads it only under its own opt-in.
+    private var readsTheScreen: Bool {
+        turnReadsScreen && (!unattended || AmbientScopes.agents)
     }
 
     /// What the screen record contributed to one answer.
@@ -1382,7 +1522,7 @@ extension KnowledgeChatStore {
     /// both sides are present, and nothing more; whether they actually connect
     /// is what `[CONNECT]` makes the model decide from the material itself.
     private func crossed(sessions ids: [UUID], with observed: Observed) async -> (blocks: [String], apps: [SessionRef]) {
-        guard let screenContext, !observed.coversAWindow else { return ([], []) }
+        guard let screenContext, readsTheScreen, !observed.coversAWindow else { return ([], []) }
         let linked = await screenContext.linkedContext(
             aboutProjects: ids.map { projectCache[$0] ?? [] },
             excluding: observed.ids
@@ -1434,11 +1574,16 @@ extension KnowledgeChatStore {
     /// - Parameter asked: the question as typed. Separate from `standalone`
     ///   because the rewrite that produces the latter drops the `@` tokens, and
     ///   whether a tool was named is decided from what the person wrote.
+    ///   - reading: what query prep read in the question — its period, its
+    ///     names in their canonical spelling, whether it is about the user's
+    ///     own work. Nil on a first turn's first pass, which runs beside it.
     private func route(
         pinned: [SessionRef],
         scope: [SessionLabel],
         standalone: String,
-        asked: String
+        asked: String,
+        reading: LLMProxyClient.PreparedQuery? = nil,
+        fallback: Routing? = nil
     ) async -> Routing {
         if !pinned.isEmpty {
             return .search(.specific(pinned.map(\.id)))
@@ -1452,10 +1597,9 @@ extension KnowledgeChatStore {
             // intersected it with today, found nothing, and replied "Nothing
             // from that period involves them" — without Slack ever being asked.
             guard MentionMark.namedTools(in: asked).isEmpty else {
-                return await routeQuery(standalone)
+                return await routeQuery(standalone, picked: reading?.sessionIDs)
             }
-            let timed = timeRoute(for: standalone)
-            if case .answered = timed, let timed { return timed }
+            let timed = timeRoute(for: reading?.period ?? "")
             let window: [UUID]? = if case let .search(scope) = timed {
                 switch scope {
                 case let .specific(ids), let .scoped(ids): ids
@@ -1468,9 +1612,20 @@ extension KnowledgeChatStore {
             // invisible to vector search — the transcript says [Them], not
             // "Ludwig". Both can appear at once ("what did I discuss with
             // Ludwig last week"), so they intersect rather than compete.
-            if let named = await entityRoute(for: standalone, within: window) { return named }
+            let named = await entityRoute(
+                for: standalone,
+                typed: asked,
+                spelled: reading?.names ?? [],
+                notMeant: reading?.notMeant ?? [],
+                within: window,
+                asksAboutOwnWork: reading?.asksAboutOwnWork ?? false
+            )
+            if let named { return named }
             if let timed { return timed }
-            return await routeQuery(standalone)
+            // A second pass that found neither has nothing the first lacked,
+            // so it keeps that answer rather than asking the router again.
+            if let fallback { return fallback }
+            return await routeQuery(standalone, picked: reading?.sessionIDs)
         }
         let ids = scopedMeetingIDs(in: scope)
         guard !ids.isEmpty else {
@@ -1496,15 +1651,14 @@ extension KnowledgeChatStore {
     /// a top-k similarity search would silently drop whole meetings. A long one
     /// falls back to similarity *within* the window, because 30 recaps don't fit
     /// a prompt.
-    private func timeRoute(for question: String) -> Routing? {
+    private func timeRoute(for period: String) -> Routing? {
         // "What's planned for next week?" names a window with no sessions in it
-        // — the answer lives in what was said recently. Searching the future
-        // returns nothing and the model then reports it has no information,
-        // which is the wrong answer to a question it could answer.
-        let isFuture = SessionTimeRange.mentionsFuture(in: question)
-        guard let window = isFuture ? SessionTimeRange.planningLookback() : SessionTimeRange.detect(in: question) else {
-            return nil
-        }
+        // — the answer lives in what was said recently, which is what an
+        // upcoming period resolves to. Searching the future returns nothing and
+        // the model then reports it has no information, which is the wrong
+        // answer to a question it could answer.
+        let isFuture = period == SessionTimeRange.upcoming
+        guard let window = SessionTimeRange.resolve(period: period) else { return nil }
         let inWindow = meetings.meetings
             .filter { window.contains($0.startedAt) }
             .sorted { $0.startedAt < $1.startedAt }
@@ -1517,12 +1671,20 @@ extension KnowledgeChatStore {
             let nearest = meetings.meetings
                 .sorted { abs($0.startedAt.timeIntervalSince(window.start)) < abs($1.startedAt.timeIntervalSince(window.start)) }
                 .prefix(Self.nearestFallbackCount)
-            guard !nearest.isEmpty else {
-                return .answered("There are no sessions recorded in that period.")
-            }
+            // No sessions at all is not an answer either. "What's on me
+            // today?" on a Mac that had not loaded its sessions yet was closed
+            // here, as a scheduled agent's whole report, before the calendar,
+            // the tasks, the screen record or a connected tool were read.
+            guard !nearest.isEmpty else { return nil }
             return Self.searchRoute(nearest.map(\.id))
         }
         return Self.searchRoute(inWindow.map(\.id))
+    }
+
+    /// The stretch of the past a period names. An upcoming one names none:
+    /// its lookback is where plans were *said*, not when the work was done.
+    private static func pastWindow(_ period: String) -> DateInterval? {
+        period == SessionTimeRange.upcoming ? nil : SessionTimeRange.resolve(period: period)
     }
 
     /// How many sessions still fit a recap-per-session round-up prompt.
@@ -1533,23 +1695,47 @@ extension KnowledgeChatStore {
 
     /// Sessions belonging to the people or projects the question names,
     /// intersected with a time window when the question carried one.
-    private func entityRoute(for question: String, within window: [UUID]?) async -> Routing? {
-        // Reloaded when the corpus grows: a person first mentioned in a meeting
-        // recorded since launch would otherwise stay unmatchable until the app
-        // restarts — exactly the case this route exists for.
-        if entityNames.isEmpty || entityCacheStamp != meetings.meetings.count {
-            entityCacheStamp = meetings.meetings.count
-            let entities = await entities.allEntities()
-            entityNames = entities.filter { $0.kind != .topic }.map { ($0.name, $0.id) }
-        }
-        let names = EntityMatcher.matched(names: entityNames.map(\.0), in: question)
-        guard !names.isEmpty else { return nil }
-        let ids = entityNames.filter { names.contains($0.0) }.map(\.1)
+    private func entityRoute(
+        for question: String,
+        typed asked: String,
+        spelled: [String],
+        notMeant: Set<String>,
+        within window: [UUID]?,
+        asksAboutOwnWork: Bool
+    ) async -> Routing? {
+        await loadEntityNamesIfStale()
+        let known = entityNames.map(\.name)
+        // What the person wrote, not the rewrite: on a follow-up the
+        // standalone question is the model's text too.
+        let typed = EntityMatcher.matched(names: known, in: asked)
+        // A colleague called Will is not who "what will I do today" is about.
+        // A name query prep spelled out is kept whatever the reading thought:
+        // two models disagreeing is not grounds for dropping what one found.
+        let spelledOut = Set(EntityMatcher.matched(names: known, in: spelled.joined(separator: Self.nameSeam)))
+        let names = EntityMatcher.matched(names: known, in: ([question] + spelled).joined(separator: Self.nameSeam))
+            .filter { !notMeant.contains($0) || spelledOut.contains($0) }
+        // A project is filed under whatever the meeting called it — "Acme",
+        // "Acme - Analytics Dashboard", "platform.acme.com" — and the name as
+        // query prep spells it is the one word they share. People are left
+        // exact: "Anna" must not become every Anna.
+        let ids = entityNames.filter { entity in
+            names.contains(entity.name)
+                || (entity.kind == .project && !EntityMatcher.matched(names: spelled, in: entity.name).isEmpty)
+        }.map(\.id)
+        guard !ids.isEmpty else { return nil }
         var meetingIDs = await Set(entities.meetingIDs(forEntities: ids))
         guard !meetingIDs.isEmpty else { return nil }
 
         if let window, !window.isEmpty {
+            let everywhere = meetingIDs
             meetingIDs.formIntersection(window)
+            // A report on the user's own work is written from the screen
+            // record, which needs no session in the period. The subject's
+            // sessions still say what was promised and planned, so they are
+            // kept whole instead of the period being denied.
+            if meetingIDs.isEmpty, asksAboutOwnWork, readsTheScreen, ScreenContextDefaults.isEnabled {
+                meetingIDs = everywhere
+            }
             // The person exists and the period exists, but they never met in it
             // — narrowing to nothing would answer from the whole corpus
             // instead, which is worse than saying so.
@@ -1562,6 +1748,14 @@ extension KnowledgeChatStore {
             // takes the turn away from the tool that could have answered it.
             guard !meetingIDs.isEmpty else {
                 if namesAProduct(names) { return nil }
+                // A name only query prep spelled is the model's reading of
+                // what was typed. Good enough to widen a search, not to close
+                // the question on.
+                guard !names.isEmpty, names.allSatisfy(typed.contains) else { return nil }
+                // A scheduled run's reply is its whole report, and "what do I
+                // owe Leo today" is answered by tasks and the calendar as much
+                // as by sessions. Nobody is there to ask again.
+                guard !unattended else { return nil }
                 return .answered("Nothing from that period involves them.")
             }
         }
@@ -1570,6 +1764,35 @@ extension KnowledgeChatStore {
         guard !ordered.isEmpty else { return nil }
         return Self.searchRoute(ordered)
     }
+
+    /// Reloaded when the corpus grows: a person first mentioned in a meeting
+    /// recorded since launch would otherwise stay unmatchable until the app
+    /// restarts — exactly the case the entity route exists for.
+    private func loadEntityNamesIfStale() async {
+        let count = meetings.meetings.count
+        guard entityCacheStamp != count else { return }
+        let entities = await entities.allEntities()
+        entityNames = entities.filter { $0.kind != .topic }
+        // A failed read comes back empty too, and stamping it would switch
+        // entity routing off until the next recording.
+        if !entities.isEmpty || count == 0 { entityCacheStamp = count }
+    }
+
+    private func spellsAnEntity(_ named: [String], missingFrom typed: String) async -> Bool {
+        guard !named.isEmpty else { return false }
+        await loadEntityNamesIfStale()
+        let known = entityNames.map(\.name)
+        let typedNames = Set(EntityMatcher.matched(names: known, in: typed))
+        let spelled = named.joined(separator: Self.nameSeam)
+        if EntityMatcher.matched(names: known, in: spelled).contains(where: { !typedNames.contains($0) }) { return true }
+        // The same widening `entityRoute` does: a project filed under a longer
+        // name is found by the word query prep spelled.
+        let missing = named.filter { EntityMatcher.matched(names: [$0], in: typed).isEmpty }
+        return entityNames.contains { $0.kind == .project && !EntityMatcher.matched(names: missing, in: $0.name).isEmpty }
+    }
+
+    /// A line each, so no name is matched across the seam between two.
+    private static let nameSeam = "\n"
 
     /// A handful of sessions are answered from their recaps; more than that has
     /// to fall back to similarity within them, because the recaps don't fit.
@@ -1592,7 +1815,13 @@ extension KnowledgeChatStore {
         }
     }
 
-    private func routeQuery(_ text: String) async -> Routing {
+    /// - Parameter picked: the recordings a typed reading already routed to —
+    ///   the same decision this asks a model for, so it is not asked twice.
+    private func routeQuery(_ text: String, picked: [UUID]? = nil) async -> Routing {
+        if let picked {
+            let known = picked.filter { meetings.byID[$0] != nil }
+            return known.isEmpty ? .search(.all) : Self.searchRoute(known)
+        }
         // Cap the routable list so the prompt stays small; broad questions that
         // reference an older session still resolve via the "all" path.
         let routable = Array(meetings.meetings.prefix(60))
@@ -1629,7 +1858,8 @@ extension KnowledgeChatStore {
         for scope: Scope,
         query: String,
         embedText: String?,
-        aboutScreen: Bool = false,
+        recap: DateInterval? = nil,
+        names: [String] = [],
         screenTerms: [String] = []
     ) async -> Grounding {
         switch scope {
@@ -1641,7 +1871,7 @@ extension KnowledgeChatStore {
             // that was never said out loud. Empty unless ambient context is on.
             // Its own round trip, independent of the corpus search — so it runs
             // alongside rather than after it, as in the `.specific` branch.
-            async let screening = observed(for: query, aboutScreen: aboutScreen, screenTerms: screenTerms)
+            async let screening = observed(for: query, recap: recap, names: names, screenTerms: screenTerms)
             let hits = await knowledge.searchWithConcepts(query: query, meetingIDs: scopedIDs, embedText: embedText)
             let relevant = Self.worthGrounding(hits.chunks)
             let grounded = Array(Set(relevant.map(\.meetingID)))
@@ -1692,7 +1922,7 @@ extension KnowledgeChatStore {
             // the user was also asking what they'd been doing. Leaving it out of
             // this branch meant "шо нового?" — which the router sends to a
             // single session — could never see the screen record.
-            async let screening = observed(for: query, aboutScreen: aboutScreen, screenTerms: screenTerms)
+            async let screening = observed(for: query, recap: recap, names: names, screenTerms: screenTerms)
             async let people: Void = loadPeople(for: ids)
             let byID = meetingsByID
             let inScope = ids.compactMap { byID[$0] }
@@ -1755,6 +1985,20 @@ extension KnowledgeChatStore {
 
     private var meetingsByID: [UUID: Meeting] {
         meetings.byID
+    }
+
+    private func actsWithoutRetrieval(
+        on prepared: LLMProxyClient.PreparedQuery,
+        pinned: [SessionRef],
+        scope: [SessionLabel]
+    ) -> Bool {
+        Self.actsWithoutRetrieval(
+            needsSessions: prepared.needsSessions,
+            asksAboutScreen: prepared.asksAboutOwnWork,
+            hasTools: !turnTools.isEmpty,
+            pinned: pinned,
+            scope: scope
+        )
     }
 
     /// Whether a turn may skip retrieval entirely and go straight to acting.

@@ -184,6 +184,7 @@ final class AgentStore: ObservableObject {
 
     private let supabase: SupabaseClient
     private let chat: KnowledgeChatStore
+    private var running: Task<Void, Never>?
     private let threads: KnowledgeThreadStore
     private let llm: LLMProxyClient
     private let proposals: ActionProposalStore
@@ -393,6 +394,15 @@ final class AgentStore: ObservableObject {
 
     // MARK: - The after-meeting trigger
 
+    /// Drops the previous account's agents, the runs still queued for them,
+    /// and the turn their chat last held.
+    func clear() {
+        running?.cancel()
+        running = nil
+        agents = []
+        chat.clear()
+    }
+
     /// Runs every runnable after-meeting agent for the session that just
     /// finished. Serial on purpose, exactly as beats are: each run is a whole
     /// grounded turn, and two at once on a machine somebody is working on is a
@@ -401,12 +411,29 @@ final class AgentStore: ObservableObject {
     /// `producedWork` is the on-change gate: a session that yielded no action
     /// items changed nothing worth speaking about, and the run is recorded as
     /// skipped rather than spent.
+    ///
+    /// Queued behind the previous session's runs, because they share one chat:
+    /// two sessions enriched together used to start new threads under each
+    /// other, and an agent that files could pick up another agent's brief.
     func runAfterMeeting(meeting: Meeting, producedWork: Bool, itemTitles: [String] = []) async {
+        let previous = running
+        let task = Task { [weak self] in
+            await previous?.value
+            await self?.runDue(meeting: meeting, producedWork: producedWork, itemTitles: itemTitles)
+        }
+        running = task
+        await task.value
+    }
+
+    private func runDue(meeting: Meeting, producedWork: Bool, itemTitles: [String]) async {
         await refresh()
         let due = agents.filter { $0.isRunnable && $0.triggerKind == .afterMeeting }
         guard !due.isEmpty else { return }
         defer { Task { await enforceOutcomes() } }
         for agent in due {
+            // Signing out cancels the queue; the next agent is not this
+            // account's to run any more.
+            guard !Task.isCancelled else { return }
             if agent.speaks == .onChange, !producedWork {
                 _ = await record(agent: agent, meeting: meeting.id, status: "gate_skipped")
                 continue
@@ -419,13 +446,23 @@ final class AgentStore: ObservableObject {
             }
             chat.startNewThread()
             let dated = meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter)
-            await chat.ask("For the session that just ended (\(dated)):\n\(agent.prompt)")
-            if let threadID = chat.threadID {
+            // Pinned, not only named: a date in the prompt reads as a period,
+            // and a period routes to every session of that day.
+            let brief = await chat.ask(
+                "For the session that just ended (\(dated)):\n\(agent.prompt)",
+                pinned: [KnowledgeChatStore.SessionRef(id: meeting.id, title: dated)],
+                readsScreen: agent.trust != .l2 && agent.trust != .l3
+            )?.content ?? ""
+            // A saved question is not a brief: without an answer the run
+            // failed, whatever thread it left behind.
+            guard !Task.isCancelled else { return }
+            if let threadID = chat.threadID, !brief.isEmpty {
                 await threads.rename(threadID: threadID, title: agent.title)
                 await finish(agent: agent, meeting: meeting.id, status: "done", threadID: threadID, error: nil)
                 Log.ui.info("agent ran \(agent.title)")
-                await draftFollowUps(for: agent, meeting: meeting, itemTitles: itemTitles)
+                await draftFollowUps(for: agent, meeting: meeting, brief: brief, itemTitles: itemTitles)
             } else {
+                if let orphan = chat.threadID { await threads.delete(orphan) }
                 await finish(
                     agent: agent,
                     meeting: meeting.id,
@@ -443,10 +480,9 @@ final class AgentStore: ObservableObject {
     /// approve and the same server-side re-check as a pipeline draft. The
     /// agent may draft exactly one type: the shape of the habit that earned
     /// it, checked here and constrained by the schema.
-    private func draftFollowUps(for agent: Agent, meeting: Meeting, itemTitles: [String]) async {
+    private func draftFollowUps(for agent: Agent, meeting: Meeting, brief: String, itemTitles: [String]) async {
         guard agent.trust == .l2 || agent.trust == .l3, let type = agent.draftType else { return }
-        guard let brief = chat.messages.last(where: { $0.role == .assistant })?.content,
-              !brief.isEmpty else { return }
+        guard !brief.isEmpty else { return }
         let (system, user) = PromptLibrary.buildAgentDrafts(
             brief: brief,
             meetingTitle: meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter),

@@ -23,14 +23,19 @@ extension LiveMeetingAnalyst {
     func surfaceOpenLoop(window: String, meetingID: UUID) async -> Bool {
         guard let openLoops else { return false }
         let loops = await openLoops()
-        let candidates = await LoopCandidates.pick(
+        let picked = await LoopCandidates.pick(
             from: loops,
             mentionedIn: window,
             excluding: meetingID,
             graph: loopGraph?() ?? .empty,
             limit: Self.loopCandidates
         )
-        guard !candidates.isEmpty else { return false }
+        guard !picked.isEmpty else { return false }
+        let candidates = await standingOn(picked, in: window, text: \.text)
+        guard !candidates.isEmpty else {
+            Log.llm.info("live: open loops ruled out before asking")
+            return false
+        }
 
         do {
             let (system, user) = PromptLibrary.buildOpenLoopRecall(

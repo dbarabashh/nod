@@ -438,11 +438,11 @@ final class ScreenActivityDigestTests: XCTestCase {
     }
 
     @MainActor
-    func testAcronymsSurviveTheLengthFloorAndExtraTermsJoin() {
+    func testAcronymsSurviveTheLengthFloorAndKeysAreSplitIntoWords() {
         XCTAssertTrue(ScreenContextService.searchTerms(in: "the video from YC about pitches").contains("yc"))
-        let joined = ScreenContextService.searchTerms(in: "я загубив посилання", extra: ["YC", "Demo Day", "YouTube"])
-        XCTAssertTrue(joined.contains("yc") && joined.contains("youtube") && joined.contains("demo"), joined.joined(separator: ","))
-        XCTAssertEqual(Set(joined).count, joined.count)
+        let keys = ScreenContextService.keyTerms(in: ["YC", "Demo Day", "YouTube", "youtube"])
+        XCTAssertTrue(keys.contains("yc") && keys.contains("youtube") && keys.contains("demo"), keys.joined(separator: ","))
+        XCTAssertEqual(Set(keys).count, keys.count)
     }
 
     func testBrowserChromeIsNotAPage() {
@@ -561,71 +561,68 @@ final class ScreenContextTitleWeightTests: XCTestCase {
 
         XCTAssertEqual(ScreenContextService.relevant([window], for: terms).count, 1)
     }
+
+    func testOneKeyInTheBodyIsEnough() {
+        let terms = ScreenContextService.searchTerms(in: "збери всі мої роботи і напиши репорт на дейлік")
+        let ticket = observation(title: "AP-2 icon colours - Jira", content: "CourtCorrect Ltd board, moved to review")
+
+        XCTAssertTrue(ScreenContextService.relevant([ticket], for: terms).isEmpty)
+        XCTAssertEqual(ScreenContextService.relevant([ticket], for: terms, names: [["courtcorrect"]]).count, 1)
+    }
+
+    func testAKeyOutranksANewerWindowOfCommonWords() {
+        let noise = observation(title: "Notes", content: "the daily report template")
+        let work = ScreenObservation(
+            userID: UUID(),
+            observedAt: noise.observedAt.addingTimeInterval(-3 * 24 * 3600),
+            sourceApp: "com.github.desktop",
+            sourceTitle: "CourtCorrect — pull request",
+            content: "fix upload",
+            retention: 3600
+        )
+        let kept = ScreenContextService.relevant([noise, work], for: ["report", "daily"], names: [["courtcorrect"]])
+
+        XCTAssertEqual(kept.first?.sourceTitle, work.sourceTitle)
+    }
+
+    func testANameInsideAnotherWordIsNotTheName() {
+        let slack = observation(title: "general (Channel) - Slack", content: "channel notifications muted")
+        let theirs = observation(title: "Inbox", content: "Ann sent the contract")
+        let kept = ScreenContextService.relevant([slack, theirs], for: ["contract", "status"], names: [["ann"]])
+
+        XCTAssertEqual(kept.map(\.content), [theirs.content])
+    }
+
+    func testHalfANameIsNotTheName() {
+        let other = observation(title: "Inbox", content: "john from accounting replied")
+        let theirs = observation(title: "Inbox", content: "John Smith sent the contract")
+        let kept = ScreenContextService.relevant([other, theirs], for: ["contract", "status"], names: [["john", "smith"]])
+
+        XCTAssertEqual(kept.map(\.content), [theirs.content])
+    }
 }
 
 final class ScreenRecallTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
 
-    func testRecognisesRecapQuestions() {
-        for question in [
-            "What have I been working on?",
-            "what was I doing this morning",
-            "catch me up on my day",
-            "що я робив сьогодні",
-            "над чим я працював вчора"
-        ] {
-            XCTAssertNotNil(ScreenRecall.window(for: question, now: now), question)
-        }
-    }
-
-    func testRecognisesCatchingUpQuestions() {
-        for question in [
-            "any recent updates?",
-            "any updates?",
-            "what's new",
-            "what did I miss",
-            "where did I leave off",
-            "що нового",
-            "що я пропустив"
-        ] {
-            XCTAssertNotNil(ScreenRecall.window(for: question, now: now), question)
-        }
-    }
-
-    /// Substring matching missed every one of these — a word slipped in
-    /// between the two the phrase names.
-    func testMatchesPhraseWordsInAnyOrderOrDistance() {
-        for question in [
-            "які останні новини",
-            "які у нас новини",
-            "what have I actually been working on",
-            "what did I end up doing yesterday"
-        ] {
-            XCTAssertNotNil(ScreenRecall.window(for: question, now: now), question)
-        }
-    }
-
-    func testIgnoresOrdinaryQuestions() {
-        for question in [
-            "what did Leo say about pricing",
-            "summarize the standup",
-            "які дедлайни по проєкту"
-        ] {
-            XCTAssertNil(ScreenRecall.window(for: question, now: now), question)
-        }
-    }
-
     func testFallsBackToADayWhenNoPeriodIsNamed() {
-        let window = ScreenRecall.window(for: "what have I been up to", now: now)
+        let window = ScreenRecall.window(named: nil, now: now)
 
-        XCTAssertEqual(window?.end, now)
-        XCTAssertEqual(window?.duration ?? 0, ScreenRecall.defaultLookback, accuracy: 1)
+        XCTAssertEqual(window.end, now)
+        XCTAssertEqual(window.duration, ScreenRecall.defaultLookback, accuracy: 1)
     }
 
     func testANamedPeriodNeverReachesIntoTheFuture() {
-        let window = ScreenRecall.window(for: "what was I doing today", now: now)
+        let today = DateInterval(start: now.addingTimeInterval(-3600), end: now.addingTimeInterval(3600))
+        let window = ScreenRecall.window(named: today, now: now)
 
-        XCTAssertNotNil(window)
-        XCTAssertEqual(window?.end, now)
+        XCTAssertEqual(window.start, today.start)
+        XCTAssertEqual(window.end, now)
+    }
+
+    func testAPeriodThatHasNotStartedFallsBackToADay() {
+        let tomorrow = DateInterval(start: now.addingTimeInterval(3600), end: now.addingTimeInterval(7200))
+
+        XCTAssertEqual(ScreenRecall.window(named: tomorrow, now: now), ScreenRecall.defaultWindow(now: now))
     }
 }

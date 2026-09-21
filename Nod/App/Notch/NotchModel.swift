@@ -266,9 +266,7 @@ final class NotchModel: ObservableObject {
             guard let voiceChat else { return "Nod isn't ready yet — try again in a moment." }
             // Its own thread, capped to the last five exchanges (`AppServices`)
             // — never the Library's, and never asked to carry the whole call.
-            let baseline = voiceChat.messages.count
-            await voiceChat.ask(question)
-            return voiceChat.answer(after: baseline)?.content ?? "Nothing came back for that — say it again?"
+            return await voiceChat.ask(question)?.content ?? "Nothing came back for that — say it again?"
         }
         heldQuestion = HeldQuestionRecorder(audioCapture: audioCapture)
         self.onboarding = onboarding

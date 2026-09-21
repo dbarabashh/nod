@@ -113,6 +113,10 @@ final class LLMProxyClient: ObservableObject {
         UserDefaults.standard.string(forKey: Self.titleModelKey) ?? "anthropic/claude-sonnet-4.6"
     }
 
+    private var judgePurposesUnavailable: Set<JudgePurpose> = []
+    private var judgeFailures = 0
+    private var judgeRestsUntil = Date.distantPast
+
     /// Model for the structured prep calls that never reach the user: rewriting
     /// a follow-up into a standalone query (+ its HyDE passage) and routing a
     /// question to a scope. Both emit a fixed JSON schema from a prompt of a
@@ -939,11 +943,32 @@ final class LLMProxyClient: ObservableObject {
         query: String,
         language: AppLanguage = .english,
         personalContext: String = ""
-    ) async -> (standalone: String, hyde: String?, aboutScreen: Bool, needsSessions: Bool, screenTerms: [String]) {
+    ) async -> PreparedQuery {
         struct HyDEResult: Decodable {
             let standalone_query: String
             let hypothetical_answer: String
             let screen_terms: [String]?
+            let names: [String]?
+            let period: String?
+
+            /// Everything but the two strings is read leniently: one field of
+            /// the wrong type — `"names": "Acme"` — would otherwise throw away
+            /// the rewrite and the passage along with it.
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                standalone_query = try container.decode(String.self, forKey: .standalone_query)
+                hypothetical_answer = try container.decode(String.self, forKey: .hypothetical_answer)
+                screen_terms = try? container.decode([String].self, forKey: .screen_terms)
+                names = try? container.decode([String].self, forKey: .names)
+                period = try? container.decode(String.self, forKey: .period)
+                needs_sessions = try? container.decode(Bool.self, forKey: .needs_sessions)
+                about_screen = try? container.decode(Bool.self, forKey: .about_screen)
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case standalone_query, hypothetical_answer, screen_terms, names, period, needs_sessions, about_screen
+            }
+
             /// Absent on an older response; true then, because answering from
             /// the recordings when they weren't needed is a wasted search, and
             /// skipping them when they were needed is a wrong answer.
@@ -968,16 +993,18 @@ final class LLMProxyClient: ObservableObject {
             )
             let standalone = result.standalone_query.trimmingCharacters(in: .whitespacesAndNewlines)
             let hyde = result.hypothetical_answer.trimmingCharacters(in: .whitespacesAndNewlines)
-            return (
-                standalone.isEmpty ? query : standalone,
-                hyde.isEmpty ? nil : hyde,
-                result.about_screen ?? false,
-                result.needs_sessions ?? true,
-                (result.screen_terms ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            return PreparedQuery(
+                standalone: standalone.isEmpty ? query : standalone,
+                hyde: hyde.isEmpty ? nil : hyde,
+                aboutScreen: result.about_screen ?? false,
+                needsSessions: result.needs_sessions ?? true,
+                screenTerms: Self.trimmed(result.screen_terms),
+                names: Self.trimmed(result.names),
+                period: (result.period ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             )
         } catch {
             Log.llm.error("query prep failed (using raw query): \(error.localizedDescription)")
-            return (query, nil, false, true, [])
+            return PreparedQuery(standalone: query)
         }
     }
 
@@ -1780,4 +1807,94 @@ private struct ToolCallAccumulator {
                 )
             }
     }
+}
+
+extension LLMProxyClient {
+    struct PreparedQuery {
+        let standalone: String
+        var hyde: String?
+        var aboutScreen = false
+        var needsSessions = true
+        var screenTerms: [String] = []
+        /// What the question names, spelled the way the corpus and the screen
+        /// spell it. A client's name typed by ear in Cyrillic matches neither
+        /// the entity nor a window that says it in Latin.
+        var names: [String] = []
+        /// In `SessionTimeRange.resolve(period:)`'s vocabulary; empty when the
+        /// question named no period.
+        var period = ""
+        /// The recordings a typed reading routed to: empty for the whole
+        /// history, nil when nothing routed and the router has to.
+        var sessionIDs: [UUID]?
+        /// Entity names that appear in the text as ordinary words.
+        var notMeant: Set<String> = []
+
+        /// A standup report is about the user's own work by definition, so it
+        /// does not wait on the flag: "a report on project X" reads to the
+        /// model as a question about a topic, which the flag says false for.
+        var asksAboutOwnWork: Bool {
+            aboutScreen || period == SessionTimeRange.sinceLastWorkdayKey
+        }
+    }
+
+    /// Typed judgments over `request.state`, or nil when there are none to be
+    /// had — no key on this branch, a slow upstream, a refusal. Never throws:
+    /// every caller has a way to decide without it, and that is the fallback.
+    ///
+    /// One attempt, two seconds. This runs in front of the first route of a
+    /// turn, and a judgment that arrives after query prep has is no use to
+    /// anyone. After three misses in a row it is left alone for five minutes,
+    /// so an outage upstream costs a few slow turns rather than every one.
+    func judge(_ request: some JudgeRequest) async -> [String: JudgeAnswer]? {
+        let purpose = request.purpose
+        guard canJudge(purpose) else { return nil }
+        // An unencodable request is a request nobody can answer: nil, like
+        // every other way of having no judgment.
+        guard let body = try? JSONEncoder().encode(ProxyEnvelope(kind: "judge", payload: request)) else { return nil }
+        let asked = Task { try await self.postToProxy(body: body) }
+        let deadline = Task {
+            try await Task.sleep(nanoseconds: Self.judgeDeadline)
+            asked.cancel()
+        }
+        defer { deadline.cancel() }
+        do {
+            let data = try await withTaskCancellationHandler { try await asked.value } onCancel: { asked.cancel() }
+            let answers = try JSONDecoder().decode(JudgeReply.self, from: data).answers
+            judgeFailures = 0
+            return answers
+        } catch let ClientError.requestFailed(status, body) where status == 422 || (status == 400 && body.contains("Unknown kind")) {
+            // Not switched on for this purpose on this branch, or a proxy from
+            // before `judge` existed. Neither changes within an app run, so it
+            // is not asked again — any other 400 is one bad request, not that.
+            judgePurposesUnavailable.insert(purpose)
+            Log.llm.info("judge unavailable (\(status)) — deciding without it")
+            return nil
+        } catch {
+            guard !Task.isCancelled else { return nil }
+            judgeFailures += 1
+            if judgeFailures >= Self.judgeFailureLimit {
+                judgeFailures = 0
+                judgeRestsUntil = Date().addingTimeInterval(Self.judgeRest)
+            }
+            Log.llm.error("judge missed (deciding without it): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Whether asking is worth building a request for.
+    func canJudge(_ purpose: JudgePurpose) -> Bool {
+        !judgePurposesUnavailable.contains(purpose) && Date() >= judgeRestsUntil
+    }
+
+    private static let judgeDeadline: UInt64 = 2_000_000_000
+    private static let judgeFailureLimit = 3
+    private static let judgeRest: TimeInterval = 300
+
+    fileprivate static func trimmed(_ values: [String]?) -> [String] {
+        (values ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    }
+}
+
+private struct JudgeReply: Decodable {
+    let answers: [String: JudgeAnswer]
 }
