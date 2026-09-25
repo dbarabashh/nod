@@ -136,6 +136,10 @@ final class AudioCaptureService: NSObject, ObservableObject {
     private var lastMicFrameAt: Date?
     private var micWatchdogTask: Task<Void, Never>?
     private var micRestartInFlight = false
+    /// Bumped by every start, pause, resume and stop before its first await, so
+    /// work that resumes from a suspension can tell a later transition happened
+    /// under it and must not reopen a device that transition closed.
+    private var captureGeneration = 0
     private static let micStallSeconds: TimeInterval = 8
     /// Counts stall-triggered restarts since the last real buffer. A device
     /// can pass `deviceID(forUID:)` (still connected) yet never deliver a
@@ -204,22 +208,27 @@ final class AudioCaptureService: NSObject, ObservableObject {
         // carry into a new recording's transcript.
         micDiversion.withLockUnchecked { $0 = nil }
         state = .capturing
+        captureGeneration += 1
+        let generation = captureGeneration
 
         Log.audio.info("starting capture (mic=\(captureMic) system=\(captureSystem))")
         if captureMic {
             lastMicFrameAt = Date()
             await startMicrophone()
+            guard generation == captureGeneration else { return }
             startMicWatchdog()
         }
         if captureSystem {
             lastSystemFrameAt = Date()
             await startSystemAudio()
+            guard generation == captureGeneration else { return }
             startSystemWatchdog()
         }
     }
 
     func pause() {
         guard state == .capturing else { return }
+        captureGeneration += 1
         audioEngine?.pause()
         stopMicWatchdog()
         stopSystemWatchdog()
@@ -232,6 +241,8 @@ final class AudioCaptureService: NSObject, ObservableObject {
 
     func resume() async {
         guard state == .paused else { return }
+        captureGeneration += 1
+        let generation = captureGeneration
         if captureMic {
             // Rebuild rather than just re-`start()` the paused engine: a device
             // may have been unplugged or the default changed while paused, and
@@ -239,11 +250,13 @@ final class AudioCaptureService: NSObject, ObservableObject {
             stopMicrophone()
             lastMicFrameAt = Date()
             await startMicrophone()
+            guard generation == captureGeneration else { return }
             startMicWatchdog()
         }
         if captureSystem {
             lastSystemFrameAt = Date()
             await startSystemAudio()
+            guard generation == captureGeneration else { return }
             startSystemWatchdog()
         }
         state = .capturing
@@ -251,6 +264,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
 
     func stop() async {
         guard state != .idle else { return }
+        captureGeneration += 1
         stopMicWatchdog()
         stopSystemWatchdog()
         stopMicrophone()
@@ -286,7 +300,11 @@ final class AudioCaptureService: NSObject, ObservableObject {
     // MARK: - Microphone (AVAudioEngine)
 
     private func startMicrophone() async {
-        let engine = AVAudioEngine()
+        let generation = captureGeneration
+        let engine = await Self.makeEngine()
+        // The build above is the only suspension here: a stop, pause or
+        // competing restart that landed during it owns the outcome now.
+        guard generation == captureGeneration, audioEngine == nil else { return }
         let input = engine.inputNode
 
         // Bind the requested input device before the engine settles. The naive
@@ -363,14 +381,33 @@ final class AudioCaptureService: NSObject, ObservableObject {
             }
         }
 
+        run(engine)
+    }
+
+    private func run(_ engine: AVAudioEngine) {
         do {
             try engine.start()
             audioEngine = engine
+            // The build can outlast the stall threshold on a slow device switch;
+            // measured from here, the watchdog waits for a real first buffer.
+            lastMicFrameAt = Date()
             Log.audio.info("microphone engine.start() OK")
         } catch {
             micError = "Microphone capture failed: \(error.localizedDescription)"
             Log.audio.error("microphone failed: \(error.localizedDescription)")
         }
+    }
+
+    /// The first `inputNode` access asks the HAL for the hardware format,
+    /// which blocks for seconds while a device is mid-switch (Bluetooth headsets
+    /// especially) — built off the actor so that wait never lands on the main
+    /// thread.
+    private nonisolated static func makeEngine() async -> AVAudioEngine {
+        await Task.detached(priority: .userInitiated) {
+            let engine = AVAudioEngine()
+            _ = engine.inputNode
+            return UncheckedEngine(engine: engine)
+        }.value.engine
     }
 
     private func stopMicrophone() {
@@ -644,8 +681,10 @@ final class AudioCaptureService: NSObject, ObservableObject {
     // MARK: - System audio (ScreenCaptureKit)
 
     private func startSystemAudio() async {
+        let generation = captureGeneration
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            guard generation == captureGeneration else { return }
             guard let display = content.displays.first else {
                 systemAudioError = .noDisplay
                 return
@@ -669,10 +708,17 @@ final class AudioCaptureService: NSObject, ObservableObject {
             // and the system logs "stream output NOT found. Dropping frame".
             try stream.addStreamOutput(outputHandler, type: .screen, sampleHandlerQueue: outputQueue)
             try await stream.startCapture()
+            // A stop or pause that landed during the start found no stream to
+            // close; this one is the leftover and has to be closed here.
+            guard generation == captureGeneration else {
+                try? await stream.stopCapture()
+                return
+            }
             scStream = stream
             lastSystemFrameAt = Date()
             Log.audio.info("system audio started (SCStream)")
         } catch {
+            guard generation == captureGeneration else { return }
             // ScreenCaptureKit reports a missing grant as an ordinary stream
             // error, so the cause has to be read off TCC rather than the throw.
             // Everything downstream needs the distinction: one of these the
@@ -733,6 +779,11 @@ final class AudioCaptureService: NSObject, ObservableObject {
     }
 }
 
+/// Handed across the actor boundary exactly once, before anything else holds it.
+private struct UncheckedEngine: @unchecked Sendable {
+    let engine: AVAudioEngine
+}
+
 private final class SystemAudioOutputHandler: NSObject, SCStreamOutput, SCStreamDelegate {
     var onSampleCount: ((Int) -> Void)?
     var onPCMBuffer: ((AVAudioPCMBuffer) -> Void)?
@@ -764,7 +815,10 @@ private final class SystemAudioOutputHandler: NSObject, SCStreamOutput, SCStream
         onPCMBuffer?(mono)
     }
 
-    func stream(_ stream: SCStream, didStopWithError error: Error) {
-        onError?("System audio stream stopped: \(error.localizedDescription)")
+    /// `Error?` where the SDK says `Error`: macOS 13 calls this with a nil
+    /// `NSError` despite the nonnull annotation, and a non-optional bridged
+    /// `Error` crashes on first touch (`swift_getErrorValue`).
+    func stream(_ stream: SCStream, didStopWithError error: Error?) {
+        onError?("System audio stream stopped: \(error?.localizedDescription ?? "no reason given")")
     }
 }

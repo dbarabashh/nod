@@ -472,10 +472,18 @@ final class ScreenContextService: ObservableObject {
         return shipped.union([base, base + ".sandbox"])
     }()
 
+    private struct FocusedRead {
+        let userID: UUID
+        let pid: pid_t
+        let title: String
+        let url: String?
+        let text: String?
+    }
+
     private func captureOnce() async {
         guard ScreenContextDefaults.isEnabled else { return stop() }
         guard isCaptureAllowed else { return }
-        guard let supabase, let userID = supabase.auth.currentSession?.user.id else { return }
+        guard let supabase else { return }
         // Built once per tick and threaded through. Every access rebuilds the
         // blocklist — twenty-odd bundle ids plus every enabled category's
         // keywords — and this path used to construct three of them.
@@ -486,16 +494,29 @@ final class ScreenContextService: ObservableObject {
               !rules.excludesApp(bundleID: bundleID)
         else { return }
 
+        // Off the main actor from here, the session read included: it is a
+        // Keychain read plus a JSON decode, and `processIdentifier` an XPC
+        // round trip into LaunchServices. Either one stalled the app for seconds.
         let reader = reader
-        let pid = app.processIdentifier
-        let read = await Task.detached(priority: .utility) { () -> (title: String, url: String?, text: String?)? in
+        let read = await Task.detached(priority: .utility) { () -> FocusedRead? in
+            guard let userID = supabase.auth.currentSession?.user.id else { return nil }
+            let pid = app.processIdentifier
             guard let focused = reader.focusedWindowText(forProcessID: pid, bundleID: bundleID),
                   !rules.excludesWindow(title: focused.title, url: focused.url)
             else { return nil }
-            return (focused.title, focused.url, ScreenObservationBuilder.text(from: focused.texts))
+            return FocusedRead(
+                userID: userID,
+                pid: pid,
+                title: focused.title,
+                url: focused.url,
+                text: ScreenObservationBuilder.text(from: focused.texts)
+            )
         }.value
 
-        guard let read, !ScreenObservationBuilder.isBrowserChrome(url: read.url),
+        guard let read else { return }
+        let userID = read.userID
+        let pid = read.pid
+        guard !ScreenObservationBuilder.isBrowserChrome(url: read.url),
               let captured = await recognizedIfAccessibilityIsThin((read.title, read.text), pid: pid, rules: rules) else { return }
         let observation = ScreenObservation(
             userID: userID,

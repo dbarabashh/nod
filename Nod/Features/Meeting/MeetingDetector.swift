@@ -428,6 +428,9 @@ final class MeetingDetector: ObservableObject {
         tickCount += 1
         let isRecording = session.meeting != .idle
         let (signals, seen) = await signals()
+        // `stop()` may have landed during the probe; a write after it would
+        // leave a stale verdict behind a detector that is off.
+        guard !Task.isCancelled else { return }
         let call = MeetingDetection.call(in: signals)
 
         callInProgress = MeetingDetection.callVerdict(
@@ -484,54 +487,80 @@ final class MeetingDetector: ObservableObject {
     /// second is only for the tick log, which is why it rides alongside rather
     /// than inside `CallSignals` — nothing decides anything from it.
     ///
-    /// The window read happens off the main actor. Measured: the grant check is
-    /// a ~9 ms round trip to `tccd` with no in-process cache, and the window
-    /// list another ~2 ms — twenty-odd milliseconds every five seconds, which
-    /// on the main thread is a dropped frame in whatever was animating.
+    /// Everything that talks to another process happens off the main actor:
+    /// the process list is an XPC round trip into LaunchServices per app, the
+    /// microphone query a HAL round trip per audio process, the grant check a
+    /// round trip to `tccd`. Any of them stalls for seconds when the daemon on
+    /// the other end is busy, and on the main thread that froze the whole app.
     private func signals() async -> (CallSignals, seen: [String]) {
         let rules = exclusions.rules
         let muted = preference.mutedBundleIDs
-        let (allRunning, helpers) = ConferencingApp.running(excluding: rules)
-        let candidates = allRunning.filter { !muted.contains($0.0.rawValue) }
-        guard !candidates.isEmpty else { return (CallSignals(), []) }
-
-        let present = Set(candidates.map(\.0))
-        let pids = Dictionary(candidates, uniquingKeysWith: { first, _ in first })
-        let scan = await Task.detached(priority: .utility) {
-            // One grant check, not two: `scan` used to preflight for itself.
-            guard CGPreflightScreenCaptureAccess() else {
-                return (granted: false, matched: [ConferencingApp: String](), seen: [String]())
-            }
-            let read = Self.scan(pids: pids, rules: rules)
-            return (granted: true, matched: read.matched, seen: read.seen)
+        let browserMicDue = tickCount.isMultiple(of: Self.browserMicEvery)
+        let ownBundleID = Bundle.main.bundleIdentifier
+        let probe = await Task.detached(priority: .utility) {
+            Self.probe(rules: rules, muted: muted, browserMicDue: browserMicDue, ownBundleID: ownBundleID)
         }.value
-        noteScreenAccess(granted: scan.granted)
+        guard let probe else { return (CallSignals(), []) }
+        noteScreenAccess(granted: probe.granted)
+        if let recording = probe.recording {
+            lastMicUsers = Set(probe.running).filter { recording.contains($0.rawValue) }
+        }
         return (CallSignals(
-            running: candidates.map(\.0),
-            helperBacked: helpers.intersection(present),
-            micUsers: micUsers(among: present),
-            titles: scan.matched
-        ), scan.seen)
+            running: probe.running,
+            helperBacked: probe.helperBacked,
+            micUsers: lastMicUsers,
+            titles: probe.matched
+        ), probe.seen)
     }
 
-    /// Which candidates are holding the microphone.
-    ///
-    /// Skipped entirely unless a native app is up, because that is the only
-    /// thing the answer is used for (`MeetingDetection.call`) — a browser needs
-    /// a window title regardless. Without the guard, the walk runs on every tick
-    /// of every day for anyone with a browser open, and it is not cheap: one HAL
-    /// round trip to list the audio processes, then two more per process.
-    private func micUsers(among candidates: Set<ConferencingApp>) -> Set<ConferencingApp> {
+    private struct Probe {
+        var running: [ConferencingApp]
+        var helperBacked: Set<ConferencingApp>
+        /// nil when the microphone was not asked this tick.
+        var recording: Set<String>?
+        var granted: Bool
+        var matched: [ConferencingApp: String]
+        var seen: [String]
+    }
+
+    /// nil when no candidate app is running.
+    private nonisolated static func probe(
+        rules: ScreenExclusionRules,
+        muted: Set<String>,
+        browserMicDue: Bool,
+        ownBundleID: String?
+    ) -> Probe? {
+        let (allRunning, helpers) = ConferencingApp.running(excluding: rules)
+        let candidates = allRunning.filter { !muted.contains($0.0.rawValue) }
+        guard !candidates.isEmpty else { return nil }
+
+        let present = Set(candidates.map(\.0))
         // A native app is asked every tick — it is the signal that survives a
         // user who joined muted with the window behind something else. A browser
         // is asked one tick in four: it only matters after a minute of holding
         // the microphone anyway, and the query is a round trip into CoreAudio
         // that a browser being open should not buy every five seconds.
-        let hasNative = candidates.contains { !$0.isBrowser }
-        guard hasNative || tickCount.isMultiple(of: Self.browserMicEvery) else { return lastMicUsers }
-        let recording = AudioProcessActivity.bundleIDsRecording(excluding: Bundle.main.bundleIdentifier)
-        lastMicUsers = candidates.filter { recording.contains($0.rawValue) }
-        return lastMicUsers
+        let hasNative = present.contains { !$0.isBrowser }
+        let recording = hasNative || browserMicDue
+            ? AudioProcessActivity.bundleIDsRecording(excluding: ownBundleID)
+            : nil
+
+        var probe = Probe(
+            running: candidates.map(\.0),
+            helperBacked: helpers.intersection(present),
+            recording: recording,
+            granted: false,
+            matched: [:],
+            seen: []
+        )
+        // One grant check, not two: `scan` used to preflight for itself.
+        guard CGPreflightScreenCaptureAccess() else { return probe }
+        let pids = Dictionary(candidates, uniquingKeysWith: { first, _ in first })
+        let read = scan(pids: pids, rules: rules)
+        probe.granted = true
+        probe.matched = read.matched
+        probe.seen = read.seen
+        return probe
     }
 
     /// How often a browser-only tick asks CoreAudio. `browserMicrophone` needs
