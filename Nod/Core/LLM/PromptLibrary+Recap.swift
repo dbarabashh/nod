@@ -32,7 +32,9 @@ extension PromptLibrary {
         - Be consistent: pick one label per speaker and use it throughout the recap. Do not mix "Dima" and "the candidate" for the same person, and NEVER pair the two forms — "Andy (Speaker 3)" and "Speaker 2 (Nicola)" are both wrong.
         - HARD BAN: the literal strings `[Me]`, `[Them]`, `Me:`, `Them:`, and `Speaker` followed by a number must NEVER appear anywhere in the output — not in a section title, not in a bullet, not in a quote attribution. If you catch yourself about to write one, stop and rewrite the sentence with no author instead.
 
-        Scan the transcript and build these six lists. Each item must appear LITERALLY in the transcript (or, for DECISIONS / ACTIONS / OPEN_THREADS, be a direct paraphrase of a literal statement).
+        Scan the transcript and build these seven lists. Each item must appear LITERALLY in the transcript (or, for TOPICS / DECISIONS / ACTIONS / OPEN_THREADS, be a direct paraphrase of what was actually said).
+
+          • TOPICS — every distinct subject the session spent real time on, with its substance: what was reported, the positions and the reasons given for them, options weighed, examples and numbers used, concerns raised, and where the discussion landed. This list carries most of the recap — a reader who missed the session should learn what was actually said, not only what was decided.
 
           • PEOPLE — every personal name that appears literally. If a speaker is referred to only by role (e.g. "a participant", "the PM"), record the role, not an invented name.
           • NUMBERS — every figure that appears literally: counts, percentages, currency amounts, durations, dates, version numbers.
@@ -55,21 +57,21 @@ extension PromptLibrary {
             Decisions and Actions often overlap (the team decides to do X, person Y commits to doing X). When they do, capture in both, but state the decision in DECISIONS and the assignment in ACTIONS — do not duplicate the same sentence.
 
             CRITICAL GUARDS against fabricated actions:
-            (a) IDIOM TRAP — do NOT parse idiomatic phrases as literal tasks. Examples of idioms that are NOT actions: "burying the lead" (means under-emphasising the main news), "drinking from a firehose" (means overwhelmed), "kick the can down the road" (means defer), "moving the goalposts" (means changing criteria). When you see one, summarise the speaker's actual point in Topics covered — never invent an action like "X will bury the lead".
-            (b) PAST-TENSE TRAP — actions describe FUTURE work. If the transcript shows the task ALREADY DONE in past tense ("I linked the issue", "I added Tim as reviewer"), it's a FACT for Topics covered, not an action. Future-tense commitments ("I'll link the issue", "I'll add Tim") are real actions.
+            (a) IDIOM TRAP — do NOT parse idiomatic phrases as literal tasks. Examples of idioms that are NOT actions: "burying the lead" (means under-emphasising the main news), "drinking from a firehose" (means overwhelmed), "kick the can down the road" (means defer), "moving the goalposts" (means changing criteria). When you see one, summarise the speaker's actual point under its topic — never invent an action like "X will bury the lead".
+            (b) PAST-TENSE TRAP — actions describe FUTURE work. If the transcript shows the task ALREADY DONE in past tense ("I linked the issue", "I added Tim as reviewer"), it's a FACT for its topic, not an action. Future-tense commitments ("I'll link the issue", "I'll add Tim") are real actions.
             (c) VERBATIM CHECK — before writing each Action item, locate the EXACT sentence in the transcript that establishes the commitment + owner. If you can't point to a single sentence, drop the item.
-            (d) WITHIN-MEETING COMPLETION TRAP — an intention stated as FUTURE early in the call but reported as DONE later in the SAME transcript is NOT an outstanding action. Before listing any action, scan the REST of the transcript for its completion ("I'll refactor the parser" … later … "okay, the parser's done / that's fixed now"). If you find it, the task was completed during the meeting: record it ONCE as a finished result in Topics covered, and do NOT also list it under actions. Actions are only work STILL OUTSTANDING when the call ended.
+            (d) WITHIN-MEETING COMPLETION TRAP — an intention stated as FUTURE early in the call but reported as DONE later in the SAME transcript is NOT an outstanding action. Before listing any action, scan the REST of the transcript for its completion ("I'll refactor the parser" … later … "okay, the parser's done / that's fixed now"). If you find it, the task was completed during the meeting: record it ONCE as a finished result under its topic, and do NOT also list it under actions. Actions are only work STILL OUTSTANDING when the call ended.
           • OPEN_THREADS — every unresolved question, blocker, deferred item, thing someone said they'd think about / get back to, OR a speculative idea that was raised but not accepted (see DECISIONS exclusion list).
 
-        An empty list is fine — it just means that category won't surface in the recap.
+        An empty list is fine — it just means that category won't surface in the recap. An empty TOPICS list on a substantive transcript is not fine: go back and read it again.
 
         [TIMELINE RECONCILIATION] — the transcript is chronological; later statements OVERRIDE earlier ones about the same thread. Before emitting, collapse each thread to its FINAL state in the call. Never surface both the intention and its outcome as two separate items:
-        - A plan or intention stated early ("I'll work on X") that is reported DONE later in the same call ("X is fixed now") is COMPLETED work — surface it ONCE as a finished result in Topics covered, NOT as an outstanding action and NOT as a separate "planning to do X" item.
-        - A question raised early and answered later is resolved — it belongs in Topics covered with its answer, not in OPEN_THREADS.
+        - A plan or intention stated early ("I'll work on X") that is reported DONE later in the same call ("X is fixed now") is COMPLETED work — surface it ONCE as a finished result under its topic, NOT as an outstanding action and NOT as a separate "planning to do X" item.
+        - A question raised early and answered later is resolved — it belongs under its topic with its answer, not in OPEN_THREADS.
         - A decision later changed or reversed reflects ONLY the final decision.
         Report the outcome, not the journey to it.
 
-        STEP 2 — ORGANIZE the grounded items from your six lists into recap sections, then EMIT JSON. Every bullet must trace back to an item on a Step-1 list; if it's not on a list, it MUST NOT appear. No exceptions.
+        STEP 2 — ORGANIZE the grounded items from your seven lists into recap sections, then EMIT JSON. Every bullet must trace back to an item on a Step-1 list; if it's not on a list, it MUST NOT appear. No exceptions.
 
         [ACTION ITEMS GO IN THEIR OWN ARRAY — NOT A SECTION]
         Your Step-1 ACTIONS list does NOT become a `sections` entry. Emit every action in the dedicated top-level `action_items` array (see OUTPUT FORMAT). Do NOT also create a "To-dos" / "Action items" / "Next steps" / "Follow-ups" / "Commitments" section in `sections` — that would duplicate them. Each action_items entry is the task, phrased so it reads on its own (e.g. "Move the release ticket"); when it belongs to someone else, name them in the text as well as in `owner` (e.g. "Ask Tim to review the YAML", "Tracy takes over what Colin left"). DECISIONS, OPEN_THREADS, and topic content still become `sections` as normal.
@@ -86,8 +88,9 @@ extension PromptLibrary {
           "sections": [
             {
               "title": "<section heading, in \(lang)>",
+              "kind": "<overview | topic | decisions | unresolved | facts | other>",
               "bullets": [
-                { "text": "<1-2 sentences>", "quote": "<3-10 word verbatim quote, or null>" }
+                { "text": "<1-3 sentences>", "quote": "<3-10 word verbatim quote, or null>" }
               ]
             }
           ],
@@ -102,19 +105,21 @@ extension PromptLibrary {
 
         Rules:
 
+        - Every section carries a `kind`, whatever its heading says: `decisions` for what was settled, `unresolved` for questions left open, deferred decisions and unanswered risks or blockers, `overview` for the opening read-out, `facts` for key facts, `topic` for a section about one subject of discussion, and `other` for anything else. The app counts decisions and open items by `kind`, so a section of discussion is never `decisions` or `unresolved` even when its subject is a decision or a risk.
+
         - `action_items` holds your Step-1 ACTIONS list and NOTHING else; it is separate from `sections`. Use [] when there are no outstanding tasks. Never repeat an action as a `sections` bullet.
         - Drop any section that has no grounded bullets — never emit a section with an empty `bullets` array, and never pad one with filler. A meeting that reached no decisions simply has no decisions section.
-        - Each bullet's `text` is 1-2 sentences, readable in two seconds. Capture the RESOLUTION or CONCLUSION, not just that a topic "was discussed" — "X was raised and the team concluded Y", not "X was discussed".
-        - Group related exchanges into ONE bullet — bullets are organized by substance, NOT chronological position. Merge back-to-back discussion of the same area.
+        - Each bullet's `text` is 1-3 sentences and carries the specifics: who said it when the speaker is named, why, with which numbers, and what came of it. Never write that a topic "was discussed" — say what was said about it and where it landed.
+        - Group by substance, NOT chronological position: everything said about one subject belongs under that subject, even when the conversation came back to it later.
         - Across the WHOLE recap, at least 1-2 bullets MUST carry a non-null `quote` (3-10 words, verbatim from the transcript, no quotation marks inside the string). Quotes are a grounding tripwire — you cannot quote what isn't there. Use null when you can't quote exactly; attribute a quote only if the speaker's name is on PEOPLE.
-        - A decision/commitment bullet must NOT contain speculative phrasing ("maybe", "might", "could", "perhaps", "may"). If it can't be stated firmly, it's an open question, not a decision — route it to the open-questions section instead.
+        - A decision/commitment bullet must NOT contain speculative phrasing ("maybe", "might", "could", "perhaps", "may"). If it can't be stated firmly, it's an open question, not a decision — route it to the Unresolved section instead.
         - Each `action_items` entry is one outstanding task. Put a deadline in `deadline` only if one was stated (else null) — never inside `text`. Set `owner` only when the task is somebody else's, naming them exactly as the transcript does, and name them in `text` too; a task the user owns leaves `owner` null. Re-check each against the idiom / past-tense / within-meeting-completion traps from Step 1 before keeping it; drop anything you cannot tie to a literal commitment.
         - Personal milestones (births, anniversaries, promotions, joins, departures) MUST surface if mentioned, even briefly — give them their own bullet.
 
         ===========================
         [GROUNDING] — non-negotiable
         ===========================
-        - Never include a name, number, project name, product name, tool name, organization, or acronym that did not appear in your Step-1 lists.
+        - Never include a name, number, project name, product name, tool name, organization, or acronym that did not appear literally in the transcript.
         - PRESERVE CONDITIONS. Conditional and constraint clauses ("only if…", "except when…", "pending…", "once X lands…", "assuming Y") are LOAD-BEARING and are exactly the kind of qualifier that gets silently dropped in summarization. If a bullet depends on a condition, keep that clause inside its `text` — never trim it to make the item read cleaner. A decision reported without its condition is WRONG, not merely shorter.
         - Non-\(lang) transcript text is valid source material. Translate it in your head, extract grounded content, and write the JSON strings in \(
             lang
@@ -125,13 +130,13 @@ extension PromptLibrary {
         - The literal tokens `[Me]`, `[Them]` and `Speaker <number>` are transcript routing hints and must NEVER appear in ANY string in the JSON — see [SPEAKER LABELS] above for what to substitute.
 
         ===========================
-        [THRESHOLD] — when to omit, when to fall back
+        [THRESHOLD] — coverage, and when to fall back
         ===========================
-        - When in doubt, OMIT. Two well-grounded bullets are far better than seven fabricated ones.
+        - Grounding and coverage are both required. Never write what the transcript does not support, and never leave out grounded substance to keep the recap short: the person reading it may not have been in the room, and anything missing from the recap is lost to them. Omit only what you cannot ground.
         - Do NOT use the fallback because the user selected \(lang) while the meeting was spoken in another language. Language mismatch alone is never "too noisy" or "unclear".
         - If the transcript is too short, too noisy, or you cannot ground ANY content, return EXACTLY this JSON and nothing else:
 
-          {"sections":[{"title":"Summary","bullets":[{"text":"Transcript too short or unclear to recap reliably.","quote":null}]}]}
+          {"sections":[{"title":"Summary","kind":"other","bullets":[{"text":"Transcript too short or unclear to recap reliably.","quote":null}]}]}
 
         ===========================
         [STYLE]
@@ -163,21 +168,21 @@ extension PromptLibrary {
 
     private static func summarySectionPlan(template: SummaryTemplate, language lang: String) -> String {
         guard let titles = template.sections else {
-            // A fixed spine rather than headings the model invents per meeting.
-            // Two reasons, both about what happens after the recap is written:
-            // a reader scanning a session wants the same four questions answered
-            // in the same order every time, and the app counts decisions and
-            // loose ends by section title — headings that change run to run make
-            // both the counters and the attention list unreliable.
+            // A fixed spine around the topic sections: a reader scanning a
+            // session wants the same questions answered in the same place every
+            // time, whatever the topics in between turned out to be.
             return """
-            [SECTIONS — use exactly these, in this order]
-            Translate each title into \(lang), keeping the meaning:
-            1. Overview — ONE bullet, 2-3 sentences of plain prose: what this session was and what came of it.
-            2. Decisions — what the room actually settled. One bullet each, stated as the decision, not the discussion.
-            3. Unresolved — questions left open, decisions deferred, risks raised with no answer. One bullet each.
-            4. Key facts — numbers, prices, dates, names, limits, links stated out loud and worth having later. One bullet each, with the figure in it.
-            Drop any of these that has no grounded content rather than padding it — a session with nothing unresolved must not carry an "Unresolved" section.
-            You may add ONE extra section at the end, with a heading of your choosing, only if substantial grounded content fits none of the four.
+            [SECTIONS — in this order]
+            Translate each fixed title into \(lang), keeping the meaning:
+            1. Overview — ONE bullet, 2-4 sentences of plain prose: what this session was, what it covered, and what came of it.
+            2. One section per TOPIC — a section for each substantial subject on your TOPICS list, most important first. Its heading names the subject itself in a few words (e.g. "Q3 hiring plan", "Safari login bug"), in \(
+                lang
+            ). Under it, 2-6 bullets: what was reported, the positions and reasons given, options considered, and where it landed. Cover every topic the session spent real time on — a short call may have one or two, a long working session six or more.
+            3. Decisions — what the room actually settled. One bullet each, stated as the decision, not the discussion.
+            4. Unresolved — questions left open, decisions deferred, risks raised with no answer. One bullet each.
+            5. Key facts — numbers, prices, dates, names, limits, links stated out loud and worth having later. One bullet each, with the figure in it.
+            Drop any fixed section that has no grounded content rather than padding it — a session with nothing unresolved must not carry an "Unresolved" section.
+            A decision or open question also belongs in its topic's bullets as part of that discussion; the Decisions and Unresolved sections restate it as a single line the reader can scan.
             Outstanding tasks do NOT go in a section — emit them in the top-level `action_items` array as instructed above.
             """
         }
@@ -243,7 +248,7 @@ extension PromptLibrary {
 
             GOOD JSON (this is the quality bar):
 
-            {"sections":[{"title":"Topics covered","bullets":[{"text":"Two users were still being logged out after yesterday's auth fix; Priya traced one case to Safari and the team agreed to pair on it.","quote":"the refresh token isn't rotating on Safari"},{"text":"Timing of the 0.4 release was settled — pushed back a week so the auth fix can land first.","quote":null}]},{"title":"Decisions made","bullets":[{"text":"Release 0.4 will ship next week instead of this week, so the auth fix can land first.","quote":null}]},{"title":"Open questions","bullets":[{"text":"Whether to start a weekly bug bash — Priya wants to think about it.","quote":null}]}],"action_items":[{"text":"Pair with Priya on the Safari refresh-token bug after standup.","deadline":null,"owner":null},{"text":"Priya to move the release ticket.","deadline":null,"owner":"Priya"}]}
+            {"sections":[{"title":"Overview","kind":"overview","bullets":[{"text":"A quick sync on the lingering login bug and the 0.4 release. The bug was narrowed down to Safari, and the release was pushed back a week so the fix lands first.","quote":null}]},{"title":"Safari login bug","kind":"topic","bullets":[{"text":"Two users are still being logged out even after the auth fix Alex shipped yesterday.","quote":null},{"text":"Priya traced one of the cases to the refresh token not rotating on Safari.","quote":"the refresh token isn't rotating on Safari"}]},{"title":"0.4 release timing","kind":"topic","bullets":[{"text":"Priya asked whether 0.4 ships this week or next. Alex wants the auth fix landed first, so it moves to next week, and Priya agreed.","quote":"I want the auth thing landed first"},{"text":"Alex floated a weekly bug bash; Priya did not commit and wants to think about it.","quote":null}]},{"title":"Decisions","kind":"decisions","bullets":[{"text":"Release 0.4 will ship next week instead of this week, so the auth fix can land first.","quote":null}]},{"title":"Unresolved","kind":"unresolved","bullets":[{"text":"Whether to start a weekly bug bash — Priya wants to think about it.","quote":null}]}],"action_items":[{"text":"Pair with Priya on the Safari refresh-token bug after standup.","deadline":null,"owner":null},{"text":"Priya to move the release ticket.","deadline":null,"owner":"Priya"}]}
 
             REMINDER: Alex, Priya, Safari, "0.4 release" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
             """
@@ -262,7 +267,7 @@ extension PromptLibrary {
 
             GOOD JSON (this is the quality bar):
 
-            {"sections":[{"title":"Topics covered","bullets":[{"text":"You worked through the pricing page rewrite and settled on two tiers instead of three.","quote":"two is cleaner"}]},{"title":"Decisions made","bullets":[{"text":"The pricing page will have two tiers — free, and pro at twelve euros.","quote":null}]},{"title":"Open questions","bullets":[{"text":"Whether to offer an annual discount — twenty percent was floated, pending a look at competitors.","quote":null}]}],"action_items":[{"text":"Mock up the two-tier pricing page in Figma and send it to Olena.","deadline":"before Friday","owner":null}]}
+            {"sections":[{"title":"Overview","kind":"overview","bullets":[{"text":"You thought through the pricing page rewrite and settled the tier structure, with the annual discount still open.","quote":null}]},{"title":"Pricing tiers","kind":"topic","bullets":[{"text":"You kept going back and forth between three tiers and two, and settled on two — free, and pro at twelve euros — because two is cleaner.","quote":"two is cleaner"},{"text":"An annual discount of around twenty percent came up, but you want to see what competitors do first.","quote":null}]},{"title":"Decisions","kind":"decisions","bullets":[{"text":"The pricing page will have two tiers — free, and pro at twelve euros.","quote":null}]},{"title":"Unresolved","kind":"unresolved","bullets":[{"text":"Whether to offer an annual discount — twenty percent was floated, pending a look at competitors.","quote":null}]}],"action_items":[{"text":"Mock up the two-tier pricing page in Figma and send it to Olena.","deadline":"before Friday","owner":null}]}
 
             REMINDER: the pricing page, Figma, Olena, "twelve euros" are EXAMPLE-ONLY content. Do not import them into the real recap unless they also appear literally in the real transcript.
             """
@@ -280,7 +285,7 @@ extension PromptLibrary {
 
             GOOD JSON (this is the quality bar):
 
-            {"sections":[{"title":"Topics covered","bullets":[{"text":"The speaker argued that retrieval quality matters more than model size, citing a thirty percent gain from better chunking.","quote":"retrieval quality matters more than model size"}]},{"title":"Open questions","bullets":[{"text":"Evaluation of multi-hop retrieval — the speaker said there is still no good benchmark.","quote":null}]}],"action_items":[]}
+            {"sections":[{"title":"Overview","kind":"overview","bullets":[{"text":"A talk arguing that retrieval quality matters more than model size, with evaluation named as the unsolved problem.","quote":null}]},{"title":"Retrieval over model size","kind":"topic","bullets":[{"text":"The speaker argued that retrieval quality matters more than model size, citing a thirty percent gain from better chunking alone.","quote":"retrieval quality matters more than model size"}]},{"title":"Unresolved","kind":"unresolved","bullets":[{"text":"Evaluation of multi-hop retrieval — the speaker said there is still no good benchmark.","quote":null}]}],"action_items":[]}
 
             Note there is NO decisions section and `action_items` is empty — that is the EXPECTED shape for media; the user stated no personal takeaway action out loud, so the decisions section is omitted and the action_items array stays empty.
 

@@ -31,18 +31,30 @@ struct MeetingRecap: Codable, Equatable {
     }
 
     struct Section: Codable, Equatable {
+        /// What a section holds, said by the model rather than read off its
+        /// heading. Topic headings are free text in the user's language, and a
+        /// keyword match on them counts "Marketing spending" as unresolved and
+        /// "Відкриття офісу" as an open question. nil on recaps written before
+        /// the field existed, which still count by heading.
+        enum Kind: String, Codable {
+            case overview, topic, decisions, unresolved, facts, other
+        }
+
         let title: String
         let bullets: [Bullet]
+        let kind: Kind?
 
-        init(title: String, bullets: [Bullet]) {
+        init(title: String, bullets: [Bullet], kind: Kind? = nil) {
             self.title = title
             self.bullets = bullets
+            self.kind = kind
         }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             title = (try? c.decode(String.self, forKey: .title)) ?? ""
             bullets = (try? c.decode([Bullet].self, forKey: .bullets)) ?? []
+            kind = try? c.decodeIfPresent(Kind.self, forKey: .kind)
         }
     }
 
@@ -211,7 +223,7 @@ struct MeetingRecap: Codable, Equatable {
         } else {
             bullets[id.bullet] = Bullet(text: trimmed, quote: nil)
         }
-        rebuilt[id.section] = Section(title: rebuilt[id.section].title, bullets: bullets)
+        rebuilt[id.section] = Section(title: rebuilt[id.section].title, bullets: bullets, kind: rebuilt[id.section].kind)
         // A section with nothing left in it is not a heading, it is a hole.
         rebuilt.removeAll { $0.bullets.isEmpty }
         return MeetingRecap(sections: rebuilt, actionItems: actionItems)

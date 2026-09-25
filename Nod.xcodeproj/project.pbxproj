@@ -76,6 +76,7 @@
 		23B87F84A2006DB9E18B935B /* SummaryRegeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E53EA694ABAEA48678031E9 /* SummaryRegeneration.swift */; };
 		2415F03BA1F82CBFE5FE9211 /* DemoDailyMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6618DDE71A067ADD4AF0F9A0 /* DemoDailyMode.swift */; };
 		242E6BD730B2E423DD1C52B7 /* MemoryBriefTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60511176F41896651AE272A7 /* MemoryBriefTests.swift */; };
+		245739692A191B460B2F8E75 /* RecapSectionKindTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD5BCE6585B0A3B8D9DFA18 /* RecapSectionKindTests.swift */; };
 		2484EA93E6A4F4DC7305E7BE /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = FD9425C84A5944FADFEE1DC0 /* Supabase */; };
 		24C87C410FD9145882F9F328 /* ChatTurnStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98DD38FF3A1AFC0ECF9BB51F /* ChatTurnStep.swift */; };
 		25AA8363BBE0F648DDEA2961 /* MeetingMarkdownExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA341E6ABEA9C4EA628AE20 /* MeetingMarkdownExport.swift */; };
@@ -955,6 +956,7 @@
 		A8D2884F32126CCAA90B6883 /* ProviderLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderLink.swift; sourceTree = "<group>"; };
 		AB22D8C14A62015F4D8EB544 /* Label.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Label.swift; sourceTree = "<group>"; };
 		AB6178A84316A9337244B69B /* OrganizationPeople.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrganizationPeople.swift; sourceTree = "<group>"; };
+		ABD5BCE6585B0A3B8D9DFA18 /* RecapSectionKindTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecapSectionKindTests.swift; sourceTree = "<group>"; };
 		AC67F17B9F47AEECD67A2656 /* ChatFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFailure.swift; sourceTree = "<group>"; };
 		ACD8B20BA186A97D13D846E0 /* LeaveOrganizationCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaveOrganizationCard.swift; sourceTree = "<group>"; };
 		AD2C15CA71714F0200AD4631 /* CalendarPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarPrompt.swift; sourceTree = "<group>"; };
@@ -1652,6 +1654,7 @@
 				14A0113C10C58EB36B67C093 /* RecallGateTests.swift */,
 				7B5D6DB26F5AF7E933AE53C9 /* RecapEditingTests.swift */,
 				A2DB15226595471ED5B55697 /* RecapMarkdownTests.swift */,
+				ABD5BCE6585B0A3B8D9DFA18 /* RecapSectionKindTests.swift */,
 				C19047DB7902A7A952264DC1 /* RetrievalGateTests.swift */,
 				F4FA00B76BA082EACB088EF8 /* RoomCompositionTests.swift */,
 				75117A04DA42BFB18B4F66DF /* RoomTranscriptLabelTests.swift */,
@@ -2330,6 +2333,7 @@
 				E9DAE84AF85166ACBE5020F0 /* RecallGateTests.swift in Sources */,
 				4AF30C5831BE3717833E7DE2 /* RecapEditingTests.swift in Sources */,
 				9E247C91F370F37FF576E837 /* RecapMarkdownTests.swift in Sources */,
+				245739692A191B460B2F8E75 /* RecapSectionKindTests.swift in Sources */,
 				B64041492BAD823897655F5A /* RetrievalGateTests.swift in Sources */,
 				D076B439D5773D6F8EFBAFBC /* RoomCompositionTests.swift in Sources */,
 				AC372B3CB4DDEBA191A40C6A /* RoomTranscriptLabelTests.swift in Sources */,

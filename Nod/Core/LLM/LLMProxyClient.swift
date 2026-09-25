@@ -181,27 +181,6 @@ final class LLMProxyClient: ObservableObject {
         }
     }
 
-    /// Whether to spend output tokens on a chain of thought. Derived from the
-    /// routing category rather than passed per call, for the same reason
-    /// `taskLabel` is: every utility call is `completeJSON` against a fixed
-    /// schema — the live pass, the HyDE search rewrite, the session router —
-    /// and none of them has anything to work out.
-    ///
-    /// Measured on a 46-minute meeting: the live analyst's replies were 13–614
-    /// characters but billed 82–504 completion tokens, so roughly 88% of what
-    /// we paid for on that call was reasoning nothing read. Output bills at
-    /// ~4× input. nil leaves the model's own default alone.
-    private func reasoning(for primaryModel: String) -> Reasoning? {
-        taskLabel(for: primaryModel) == "utility" ? Reasoning(enabled: false) : nil
-    }
-
-    private func providerPreference(for primaryModel: String) -> ProviderPreference {
-        guard primaryModel.hasPrefix("google/") else {
-            return ProviderPreference(order: nil, ignore: nil, allow_fallbacks: true)
-        }
-        return ProviderPreference(order: ["google-vertex"], ignore: ["google-ai-studio"], allow_fallbacks: true)
-    }
-
     /// Speech-to-text model override.
     ///
     /// Default is `gpt-4o-transcribe` rather than any Whisper build because
@@ -312,7 +291,8 @@ final class LLMProxyClient: ObservableObject {
         user: String,
         jsonMode: Bool = false,
         primaryModel: String? = nil,
-        longRunning: Bool = false
+        longRunning: Bool = false,
+        reasoningEffort: String? = nil
     ) async throws -> String {
         Log.llm.info(
             "→ chat via proxy model=\(primaryModel ?? model) fallback=\(fallbackModel) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)"
@@ -326,7 +306,8 @@ final class LLMProxyClient: ObservableObject {
             ],
             jsonMode: jsonMode,
             primaryModel: primaryModel,
-            longRunning: longRunning
+            longRunning: longRunning,
+            reasoningEffort: reasoningEffort
         )
     }
 
@@ -376,7 +357,8 @@ final class LLMProxyClient: ObservableObject {
         temperature: Double? = nil,
         primaryModel: String? = nil,
         cachePrompt: Bool = false,
-        longRunning: Bool = false
+        longRunning: Bool = false,
+        reasoningEffort: String? = nil
     ) async throws -> String {
         // `primaryModel` overrides the default for a specific call purpose (the
         // Q&A chat runs on the cheaper `chatModel`); summary/recap generation
@@ -411,8 +393,9 @@ final class LLMProxyClient: ObservableObject {
             temperature: Self.acceptsTemperature(primary) ? temperature : nil,
             stream: nil,
             cache_prompt: cachePrompt ? true : nil,
-            reasoning: reasoning(for: primary),
-            task: taskLabel(for: primaryModel)
+            reasoning: reasoning(for: primary, effort: reasoningEffort),
+            task: taskLabel(for: primaryModel),
+            max_tokens: reasoningEffort.map { _ in Self.thinkingOutputCap }
         )
         let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
 
@@ -449,14 +432,16 @@ final class LLMProxyClient: ObservableObject {
         user: String,
         as type: T.Type,
         primaryModel: String? = nil,
-        longRunning: Bool = false
+        longRunning: Bool = false,
+        reasoningEffort: String? = nil
     ) async throws -> T {
         let raw = try await complete(
             system: system,
             user: user,
             jsonMode: true,
             primaryModel: primaryModel,
-            longRunning: longRunning
+            longRunning: longRunning,
+            reasoningEffort: reasoningEffort
         )
         let cleaned = Self.extractJSON(raw)
         guard let data = cleaned.data(using: .utf8) else {
@@ -490,7 +475,8 @@ final class LLMProxyClient: ObservableObject {
         system: String,
         user: String,
         jsonMode: Bool = false,
-        longRunning: Bool = false
+        longRunning: Bool = false,
+        reasoningEffort: String? = nil
     ) -> AsyncThrowingStream<String, Error> {
         Self.textOnly(stream(
             messages: [
@@ -498,7 +484,8 @@ final class LLMProxyClient: ObservableObject {
                 .init(role: "user", content: user)
             ],
             jsonMode: jsonMode,
-            longRunning: longRunning
+            longRunning: longRunning,
+            reasoningEffort: reasoningEffort
         ))
     }
 
@@ -612,7 +599,8 @@ final class LLMProxyClient: ObservableObject {
         temperature: Double? = nil,
         primaryModel: String? = nil,
         cachePrompt: Bool = false,
-        longRunning: Bool = false
+        longRunning: Bool = false,
+        reasoningEffort: String? = nil
     ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -631,10 +619,11 @@ final class LLMProxyClient: ObservableObject {
                         temperature: Self.acceptsTemperature(primary) ? temperature : nil,
                         stream: true,
                         cache_prompt: cachePrompt ? true : nil,
-                        reasoning: reasoning(for: primary),
+                        reasoning: reasoning(for: primary, effort: reasoningEffort),
                         task: taskLabel(for: primaryModel)
                     )
                     payload.tools = tools.isEmpty ? nil : tools
+                    payload.max_tokens = reasoningEffort.map { _ in Self.thinkingOutputCap }
                     let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
                     let request = try await makeProxyRequest(body: body)
 
@@ -1703,9 +1692,8 @@ private struct ChatRequest: Encodable {
     /// The proxy reads this flag, applies the provider cache_control marker,
     /// and strips the field before forwarding upstream. nil is omitted from JSON.
     let cache_prompt: Bool?
-    /// OpenRouter's unified reasoning switch, sent only to turn it off — see
-    /// `reasoning(for:)`. nil is omitted from the JSON, leaving the model's
-    /// own default alone.
+    /// OpenRouter's unified reasoning switch — see `reasoning(for:effort:)`.
+    /// nil is omitted from the JSON, leaving the model's own default alone.
     let reasoning: Reasoning?
     /// Which of the four routing categories this call belongs to — derived
     /// from which model property resolved `model` above, not sent by the
@@ -1714,10 +1702,50 @@ private struct ChatRequest: Encodable {
     /// first thing that lets it tell them apart. The proxy logs/records it
     /// and strips it before forwarding upstream, same as `cache_prompt`.
     let task: String?
+    /// Set only alongside a reasoning effort. OpenRouter turns an effort into a
+    /// thinking budget as a share of this on models that take a fixed budget
+    /// (the Sonnet 4.6 and Haiku fallbacks), so leaving it to the provider's
+    /// default could let the thinking crowd out the answer.
+    var max_tokens: Int?
+}
+
+extension LLMProxyClient {
+    /// Whether to spend output tokens on a chain of thought. Derived from the
+    /// routing category rather than passed per call, for the same reason
+    /// `taskLabel` is: every utility call is `completeJSON` against a fixed
+    /// schema — the live pass, the HyDE search rewrite, the session router —
+    /// and none of them has anything to work out.
+    ///
+    /// Measured on a 46-minute meeting: the live analyst's replies were 13–614
+    /// characters but billed 82–504 completion tokens, so roughly 88% of what
+    /// we paid for on that call was reasoning nothing read. Output bills at
+    /// ~4× input. nil leaves the model's own default alone.
+    ///
+    /// An `effort` is the caller asking for the model to think first — an
+    /// effort, not a token budget, because Sonnet 5 thinks adaptively and
+    /// rejects a fixed budget, which would silently push every call down the
+    /// fallback chain. The chain of thought is left in the stream rather than
+    /// excluded: it arrives in its own field that nothing here reads, and its
+    /// bytes are what keep the proxy's 30-second idle watchdog from killing a
+    /// call that is thinking.
+    private func reasoning(for primaryModel: String, effort: String? = nil) -> Reasoning? {
+        if let effort { return Reasoning(effort: effort) }
+        return taskLabel(for: primaryModel) == "utility" ? Reasoning(enabled: false) : nil
+    }
+
+    private func providerPreference(for primaryModel: String) -> ProviderPreference {
+        guard primaryModel.hasPrefix("google/") else {
+            return ProviderPreference(order: nil, ignore: nil, allow_fallbacks: true)
+        }
+        return ProviderPreference(order: ["google-vertex"], ignore: ["google-ai-studio"], allow_fallbacks: true)
+    }
+
+    static let thinkingOutputCap = 32_000
 }
 
 private struct Reasoning: Encodable {
-    let enabled: Bool
+    var enabled: Bool?
+    var effort: String?
 }
 
 private struct ResponseFormat: Encodable {

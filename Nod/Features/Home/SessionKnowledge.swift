@@ -47,10 +47,16 @@ struct SessionKnowledge: Equatable {
         var unresolved = 0
         for section in recap.sections {
             let bullets = section.bullets.count { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            if TodayDigest.leavesSomethingOpen(section.title) {
-                unresolved += bullets
-            } else if TodayDigest.settlesSomething(section.title) {
-                decisions += bullets
+            switch section.kind {
+            case .decisions: decisions += bullets
+            case .unresolved: unresolved += bullets
+            case .some: break
+            case nil:
+                if TodayDigest.leavesSomethingOpen(section.title) {
+                    unresolved += bullets
+                } else if TodayDigest.settlesSomething(section.title) {
+                    decisions += bullets
+                }
             }
         }
         return SessionKnowledge(

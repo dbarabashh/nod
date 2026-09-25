@@ -25,7 +25,13 @@ struct RecapGenerator {
         var accumulated = ""
         var lastPublish = Date.distantPast
         do {
-            for try await delta in llm.streamComplete(system: system, user: user, jsonMode: true, longRunning: true) {
+            for try await delta in llm.streamComplete(
+                system: system,
+                user: user,
+                jsonMode: true,
+                longRunning: true,
+                reasoningEffort: Self.reasoningEffort
+            ) {
                 accumulated += delta
                 // Re-parse + publish at ~6 fps. Each pass renders whatever
                 // sections have fully closed so far; the trailing, still-
@@ -64,8 +70,22 @@ struct RecapGenerator {
     /// Buffered one-shot recap — used for the rare mid-call `.summary` path and
     /// as `streamedRecap`'s fallback. Shares the bounded retry below.
     func recap(system: String, user: String, transcript: String, language: AppLanguage) async throws -> MeetingRecap {
-        let recap = try await llm.completeJSON(system: system, user: user, as: MeetingRecap.self, longRunning: true)
+        let recap = try await llm.completeJSON(
+            system: system,
+            user: user,
+            as: MeetingRecap.self,
+            longRunning: true,
+            reasoningEffort: Self.reasoningEffort
+        )
         return try await refined(recap, system: system, user: user, transcript: transcript, language: language)
+    }
+
+    /// Off unless set: thinking runs before the first word of the recap, on top
+    /// of a generation already measured at a minute for a long session. Kept
+    /// switchable to compare quality —
+    /// `defaults write com.example.nod openrouter.recap.reasoningEffort medium`.
+    static var reasoningEffort: String? {
+        UserDefaults.standard.string(forKey: "openrouter.recap.reasoningEffort")
     }
 
     /// Best-effort LLM call to produce a short event-style title. Returns
@@ -121,7 +141,13 @@ struct RecapGenerator {
 
         guard !overrides.isEmpty else { return recap }
         let retrySystem = system + "\n\n" + overrides.joined(separator: "\n\n")
-        return try await llm.completeJSON(system: retrySystem, user: user, as: MeetingRecap.self, longRunning: true)
+        return try await llm.completeJSON(
+            system: retrySystem,
+            user: user,
+            as: MeetingRecap.self,
+            longRunning: true,
+            reasoningEffort: Self.reasoningEffort
+        )
     }
 
     /// Detects whether the recap's PROSE (section titles + bullet text, NOT the

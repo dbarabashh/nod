@@ -1055,6 +1055,25 @@ extension KnowledgeChatStore {
     /// ~3k tokens of grounding — enough for eight excerpts or three recaps,
     /// well inside any model's window, and a predictable ceiling on spend.
     static let groundingBudget = 12_000
+    /// One recap's share of `groundingBudget`. A long meeting's recap carries a
+    /// section per topic and can fill the whole budget on its own, so every
+    /// session after it would be dropped from the answer.
+    static let recapShare = 4_000
+
+    /// The recap, cut to its share with the settled parts first: a question
+    /// across sessions is usually about what was decided or left open, and the
+    /// topic sections are what can be spared.
+    static func groundingRecap(of meeting: Meeting) -> String {
+        guard meeting.summary.count > recapShare else { return meeting.summary }
+        // A summary edited by hand no longer matches its recap, and the edit is
+        // what the person wants Nod to know.
+        guard let recap = meeting.recap, recap.toMarkdown() == meeting.summary else {
+            return String(meeting.summary.prefix(recapShare))
+        }
+        let ranked = recap.sections.filter { $0.kind != .topic } + recap.sections.filter { $0.kind == .topic }
+        return String(MeetingRecap.markdown(for: ranked).prefix(recapShare))
+    }
+
     /// Screen context gets its own allowance rather than competing with session
     /// excerpts: a day of captures would otherwise crowd out the transcripts on
     /// every question, and a recap needs several apps to be worth reading.
@@ -1947,7 +1966,7 @@ extension KnowledgeChatStore {
             var evidence: [Excerpt] = []
             for (index, meeting) in inScope.enumerated() {
                 let title = meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter)
-                var block = "[From: \(groundingLabel(for: meeting))]\nRecap:\n\(meeting.summary.isEmpty ? "(no recap)" : meeting.summary)"
+                var block = "[From: \(groundingLabel(for: meeting))]\nRecap:\n\(meeting.summary.isEmpty ? "(no recap)" : Self.groundingRecap(of: meeting))"
                 let chunks = chunksByIndex[index]
                 if !chunks.isEmpty {
                     block += "\n\nRelevant excerpts:\n" + chunks.map(\.content).joined(separator: "\n…\n")
