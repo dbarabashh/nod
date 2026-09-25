@@ -68,7 +68,7 @@ final class MeetingOffers: ObservableObject {
     /// How long an unanswered offer stays up. Past this the user has seen it and
     /// chosen not to act; the notch's own Start is two clicks away, and a card
     /// that sits there for the whole call is clutter.
-    private static let lifetime: TimeInterval = 45
+    private static let lifetime: TimeInterval = 20
     /// How long the quiet period runs when only the Mac told us — no invitation,
     /// so no end time to take it from.
     private static let unscheduledQuiet: TimeInterval = 10 * 60
