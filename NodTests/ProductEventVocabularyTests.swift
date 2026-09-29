@@ -9,7 +9,7 @@ final class ProductEventVocabularyTests: XCTestCase {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("supabase/migrations/20260906214122_count_what_happens_after_the_recording.sql")
+            .appendingPathComponent("supabase/migrations/20260929185505_memory_activation_stages.sql")
         return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     }
 

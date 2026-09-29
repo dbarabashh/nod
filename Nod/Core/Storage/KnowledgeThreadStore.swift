@@ -301,6 +301,28 @@ final class KnowledgeThreadStore: ObservableObject {
             .map { "content.ilike.\"*\($0)*\"" }
     }
 
+    func hasScreenAnswer(for userID: UUID) async throws -> Bool {
+        guard supabase.auth.currentUser?.id == userID else { return false }
+        struct SourceRow: Decodable { let sources: [KnowledgeChatStore.SessionRef] }
+        var offset = 0
+        while !Task.isCancelled {
+            let rows: [SourceRow] = try await supabase.from(Self.messagesTable)
+                .select("sources")
+                .eq("user_id", value: userID.uuidString)
+                .eq("role", value: "assistant")
+                .neq("sources", value: "[]")
+                .order("created_at", ascending: false)
+                .order("id", ascending: false)
+                .range(from: offset, to: offset + 99)
+                .execute().value
+            guard !Task.isCancelled, supabase.auth.currentUser?.id == userID else { return false }
+            if rows.contains(where: { $0.sources.contains(where: \.isApp) }) { return true }
+            if rows.count < 100 { return false }
+            offset += 100
+        }
+        return false
+    }
+
     func messages(in threadID: UUID) async -> [StoredMessage] {
         do {
             return try await supabase
@@ -342,6 +364,9 @@ final class KnowledgeThreadStore: ObservableObject {
         )
         do {
             try await supabase.from(Self.messagesTable).insert(message).execute()
+            if role == "assistant", sources.contains(where: \.isApp), !content.isEmpty {
+                UserDefaults.standard.set(true, forKey: MemoryActivation.completionKey(userID))
+            }
             moveToTop(threadID)
             return true
         } catch {

@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-09-21_
+_Last updated: 2026-09-29_
 
 _The optional-email provisions in § 3.14 and the Resend entries in § 5 and the
 [Subprocessors list](./subprocessors.md) are **advance notice**. That workflow is
@@ -15,6 +15,11 @@ until you switch it on, and it takes effect for you only from the version that
 introduces it. Where this policy describes Nod as sitting in the notch, the released version
 still runs as a floating panel on the left of your screen; nothing about what is
 collected turns on that difference._
+
+_The memory setup card on Today and in empty chat, and its bounded setup
+analytics events, are also **advance notice**: they are built but not yet in
+the released app. They apply only when a version containing them is released;
+updating this policy does not enable screen capture or change your consent._
 
 > Except for the dated advance-notice provisions above, this policy describes
 > data practices that already exist in the product today — every claim is tied to
@@ -200,11 +205,12 @@ outcomes, summary/transcript/action-item views, Ask completion, copy/export,
 paywall views, successful checkout creation, connecting or disconnecting a
 third-party product, whether a question put to one of those products was
 answered, your decision on an approval card before Nod writes anything to them,
-the ambient-context switch being turned on, off, or paused, a commitment being
+the ambient-context switch being turned on, off, or paused, the memory setup
+card being shown, used or dismissed (including its fixed setup state), a commitment being
 ticked, reopened, delegated, asked about or filed, an agent being created,
 switched or removed and its report being opened, a change of recap mode, how a
 question was aimed (a pinned session, a project, a follow-up, or everything)
-and whether an answer had a session behind it, a source being opened from an
+and whether an answer had a session or screen source behind it, a source being opened from an
 answer, a session or project being shared and a share ending, an invitation
 sent or accepted, the Mac's calendar being allowed or refused, an answer to
 "record this one?" on Today, a failure you were shown (a recap that did not
@@ -225,7 +231,9 @@ The event log never contains meeting titles, transcript or summary text,
 questions, answers, arbitrary error messages, email, clipboard contents, share
 tokens, or other free-form app content. Nothing read from your screen reaches
 it either: not the app a capture came from, not a window title, and not what is
-on your exclusion list — the ambient event records only that the switch moved. Completed meetings, persisted chats,
+on your exclusion list — the ambient switch event records only that the switch moved.
+Memory setup events record only a fixed UI state, such as waiting or ready,
+and the action outcome; no captured text or source identity is included. Completed meetings, persisted chats,
 action items, shares, and payments are measured from their domain records
 rather than trusting a client event.
 
@@ -412,7 +420,7 @@ the product:
 
 | | |
 |---|---|
-| **Default** | **Off.** You switch it on yourself — on the setup card in the notch when you first set Nod up, in Settings → Privacy, or from the **Ambient context** control at the bottom of Nod's sidebar. Each of the three states the same thing this row does before it turns anything on, and skipping the setup card leaves it off. It is never switched on by an app update. |
+| **Default** | **Off.** You switch it on yourself — in Settings → Privacy or from the **Ambient context** control at the bottom of Nod's sidebar. Depending on the app version, a setup card may also offer activation. The memory setup card on Today and in an empty chat is an unreleased path covered by the advance notice above. Each activation path explains what is stored and for how long before turning it on; skipping setup leaves it off. It is never switched on by an app update. |
 | **Turning it off** | The same sidebar control switches it off in one click, and always shows whether it is on, off, or paused. You never have to go looking for the off switch. |
 | **Pausing** | You can pause capture for 15 minutes, an hour, or the rest of the day without switching the feature off. Nothing is read while it is paused, and it resumes on its own when the time is up. A pause survives quitting Nod, and never outlives its own deadline. |
 | **What is stored** | The window's text, the app's identifier, the window title, and a timestamp, in `screen_observations` — and, for a browser tab, the page's address, so an answer can hand you back the link you were looking at. No images, no keystrokes, no clipboard, no password-field contents. |

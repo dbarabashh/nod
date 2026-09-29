@@ -139,6 +139,8 @@ final class NotchModel: ObservableObject {
     let profiles: ProfileStore
     private let briefing: CallBriefing
     private let consent: ConsentPreference
+    @Published private(set) var canTryMemory = false
+
     private let entitlements: EntitlementService
     private let defaults: UserDefaults
     /// The user pulled the surface open — by clicking it, by the hotkey, or from
@@ -727,6 +729,11 @@ final class NotchModel: ObservableObject {
     // MARK: - Derivation
 
     private func observe() {
+        entitlements.$entitlement
+            .map { $0?.isActive == true && $0?.can(.askAcrossMeetings) == true && $0?.can(.ambientContext) == true }
+            .removeDuplicates()
+            .assign(to: &$canTryMemory)
+
         // `requestAutoStart` is how the detector's Accept and the main window's
         // Capture menu ask for a recording without reaching around the gates.
         session.$wantsAutoStart

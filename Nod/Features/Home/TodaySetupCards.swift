@@ -81,31 +81,6 @@ struct TodaySystemAudioCard: View {
     }
 }
 
-/// The ambient ask. Every line here is one `privacy.md` § 3.10(b) makes, and
-/// the switch it flips is the same one Settings and the sidebar control flip:
-/// off until this click, bounded, and the person's to pause or delete.
-struct TodayAmbientCard: View {
-    @ObservedObject var screenContext: ScreenContextService
-    let onDismiss: () -> Void
-
-    var body: some View {
-        TodayNudgeCard(
-            icon: "nc-stack-perspective",
-            title: "Let me see what you're working on",
-            text: "Text from the window in front of you, kept \(screenContext.retentionDays) days, never an image. "
-                + "Then you can ask about your screen, and your commitments get the context they came from.",
-            footnote: screenContext.needsAccessibility ? "Add Nod under Accessibility. I'll notice the moment it's on." : nil
-        ) {
-            if screenContext.needsAccessibility {
-                GlassPillButton("Open System Settings", size: .compact, action: AccessibilityAccess.openSystemSettings)
-            } else {
-                GlassPillButton("Turn on", size: .compact) { screenContext.setAmbientEnabled(true) }
-            }
-            SecondaryPillButton("Not now", action: onDismiss)
-        }
-    }
-}
-
 /// Who this is, asked once Nod has been useful rather than before. The role
 /// picks the starting mode; where they heard of Nod is for us; the line on
 /// what to win at sharpens every recap.

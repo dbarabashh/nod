@@ -6,11 +6,12 @@ import SwiftUI
 struct TodayCardList<Item: Identifiable, Row: View>: View {
     let title: String
     let items: [Item]
+    var showsTitle = true
     @ViewBuilder let row: (Item) -> Row
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(title)
+            if showsTitle { SectionLabel(title) }
             VStack(spacing: 0) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     if index > 0 {

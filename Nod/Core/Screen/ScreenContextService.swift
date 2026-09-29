@@ -30,6 +30,7 @@ final class ScreenContextService: ObservableObject {
     /// — forgetting is how a feature quietly stops being used.
     @Published private(set) var pausedUntil: Date?
     @Published private(set) var isRunning = false
+    @Published private(set) var contextRevision = 0
     /// What the last deletion did, held briefly so a surface can say so.
     ///
     /// The deletion is server-side and there is no list on screen to visibly
@@ -379,6 +380,7 @@ final class ScreenContextService: ObservableObject {
             let byTime = cutoff.map { table.gte("observed_at", value: $0) } ?? table
             let filtered = sourceApp.map { byTime.eq("source_app", value: $0) } ?? byTime
             let deleted = try await filtered.execute().count ?? 0
+            contextRevision &+= 1
             // `lastStoredAt` is deliberately NOT cleared. It is what stops the
             // window still on screen from being re-sent on the next 5s tick, and
             // clearing it — as this once did — handed the user a delete that
@@ -545,6 +547,7 @@ final class ScreenContextService: ObservableObject {
                 .from("screen_observations")
                 .upsert(observation, onConflict: "user_id,source_app,content_hash")
                 .execute()
+            contextRevision &+= 1
             // Titles name the channel, the ticket, the document — the most
             // identifying part of an ambient capture, and the unified log is
             // persistent and collected by sysdiagnose.
@@ -668,6 +671,22 @@ extension ScreenContextService {
             Log.screen.error("context: lookup failed — \(error.localizedDescription)")
             return nil
         }
+    }
+
+    func hasRecentContext(for userID: UUID, now: Date = Date()) async throws -> Bool {
+        guard isEntitled, isAmbientEnabled, pausedUntil == nil, let supabase,
+              supabase.auth.currentUser?.id == userID else { return false }
+        struct Row: Decodable { let id: UUID }
+        let rows: [Row] = try await supabase.from("screen_observations")
+            .select("id")
+            .eq("user_id", value: userID.uuidString)
+            .gt("expires_at", value: now)
+            .gte("observed_at", value: now.addingTimeInterval(-86400))
+            .limit(1)
+            .execute().value
+        guard !Task.isCancelled, isEntitled, isAmbientEnabled, pausedUntil == nil,
+              supabase.auth.currentUser?.id == userID else { return false }
+        return !rows.isEmpty
     }
 
     /// Everything seen in a window, newest first, folded per app.

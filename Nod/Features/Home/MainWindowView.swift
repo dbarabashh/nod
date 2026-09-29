@@ -370,6 +370,7 @@ struct MainWindowView: View {
         // not a continuation of whatever chat happened to be open last.
         knowledgeChat.startNewThread()
         knowledgeChat.pendingMentions = request.session.map { [$0] } ?? []
+        knowledgeChat.sendsPendingDraftImmediately = request.sendsImmediately
         knowledgeChat.pendingDraft = request.text
         show(.chat)
     }

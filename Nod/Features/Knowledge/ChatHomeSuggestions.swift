@@ -120,7 +120,8 @@ enum ChatHomeSuggestions {
         projects: [String] = [],
         now: Date = Date(),
         titleLimit: Int = 40,
-        firstRunPreview: Bool = false
+        firstRunPreview: Bool = false,
+        hasAmbientContext: Bool = false
     ) -> [Opener] {
         // What the person has actually recorded. The sample Nod seeds at signup
         // is a row in the list but not an answer to anything they said, so it
@@ -165,6 +166,10 @@ enum ChatHomeSuggestions {
             }
             suggestions.append(Opener("What did I promise?"))
             suggestions.append(Opener("What decisions are still unresolved?"))
+        }
+
+        if hasAmbientContext, scopeName(projects) == nil, !firstRunPreview {
+            suggestions.insert(Opener(label: "Summarize my recent work", question: MemoryActivation.question), at: 0)
         }
 
         var seen = Set<String>()

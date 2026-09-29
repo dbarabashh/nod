@@ -20,6 +20,8 @@ struct KnowledgeChatView: View {
     @EnvironmentObject private var chat: KnowledgeChatStore
     @EnvironmentObject private var analytics: ProductAnalytics
     @EnvironmentObject private var reachability: NetworkReachability
+    @EnvironmentObject private var screenContext: ScreenContextService
+    @State private var hasAmbientContext = false
 
     private typealias SessionRef = KnowledgeChatStore.SessionRef
 
@@ -68,6 +70,25 @@ struct KnowledgeChatView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await meetingStore.refresh() }
+        .task(id: ambientAvailabilityKey) {
+            hasAmbientContext = false
+            guard chat.messages.isEmpty, canAskAcross, screenContext.isEntitled,
+                  screenContext.isAmbientEnabled, screenContext.pausedUntil == nil,
+                  let userID = profileStore.profile?.userID else { return }
+            while !Task.isCancelled {
+                do {
+                    let available = try await screenContext.hasRecentContext(for: userID)
+                    guard !Task.isCancelled, profileStore.profile?.userID == userID else { return }
+                    hasAmbientContext = available
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    hasAmbientContext = false
+                    Log.screen.error("chat suggestions: context check failed — \(error.localizedDescription)")
+                }
+                do { try await Task.sleep(nanoseconds: 15_000_000_000) }
+                catch { return }
+            }
+        }
         // Scope follows the sentence, however the sentence got there — picking
         // a project from the panel and typing its name by hand are the same
         // act, and deleting the words unscopes the question again.
@@ -106,6 +127,10 @@ struct KnowledgeChatView: View {
     /// transiently failed isn't wrongly shown the upsell for a feature they own.
     private var canAskAcross: Bool {
         entitlements.entitlement == nil || entitlements.can(.askAcrossMeetings)
+    }
+
+    private var ambientAvailabilityKey: String {
+        "\(profileStore.profile?.userID.uuidString ?? ""):\(screenContext.isAmbientEnabled):\(screenContext.pausedUntil != nil):\(screenContext.isEntitled):\(screenContext.contextRevision):\(chat.messages.isEmpty):\(canAskAcross)"
     }
 
     private var upsell: some View {
@@ -232,6 +257,12 @@ struct KnowledgeChatView: View {
             // The counts used to sit here too. Today owns them now — and owns
             // them as a briefing rather than as two numbers — so this screen is
             // the composer again instead of a second door to the same list.
+            MemoryActivationCard(surface: .ask) { question in
+                draft = question
+                send()
+            }
+            .padding(.bottom, 12)
+
             MemoryBriefCard()
                 .padding(.bottom, 18)
 
@@ -239,7 +270,8 @@ struct KnowledgeChatView: View {
                 ForEach(ChatHomeSuggestions.build(
                     meetings: meetingStore.meetings,
                     projects: scopeLabels.map(\.name),
-                    firstRunPreview: ChatHomeSuggestions.isPreviewingFirstRun
+                    firstRunPreview: ChatHomeSuggestions.isPreviewingFirstRun,
+                    hasAmbientContext: hasAmbientContext
                 )) { opener in
                     suggestion(opener)
                 }
@@ -452,6 +484,9 @@ struct KnowledgeChatView: View {
         chat.pendingDraft = nil
         chat.pendingMentions = []
         inputFocused = true
+        let sendsImmediately = chat.sendsPendingDraftImmediately
+        chat.sendsPendingDraftImmediately = false
+        if sendsImmediately, canAskAcross { send() }
     }
 
     /// Derived rather than tracked: a stored list outlived the draft it
@@ -472,6 +507,7 @@ struct KnowledgeChatView: View {
     /// live in the text (deleting the inline "@Title" drops the mention) and
     /// hand the question to the store — or hold it, if one is still running.
     private func send() {
+        syncScope()
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend else { return }
         let active = MentionMark.named(in: text, from: mentions) { MentionMark(session: $0) }

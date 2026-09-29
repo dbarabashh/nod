@@ -47,6 +47,8 @@ final class ProductAnalytics: ObservableObject {
         /// A question went to memory, and how it was aimed: at a pinned
         /// session, a project, the thread it continues, or everything.
         case questionAsked = "question_asked"
+        case memoryActivationViewed = "memory_activation_viewed"
+        case memoryActivationActed = "memory_activation_acted"
         /// An answer's source was opened — the one sign the excerpts were
         /// worth reading, which the answer's length never says.
         case answerSourceOpened = "answer_source_opened"
@@ -136,6 +138,13 @@ final class ProductAnalytics: ObservableObject {
     /// key rather than seven, so the validator and the dashboard read one
     /// column; every value is a product word, never a person's.
     enum Detail: String, Codable, CaseIterable {
+        case memoryOff = "memory_off"
+        case memoryPermission = "memory_permission"
+        case memoryPaused = "memory_paused"
+        case memoryChecking = "memory_checking"
+        case memoryWaiting = "memory_waiting"
+        case memoryReady = "memory_ready"
+        case memoryFailed = "memory_failed"
         case daily, weekdays, weekly, monthly
         case general, interview
         case salesCall = "sales_call"

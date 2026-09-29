@@ -56,19 +56,23 @@ extension NotchModel {
     /// out the same way.
     func submitIdleAsk(_ question: String, spoken: Bool) {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty, !knowledgeChat.isSending else { return }
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, !knowledgeChat.isSending else { return }
+            analytics.record(
+                .questionAsked,
+                properties: .init(entryPoint: .hotkey, surface: .ask, detail: knowledgeChat.threadID == nil ? .open : .followUp)
+            )
             let baseline = knowledgeChat.messages.count
             await knowledgeChat.ask(trimmed)
             let answer = knowledgeChat.answer(after: baseline)
             if spoken, let answer { voice.say(answer.content, asking: trimmed, language: voiceLanguage ?? language.current) }
-            recordIdleAsk(answered: answer != nil)
+            recordIdleAsk(answer: answer)
             refresh()
         }
     }
 
-    func recordIdleAsk(answered: Bool) {
+    func recordIdleAsk(answer: KnowledgeChatStore.Message?) {
         analytics.record(
             .aiActionCompleted,
             properties: .init(
@@ -76,7 +80,7 @@ extension NotchModel {
                 surface: .ask,
                 contentType: .answer,
                 aiFeature: .knowledgeAsk,
-                outcome: answered ? .success : .failure
+                outcome: answer.map { $0.sources.isEmpty ? .empty : .success } ?? .failure
             )
         )
     }

@@ -131,6 +131,7 @@ struct NotchSetupSecondaryButton: View {
 
 struct NotchSetupIntro: View {
     let geometry: NotchGeometry
+    var canTryMemory = false
     let onStart: () -> Void
     let onLeave: () -> Void
 
@@ -138,10 +139,15 @@ struct NotchSetupIntro: View {
         NotchSetupCard(
             stage: .intro,
             title: geometry.hasCutout ? "I live in your notch now." : "I live up here now.",
-            subtitle: "A few permissions and I'm ready.",
+            subtitle: "Remember what you work on, or start with a recording.",
             onLeave: onLeave
         ) {
-            NotchActionButton(title: "Let's start", action: onStart)
+            if canTryMemory {
+                NotchActionButton(title: "Try screen memory", action: onLeave)
+                NotchSetupSecondaryButton(title: "Start with a recording", action: onStart)
+            } else {
+                NotchActionButton(title: "Start with a recording", action: onStart)
+            }
         }
     }
 }
@@ -261,7 +267,12 @@ struct NotchSetupContent: View {
     private var content: some View {
         switch stage {
         case .intro:
-            NotchSetupIntro(geometry: model.geometry, onStart: model.advanceSetup, onLeave: model.finishSetup)
+            NotchSetupIntro(
+                geometry: model.geometry,
+                canTryMemory: model.canTryMemory,
+                onStart: model.advanceSetup,
+                onLeave: model.finishSetup
+            )
         case .microphone:
             NotchSetupMicrophone(
                 permissions: model.permissions,

@@ -313,12 +313,15 @@ struct TodayView: View {
     /// person last — never more than one at a time, so Today is not a form.
     @ViewBuilder
     private var setupCards: some View {
+        MemoryActivationCard(surface: .home) { question in
+            onAsk(.init(text: question, session: nil, sendsImmediately: true))
+        }
         if let nudge = pendingNudge {
             switch nudge {
             case .systemAudio:
                 TodaySystemAudioCard(permissions: permissions) { dismiss(.systemAudio) }
             case .ambient:
-                TodayAmbientCard(screenContext: screenContext) { dismiss(.ambient) }
+                EmptyView()
             case .profile:
                 TodayProfileCard(
                     initialRole: profileStore.profile?.role,
@@ -339,9 +342,6 @@ struct TodayView: View {
     private var pendingNudge: TodayNudge? {
         guard hasLoaded, let profile = profileStore.profile else { return nil }
         if permissions.screenRecording != .authorized, !dismissedNudges.contains(.systemAudio) { return .systemAudio }
-        // The switch, not `isRunning`: a pause the person set, or a plan
-        // without it, is not an invitation to turn it on.
-        if !screenContext.isAmbientEnabled, screenContext.isEntitled, !dismissedNudges.contains(.ambient) { return .ambient }
         if profile.role == nil, profile.heardFrom == nil, !dismissedNudges.contains(.profile) { return .profile }
         return nil
     }

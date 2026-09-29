@@ -78,6 +78,7 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
     /// A question seeded from elsewhere — "Ask about this project" hands the
     /// composer its opening token rather than a hidden filter.
     @Published var pendingDraft: String?
+    var sendsPendingDraftImmediately = false
     /// Sessions the pending draft already names, pinned when it is adopted.
     @Published var pendingMentions: [SessionRef] = []
     @Published private(set) var messages: [Message] = []
@@ -330,6 +331,7 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
         thinkingScript = []
         scopeLabelIDs = []
         pendingDraft = nil
+        sendsPendingDraftImmediately = false
         pendingMentions = []
         failure = nil
         entityNames = []

@@ -17,6 +17,9 @@ final class ActionItemStore: ObservableObject {
     /// first and revert if the write fails, so the UI stays instant without any
     /// screen owning rollback.
     @Published private(set) var items: [ActionItem] = []
+    @Published private(set) var isCompletingAll = false
+    @Published private(set) var completionFailureCount = 0
+    private var completionGeneration = UUID()
     private let supabase: SupabaseClient
     private static let tableName = "action_items"
 
@@ -115,6 +118,9 @@ final class ActionItemStore: ObservableObject {
     }
 
     func clear() {
+        completionGeneration = UUID()
+        isCompletingAll = false
+        completionFailureCount = 0
         items = []
         didLoad = false
     }
@@ -407,8 +413,29 @@ final class ActionItemStore: ObservableObject {
     /// so the one thing a person actually asserts about a loop leaves a record
     /// like every other move does — and so `confirmed` has a caller at all.
     func setDone(_ done: Bool, itemID: UUID) async {
+        guard !isCompletingAll else { return }
         guard let loop = items.first(where: { $0.id == itemID }) else { return }
         await move(loop, to: done ? .confirmed : .open, actor: .user, mirroring: true)
+    }
+
+    func completeAll(_ confirmedItems: [ActionItem]) async {
+        guard !isCompletingAll, !confirmedItems.isEmpty else { return }
+        let generation = completionGeneration
+        let owner = supabase.auth.currentUser?.id
+        isCompletingAll = true
+        completionFailureCount = 0
+        defer {
+            if completionGeneration == generation { isCompletingAll = false }
+        }
+        for confirmed in confirmedItems {
+            guard !Task.isCancelled, completionGeneration == generation,
+                  supabase.auth.currentUser?.id == owner else { return }
+            guard let current = items.first(where: { $0.id == confirmed.id }),
+                  current.isOpen, isMine(current) else { continue }
+            let succeeded = await move(current, to: .confirmed, actor: .user, mirroring: true)
+            guard completionGeneration == generation else { return }
+            if !succeeded { completionFailureCount += 1 }
+        }
     }
 
     /// Which rule moved a loop, so a rule that turns out to close things
@@ -512,6 +539,7 @@ final class ActionItemStore: ObservableObject {
     /// Inference may not reach the states that need a person — see `LoopClosure`.
     /// The guard is here rather than in the callers because a new caller is
     /// exactly the thing that would forget it.
+    @discardableResult
     func move(
         _ loop: ActionItem,
         to state: ActionItem.LoopState,
@@ -521,17 +549,18 @@ final class ActionItemStore: ObservableObject {
         confidence: Double? = nil,
         resolver: String? = nil,
         mirroring: Bool = false
-    ) async {
-        guard loop.loopState != state else { return }
+    ) async -> Bool {
+        guard loop.loopState != state else { return true }
         guard isMine(loop) else {
             Log.ui.info("loop: \(loop.id) is somebody else's, not moved")
-            return
+            return false
         }
         guard actor == .user || LoopClosure.mayInfer(state) else {
             Log.ui.info("loop: refused inferred \(state.rawValue) for \(loop.id)")
-            return
+            return false
         }
 
+        let generation = completionGeneration
         var moved = loop
         moved.loopState = state
         moved.done = state == .confirmed
@@ -545,13 +574,14 @@ final class ActionItemStore: ObservableObject {
         if let cached { items[cached] = moved }
 
         do {
-            try await persistLoopState(state, itemID: loop.id)
+            try await persistLoopState(state, itemID: loop.id, ownerID: loop.userID)
         } catch {
-            if cached != nil { restore(loop) }
+            if completionGeneration == generation, cached != nil { restore(loop) }
             Log.ui.error("ActionItemStore.move failed: \(error.localizedDescription)")
-            return
+            return false
         }
 
+        guard completionGeneration == generation, isMine(loop) else { return false }
         analytics?.record(.actionItemActed, properties: .init(outcome: Self.moveOutcome(to: state, by: actor)))
 
         // Only when the tick itself changed, and never when the tracker is the
@@ -563,6 +593,7 @@ final class ActionItemStore: ObservableObject {
 
         // After the move, and never instead of it. A transition recorded for a
         // move that did not happen is worse than no record at all.
+        guard completionGeneration == generation, isMine(loop) else { return false }
         let transition = ActionItemTransition(
             actionItemID: loop.id,
             userID: loop.userID,
@@ -575,6 +606,7 @@ final class ActionItemStore: ObservableObject {
             resolver: resolver
         )
         await record(transition)
+        return true
     }
 
     /// What a move counts as: a person ticking or unticking, or a rule
@@ -588,12 +620,25 @@ final class ActionItemStore: ObservableObject {
         }
     }
 
-    private func persistLoopState(_ state: ActionItem.LoopState, itemID: UUID) async throws {
+    private enum MutationError: Error { case itemUnavailable }
+
+    private func persistLoopState(_ state: ActionItem.LoopState, itemID: UUID, ownerID: UUID) async throws {
+        #if DEBUG
+            if DemoMode.isEnabled { return }
+        #endif
         struct Body: Encodable {
             let loop_state: String
             let updated_at: Date
         }
-        try await patch(Body(loop_state: state.rawValue, updated_at: Date()), itemID: itemID)
+        struct Updated: Decodable { let id: UUID }
+        let rows: [Updated] = try await supabase.from(Self.tableName)
+            .update(Body(loop_state: state.rawValue, updated_at: Date()))
+            .eq("id", value: itemID.uuidString)
+            .eq("user_id", value: ownerID.uuidString)
+            .is("deleted_at", value: nil)
+            .select("id")
+            .execute().value
+        guard rows.count == 1, rows.first?.id == itemID else { throw MutationError.itemUnavailable }
     }
 
     /// A transition that fails to write does not undo the move.

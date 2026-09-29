@@ -1,6 +1,6 @@
 # Security & Privacy
 
-_Last updated: 2026-09-21_
+_Last updated: 2026-09-29_
 
 _[Calendar access](#calendar-access), organization-enforced recording ownership
 and administrator-read access under [Organizations](#organizations), and the
@@ -10,6 +10,11 @@ approved teams can deliberately share a finished conversation or folder today,
 and joining an organization shares nothing by default. Where this page
 describes Nod as sitting in the notch, the released version still runs as a
 floating panel on the left of your screen._
+
+_The memory setup card on Today and in empty chat, and its bounded setup
+analytics events, are also **advance notice**: they are built but not yet in
+the released app. They apply only when a version containing them is released;
+updating this policy does not enable screen capture or change your consent._
 
 > The security and privacy decisions documented below are made to be
 > defensible for a production product, and every claim on this page is
@@ -312,7 +317,8 @@ tell you what you already discussed and what was left open.
   and inform pricing. No content.
 - **Product interaction events.** Bounded event names and categorical
   properties for onboarding, capture reliability, content views, Ask,
-  copy/export, paywall and checkout. The database rejects arbitrary properties;
+  copy/export, paywall and checkout, including memory setup impressions, actions
+  and fixed UI states. The database rejects arbitrary properties;
   no meeting content, question, answer, title, clipboard value, share token, or
   raw error is accepted. App events stay in Supabase and are never sent to
   Google.

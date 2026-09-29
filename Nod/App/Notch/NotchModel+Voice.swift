@@ -157,10 +157,14 @@ extension NotchModel {
                 return
             }
         }
+        analytics.record(
+            .questionAsked,
+            properties: .init(entryPoint: .hotkey, surface: .ask, detail: knowledgeChat.threadID == nil ? .open : .followUp)
+        )
         await knowledgeChat.ask(question)
         approvalWatch.cancel()
         let answer = knowledgeChat.answer(after: baseline)
-        recordIdleAsk(answered: answer != nil)
+        recordIdleAsk(answer: answer)
         guard generation == voiceAskGeneration else { return }
         guard let answer else {
             failVoiceAsk("Couldn't answer that")

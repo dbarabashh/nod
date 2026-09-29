@@ -242,6 +242,8 @@ struct MeetingDetailView: View {
             )
             // Under the recap, not over it: what the meeting was is the thing
             // the user came to read, and what to do about it follows from it.
+            MeetingMemoryPrompt(meeting: current)
+                .padding(.top, 12)
             ReadyToFileCard(meetingID: meeting.id)
                 .padding(.top, 18)
         case .transcript:

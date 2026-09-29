@@ -22,6 +22,8 @@ struct TodayCommitmentsCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var showAll = false
+    @State private var completionCandidates: [ActionItem] = []
+    @State private var confirmsCompletion = false
     /// The full list by the session that produced each item, rebuilt when the
     /// items or the sessions change rather than on every body pass: with a
     /// hundred open commitments the grouping and its date formatting were
@@ -80,8 +82,8 @@ struct TodayCommitmentsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            sectionHeader
             if showAll {
-                SectionLabel("Waiting on you")
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(groups) { group in
                         groupCard(group)
@@ -89,18 +91,59 @@ struct TodayCommitmentsCard: View {
                     }
                 }
             } else {
-                TodayCardList(title: "Waiting on you", items: shown) { item in
+                TodayCardList(title: "Waiting on you", items: shown, showsTitle: false) { item in
                     row(item, showsSource: true)
                         // The drawer's pickers float out of their row; without
                         // this the rows below, drawn later, paint over them.
                         .zIndex(expandedItemID == item.id ? 1 : 0)
                 }
             }
+            if actionItemStore.completionFailureCount > 0 {
+                Text("Couldn't complete \(actionItemStore.completionFailureCount) tasks. They remain open; try again.")
+                    .textStyle(Theme.Typography.meta)
+                    .foregroundStyle(Theme.Palette.danger)
+            }
             if showAll || hiddenCount > 0 {
                 revealButton
             }
         }
         .onChange(of: groupingInput) { input in regroup(input.items) }
+        .alert("Mark all \(completionCandidates.count) tasks as done?", isPresented: $confirmsCompletion) {
+            Button("Cancel", role: .cancel) { completionCandidates = [] }
+            Button("Mark all done") {
+                let confirmed = completionCandidates
+                completionCandidates = []
+                settling.values.forEach { $0.cancel() }
+                settling = [:]
+                collapse()
+                Task { await actionItemStore.completeAll(confirmed) }
+            }
+        } message: {
+            Text(completionMessage)
+        }
+    }
+
+    private var sectionHeader: some View {
+        HStack {
+            SectionLabel("Waiting on you")
+            Spacer()
+            Button(actionItemStore.isCompletingAll ? "Marking done…" : "Mark all done") {
+                completionCandidates = openItems.filter { $0.isOpen && actionItemStore.isMine($0) }
+                confirmsCompletion = !completionCandidates.isEmpty
+            }
+            .buttonStyle(.plain)
+            .textStyle(Theme.Typography.meta)
+            .foregroundStyle(Theme.Palette.muted)
+            .disabled(actionItemStore.isCompletingAll || openItems.isEmpty)
+        }
+    }
+
+    private var completionMessage: String {
+        let base = "All tasks in Waiting on you will be marked done, including those in collapsed groups and under See more. Tasks added after this confirmation opens are not included."
+        if completionCandidates.contains(where: { $0.filed != nil }) {
+            return base + " Linked tasks will also be updated through their existing connections."
+        }
+        return base
     }
 
     private var revealButton: some View {
@@ -228,6 +271,7 @@ struct TodayCommitmentsCard: View {
             onAsk: onAsk,
             onOpenMeeting: onOpenMeeting
         )
+        .disabled(actionItemStore.isCompletingAll)
     }
 
     private func toggleDone(_ item: ActionItem) {
@@ -421,30 +465,31 @@ private struct CommitmentRow: View {
     private var meta: some View {
         let meeting = showsSource ? meetingStore.byID[item.meetingID] : nil
         if item.deadline != nil || meeting != nil || item.filed != nil {
-            HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 3) {
                 if let deadline = item.deadline {
                     Text(deadline)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                // The source is a reference, not an action: a plain tappable
-                // line, so opening evidence never competes with acting on the
-                // item.
-                if let meeting {
-                    Button {
-                        onOpenMeeting(meeting)
-                    } label: {
-                        HStack(spacing: 3) {
-                            Text(meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter))
-                                .lineLimit(1)
-                            Image("nc-arrow-up-right").icon(8)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if let meeting {
+                        Button {
+                            onOpenMeeting(meeting)
+                        } label: {
+                            HStack(spacing: 3) {
+                                Text(meeting.displayTitle(dateFormatter: Meeting.shortDateFormatter))
+                                    .lineLimit(1)
+                                Image("nc-arrow-up-right").icon(8)
+                            }
+                            .contentShape(Rectangle())
                         }
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .linkCursor()
+                        .help("Open the source session")
                     }
-                    .buttonStyle(.plain)
-                    .linkCursor()
-                    .help("Open the source session")
-                }
-                if let filed = item.filed {
-                    ProviderLink(item: filed, style: .compact)
+                    if let filed = item.filed {
+                        ProviderLink(item: filed, style: .compact)
+                    }
                 }
             }
             .font(.system(size: 11))

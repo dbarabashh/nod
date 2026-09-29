@@ -82,6 +82,8 @@ struct SessionChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             messages
+            MeetingMemoryPrompt(meeting: current, acrossMeetings: true)
+                .padding(.vertical, 8)
             composer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

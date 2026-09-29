@@ -109,6 +109,7 @@ enum ActionDelegation {
     struct AskRequest: Equatable {
         let text: String
         let session: KnowledgeChatStore.SessionRef?
+        var sendsImmediately = false
     }
 
     /// What lands in the chat composer when the person asks Nod instead.
