@@ -56,11 +56,11 @@ begin
                 else '{"entry_point":"hotkey","surface":"ask","detail":"follow_up"}'::jsonb end
         ));
         result := public.record_product_events(payload);
-        if result ->> 'accepted' <> '1' or result ->> 'rejected' <> '0' then
+        if result ->> 'accepted' is distinct from '1' or result ->> 'rejected' is distinct from '0' then
             raise exception 'RPC rejected supported event %: %', event_name, result;
         end if;
         result := public.record_product_events(payload);
-        if result ->> 'duplicates' <> '1' then
+        if result ->> 'duplicates' is distinct from '1' then
             raise exception 'RPC did not deduplicate %: %', event_name, result;
         end if;
     end loop;
@@ -69,7 +69,7 @@ begin
         'event', 'memory_activation_acted', 'platform', 'macos', 'app_version', '14.1.2+78',
         'properties', '{"question":"private content"}'::jsonb
     )));
-    if result ->> 'rejected' <> '1' then
+    if result ->> 'rejected' is distinct from '1' then
         raise exception 'RPC accepted private content: %', result;
     end if;
     result := public.record_onboarding_events(gen_random_uuid(), jsonb_build_array(jsonb_build_object(
@@ -77,7 +77,7 @@ begin
         'event', 'step_shown', 'platform', 'macos', 'app_version', '14.1.2+78',
         'properties', '{"stage":"notch.intro","outcome":"viewed"}'::jsonb
     )));
-    if result ->> 'accepted' <> '1' then
+    if result ->> 'accepted' is distinct from '1' then
         raise exception 'RPC rejected notch stage: %', result;
     end if;
 end;
