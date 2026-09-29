@@ -1,13 +1,6 @@
 import XCTest
 @testable import Nod
 
-/// A session somebody shared is the one thing this chat can be pointed at where
-/// the reader is in none of the transcript's voices.
-///
-/// `[Me]` means the microphone that recorded the session. Every prompt used to
-/// say it meant the person asking, and the profile block above the transcript
-/// named them — so a question about somebody else's recording was answered as
-/// though the reader had been in the room.
 final class SharedSessionAttributionTests: XCTestCase {
     private func prompt(host: String?) -> String {
         PromptLibrary.buildChatSystem(
@@ -22,12 +15,13 @@ final class SharedSessionAttributionTests: XCTestCase {
     /// Asserted on fragments rather than whole sentences: the wording of a
     /// prompt is rewritten often, and a test that pins the prose fails on every
     /// rewrite without anything having changed.
-    func testTheOwnerIsNamedAndTheReaderIsExcluded() {
+    func testTheOwnerIsNamedWithoutAssumingReaderAttendance() {
         let text = prompt(host: "Vlad Kampov")
 
         XCTAssertTrue(text.contains("Vlad Kampov recorded it"))
         XCTAssertTrue(text.contains("[Me · Vlad Kampov] is Vlad Kampov"))
-        XCTAssertTrue(text.contains("NOT in it"))
+        XCTAssertTrue(text.contains("do not assume presence or absence"))
+        XCTAssertFalse(text.contains("NOT in it"))
     }
 
     /// The recap is in this prompt too, and it was written for its owner in the
@@ -54,7 +48,8 @@ final class SharedSessionAttributionTests: XCTestCase {
         let text = PromptLibrary.buildKnowledgeSystem(excerpts: ["[From: Ads agency — Tuesday]\n[Me]: hello"])
 
         XCTAssertTrue(text.contains("recorded by <name>, shared with the user"))
-        XCTAssertTrue(text.contains("the user was NOT there"))
+        XCTAssertTrue(text.contains("sharing alone does not establish whether the user attended"))
+        XCTAssertFalse(text.contains("the user was NOT there"))
         // The old flat claim is what produced the wrong answer.
         XCTAssertFalse(text.contains(#""[Me]" is the user"#))
     }
@@ -94,5 +89,39 @@ final class SharedSessionAttributionTests: XCTestCase {
 
         XCTAssertTrue(block.contains("Dima"))
         XCTAssertFalse(block.contains("[Me]"))
+    }
+
+    func testBothChatsSeparateTheAccountHolderFromSourceSpeakers() {
+        let prompts = [prompt(host: "Vlad Kampov"), PromptLibrary.buildKnowledgeSystem(excerpts: [])]
+        for text in prompts {
+            XCTAssertTrue(text.contains(PromptLibrary.chatRelationshipRules))
+            XCTAssertTrue(text.contains("[WHO IS ASKING]"))
+            XCTAssertTrue(text.contains("Preserve explicit assignees"))
+        }
+    }
+
+    func testMentionedSessionsCarryTheirOwnOwnershipRules() {
+        let text = PromptLibrary.buildChatSystem(
+            sessionKind: .meeting, title: "My call", summary: "", transcript: "",
+            mentionedSessions: PromptLibrary.sharedSessionLabelNote(host: "Alex")
+        )
+        XCTAssertTrue(text.contains(PromptLibrary.sharedSessionRule))
+    }
+
+    func testGroundingBlockPreservesSharedOwner() {
+        let block = PromptLibrary.sessionGroundingBlock(
+            label: "Planning", recap: "You will follow up", excerpts: [], host: "Alex"
+        )
+        XCTAssertTrue(block.contains("Planning — " + PromptLibrary.sharedSessionLabelNote(host: "Alex")))
+    }
+
+    @MainActor
+    func testMissingDirectoryNameDoesNotBecomeTheViewer() {
+        let viewer = UUID()
+        let owner = UUID()
+        XCTAssertNil(OrganizationService.promptOwnerName(ownerID: viewer, viewerID: viewer, name: nil))
+        XCTAssertNotNil(OrganizationService.promptOwnerName(ownerID: owner, viewerID: viewer, name: nil))
+        XCTAssertNotNil(OrganizationService.promptOwnerName(ownerID: owner, viewerID: nil, name: nil))
+        XCTAssertEqual(OrganizationService.promptOwnerName(ownerID: owner, viewerID: viewer, name: "Alex"), "Alex")
     }
 }

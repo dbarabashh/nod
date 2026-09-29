@@ -94,6 +94,16 @@ final class OrganizationService: ObservableObject {
     /// What to call the person something belongs to, when that is not the
     /// person looking at it. Nil on your own: there "Me" is exactly right, and
     /// naming yourself would be strange.
+    func promptNameOfOwner(_ userID: UUID) -> String? {
+        Self.promptOwnerName(ownerID: userID, viewerID: currentUserID, name: nameOfOwner(userID))
+    }
+
+    static func promptOwnerName(ownerID: UUID, viewerID: UUID?, name: String?) -> String? {
+        guard ownerID != viewerID else { return nil }
+        let name = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? "the recording owner (name unavailable)" : name
+    }
+
     func nameOfOwner(_ userID: UUID) -> String? {
         guard let viewer = currentUserID, viewer != userID else { return nil }
         return directory.first { $0.userID == userID }?.name

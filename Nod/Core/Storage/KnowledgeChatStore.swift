@@ -201,7 +201,7 @@ final class KnowledgeChatStore: ObservableObject, ChatToolGateHost {
         // with each session, and `PromptLibrary.sharedSessionRule` is the half
         // that tells the model to read it here. Nil for your own sessions, so
         // the common case reads exactly as it did.
-        if let host = organizations?.nameOfOwner(meeting.userID) {
+        if let host = organizations?.promptNameOfOwner(meeting.userID) {
             label += " — " + PromptLibrary.sharedSessionLabelNote(host: host)
         }
         // "Mentions", not "people": these names come from entity extraction over
@@ -1162,7 +1162,7 @@ extension KnowledgeChatStore {
             // directly") — and they were extracted for whoever recorded it. So
             // the source has to say whose they are, or a colleague's follow-ups
             // are read back as the user's own to-do list.
-            let owner = meeting.flatMap { organizations?.nameOfOwner($0.userID) }
+            let owner = organizations?.promptNameOfOwner(item.userID)
             let from = owner.map { "\(source) — " + PromptLibrary.sharedSessionLabelNote(host: $0) } ?? source
             return "- \(item.text)\(due.map { " (\($0))" } ?? "") [from: \(from)]"
         }

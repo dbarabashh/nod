@@ -64,7 +64,7 @@ struct SessionChatView: View {
     }
 
     private var hostName: String? {
-        organizations.nameOfOwner(current.userID)
+        organizations.promptNameOfOwner(current.userID)
     }
 
     private var isSending: Bool {
@@ -477,7 +477,8 @@ struct SessionChatView: View {
             PromptLibrary.sessionGroundingBlock(
                 label: "\(session.displayTitle(dateFormatter: Meeting.shortDateFormatter)) — \(PromptLibrary.sessionDateString(session.startedAt))",
                 recap: session.summary,
-                excerpts: excerpts[session.id]?.map(\.content) ?? []
+                excerpts: excerpts[session.id]?.map(\.content) ?? [],
+                host: organizations.promptNameOfOwner(session.userID)
             )
         }
         .joined(separator: "\n\n")
