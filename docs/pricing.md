@@ -1,11 +1,19 @@
 # Nod — Pricing
 
-_Last updated: 2026-09-17_
+_Last updated: 2026-10-02_
 
 The spec the pricing surfaces are built from. Three of them have to agree, and
 each has its own copy: `plans` / `plan_prices` in Supabase (the only enforced
 truth), `hellonod.app/pricing` (`nod-landing`, English and Ukrainian), and the in-app
 paywall (`PaywallView`). When a number here changes, all three move.
+
+**2026-10-02 — prod moved to the published Pro prices.** Live Paddle prices
+`pri_01m3z29ngv4evgw8qnx4twyqr2` (Pro monthly, $29) and
+`pri_01m3z29nq530eambn9p010xpzz` (Pro yearly, $288) were created, set on
+`pro_monthly_usd_29` / `pro_yearly_usd_288` and made the only Pro rows with
+`available_for_new_checkout`. The $24 / $240 rows stay `active` so existing
+subscribers keep resolving and renewing at the price they bought. Starter is
+unchanged.
 
 The prices in **Plans** below are the approved ones. This document exists because
 the *limits* are derived, and the derivation has to be written down or it gets
@@ -108,8 +116,10 @@ predate the new catalog render the new prices too.
 |---|---|
 | `starter_monthly_usd_15` | `pri_01kzv9ye8z5hc9d8ap0d5kcr91` |
 | `starter_yearly_usd_144` | `pri_01kzv9yeetzmhetcnjtea3tby5` |
-| `pro_monthly_usd_24` | `pri_01kzv9yem47q6qhqytkx2k61qr` |
-| `pro_yearly_usd_240` | `pri_01kzv9yesgja1edh4d8w0x1f1e` |
+| `pro_monthly_usd_24` (superseded 2026-10-02) | `pri_01kzv9yem47q6qhqytkx2k61qr` |
+| `pro_yearly_usd_240` (superseded 2026-10-02) | `pri_01kzv9yesgja1edh4d8w0x1f1e` |
+| `pro_monthly_usd_29` | `pri_01m3z29ngv4evgw8qnx4twyqr2` |
+| `pro_yearly_usd_288` | `pri_01m3z29nq530eambn9p010xpzz` |
 | `starter_5h_usd_12` | `pri_01kzv9yeyyrqtmwsz46hrcypsr` |
 
 The three marketing discounts on live (`Discount for friends` 40%,
