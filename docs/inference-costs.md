@@ -2,7 +2,8 @@
 
 _Last updated: 2026-10-07_
 
-Local implementation on `optimize-inference-costs`; not deployed. The October 7
+Backend deployed to production and sandbox on 2026-10-07. Desktop patch
+14.1.4 (80) is being prepared; distribution awaits Apple notarization. The October 7
 OpenRouter export for the preceding 48 hours showed $5.855957 on the production
 key and $0.918598 on development. The production `summary` category cost
 $3.492376; 141,992 of its 171,966 output tokens were reasoning. These are dated
@@ -109,5 +110,17 @@ stage limit should be chosen against the team's actual test budget.
   P1/P2 findings. Fixed live-meeting timestamp sentinel handling, the remaining
   contextual-recall routing omission, missing agent meeting attribution and a
   race that could shorten a longer provider cooldown.
-- Playbook structure validation and whitespace checks passed. No commits, pushes,
-  migrations, secrets, provider budgets or functions were published/deployed.
+- Playbook structure validation passed. Isolated upgrade SQL now lives under
+  `supabase/tests/upgrade/`; CI runs it against a separate empty database.
+- Target-specific CLI dry-runs proposed only the telemetry migration. It was
+  applied before explicitly deploying llm-proxy, beat-worker, calendar-sync,
+  integration-action and share-ask in each environment. No secrets or provider
+  budgets were changed.
+- Sandbox live synthetic legacy/buffered and new/streamed recap requests returned
+  200 with correct decision, owner and budget. New recap telemetry recorded zero
+  reasoning tokens. A primary-only Mistral helper hit upstream 429; repeating with
+  the actual desktop fallback chain returned correct names via Haiku, cost $0.000118.
+  These short smoke checks do not substitute for long-session quality evaluation.
+- Release archive and Developer ID export 14.1.4 (80) succeeded; signature verification
+  passed. Apple initially rejected notarization access with 403 (pending developer
+  agreement), so no public release or appcast was published at this stage.
