@@ -1,6 +1,7 @@
 import { assertEquals } from "jsr:@std/assert@1.0.14";
 import {
     applyModelPolicy,
+    applyReasoningPolicy,
     applySttModelPolicy,
     reasoningDisabled,
     sttRoutingMode,
@@ -168,5 +169,30 @@ Deno.test("an stt swap across the whisper line re-picks the response format", ()
     });
     withEnv({ STT_MODEL: "openai/gpt-4o-mini-transcribe" }, () => {
         assertEquals(applySttModelPolicy(stock).response_format, "json");
+    });
+});
+
+Deno.test("legacy and current summary clients cannot enable expensive reasoning implicitly", () => {
+    for (const reasoning of [undefined, { effort: "high" }, { enabled: true }, { max_tokens: 30000 }]) {
+        const out = applyReasoningPolicy({ ...payload, reasoning }, "summary");
+        assertEquals(out.reasoning, { enabled: false });
+    }
+    assertEquals(applyReasoningPolicy(payload, "unknown"), payload);
+    const chat = { ...payload, reasoning: { effort: "high" } };
+    assertEquals(applyReasoningPolicy(chat, "chat"), chat);
+});
+
+Deno.test("summary thinking is an explicit bounded server experiment", () => {
+    withEnv({ SUMMARY_REASONING_EFFORT: "low" }, () => {
+        const out = applyReasoningPolicy({ ...payload, max_tokens: 32000 }, "summary");
+        assertEquals(out.reasoning, { effort: "low" });
+        assertEquals(out.max_tokens, 16000);
+        assertEquals(applyReasoningPolicy({ ...payload, max_tokens: 8000 }, "summary").max_tokens, 8000);
+        withEnv({ DISABLE_REASONING_TASKS: "summary" }, () => {
+            assertEquals(applyReasoningPolicy(payload, "summary").reasoning, { enabled: false });
+        });
+    });
+    withEnv({ SUMMARY_REASONING_EFFORT: "invalid" }, () => {
+        assertEquals(applyReasoningPolicy(payload, "summary").reasoning, { enabled: false });
     });
 });

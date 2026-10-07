@@ -9,7 +9,7 @@
 
 import { modelFor, MODELS, STOCK_MODELS } from "./models.ts";
 
-export const ROUTING_VERSION = "2026-09-v2";
+export const ROUTING_VERSION = "2026-10-cost-v1";
 
 const ROUTED_TASKS = ["summary", "title", "utility", "chat"] as const;
 type RoutingTask = typeof ROUTED_TASKS[number];
@@ -32,6 +32,16 @@ export function reasoningDisabled(task: string): boolean {
     if (routed && MODELS[routed].reasoningOff) return true;
     const raw = Deno.env.get("DISABLE_REASONING_TASKS");
     return raw ? raw.split(",").some((entry) => entry.trim() === task) : false;
+}
+
+export function applyReasoningPolicy(payload: Record<string, unknown>, task: string): Record<string, unknown> {
+    if (reasoningDisabled(task)) return { ...payload, reasoning: { enabled: false } };
+    if (task !== "summary") return payload;
+    const effort = Deno.env.get("SUMMARY_REASONING_EFFORT");
+    if (effort !== "low" && effort !== "medium") return { ...payload, reasoning: { enabled: false } };
+    const cap = typeof payload.max_tokens === "number" && payload.max_tokens > 0
+        ? Math.min(payload.max_tokens, 16000) : 16000;
+    return { ...payload, reasoning: { effort }, max_tokens: cap };
 }
 
 const MAX_FALLBACK_CHAIN = 3;

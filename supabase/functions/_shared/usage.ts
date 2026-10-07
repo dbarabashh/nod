@@ -35,6 +35,10 @@ export interface UsageRow {
     // whose rows a pool reads — transcribe and integration — which are the
     // ones with the entitlement in hand.
     org_id?: string | null;
+    purpose?: string | null;
+    meeting_id?: string | null;
+    reasoning_tokens?: number | null;
+    cached_tokens?: number | null;
 }
 
 export async function recordUsage(row: UsageRow): Promise<void> {

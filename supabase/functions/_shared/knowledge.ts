@@ -1,3 +1,4 @@
+import { UpstreamRateLimit } from "./rate-limit.ts";
 import { modelFor } from "./models.ts";
 import { adminClient } from "./supabase.ts";
 import { isObject, json } from "./http.ts";
@@ -66,6 +67,14 @@ export async function handleDistill(payload: unknown, userId: string): Promise<R
     const meetingId = payload.meeting_id;
     const admin = adminClient();
 
+    const { data: meeting, error } = await admin.from("meetings")
+        .select("distilled_at, started_at, ended_at").eq("id", meetingId).eq("user_id", userId)
+        .is("deleted_at", null).maybeSingle();
+    if (error) return json({ error: "meeting lookup failed" }, 503);
+    if (!meeting) return json({ error: "meeting not found" }, 404);
+    if (payload.skip_completed === true && meeting.distilled_at) return json({ added: 0, updated: 0, retired: 0, noop: 0 }, 200);
+    if (!(Date.parse(meeting.ended_at) > Date.parse(meeting.started_at))) return json({ error: "meeting has not ended" }, 422);
+
     const transcript = await getTranscript(admin, userId, meetingId).catch(() => null);
     if (!transcript) return json({ error: "meeting not found" }, 404);
 
@@ -80,7 +89,16 @@ export async function handleDistill(payload: unknown, userId: string): Promise<R
     }
 
     const existing = await currentConcepts(admin, entities.map((e) => e.id));
-    const ops = await proposeOps(userId, transcript, entities, existing);
+    let ops: DistillOp[] | null;
+    try {
+        ops = await proposeOps(userId, transcript, entities, existing);
+    } catch (error) {
+        if (!(error instanceof UpstreamRateLimit)) throw error;
+        return new Response(JSON.stringify({ error: "distillation rate limited" }), {
+            status: 429,
+            headers: { "Content-Type": "application/json", "Retry-After": String(error.retryAfterSeconds) },
+        });
+    }
     if (ops === null) return json({ error: "distillation failed" }, 502);
 
     const byName = new Map(entities.map((e) => [e.name.trim().toLowerCase(), e]));
@@ -293,6 +311,8 @@ ${body}`;
         user,
         userId,
         task: "distill",
+        meetingId: transcript.meeting.id,
+        deferRateLimits: true,
         temperature: 0,
         reasoningOff: true,
     });

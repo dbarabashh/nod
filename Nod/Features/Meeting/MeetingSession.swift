@@ -1119,7 +1119,8 @@ final class MeetingSession: ObservableObject {
             : await enrichment.nameSpeakers(
                 in: clustered,
                 people: people,
-                clusters: Array(Set(speakers.values))
+                clusters: Array(Set(speakers.values)),
+                meetingID: draftID
             )
         let speakerNames = attributions.names
         let context = speakerNames.isEmpty
@@ -1152,7 +1153,8 @@ final class MeetingSession: ObservableObject {
                 system: system,
                 user: user,
                 transcript: context,
-                language: lang
+                language: lang,
+                meetingID: draftID
             ) { [meetingStore] markdown in
                 meetingStore.updateStreamingSummary(id: draftID, markdown: markdown)
             }

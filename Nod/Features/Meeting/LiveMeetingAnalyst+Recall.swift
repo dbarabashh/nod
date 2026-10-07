@@ -105,7 +105,8 @@ extension LiveMeetingAnalyst {
             let verdict = try await llm.completeJSON(
                 system: system,
                 user: user,
-                as: PromptLibrary.MemoryRecallResult.self
+                as: PromptLibrary.MemoryRecallResult.self,
+                context: GenerationContext(purpose: .contextualRecall, meetingID: session)
             )
             guard verdict.surface,
                   let index = verdict.source, index >= 1, index <= candidates.count,

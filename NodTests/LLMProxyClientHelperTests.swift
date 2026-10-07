@@ -152,3 +152,67 @@ final class SanitizeErrorBodyTests: XCTestCase {
         XCTAssertEqual(LLMProxyClient.sanitizeErrorBody(long).count, 240)
     }
 }
+
+@MainActor
+final class GenerationCostTests: XCTestCase {
+    func testSemanticPurposeDoesNotDependOnConfiguredModelNames() {
+        XCTAssertEqual(GenerationContext.Purpose.recap.task, "summary")
+        for purpose in [GenerationContext.Purpose.speakerNames, .entities, .agentDrafts, .contextualRecall] {
+            XCTAssertEqual(purpose.task, "utility")
+        }
+    }
+
+    func testMeetingMetadataIsOptionalAndUsesWireNames() throws {
+        let id = UUID()
+        let context = GenerationContext(purpose: .entities, meetingID: id)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(context)) as? [String: String])
+        XCTAssertEqual(json["purpose"], "entities")
+        XCTAssertEqual(json["meeting_id"], id.uuidString)
+        let withoutMeeting = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(GenerationContext(purpose: .recap))) as? [String: String]
+        )
+        XCTAssertNil(withoutMeeting["meeting_id"])
+    }
+
+    func testDistillationWaitsAtLeastOneMinuteAndHonorsLongProviderDelay() {
+        XCTAssertEqual(LLMProxyClient.distillationRetryAfter(nil), 60)
+        XCTAssertEqual(LLMProxyClient.distillationRetryAfter("bad"), 60)
+        XCTAssertEqual(LLMProxyClient.distillationRetryAfter("0"), 60)
+        XCTAssertEqual(LLMProxyClient.distillationRetryAfter("180"), 180)
+        XCTAssertEqual(LLMProxyClient.distillationRetryAfter("90000"), 90000)
+    }
+}
+
+final class DistillationScheduleTests: XCTestCase {
+    func testConcurrentResponsesCannotShortenProviderCooldown() {
+        var schedule = DistillationSchedule()
+        let now = Date(timeIntervalSince1970: 1000)
+        let first = UUID()
+        let second = UUID()
+        XCTAssertTrue(schedule.begin(first, now: now))
+        XCTAssertTrue(schedule.begin(second, now: now))
+        schedule.rateLimited(for: 90000, now: now)
+        schedule.finish(first)
+        schedule.rateLimited(for: 60, now: now.addingTimeInterval(1))
+        schedule.finish(second)
+        XCTAssertFalse(schedule.begin(UUID(), now: now.addingTimeInterval(61)))
+        XCTAssertFalse(schedule.begin(first, now: now.addingTimeInterval(89999)))
+        XCTAssertTrue(schedule.begin(first, now: now.addingTimeInterval(90000)))
+    }
+
+    func testOverlappingMeetingAndFailedAttemptAreDeferredButOtherMeetingsCanRun() {
+        var schedule = DistillationSchedule()
+        let now = Date(timeIntervalSince1970: 1000)
+        let meeting = UUID()
+        XCTAssertTrue(schedule.begin(meeting, now: now))
+        XCTAssertFalse(schedule.begin(meeting, now: now))
+        schedule.failed(meeting, now: now)
+        schedule.finish(meeting)
+        XCTAssertFalse(schedule.begin(meeting, now: now.addingTimeInterval(299)))
+        XCTAssertTrue(schedule.begin(UUID(), now: now))
+        XCTAssertTrue(schedule.begin(meeting, now: now.addingTimeInterval(300)))
+        schedule.succeeded(meeting)
+        schedule.finish(meeting)
+        XCTAssertTrue(schedule.begin(meeting, now: now.addingTimeInterval(301)))
+    }
+}

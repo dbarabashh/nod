@@ -1,12 +1,13 @@
 import { isObject, json } from "./http.ts";
 import {
     applyModelPolicy,
-    reasoningDisabled,
+    applyReasoningPolicy,
     ROUTING_VERSION,
     supportsExplicitPromptCache,
     withProviderFloor,
 } from "./model-policy.ts";
 import { recordUsage } from "./usage.ts";
+import { usageContext, usageTokenDetails, type UsageContext } from "./usage-context.ts";
 
 // Everything between the client's chat request and OpenRouter: prompt caching,
 // the server-side model policy, and the two response shapes (one-shot and SSE
@@ -62,7 +63,7 @@ function routingHeaders(requested: string, routed: string): Record<string, strin
     return routed === requested ? {} : { "x-nod-model-routed": routed };
 }
 
-export async function forwardChat(rawPayload: unknown, userId: string): Promise<Response> {
+export async function forwardChat(rawPayload: unknown, userId: string, rawContext?: unknown): Promise<Response> {
     const model = isObject(rawPayload) && typeof rawPayload.model === "string" ? rawPayload.model : "unknown";
     // Which of the four routing categories this call belongs to (summary/
     // title/utility/chat) — the client derives it from which model property
@@ -88,10 +89,8 @@ export async function forwardChat(rawPayload: unknown, userId: string): Promise<
         console.log(`routing user=${userId} task=${task} requested=${model} routed=${routed} policy=${ROUTING_VERSION}`);
     }
 
-    // Reasoning the reader never sees is still billed as output, at ~4x input.
-    // The client can only switch it off for `utility`, so this overrides
-    // whatever it sent for any task named in `DISABLE_REASONING_TASKS`.
-    const reasoned = reasoningDisabled(task) ? { ...routedPayload, reasoning: { enabled: false } } : routedPayload;
+    const reasoned = applyReasoningPolicy(routedPayload, task);
+    const context = usageContext(rawContext);
 
     // Apply prompt caching when the client opted in (`cache_prompt`), and strip
     // that internal flag before forwarding. Non-opted calls pass through
@@ -103,7 +102,7 @@ export async function forwardChat(rawPayload: unknown, userId: string): Promise<
     // verbatim so the client renders tokens as they arrive. Usage is captured
     // off a teed copy of the stream — see forwardChatStream.
     if (payload.stream === true) {
-        return forwardChatStream(payload, userId, model, routed, task);
+        return forwardChatStream(payload, userId, model, routed, task, context);
     }
 
     // One-shot path (typed chat question). We still consume OpenRouter as a
@@ -112,7 +111,7 @@ export async function forwardChat(rawPayload: unknown, userId: string): Promise<
     // completion ran long (large-transcript meetings), even though tokens were
     // still flowing. The deltas are buffered back into the same one-shot JSON
     // the client already decodes, so the switch is invisible client-side.
-    return forwardChatBuffered(payload, userId, model, routed, task);
+    return forwardChatBuffered(payload, userId, model, routed, task, context);
 }
 
 // Non-streaming chat served over an internal stream. Requests SSE from
@@ -121,7 +120,7 @@ export async function forwardChat(rawPayload: unknown, userId: string): Promise<
 // as the one-shot `{ choices: [{ message: { content } }] }` envelope the Swift
 // client decodes. `usage: { include: true }` makes the terminal chunk carry
 // `usage.cost` for accounting.
-async function forwardChatBuffered(payload: Record<string, unknown>, userId: string, model: string, routed: string, task: string): Promise<Response> {
+async function forwardChatBuffered(payload: Record<string, unknown>, userId: string, model: string, routed: string, task: string, context: UsageContext): Promise<Response> {
     const enriched = {
         ...payload,
         stream: true,
@@ -200,6 +199,8 @@ async function forwardChatBuffered(payload: Record<string, unknown>, userId: str
                 routing_version: ROUTING_VERSION,
                 requested_model: model,
                 resolved_model: assembled.model,
+                ...context,
+                ...usageTokenDetails(assembled.usage),
             });
         } catch (err) {
             console.warn(`chat usage record skipped: ${err}`);
@@ -236,7 +237,7 @@ async function forwardChatBuffered(payload: Record<string, unknown>, userId: str
 // include_usage` (OpenAI-compat) makes OpenRouter append a final `usage` chunk
 // before `[DONE]`; we parse it off the teed branch so accounting survives the
 // stream without buffering the bytes the user is waiting on.
-async function forwardChatStream(payload: Record<string, unknown>, userId: string, model: string, routed: string, task: string): Promise<Response> {
+async function forwardChatStream(payload: Record<string, unknown>, userId: string, model: string, routed: string, task: string, context: UsageContext): Promise<Response> {
     const enriched = {
         ...payload,
         stream: true,
@@ -311,6 +312,8 @@ async function forwardChatStream(payload: Record<string, unknown>, userId: strin
                 routing_version: ROUTING_VERSION,
                 requested_model: model,
                 resolved_model: usage?.model ?? null,
+                ...context,
+                ...usageTokenDetails(usage),
             });
         } catch (err) {
             console.warn(`chat-stream usage record skipped: ${err}`);
@@ -344,6 +347,7 @@ interface StreamUsage {
     // portion of the prompt served from cache (a hit), so a value > 0 on the
     // 2nd+ turn confirms prompt caching is working.
     prompt_tokens_details?: { cached_tokens?: number | null } | null;
+    completion_tokens_details?: { reasoning_tokens?: number | null } | null;
 }
 
 // Drain a teed SSE stream and pull out the generation id + final usage chunk.

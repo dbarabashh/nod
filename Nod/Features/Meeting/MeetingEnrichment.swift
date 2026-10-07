@@ -95,7 +95,8 @@ final class MeetingEnrichment {
     func nameSpeakers(
         in transcript: String,
         people: MeetingParticipants,
-        clusters: [Int]
+        clusters: [Int],
+        meetingID: UUID? = nil
     ) async -> [String: SpeakerAttribution] {
         guard !transcript.isEmpty else { return [:] }
         let (system, user) = PromptLibrary.buildSpeakerNaming(
@@ -104,7 +105,12 @@ final class MeetingEnrichment {
         )
         var named: [String: String] = [:]
         do {
-            let response = try await llm.completeJSON(system: system, user: user, as: NamedSpeakers.self)
+            let response = try await llm.completeJSON(
+                system: system,
+                user: user,
+                as: NamedSpeakers.self,
+                context: GenerationContext(purpose: .speakerNames, meetingID: meetingID)
+            )
             named = Self.namedSpeakers(in: response.speakers)
         } catch {
             // Not a return: the arithmetic below can still name a 1:1 outright,
@@ -169,7 +175,8 @@ final class MeetingEnrichment {
         let attributions = await nameSpeakers(
             in: TranscriptSnapshot.context(from: entries, speakers: speakers),
             people: people,
-            clusters: Array(Set(speakers.values))
+            clusters: Array(Set(speakers.values)),
+            meetingID: meeting.id
         )
         guard !attributions.isEmpty else { return }
         do {
@@ -267,7 +274,12 @@ final class MeetingEnrichment {
             participants: participants
         )
         do {
-            let extracted = try await llm.completeJSON(system: system, user: user, as: ExtractedEntities.self)
+            let extracted = try await llm.completeJSON(
+                system: system,
+                user: user,
+                as: ExtractedEntities.self,
+                context: GenerationContext(purpose: .entities, meetingID: meetingID)
+            )
             guard !extracted.isEmpty else { return }
             try await entityStore.saveExtraction(extracted, meetingID: meetingID, userID: userID)
         } catch {

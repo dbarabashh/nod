@@ -181,12 +181,13 @@ final class SummaryRegeneration: ObservableObject {
                 system: system,
                 user: user,
                 transcript: transcript,
-                language: language
+                language: language,
+                meetingID: meeting.id
             ) { [weak self] markdown in
                 self?.states[meeting.id] = .running(partial: markdown)
             }
         } else {
-            try await generator.recap(system: system, user: user, transcript: transcript, language: language)
+            try await generator.recap(system: system, user: user, transcript: transcript, language: language, meetingID: meeting.id)
         }
 
         let text = recap.toMarkdown()

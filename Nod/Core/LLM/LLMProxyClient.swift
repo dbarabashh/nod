@@ -292,7 +292,8 @@ final class LLMProxyClient: ObservableObject {
         jsonMode: Bool = false,
         primaryModel: String? = nil,
         longRunning: Bool = false,
-        reasoningEffort: String? = nil
+        reasoningEffort: String? = nil,
+        context: GenerationContext? = nil
     ) async throws -> String {
         Log.llm.info(
             "→ chat via proxy model=\(primaryModel ?? model) fallback=\(fallbackModel) system.len=\(system.count) user.len=\(user.count) jsonMode=\(jsonMode)"
@@ -307,7 +308,8 @@ final class LLMProxyClient: ObservableObject {
             jsonMode: jsonMode,
             primaryModel: primaryModel,
             longRunning: longRunning,
-            reasoningEffort: reasoningEffort
+            reasoningEffort: reasoningEffort,
+            context: context
         )
     }
 
@@ -358,7 +360,8 @@ final class LLMProxyClient: ObservableObject {
         primaryModel: String? = nil,
         cachePrompt: Bool = false,
         longRunning: Bool = false,
-        reasoningEffort: String? = nil
+        reasoningEffort: String? = nil,
+        context: GenerationContext? = nil
     ) async throws -> String {
         // `primaryModel` overrides the default for a specific call purpose (the
         // Q&A chat runs on the cheaper `chatModel`); summary/recap generation
@@ -366,7 +369,7 @@ final class LLMProxyClient: ObservableObject {
         // followed by the other two configured models, deduped and order-
         // preserving — so a chat that leads with Haiku still escalates to Sonnet
         // on failure, while a summary call keeps its original [model, fallback].
-        let primary = primaryModel ?? model
+        let primary = primaryModel ?? (context?.purpose.task == "utility" ? utilityModel : model)
         let chain = fallbackChain(from: primary)
         // Routing strategy:
         //
@@ -393,11 +396,11 @@ final class LLMProxyClient: ObservableObject {
             temperature: Self.acceptsTemperature(primary) ? temperature : nil,
             stream: nil,
             cache_prompt: cachePrompt ? true : nil,
-            reasoning: reasoning(for: primary, effort: reasoningEffort),
-            task: taskLabel(for: primaryModel),
+            reasoning: reasoning(for: primaryModel, effort: reasoningEffort, task: context?.purpose.task),
+            task: context?.purpose.task ?? taskLabel(for: primaryModel),
             max_tokens: reasoningEffort.map { _ in Self.thinkingOutputCap }
         )
-        let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
+        let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload, context: context))
 
         do {
             let data = try await postToProxyWithRetry(
@@ -433,7 +436,8 @@ final class LLMProxyClient: ObservableObject {
         as type: T.Type,
         primaryModel: String? = nil,
         longRunning: Bool = false,
-        reasoningEffort: String? = nil
+        reasoningEffort: String? = nil,
+        context: GenerationContext? = nil
     ) async throws -> T {
         let raw = try await complete(
             system: system,
@@ -441,7 +445,8 @@ final class LLMProxyClient: ObservableObject {
             jsonMode: true,
             primaryModel: primaryModel,
             longRunning: longRunning,
-            reasoningEffort: reasoningEffort
+            reasoningEffort: reasoningEffort,
+            context: context
         )
         let cleaned = Self.extractJSON(raw)
         guard let data = cleaned.data(using: .utf8) else {
@@ -476,7 +481,8 @@ final class LLMProxyClient: ObservableObject {
         user: String,
         jsonMode: Bool = false,
         longRunning: Bool = false,
-        reasoningEffort: String? = nil
+        reasoningEffort: String? = nil,
+        context: GenerationContext? = nil
     ) -> AsyncThrowingStream<String, Error> {
         Self.textOnly(stream(
             messages: [
@@ -485,7 +491,8 @@ final class LLMProxyClient: ObservableObject {
             ],
             jsonMode: jsonMode,
             longRunning: longRunning,
-            reasoningEffort: reasoningEffort
+            reasoningEffort: reasoningEffort,
+            context: context
         ))
     }
 
@@ -600,7 +607,8 @@ final class LLMProxyClient: ObservableObject {
         primaryModel: String? = nil,
         cachePrompt: Bool = false,
         longRunning: Bool = false,
-        reasoningEffort: String? = nil
+        reasoningEffort: String? = nil,
+        context: GenerationContext? = nil
     ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -608,7 +616,7 @@ final class LLMProxyClient: ObservableObject {
                     // Same primary-then-others chain as `send`, so a streamed
                     // call escalates on provider failure exactly like a
                     // one-shot one.
-                    let primary = primaryModel ?? model
+                    let primary = primaryModel ?? (context?.purpose.task == "utility" ? utilityModel : model)
                     let chain = fallbackChain(from: primary)
                     var payload = ChatRequest(
                         model: primary,
@@ -619,12 +627,12 @@ final class LLMProxyClient: ObservableObject {
                         temperature: Self.acceptsTemperature(primary) ? temperature : nil,
                         stream: true,
                         cache_prompt: cachePrompt ? true : nil,
-                        reasoning: reasoning(for: primary, effort: reasoningEffort),
-                        task: taskLabel(for: primaryModel)
+                        reasoning: reasoning(for: primaryModel, effort: reasoningEffort, task: context?.purpose.task),
+                        task: context?.purpose.task ?? taskLabel(for: primaryModel)
                     )
                     payload.tools = tools.isEmpty ? nil : tools
                     payload.max_tokens = reasoningEffort.map { _ in Self.thinkingOutputCap }
-                    let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload))
+                    let body = try JSONEncoder().encode(ProxyEnvelope(kind: "chat", payload: payload, context: context))
                     let request = try await makeProxyRequest(body: body)
 
                     let transport = longRunning ? generationSession : session
@@ -1045,21 +1053,6 @@ final class LLMProxyClient: ObservableObject {
     /// Asks the proxy to distill a finished session into concepts. Server-side
     /// end to end: the function reads the transcript and the session's
     /// entities itself, so the call carries nothing but the id.
-    func distill(meetingID: UUID) async throws -> DistillCounts {
-        struct Payload: Encodable {
-            let meeting_id: String
-        }
-        let body = try JSONEncoder().encode(
-            ProxyEnvelope(kind: "distill", payload: Payload(meeting_id: meetingID.uuidString))
-        )
-        let data = try await postToProxyWithRetry(body: body)
-        do {
-            return try JSONDecoder().decode(DistillCounts.self, from: data)
-        } catch {
-            throw ClientError.decodingFailed(error.localizedDescription)
-        }
-    }
-
     // MARK: - Single-device lock
 
     /// Claims this device's slot for the signed-in account. Throws
@@ -1140,6 +1133,7 @@ final class LLMProxyClient: ObservableObject {
         let maxAttempts = 3
         var lastError: ClientError = .emptyResponse
         for attempt in 0 ..< maxAttempts {
+            try Task.checkCancellation()
             do {
                 return try await postToProxy(body: body, using: session)
             } catch let error as ClientError {
@@ -1150,7 +1144,7 @@ final class LLMProxyClient: ObservableObject {
                     Log.llm.error(
                         "transient error on attempt \(attempt + 1)/\(maxAttempts) — retrying in \(delayMs)ms: \(error.localizedDescription)"
                     )
-                    try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
+                    try await Task.sleep(nanoseconds: delayMs * 1_000_000)
                     continue
                 }
                 throw error
@@ -1275,7 +1269,7 @@ final class LLMProxyClient: ObservableObject {
         return error == "entitlement_required" || error == "feature_required"
     }
 
-    private func postToProxy(body: Data, using session: URLSession? = nil) async throws -> Data {
+    private func postToProxy(body: Data, using session: URLSession? = nil, deferRateLimits: Bool = false) async throws -> Data {
         let request = try await makeProxyRequest(body: body)
         let session = session ?? self.session
 
@@ -1300,6 +1294,9 @@ final class LLMProxyClient: ObservableObject {
         // obvious in Console.app / Xcode whether Groq is actually handling audio.
         if let sttProvider = http.value(forHTTPHeaderField: "x-nod-stt-provider") {
             Log.llm.info("STT served by provider=\(sttProvider) status=\(http.statusCode)")
+        }
+        if deferRateLimits, http.statusCode == 429 {
+            throw DistillationRateLimit(retryAfter: Self.distillationRetryAfter(http.value(forHTTPHeaderField: "Retry-After")))
         }
         logRoutedModel(http)
         try throwIfGatedStatus(http)
@@ -1376,11 +1373,61 @@ final class LLMProxyClient: ObservableObject {
     }
 }
 
+extension LLMProxyClient {
+    struct DistillationRateLimit: Error {
+        let retryAfter: TimeInterval
+    }
+
+    static func distillationRetryAfter(_ value: String?) -> TimeInterval {
+        guard let value, let seconds = Double(value), seconds.isFinite else { return 60 }
+        return max(60, seconds)
+    }
+
+    func distill(meetingID: UUID, skipCompleted: Bool = false) async throws -> DistillCounts {
+        struct Payload: Encodable {
+            let meeting_id: String
+            let skip_completed: Bool
+        }
+        let body = try JSONEncoder().encode(
+            ProxyEnvelope(kind: "distill", payload: Payload(meeting_id: meetingID.uuidString, skip_completed: skipCompleted))
+        )
+        let data = try await postToProxy(body: body, deferRateLimits: true)
+        do {
+            return try JSONDecoder().decode(DistillCounts.self, from: data)
+        } catch {
+            throw ClientError.decodingFailed(error.localizedDescription)
+        }
+    }
+}
+
 // MARK: - Wire types
+
+struct GenerationContext: Encodable {
+    enum Purpose: String, Encodable {
+        case recap
+        case speakerNames = "speaker_names"
+        case entities
+        case agentDrafts = "agent_drafts"
+        case contextualRecall = "contextual_recall"
+
+        var task: String {
+            self == .recap ? "summary" : "utility"
+        }
+    }
+
+    let purpose: Purpose
+    var meetingID: UUID?
+
+    enum CodingKeys: String, CodingKey {
+        case purpose
+        case meetingID = "meeting_id"
+    }
+}
 
 private struct ProxyEnvelope<Payload: Encodable>: Encodable {
     let kind: String
     let payload: Payload
+    var context: GenerationContext?
 }
 
 /// Body for proxy calls that carry no payload (device claim/release); the proxy
@@ -1710,27 +1757,10 @@ private struct ChatRequest: Encodable {
 }
 
 extension LLMProxyClient {
-    /// Whether to spend output tokens on a chain of thought. Derived from the
-    /// routing category rather than passed per call, for the same reason
-    /// `taskLabel` is: every utility call is `completeJSON` against a fixed
-    /// schema — the live pass, the HyDE search rewrite, the session router —
-    /// and none of them has anything to work out.
-    ///
-    /// Measured on a 46-minute meeting: the live analyst's replies were 13–614
-    /// characters but billed 82–504 completion tokens, so roughly 88% of what
-    /// we paid for on that call was reasoning nothing read. Output bills at
-    /// ~4× input. nil leaves the model's own default alone.
-    ///
-    /// An `effort` is the caller asking for the model to think first — an
-    /// effort, not a token budget, because Sonnet 5 thinks adaptively and
-    /// rejects a fixed budget, which would silently push every call down the
-    /// fallback chain. The chain of thought is left in the stream rather than
-    /// excluded: it arrives in its own field that nothing here reads, and its
-    /// bytes are what keep the proxy's 30-second idle watchdog from killing a
-    /// call that is thinking.
-    private func reasoning(for primaryModel: String, effort: String? = nil) -> Reasoning? {
+    private func reasoning(for primaryModel: String?, effort: String? = nil, task: String? = nil) -> Reasoning? {
         if let effort { return Reasoning(effort: effort) }
-        return taskLabel(for: primaryModel) == "utility" ? Reasoning(enabled: false) : nil
+        let category = task ?? taskLabel(for: primaryModel)
+        return ["summary", "title", "utility"].contains(category) ? Reasoning(enabled: false) : nil
     }
 
     private func providerPreference(for primaryModel: String) -> ProviderPreference {

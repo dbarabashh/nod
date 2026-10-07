@@ -100,6 +100,7 @@ type Kind =
 interface ProxyRequest {
     kind: Kind;
     payload: unknown;
+    context?: unknown;
 }
 
 // The set `app_config.platform` is constrained to (migration
@@ -389,7 +390,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
             // Reaching here means the device passed the lock above.
             return json({ ok: true }, 200);
         case "chat":
-            return forwardChat(body.payload, user.id);
+            return forwardChat(body.payload, user.id, body.context);
         case "meeting_start":
             // The payer is decided when a meeting starts. The cached entitlement
             // may be up to a minute old and from a different workspace context,

@@ -20,6 +20,7 @@ struct RecapGenerator {
         user: String,
         transcript: String,
         language: AppLanguage,
+        meetingID: UUID? = nil,
         onPartial: @MainActor @escaping (String) -> Void
     ) async throws -> MeetingRecap {
         var accumulated = ""
@@ -30,7 +31,8 @@ struct RecapGenerator {
                 user: user,
                 jsonMode: true,
                 longRunning: true,
-                reasoningEffort: Self.reasoningEffort
+                reasoningEffort: Self.reasoningEffort,
+                context: GenerationContext(purpose: .recap, meetingID: meetingID)
             ) {
                 accumulated += delta
                 // Re-parse + publish at ~6 fps. Each pass renders whatever
@@ -46,12 +48,13 @@ struct RecapGenerator {
                 }
             }
         } catch {
+            try Task.checkCancellation()
             // An entitlement 403 already opened the paywall and can't recover by
             // retrying the one-shot path — that re-hits the same gate and posts
             // the paywall notification a second time. Propagate it instead.
             if case LLMProxyClient.ClientError.entitlementRequired = error { throw error }
             Log.llm.error("recap stream failed after \(accumulated.count) chars — falling back to one-shot: \(error.localizedDescription)")
-            return try await recap(system: system, user: user, transcript: transcript, language: language)
+            return try await recap(system: system, user: user, transcript: transcript, language: language, meetingID: meetingID)
         }
 
         let cleaned = LLMProxyClient.extractJSON(accumulated)
@@ -59,31 +62,28 @@ struct RecapGenerator {
               let parsed = try? JSONDecoder().decode(MeetingRecap.self, from: data)
         else {
             Log.llm.error("recap stream produced unparseable JSON — falling back to one-shot")
-            return try await recap(system: system, user: user, transcript: transcript, language: language)
+            return try await recap(system: system, user: user, transcript: transcript, language: language, meetingID: meetingID)
         }
         Log.llm.info("recap stream done — \(parsed.sections.count) sections")
         // Settle the live view on the finished recap before any retry runs.
         onPartial(parsed.toMarkdown())
-        return try await refined(parsed, system: system, user: user, transcript: transcript, language: language)
+        return try await refined(parsed, system: system, user: user, transcript: transcript, language: language, meetingID: meetingID)
     }
 
     /// Buffered one-shot recap — used for the rare mid-call `.summary` path and
     /// as `streamedRecap`'s fallback. Shares the bounded retry below.
-    func recap(system: String, user: String, transcript: String, language: AppLanguage) async throws -> MeetingRecap {
+    func recap(system: String, user: String, transcript: String, language: AppLanguage, meetingID: UUID? = nil) async throws -> MeetingRecap {
         let recap = try await llm.completeJSON(
             system: system,
             user: user,
             as: MeetingRecap.self,
             longRunning: true,
-            reasoningEffort: Self.reasoningEffort
+            reasoningEffort: Self.reasoningEffort,
+            context: GenerationContext(purpose: .recap, meetingID: meetingID)
         )
-        return try await refined(recap, system: system, user: user, transcript: transcript, language: language)
+        return try await refined(recap, system: system, user: user, transcript: transcript, language: language, meetingID: meetingID)
     }
 
-    /// Off unless set: thinking runs before the first word of the recap, on top
-    /// of a generation already measured at a minute for a long session. Kept
-    /// switchable to compare quality —
-    /// `defaults write com.example.nod openrouter.recap.reasoningEffort medium`.
     static var reasoningEffort: String? {
         UserDefaults.standard.string(forKey: "openrouter.recap.reasoningEffort")
     }
@@ -114,7 +114,8 @@ struct RecapGenerator {
         system: String,
         user: String,
         transcript: String,
-        language: AppLanguage
+        language: AppLanguage,
+        meetingID: UUID?
     ) async throws -> MeetingRecap {
         var overrides: [String] = []
 
@@ -146,7 +147,8 @@ struct RecapGenerator {
             user: user,
             as: MeetingRecap.self,
             longRunning: true,
-            reasoningEffort: Self.reasoningEffort
+            reasoningEffort: Self.reasoningEffort,
+            context: GenerationContext(purpose: .recap, meetingID: meetingID)
         )
     }
 

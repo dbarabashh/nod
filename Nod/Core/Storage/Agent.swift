@@ -489,7 +489,12 @@ final class AgentStore: ObservableObject {
             existingTitles: itemTitles
         )
         do {
-            let result = try await llm.completeJSON(system: system, user: user, as: PromptLibrary.AgentDraftsResult.self)
+            let result = try await llm.completeJSON(
+                system: system,
+                user: user,
+                as: PromptLibrary.AgentDraftsResult.self,
+                context: GenerationContext(purpose: .agentDrafts, meetingID: meeting.id)
+            )
             let drafts = result.drafts.prefix(3).compactMap { draft -> ProposalDraft? in
                 let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !title.isEmpty else { return nil }

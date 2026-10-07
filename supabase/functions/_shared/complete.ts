@@ -1,5 +1,7 @@
 import { withProviderFloor } from "./model-policy.ts";
 import { recordUsage } from "./usage.ts";
+import { usageTokenDetails } from "./usage-context.ts";
+import { UpstreamRateLimit, retryAfterSeconds } from "./rate-limit.ts";
 
 // One-shot OpenRouter completion for server-originated calls (the distiller,
 // the beat worker). The proxied chat path in `chat.ts` stays separate: it
@@ -22,10 +24,10 @@ export interface CompleteRequest {
     task: string;
     temperature?: number;
     reasoningOff?: boolean;
+    meetingId?: string;
+    deferRateLimits?: boolean;
 }
 
-/// The assistant's text, or null on any failure — callers treat the two
-/// outcomes and nothing finer. Usage is recorded either way, best-effort.
 export async function completeOnce(req: CompleteRequest): Promise<string | null> {
     if (!OPENROUTER_API_KEY) return null;
     const controller = new AbortController();
@@ -61,6 +63,9 @@ export async function completeOnce(req: CompleteRequest): Promise<string | null>
                 prompt_tokens: parsed?.usage?.prompt_tokens ?? null,
                 completion_tokens: parsed?.usage?.completion_tokens ?? null,
                 cost_usd: parsed?.usage?.cost ?? null,
+                generation_id: parsed?.id ?? null,
+                meeting_id: req.meetingId ?? null,
+                ...usageTokenDetails(parsed?.usage),
                 task: req.task,
                 requested_model: req.model,
                 resolved_model: parsed?.model ?? null,
@@ -69,9 +74,13 @@ export async function completeOnce(req: CompleteRequest): Promise<string | null>
             console.warn(`${req.task} usage record skipped: ${err}`);
         }
         console.log(`${req.task} model status=${upstream.status} dt=${Date.now() - started}ms chars=${content.length}`);
+        if (upstream.status === 429 && req.deferRateLimits) {
+            throw new UpstreamRateLimit(retryAfterSeconds(upstream.headers.get("Retry-After")));
+        }
         if (!upstream.ok || content.trim().length === 0) return null;
         return content;
     } catch (err) {
+        if (err instanceof UpstreamRateLimit) throw err;
         console.error(`${req.task} model call failed: ${err}`);
         return null;
     } finally {

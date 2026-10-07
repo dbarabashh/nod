@@ -202,16 +202,20 @@ final class KnowledgeStore: ObservableObject {
     }
 
     @Published private(set) var lastDistillation: DistillationOutcome?
+    private var distillationSchedule = DistillationSchedule()
 
     /// Asks the server to distill a finished session into concepts.
     /// Best-effort like `index`: the meeting is saved either way, and a failed
     /// pass costs one session's facts, not the session.
-    func distill(meetingID: UUID) async {
+    func distill(meetingID: UUID, skipCompleted: Bool = false) async {
+        guard !Task.isCancelled, distillationSchedule.begin(meetingID) else { return }
+        defer { distillationSchedule.finish(meetingID) }
         #if DEBUG
             if DemoMode.isEnabled { return }
         #endif
         do {
-            let counts = try await llm.distill(meetingID: meetingID)
+            let counts = try await llm.distill(meetingID: meetingID, skipCompleted: skipCompleted)
+            distillationSchedule.succeeded(meetingID)
             if counts.changed > 0 {
                 // New facts change what any cached search may cite.
                 invalidateCache()
@@ -220,7 +224,11 @@ final class KnowledgeStore: ObservableObject {
             Log.ui.info(
                 "KnowledgeStore.distill meeting=\(meetingID.uuidString) added=\(counts.added) updated=\(counts.updated) retired=\(counts.retired) noop=\(counts.noop)"
             )
+        } catch let error as LLMProxyClient.DistillationRateLimit {
+            distillationSchedule.rateLimited(for: error.retryAfter)
+            Log.ui.info("KnowledgeStore.distill deferred after provider rate limit")
         } catch {
+            distillationSchedule.failed(meetingID)
             Log.ui.error("KnowledgeStore.distill failed (non-fatal): \(error.localizedDescription)")
         }
     }
@@ -247,23 +255,33 @@ final class KnowledgeStore: ObservableObject {
         #endif
         struct MeetingRow: Decodable {
             let id: UUID
+            let startedAt: Date
+            let endedAt: Date
+
+            enum CodingKeys: String, CodingKey {
+                case id
+                case startedAt = "started_at"
+                case endedAt = "ended_at"
+            }
         }
         do {
             // Coverage is the server's fact (`meetings.distilled_at`), so this
             // is one indexed question — never a walk over every concept row.
             let pending: [MeetingRow] = try await supabase
                 .from("meetings")
-                .select("id")
+                .select("id, started_at, ended_at")
                 .is("deleted_at", value: nil)
                 .is("distilled_at", value: nil)
+                .lte("ended_at", value: Date().ISO8601Format())
                 .order("started_at", ascending: false)
                 .limit(Self.backfillLimit)
                 .execute()
                 .value
             guard !pending.isEmpty else { return }
             Log.ui.info("KnowledgeStore.backfill distilling \(pending.count) session(s)")
-            for row in pending {
-                await distill(meetingID: row.id)
+            for row in pending where row.endedAt > row.startedAt {
+                guard !Task.isCancelled, Date() >= distillationSchedule.deferredUntil else { break }
+                await distill(meetingID: row.id, skipCompleted: true)
             }
         } catch {
             Log.ui.debug("KnowledgeStore.backfill skipped: \(error.localizedDescription)")
@@ -508,5 +526,32 @@ final class KnowledgeStore: ObservableObject {
             chunks.append(tail)
         }
         return chunks
+    }
+}
+
+struct DistillationSchedule {
+    private var active: Set<UUID> = []
+    private var failures: [UUID: Date] = [:]
+    private(set) var deferredUntil = Date.distantPast
+
+    mutating func begin(_ meetingID: UUID, now: Date = Date()) -> Bool {
+        guard now >= deferredUntil, now >= (failures[meetingID] ?? .distantPast) else { return false }
+        return active.insert(meetingID).inserted
+    }
+
+    mutating func finish(_ meetingID: UUID) {
+        active.remove(meetingID)
+    }
+
+    mutating func succeeded(_ meetingID: UUID) {
+        failures.removeValue(forKey: meetingID)
+    }
+
+    mutating func failed(_ meetingID: UUID, now: Date = Date()) {
+        failures[meetingID] = now.addingTimeInterval(300)
+    }
+
+    mutating func rateLimited(for seconds: TimeInterval, now: Date = Date()) {
+        deferredUntil = max(deferredUntil, now.addingTimeInterval(seconds))
     }
 }
