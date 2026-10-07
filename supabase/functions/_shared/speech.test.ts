@@ -7,13 +7,13 @@ import {
   isSpeechRefusal,
   looksAlreadySpoken,
   scriptPrompt,
+  speaksAsWritten,
   SPEECH_CALLS_PER_WINDOW,
   SPEECH_MAX_CHARS,
   SPEECH_WINDOW_MS,
-  speechInstructions,
-  speaksAsWritten,
-  SpeechMeter,
   speechChunks,
+  speechInstructions,
+  SpeechMeter,
   speechRequest,
   TTS_MODEL,
   ttsBody,
@@ -46,27 +46,67 @@ Deno.test("a short line in an app language is accepted", () => {
 });
 
 Deno.test("a caller may vouch for its own line and ask for the clips as they come", () => {
-  const vouched = request({ text: "On it.", language: "en", purpose: "acknowledgement", verbatim: true, stream: true });
+  const vouched = request({
+    text: "On it.",
+    language: "en",
+    purpose: "acknowledgement",
+    verbatim: true,
+    stream: true,
+  });
   assertEquals(vouched.verbatim, true);
   assertEquals(vouched.stream, true);
   assertEquals(speaksAsWritten(vouched), true);
-  const plain = request({ text: "On it.", language: "en", purpose: "acknowledgement" });
+  const plain = request({
+    text: "On it.",
+    language: "en",
+    purpose: "acknowledgement",
+  });
   assertEquals(speaksAsWritten(plain), false);
-  assertEquals(request({ text: "On it.", language: "en", purpose: "answer", verbatim: "yes" }).verbatim, false);
-  const page = request({ text: "x".repeat(400), language: "en", purpose: "narration", verbatim: true });
+  assertEquals(
+    request({
+      text: "On it.",
+      language: "en",
+      purpose: "answer",
+      verbatim: "yes",
+    }).verbatim,
+    false,
+  );
+  const page = request({
+    text: "x".repeat(400),
+    language: "en",
+    purpose: "narration",
+    verbatim: true,
+  });
   assertEquals(speaksAsWritten(page), false);
 });
 
 Deno.test("the first sentence is synthesised on its own, the rest together", () => {
   assertEquals(
-    speechChunks("Your morning was the dashboard. Then you were in VS Code for an hour. Ryan's call is worth keeping in mind."),
-    ["Your morning was the dashboard.", "Then you were in VS Code for an hour. Ryan's call is worth keeping in mind."],
+    speechChunks(
+      "Your morning was the dashboard. Then you were in VS Code for an hour. Ryan's call is worth keeping in mind.",
+    ),
+    [
+      "Your morning was the dashboard.",
+      "Then you were in VS Code for an hour. Ryan's call is worth keeping in mind.",
+    ],
   );
-  assertEquals(speechChunks("Your ten-thirty is with Ana."), ["Your ten-thirty is with Ana."]);
-  assertEquals(speechChunks("Це на Владі, не на тобі! Далі календар."), ["Це на Владі, не на тобі!", "Далі календар."]);
-  assertEquals(speechChunks("Ana said \"no.\" Then left."), ["Ana said \"no.\"", "Then left."]);
-  assertEquals(speechChunks("Dr. Smith is in at ten. Then Ana."), ["Dr. Smith is in at ten. Then Ana."]);
-  assertEquals(speechChunks("Okay. Your morning was the dashboard."), ["Okay. Your morning was the dashboard."]);
+  assertEquals(speechChunks("Your ten-thirty is with Ana."), [
+    "Your ten-thirty is with Ana.",
+  ]);
+  assertEquals(speechChunks("Це на Владі, не на тобі! Далі календар."), [
+    "Це на Владі, не на тобі!",
+    "Далі календар.",
+  ]);
+  assertEquals(speechChunks('Ana said "no." Then left.'), [
+    'Ana said "no."',
+    "Then left.",
+  ]);
+  assertEquals(speechChunks("Dr. Smith is in at ten. Then Ana."), [
+    "Dr. Smith is in at ten. Then Ana.",
+  ]);
+  assertEquals(speechChunks("Okay. Your morning was the dashboard."), [
+    "Okay. Your morning was the dashboard.",
+  ]);
 });
 
 Deno.test("an unnamed purpose is an answer; anything but an acknowledgement is too", () => {
