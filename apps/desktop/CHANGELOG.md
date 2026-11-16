@@ -6,6 +6,8 @@ publishes that section as the release notes.
 
 ## Unreleased
 
+## 0.3.0 — 2026-11-16
+
 - Search a meeting's transcript: type in the find bar on the Transcript tab,
   or press Cmd+F on a Mac and Ctrl+F on Windows and Linux. Every match is
   highlighted, and Enter moves to the next one.
