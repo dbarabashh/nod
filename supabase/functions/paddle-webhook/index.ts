@@ -371,6 +371,23 @@ async function handleSubscription(
             console.warn(`workspace subscription event missing identity — sub=${subscriptionId} org=${orgId}`);
             return;
         }
+        // `delete-account` hard-deletes an organization nobody else belongs to and
+        // then cancels its subscription; the cancel event names an org that no
+        // longer exists, and applying it would fail the FK and retry forever. A
+        // live one for a missing org is still billing someone, so it stays loud.
+        const { data: org, error: orgError } = await admin
+            .from("organizations")
+            .select("id")
+            .eq("id", orgId)
+            .maybeSingle();
+        if (orgError) throw new Error(`organization lookup failed org=${orgId}: ${orgError.message}`);
+        if (!org) {
+            if (status === "canceled" || status === "expired") {
+                console.warn(`workspace subscription event for a deleted organization — sub=${subscriptionId} org=${orgId}`);
+                return;
+            }
+            throw new Error(`live workspace subscription for a deleted organization — sub=${subscriptionId} org=${orgId} status=${status}`);
+        }
         const custom = isObject(data.custom_data) ? data.custom_data : {};
         const { data: applied, error } = await admin.rpc("apply_paddle_org_subscription", {
             p_org_id:            orgId,

@@ -572,6 +572,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
                 ) {
                     MainWindowView(initialFocusMeetingID: meetingID, settings: settingsPane)
                         .environmentObject(services.meetingStore)
+                        .environmentObject(services.meetingMigration)
                         .environmentObject(services.chatStore)
                         .environmentObject(services.reachability)
                         .environmentObject(services.profileStore)

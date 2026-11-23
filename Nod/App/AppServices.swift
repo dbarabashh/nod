@@ -63,6 +63,7 @@ struct AppServices {
     let billing: BillingService
     let referral: ReferralService
     let accountExport: AccountExportService
+    let meetingMigration: MeetingMigration
     let connections: ConnectionService
     let integrations: IntegrationService
     let integrationCatalogue: IntegrationCatalogue
@@ -358,6 +359,12 @@ struct AppServices {
             billing: BillingService(supabase: supabase),
             referral: ReferralService(supabase: supabase),
             accountExport: AccountExportService(supabase: supabase),
+            meetingMigration: MeetingMigration(
+                supabase: supabase,
+                auth: auth,
+                meetingStore: meetingStore,
+                outbox: meetingOutbox
+            ),
             connections: ConnectionService(supabase: supabase),
             integrations: integrations,
             integrationCatalogue: integrationCatalogue,

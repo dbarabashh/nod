@@ -78,8 +78,11 @@ struct MainWindowView: View {
                     onCapture: capture,
                     panelShortcut: hotkeys.combo(for: .togglePanel).displayString
                 )
-                centreColumn
-                    .frame(maxWidth: .infinity)
+                VStack(spacing: 0) {
+                    MigrationBanner()
+                    centreColumn
+                }
+                .frame(maxWidth: .infinity)
                 if showsContextColumn {
                     contextColumn(width: contextW)
                         .transition(.edgeSlide(.trailing, reduceMotion: reduceMotion))
