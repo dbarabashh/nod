@@ -100,6 +100,8 @@ REPO_ROOT="$(pwd)"
 SPARKLE_BIN_DIR="${SPARKLE_BIN_DIR:-$HOME/Downloads/Sparkle-2.9.2/bin}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-Nod_New}"
 NOD_LANDING_REPO="${NOD_LANDING_REPO:-$(dirname "$REPO_ROOT")/nod-landing}"
+# The GitHub repo's main now holds the new app, so this one ships from its own branch.
+RELEASE_BRANCH="${RELEASE_BRANCH:-macos-legacy}"
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}"
 SENTRY_ORG="${SENTRY_ORG:-nod-jl}"
 
@@ -351,7 +353,7 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$SANDBOX" = 1 ]; then
   say "Sandbox build from '${BRANCH}' — separate app, sandbox database, ${SANDBOX_FEED}"
 else
-  [ "$BRANCH" = "main" ] || die "release must be cut from main (currently on '$BRANCH')"
+  [ "$BRANCH" = "$RELEASE_BRANCH" ] || die "release must be cut from $RELEASE_BRANCH (currently on '$BRANCH')"
 fi
 
 # Sparkle bin?
@@ -691,7 +693,7 @@ else
   git tag -a "v${VERSION}" -m "Nod ${VERSION}"
 
   say "Push commits + tags to origin"
-  git push origin main
+  git push origin "$RELEASE_BRANCH"
   git push origin "v${VERSION}"
 fi
 
