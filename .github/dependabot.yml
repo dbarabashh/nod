@@ -10,9 +10,14 @@ updates:
       semver-major-days: 14
     open-pull-requests-limit: 5
     # Node types follow the Node major the apps and CI run on (24).
+    # React Native and its native libraries are pinned by the Expo SDK and move
+    # only with an SDK upgrade (expo install --fix), never on their own.
     ignore:
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
+      - dependency-name: react-native
+      - dependency-name: 'react-native-*'
+      - dependency-name: '@react-native/*'
     commit-message:
       prefix: deps
     labels:
@@ -31,9 +36,6 @@ updates:
           - expo
           - 'expo-*'
           - '@expo/*'
-          - react-native
-          - 'react-native-*'
-          - '@react-native/*'
       dev-tooling:
         dependency-type: development
         update-types:
